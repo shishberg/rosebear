@@ -8,14 +8,13 @@ points:
     matrix:
       anchor:
         shift: [50, -100]
-        rotate: 18
       key:
         padding: ky+1
         spread: kx+1
       columns:
         pinky:
           key:
-            stagger: 0
+            splay: 18
             column_net: P20
           rows:
             top:
@@ -95,7 +94,9 @@ outlines:
         - ref: matrix_middle_top
           shift: [0.5px, 0.5py]
         - ref: matrix_inner_top
-          shift: [0.5px+20, 0.5py]
+          shift: [0.5px+22, 0.5py]
+        - ref: matrix_inner_bottom
+          shift: [0.5px+22, -1py]
         - ref: thumb_far_thumb
           shift: [0.75px, -0.5py]
         - ref: thumb_far_thumb
