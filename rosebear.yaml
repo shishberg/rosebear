@@ -15,53 +15,61 @@ points:
         pinky:
           key:
             splay: 20
-            column_net: P20
           rows:
-            top:
-              #shift: [-kx,-ky]
+            top.net: P4
+            home.net: P9
+            bottom.net: P15
         ring:
           key:
             splay: -10
             spread: 1.08 kx
             stagger: 0.8 ky
-            column_net: P19
+          rows:
+            top.net: P3
+            home.net: P8
+            bottom.net: P18
         middle:
           key:
             splay: -10
             spread: 1.08 kx
             stagger: 5
-            column_net: P18
+          rows:
+            top.net: P2
+            home.net: P7
+            bottom.net: P19
         index:
           key:
             stagger: -0.4 ky
-            column_net: P15
+          rows:
+            top.net: P0
+            home.net: P6
+            bottom.net: P20
         inner:
           key:
             stagger: 0
-            column_net: P14
+          rows:
+            top.net: P1
+            home.net: P5
+            bottom.net: P21
       rows:
         bottom:
-          row_net: P6
         home:
-          row_net: P5
         top:
-          row_net: P4
     thumb:
       anchor:
         ref: matrix_inner_bottom
-        #shift: [-1.1 kx, -1.3 ky]
         shift: [-0.1 kx, -1.7 ky]
       columns:
         near:
           key:
             splay: -15
-            column_net: P18
+            net: P14
         home:
           key:
             spread: 1.13 kx
             splay: -15
             stagger: -0.15 kx
-            column_net: P15
+            net: P16
         far:
           key:
             spread: 1.2 kx
@@ -69,10 +77,9 @@ points:
             stagger: 0.09 kx
             rotate: 90
             width: 1.5 kx
-            column_net: P14
+            net: P10
       rows:
         thumb:
-          row_net: P7
 outlines:
   keys:
     - what: rectangle
@@ -123,6 +130,15 @@ pcbs:
       main:
         outline: board
     footprints:
+      choc:
+        what: choc
+        where: true
+        params:
+          keycaps: true
+          reverse: true
+          hotswap: false
+          from: "{{net}}"
+          to: GND
       choc_hotswap:
         what: choc
         where: true
@@ -130,23 +146,15 @@ pcbs:
           keycaps: true
           reverse: true
           hotswap: true
-          from: "{{column_net}}"
-          to: "{{colrow}}"
-      mcu_l:
-        what: promicro
-        params:
-          orientation: up
+          from: "{{net}}"
+          to: GND
+        adjust:
+          rotate: 180
+      mcu:
+        what: promicro_pretty
         where:
           ref: matrix_inner_top
-          shift: [20, -25]
-          rotate: 270
-      mcu_r:
-        what: promicro
-        params:
-          orientation: down
-        where:
-          ref: matrix_inner_top
-          shift: [22.5, -26.25]
+          shift: [22, -25]
           rotate: 270
       slider_l:
         what: slider
@@ -156,8 +164,8 @@ pcbs:
           rotate: 270
         params:
           side: F
-          from: RAW
-          to: Bplus
+          from: Bplus
+          to: RAW
       slider_r:
         what: slider
         where:
@@ -166,8 +174,8 @@ pcbs:
           rotate: 270
         params:
           side: B
-          from: RAW
-          to: Bplus
+          from: Bplus
+          to: RAW
       reset_l:
         what: button
         where:
