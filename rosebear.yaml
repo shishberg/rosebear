@@ -95,7 +95,11 @@ outlines:
         - ref: matrix_middle_top
           shift: [0.5px, 0.5py]
         - ref: matrix_inner_top
-          shift: [0.5px+22, 0.5py]
+          shift: [0.5px, 0.5py]
+        - ref: matrix_inner_top
+          shift: [0.5px, -0.3py]
+        - ref: matrix_inner_top
+          shift: [0.5px+22, -0.3py]
         - ref: matrix_inner_bottom
           shift: [0.5px+22, -1.05py]
         - ref: thumb_far_thumb
@@ -128,21 +132,13 @@ pcbs:
           hotswap: true
           from: "{{column_net}}"
           to: "{{colrow}}"
-      diode:
-        what: diode
-        where: true
-        params:
-          from: "{{colrow}}"
-          to: "{{row_net}}"
-        adjust:
-          shift: [0, -4]
       mcu_l:
         what: promicro
         params:
           orientation: up
         where:
           ref: matrix_inner_top
-          shift: [20, -9]
+          shift: [20, -25]
           rotate: 270
       mcu_r:
         what: promicro
@@ -150,65 +146,63 @@ pcbs:
           orientation: down
         where:
           ref: matrix_inner_top
-          shift: [22.5, -10.25]
+          shift: [22.5, -26.25]
           rotate: 270
-      pad_plus:
-        what: pad
-        where:
-          ref: matrix_inner_top
-          shift: [23, -4]
-          rotate: 0
-        params:
-          front: true
-          back: true
-          width: 1.5
-          height: 1.5
-          text: "B+"
-          net: Bplus
-      pad_minus:
-        what: pad
-        where:
-          ref: matrix_inner_top
-          shift: [23, -1]
-          rotate: 0
-        params:
-          front: true
-          back: true
-          width: 1.5
-          height: 1.5
-          text: "B-"
-          net: GND
       slider_l:
         what: slider
         where:
           ref: matrix_inner_bottom
-          shift: [30, 0]
+          shift: [30, -14]
           rotate: 270
         params:
           side: F
           from: RAW
-          # left: Bplus
-          # right: ''
           to: Bplus
       slider_r:
         what: slider
         where:
           ref: matrix_inner_bottom
-          shift: [30, 0]
+          shift: [30, -14]
           rotate: 270
         params:
           side: B
           from: RAW
-          # left: ''
-          # right: Bplus
           to: Bplus
-      reset:
+      reset_l:
         what: button
         where:
-          ref: matrix_inner_bottom
-          shift: [17, 0]
-          rotate: 270
+          ref: thumb_far_thumb
+          shift: [12, 18]
+          rotate: 90
         params:
-          # variant: 2_pin_th
+          side: F
           from: GND
           to: RST
+      reset_r:
+        what: button
+        where:
+          ref: thumb_far_thumb
+          shift: [12, 18]
+          rotate: 90
+        params:
+          side: B
+          from: GND
+          to: RST
+      jst_l:
+        what: jstph
+        where:
+          ref: matrix_inner_bottom
+          shift: [22, -16]
+        params:
+          side: F
+          pos: Bplus
+          neg: GND
+      jst_r:
+        what: jstph
+        where:
+          ref: matrix_inner_bottom
+          shift: [22, -16]
+        params:
+          side: B
+          pos: Bplus
+          neg: GND
