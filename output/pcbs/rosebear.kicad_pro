@@ -215,115 +215,7 @@
       },
       {
         "netclass": "Default",
-        "pattern": "P20"
-      },
-      {
-        "netclass": "Default",
-        "pattern": "pinky_bottom"
-      },
-      {
-        "netclass": "Default",
-        "pattern": "pinky_home"
-      },
-      {
-        "netclass": "Default",
-        "pattern": "pinky_top"
-      },
-      {
-        "netclass": "Default",
-        "pattern": "P19"
-      },
-      {
-        "netclass": "Default",
-        "pattern": "ring_bottom"
-      },
-      {
-        "netclass": "Default",
-        "pattern": "ring_home"
-      },
-      {
-        "netclass": "Default",
-        "pattern": "ring_top"
-      },
-      {
-        "netclass": "Default",
-        "pattern": "P18"
-      },
-      {
-        "netclass": "Default",
-        "pattern": "middle_bottom"
-      },
-      {
-        "netclass": "Default",
-        "pattern": "middle_home"
-      },
-      {
-        "netclass": "Default",
-        "pattern": "middle_top"
-      },
-      {
-        "netclass": "Default",
         "pattern": "P15"
-      },
-      {
-        "netclass": "Default",
-        "pattern": "index_bottom"
-      },
-      {
-        "netclass": "Default",
-        "pattern": "index_home"
-      },
-      {
-        "netclass": "Default",
-        "pattern": "index_top"
-      },
-      {
-        "netclass": "Default",
-        "pattern": "P14"
-      },
-      {
-        "netclass": "Default",
-        "pattern": "inner_bottom"
-      },
-      {
-        "netclass": "Default",
-        "pattern": "inner_home"
-      },
-      {
-        "netclass": "Default",
-        "pattern": "inner_top"
-      },
-      {
-        "netclass": "Default",
-        "pattern": "near_thumb"
-      },
-      {
-        "netclass": "Default",
-        "pattern": "home_thumb"
-      },
-      {
-        "netclass": "Default",
-        "pattern": "far_thumb"
-      },
-      {
-        "netclass": "Default",
-        "pattern": "P6"
-      },
-      {
-        "netclass": "Default",
-        "pattern": "P5"
-      },
-      {
-        "netclass": "Default",
-        "pattern": "P4"
-      },
-      {
-        "netclass": "Default",
-        "pattern": "P7"
-      },
-      {
-        "netclass": "Default",
-        "pattern": "RAW"
       },
       {
         "netclass": "Default",
@@ -331,15 +223,63 @@
       },
       {
         "netclass": "Default",
-        "pattern": "RST"
+        "pattern": "P9"
       },
       {
         "netclass": "Default",
-        "pattern": "VCC"
+        "pattern": "P4"
+      },
+      {
+        "netclass": "Default",
+        "pattern": "P18"
+      },
+      {
+        "netclass": "Default",
+        "pattern": "P8"
+      },
+      {
+        "netclass": "Default",
+        "pattern": "P3"
+      },
+      {
+        "netclass": "Default",
+        "pattern": "P19"
+      },
+      {
+        "netclass": "Default",
+        "pattern": "P7"
+      },
+      {
+        "netclass": "Default",
+        "pattern": "P2"
+      },
+      {
+        "netclass": "Default",
+        "pattern": "P20"
+      },
+      {
+        "netclass": "Default",
+        "pattern": "P6"
+      },
+      {
+        "netclass": "Default",
+        "pattern": "P0"
       },
       {
         "netclass": "Default",
         "pattern": "P21"
+      },
+      {
+        "netclass": "Default",
+        "pattern": "P5"
+      },
+      {
+        "netclass": "Default",
+        "pattern": "P1"
+      },
+      {
+        "netclass": "Default",
+        "pattern": "P14"
       },
       {
         "netclass": "Default",
@@ -351,27 +291,15 @@
       },
       {
         "netclass": "Default",
-        "pattern": "P1"
+        "pattern": "RAW"
       },
       {
         "netclass": "Default",
-        "pattern": "P0"
+        "pattern": "RST"
       },
       {
         "netclass": "Default",
-        "pattern": "P2"
-      },
-      {
-        "netclass": "Default",
-        "pattern": "P3"
-      },
-      {
-        "netclass": "Default",
-        "pattern": "P8"
-      },
-      {
-        "netclass": "Default",
-        "pattern": "P9"
+        "pattern": "VCC"
       },
       {
         "netclass": "Default",
