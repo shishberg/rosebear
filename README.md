@@ -4,7 +4,9 @@ Rosebear is a 5x3+3 wireless split keyboard designed with [Ergogen](https://ergo
 
 Thanks to [Ben Vallack](https://www.youtube.com/watch?v=M_VuXVErD6E) and [FlatFootFox](https://flatfootfox.com/ergogen-part5-kicad-firmware-assembly/) for the tutorials that made this even vaguely possible.
 
-![rosebear](https://github.com/shishberg/rosebear/assets/12688008/9735eabc-7018-48e4-b3d0-37bc83f5b572)
+![The assembled Rosebear split keyboard.](https://github.com/shishberg/rosebear/assets/12688008/9735eabc-7018-48e4-b3d0-37bc83f5b572)
+
+![Screenshot of the Rosebear PCB in KiCad.](https://github.com/shishberg/rosebear/assets/12688008/17c755e5-44c8-47f2-8217-febceaac0dab)
 
 ## Features
 - Pretty aggressive stagger on the pinky column, and splay on pinky and ring columns
