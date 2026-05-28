@@ -1,0 +1,310 @@
+units:
+  kx: 19
+  ky: 19
+  px: kx+2
+  py: ky+2
+points:
+  zones:
+    matrix:
+      anchor:
+        shift: [50, -100]
+      key:
+        padding: ky+2
+        spread: kx+2
+      columns:
+        pinky:
+          key:
+            splay: 5
+            col_net: COL0
+          rows:
+            top.led_in: LED_DIN
+            top.led_out: LED_01
+            home.led_in: LED_09
+            home.led_out: LED_10
+            bottom.led_in: LED_10
+            bottom.led_out: LED_11
+        ring:
+          key:
+            splay: -5
+            spread: 1.08 kx
+            stagger: 0.5 ky
+            col_net: COL1
+          rows:
+            top.led_in: LED_01
+            top.led_out: LED_02
+            home.led_in: LED_08
+            home.led_out: LED_09
+            bottom.led_in: LED_11
+            bottom.led_out: LED_12
+        middle:
+          key:
+            splay: 0
+            spread: 1.08 kx
+            stagger: 5
+            col_net: COL2
+          rows:
+            top.led_in: LED_02
+            top.led_out: LED_03
+            home.led_in: LED_07
+            home.led_out: LED_08
+            bottom.led_in: LED_12
+            bottom.led_out: LED_13
+        index:
+          key:
+            stagger: -0.4 ky
+            col_net: COL3
+          rows:
+            top.led_in: LED_03
+            top.led_out: LED_04
+            home.led_in: LED_06
+            home.led_out: LED_07
+            bottom.led_in: LED_13
+            bottom.led_out: LED_14
+        inner:
+          key:
+            stagger: -0.2 ky
+            col_net: COL4
+          rows:
+            top.led_in: LED_04
+            top.led_out: LED_05
+            home.led_in: LED_05
+            home.led_out: LED_06
+            bottom.led_in: LED_14
+            bottom.led_out: LED_15
+      rows:
+        bottom:
+          row_net: ROW2
+        home:
+          row_net: ROW1
+        top:
+          row_net: ROW0
+    thumb:
+      anchor:
+        ref: matrix_inner_bottom
+        shift: [-0.5 kx, -1.5 ky]
+      columns:
+        near:
+          key:
+            splay: -15
+            col_net: COL5
+            row_net: ROW2
+            led_in: LED_15
+            led_out: LED_16
+        home:
+          key:
+            spread: 1.16 kx
+            splay: -15
+            rotate: 90
+            width: 1.5 kx
+            stagger: -0.1 kx
+            col_net: COL5
+            row_net: ROW1
+            led_in: LED_16
+            led_out: LED_17
+        far:
+          key:
+            spread: 1.15 kx
+            splay: -15
+            stagger: -0.15 kx
+            col_net: COL5
+            row_net: ROW0
+            led_in: LED_17
+            led_out: LED_DOUT
+      rows:
+        thumb:
+outlines:
+  keys:
+    - what: rectangle
+      where: true
+      size: [kx-0.5, ky-0.5]
+  board:
+    - what: polygon
+      operation: stack
+      points:
+        - ref: matrix_pinky_bottom
+          shift: [-0.45px, -1.0py]
+        - ref: matrix_pinky_top
+          shift: [-0.45px, -0.5py]
+        - ref: matrix_pinky_top
+          shift: [-0.45px, 0.5py]
+        - ref: matrix_pinky_top
+          shift: [-0.3px, 1.2py]
+        - ref: matrix_middle_top
+          shift: [-0.5px, 0.45py]
+        - ref: matrix_middle_top
+          shift: [0.5px, 0.45py]
+        - ref: matrix_inner_top
+          shift: [0.75px+22, 0.8py]
+        - ref: matrix_inner_top
+          shift: [0.75px+22, -3py]
+        - ref: thumb_far_thumb
+          shift: [1.5px, -0.1py]
+      fillet: 8
+  combo:
+    - name: board
+    - operation: subtract
+      name: keys
+pcbs:
+  rosebear:
+    outlines:
+      main:
+        outline: board
+    footprints:
+      switches:
+        what: mx
+        where: true
+        params:
+          keycaps: true
+          reverse: false
+          hotswap: true
+          from: "{{col_net}}"
+          to: "{{name}}_SW"
+      diodes:
+        what: sod123
+        where: true
+        params:
+          side: F
+          from: "{{name}}_SW"
+          to: "{{row_net}}"
+        adjust:
+          shift: [0, -7]
+      leds:
+        what: sk6812mini_e
+        where: true
+        params:
+          VDD: LED_VDD
+          GND: GND
+          din: "{{led_in}}"
+          dout: "{{led_out}}"
+      mcu:
+        what: promicro
+        where:
+          ref: matrix_inner_top
+          shift: [22, -25]
+          rotate: 270
+        params:
+          RAW: RAW
+          GND: GND
+          RST: RST
+          VCC: VCC
+          P21: ROW0
+          P20: ROW1
+          P19: ROW2
+          P18: COL0
+          P15: COL1
+          P14: COL2
+          P16: COL3
+          P10: COL4
+          P1: COL5
+          P0: LED_DATA_MCU
+          P2: IH_TX_MCU
+          P3: IH_RX_MCU
+          P4: IH_DETECT_MCU
+          P5: IH_SPARE_MCU
+          P6: LED_ENABLE
+          P7: BATTERY_SENSE
+          P8: SPARE_0
+          P9: SPARE_1
+      led_data_resistor:
+        what: resistor_0603
+        where:
+          ref: matrix_inner_top
+          shift: [36, -11]
+          rotate: 180
+        params:
+          side: F
+          from: LED_DATA_MCU
+          to: LED_DIN
+      inter_half_usb_c:
+        what: usb_c_inter_half
+        where:
+          ref: matrix_inner_top
+          shift: [54, -17]
+          rotate: 90
+        params:
+          GND: GND
+          VBUS: WIRED_5V
+          tx: IH_TX_CONN
+          rx: IH_RX_CONN
+          detect: IH_DETECT_CONN
+          spare: IH_SPARE_CONN
+      ih_tx_resistor:
+        what: resistor_0603
+        where:
+          ref: matrix_inner_top
+          shift: [44, -10]
+          rotate: 0
+        params:
+          side: F
+          from: IH_TX_MCU
+          to: IH_TX_CONN
+      ih_rx_resistor:
+        what: resistor_0603
+        where:
+          ref: matrix_inner_top
+          shift: [44, -13]
+          rotate: 0
+        params:
+          side: F
+          from: IH_RX_MCU
+          to: IH_RX_CONN
+      ih_detect_resistor:
+        what: resistor_0603
+        where:
+          ref: matrix_inner_top
+          shift: [44, -16]
+          rotate: 0
+        params:
+          side: F
+          from: IH_DETECT_MCU
+          to: IH_DETECT_CONN
+      ih_spare_resistor:
+        what: resistor_0603
+        where:
+          ref: matrix_inner_top
+          shift: [44, -19]
+          rotate: 0
+        params:
+          side: F
+          from: IH_SPARE_MCU
+          to: IH_SPARE_CONN
+      slider_l:
+        what: slider
+        where:
+          ref: matrix_inner_bottom
+          shift: [30, -14]
+          rotate: 270
+        params:
+          side: F
+          from: Bplus
+          to: RAW
+      reset_l:
+        what: button
+        where:
+          ref: thumb_far_thumb
+          shift: [12, 18]
+          rotate: 90
+        params:
+          side: F
+          from: GND
+          to: RST
+      battery_pos_pad:
+        what: pad
+        where:
+          ref: matrix_inner_bottom
+          shift: [22, -15]
+        params:
+          text: BAT+
+          width: 2.5
+          height: 2.5
+          net: Bplus
+      battery_neg_pad:
+        what: pad
+        where:
+          ref: matrix_inner_bottom
+          shift: [22, -20]
+        params:
+          text: BAT-
+          width: 2.5
+          height: 2.5
+          net: GND
