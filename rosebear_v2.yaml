@@ -1,0 +1,204 @@
+units:
+  kx: 19
+  ky: 19
+  px: kx+2
+  py: ky+2
+points:
+  zones:
+    matrix:
+      anchor:
+        shift: [50, -100]
+      key:
+        padding: ky+2
+        spread: kx+2
+      columns:
+        pinky:
+          key:
+            splay: 5
+          rows:
+            top.net: P4
+            home.net: P9
+            bottom.net: P15
+        ring:
+          key:
+            splay: -5
+            spread: 1.08 kx
+            stagger: 0.5 ky
+          rows:
+            top.net: P3
+            home.net: P8
+            bottom.net: P18
+        middle:
+          key:
+            splay: 0
+            spread: 1.08 kx
+            stagger: 5
+          rows:
+            top.net: P2
+            home.net: P7
+            bottom.net: P19
+        index:
+          key:
+            stagger: -0.4 ky
+          rows:
+            top.net: P0
+            home.net: P6
+            bottom.net: P20
+        inner:
+          key:
+            stagger: -0.2 ky
+          rows:
+            top.net: P1
+            home.net: P5
+            bottom.net: P21
+      rows:
+        bottom:
+        home:
+        top:
+    thumb:
+      anchor:
+        ref: matrix_inner_bottom
+        shift: [-0.5 kx, -1.5 ky]
+      columns:
+        near:
+          key:
+            splay: -15
+            net: P14
+        home:
+          key:
+            spread: 1.16 kx
+            splay: -15
+            rotate: 90
+            width: 1.5 kx
+            stagger: -0.1 kx
+            net: P16
+        far:
+          key:
+            spread: 1.15 kx
+            splay: -15
+            stagger: -0.15 kx
+            net: P10
+      rows:
+        thumb:
+outlines:
+  keys:
+    - what: rectangle
+      where: true
+      size: [kx-0.5, ky-0.5]
+  board:
+    - what: polygon
+      operation: stack
+      points:
+        - ref: matrix_pinky_bottom
+          shift: [-0.45px, -1.0py]
+        - ref: matrix_pinky_top
+          shift: [-0.45px, -0.5py]
+        - ref: matrix_pinky_top
+          shift: [-0.45px, 0.5py]
+        - ref: matrix_pinky_top
+          shift: [-0.3px, 1.2py]
+        - ref: matrix_middle_top
+          shift: [-0.5px, 0.45py]
+        - ref: matrix_middle_top
+          shift: [0.5px, 0.45py]
+        - ref: matrix_inner_top
+          shift: [0.75px+22, 0.8py]
+        - ref: matrix_inner_top
+          shift: [0.75px+22, -3py]
+        - ref: thumb_far_thumb
+          shift: [1.5px, -0.1py]
+      fillet: 8
+  combo:
+    - name: board
+    - operation: subtract
+      name: keys
+pcbs:
+  rosebear:
+    outlines:
+      main:
+        outline: board
+    footprints:
+      mx:
+        what: mx
+        where: true
+        params:
+          keycaps: true
+          reverse: true
+          hotswap: false
+          from: "{{net}}"
+          to: GND
+      mx_hotswap:
+        what: mx
+        where: true
+        params:
+          keycaps: true
+          reverse: true
+          hotswap: true
+          from: "{{net}}"
+          to: GND
+        adjust:
+          rotate: 180
+      mcu:
+        what: promicro # _pretty
+        where:
+          ref: matrix_inner_top
+          shift: [22, -25]
+          rotate: 270
+      slider_l:
+        what: slider
+        where:
+          ref: matrix_inner_bottom
+          shift: [30, -14]
+          rotate: 270
+        params:
+          side: F
+          from: Bplus
+          to: RAW
+      slider_r:
+        what: slider
+        where:
+          ref: matrix_inner_bottom
+          shift: [30, -14]
+          rotate: 270
+        params:
+          side: B
+          from: Bplus
+          to: RAW
+      reset_l:
+        what: button
+        where:
+          ref: thumb_far_thumb
+          shift: [12, 18]
+          rotate: 90
+        params:
+          side: F
+          from: GND
+          to: RST
+      reset_r:
+        what: button
+        where:
+          ref: thumb_far_thumb
+          shift: [12, 18]
+          rotate: 90
+        params:
+          side: B
+          from: GND
+          to: RST
+      jst_l:
+        what: jstph
+        where:
+          ref: matrix_inner_bottom
+          shift: [22, -16]
+        params:
+          side: F
+          pos: Bplus
+          neg: GND
+      jst_r:
+        what: jstph
+        where:
+          ref: matrix_inner_bottom
+          shift: [22, -16]
+        params:
+          side: B
+          pos: Bplus
+          neg: GND
