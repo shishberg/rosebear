@@ -65,8 +65,8 @@ Switch lines are quasi-DC — no length limit at desk scale (30–50cm fine). Th
 one real mechanism is noise pickup on high-impedance open-switch lines.
 Layered defenses, in order of need:
 
-1. Firmware debounce (~5ms, RMK default) — a glitch must persist milliseconds
-   to register. Eats nearly everything.
+1. Firmware debounce (RMK default: integrating, 20ms) — a glitch must
+   persist milliseconds to register. Eats nearly everything.
 2. Ground conductor per ribbon.
 3. External 4.7–10kΩ pull-ups at the pod (internal ≈45kΩ) — colocate with the
    ESD resistors.
