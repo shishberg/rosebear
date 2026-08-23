@@ -1,6 +1,0 @@
-points.zones.matrix:
-pcbs.pcb.footprints:
-  - what: diode
-    params:
-      from: from
-      to: to
