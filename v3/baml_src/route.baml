@@ -178,10 +178,15 @@ class Leg {
     /// The switch footprint's placement, giving the column its axis.
     origin: Vec2,
     r: float,
-    /// The connector contact this net lands on.
+    /// The connector contact this net lands on, and the outward normal of the
+    /// connector it sits on -- the fan-in stops one `BUS_GAP` in front of the
+    /// contact, which is a different direction on each board now.
     target: Vec2,
+    normal: Vec2,
     /// Contact number, which is also this net's rank in the fan-in.
     pin: int,
+    /// Where this net's escape channel ends and its fan-in run begins.
+    exit_y: float,
 }
 
 /// The column a key net belongs to.
@@ -200,6 +205,37 @@ function is_switch(c: Component) -> bool {
 
 function is_connector(c: Component) -> bool {
     c.ref.starts_with("J")
+}
+
+/// Unit vector pointing out of the back of a connector, away from its
+/// contacts.
+///
+/// The contacts face local -y, so behind is local +y. Everything that runs
+/// *behind* the contacts -- the pass-through band, the chain's two link vias --
+/// used to add to `y` directly, which was only right while every connector sat
+/// flat along the bottom edge. The finger halves now stand theirs on the
+/// inboard edge, turned 90 degrees, so "behind" is sideways there.
+function conn_normal(c: Component) -> Vec2 {
+    let o = comp_to_global(c, Vec2 { x: 0.0, y: 0.0 });
+    let q = comp_to_global(c, Vec2 { x: 0.0, y: 1.0 });
+    Vec2 { x: q.x - o.x, y: q.y - o.y }
+}
+
+/// `p` moved `d` along `n`. Negative `d` moves in front of the contacts.
+function along(p: Vec2, n: Vec2, d: float) -> Vec2 {
+    Vec2 { x: p.x + n.x * d, y: p.y + n.y * d }
+}
+
+/// The normal of whichever connector carries `net`.
+function contact_normal(conns: Component[], net: string) -> Vec2 {
+    for (let c in conns) {
+        for (let p in c.pads) {
+            if (p.pad != "MP" && p.net == net) {
+                return conn_normal(c);
+            }
+        }
+    }
+    Vec2 { x: 0.0, y: 1.0 }
 }
 
 /// Where a net lands on a connector, if it lands on one at all.
@@ -235,7 +271,7 @@ function pin_index(conns: Component[], net: string) -> int {
     0
 }
 
-function collect_legs(b: Board) -> Leg[] {
+function collect_legs(b: Board, exit_y: float) -> Leg[] {
     let conns = b.components.filter((c) -> {
         is_connector(c)
     });
@@ -260,7 +296,9 @@ function collect_legs(b: Board) -> Leg[] {
                             origin: Vec2 { x: c.x, y: c.y },
                             r: c.r,
                             target: t,
+                            normal: contact_normal(conns, net),
                             pin: pin_index(conns, net),
+                            exit_y: exit_y,
                         },
                     );
                 }
@@ -279,7 +317,7 @@ function seg(a: Vec2, b: Vec2, net: string) -> Track {
 ///
 /// The column is straight in its own frame however it is splayed, so the lanes
 /// stay parallel and no two can meet.
-function route_column(legs: Leg[], exit_y: float, out: Track[], vias: Via[]) -> Escape[] {
+function route_column(legs: Leg[], out: Track[], vias: Via[]) -> Escape[] {
     let exits: Escape[] = [];
     if (legs.length() == 0) {
         return exits;
@@ -329,8 +367,8 @@ function route_column(legs: Leg[], exit_y: float, out: Track[], vias: Via[]) -> 
         // the column however it is splayed; it leaves that frame on the shared
         // exit line.
         let down = from_frame(Vec2 { x: lx, y: local.y + 1.0 }, origin, r);
-        let steps = (exit_y - turn.y) / (down.y - turn.y);
-        let exit = Vec2 { x: turn.x + (down.x - turn.x) * steps, y: exit_y };
+        let steps = (l.exit_y - turn.y) / (down.y - turn.y);
+        let exit = Vec2 { x: turn.x + (down.x - turn.x) * steps, y: l.exit_y };
         // Sideways out of the socket, then down the channel to the exit line.
         //
         // The first leg of that is on the BACK: a hotswap terminal is a surface
@@ -353,11 +391,32 @@ function route_column(legs: Leg[], exit_y: float, out: Track[], vias: Via[]) -> 
 
 /// Fan the column exits into the connector.
 ///
-/// One straight run per net. Exits and contacts are both sorted left to right
-/// and each exit joins the contact of the same rank, so this is a monotone
-/// matching between two parallel lines -- planar by construction, no bus levels
-/// and no search. The connector being far narrower than the key field just
-/// makes the funnel steeper, not less planar.
+/// The exits lie on one horizontal line below the keys; the contacts lie on the
+/// connector's own line. Two chords joining two disjoint arcs of a convex
+/// region never cross exactly when the matching *reverses* the boundary order
+/// -- the first exit takes the last contact. That is the whole planarity
+/// argument, and it holds whichever way the connector faces.
+///
+/// While the connector lay flat along the bottom edge the two lines were
+/// parallel, the reversal was the identity, and a straight run per net was the
+/// natural shape. Standing it on the inboard edge turns the contact line
+/// through a right angle, and two things follow.
+///
+/// The reversal now falls out of the rotation. A connector on the RIGHT is
+/// turned 90 degrees, which lays contact 1 at the bottom and contact n at the
+/// top, so ascending contact number still means ascending exit x. On the LEFT
+/// it is turned 270 and the contacts run the other way, which is exactly the
+/// mirrored board's requirement. The angle that points the cable off the board
+/// is the angle that keeps the fan planar; there is nothing left to choose.
+///
+/// The straight run is no longer the right shape, though. Contacts a millimetre
+/// apart along a vertical line, approached by a run that is itself nearly
+/// vertical, are a millimetre apart *along* the runs and a fifth of that across
+/// them -- two neighbours came within 0.08mm. So each net drops at its own exit
+/// x to its own contact's row and turns in square. Adjacent drops are a lane
+/// pitch apart and adjacent rows a contact pitch apart, both measured the short
+/// way, and a row passing beneath another net's drop clears it by the pitch,
+/// because a net whose contact is deeper is a net further from the connector.
 function escape_of(es: Escape[], net: string) -> Vec2 {
     (
         es
@@ -373,24 +432,23 @@ function route_fanin(legs: Leg[], exits: Escape[], out: Track[]) -> void {
     let ordered = legs.sort_by((a, b) -> {
         a.pin - b.pin
     });
-    // Bus levels are measured from the shallowest contact.
-    let conn_y = ordered.reduce(
-        (a, l) -> {
-            if (l.target.y < a) {
-                l.target.y
-            } else {
-                a
-            }
-        },
-        100000.0,
-    );
     for (let l in ordered) {
         let e = escape_of(exits, l.net);
-        // A short stub square to the contact, so the diagonal never approaches
-        // the 1mm-pitch pads at a shallow angle.
-        let stub = Vec2 { x: l.target.x, y: conn_y - BUS_GAP() };
-        out.push(seg(e, stub, l.net));
-        out.push(seg(stub, l.target, l.net));
+        if (l.normal.x.abs() > 0.5) {
+            // Side-mounted: the contact line crosses the exit line, so turn the
+            // corner. In square to the pad, which is also the direction the
+            // ribbon pulls.
+            let corner = Vec2 { x: e.x, y: l.target.y };
+            out.push(seg(e, corner, l.net));
+            out.push(seg(corner, l.target, l.net));
+        } else {
+            // Bottom-mounted, contacts parallel to the exit line: one straight
+            // run, ending in a short stub square to the pad so it is never
+            // approached at a shallow angle.
+            let stub = along(l.target, l.normal, 0.0 - BUS_GAP());
+            out.push(seg(e, stub, l.net));
+            out.push(seg(stub, l.target, l.net));
+        }
     }
 }
 
@@ -447,8 +505,8 @@ function route_passthroughs(b: Board, f: Features, out: Track[], vias: Via[]) ->
                                     let ptz = comp_to_global(z, ffc_pad_local(iz, ways_z));
                                     let off = via_standoff(n);
                                     n = n + 1;
-                                    let va = Vec2 { x: pta.x, y: pta.y + off };
-                                    let vz = Vec2 { x: ptz.x, y: ptz.y + off };
+                                    let va = along(pta, conn_normal(a), off);
+                                    let vz = along(ptz, conn_normal(z), off);
                                     // Out of the contact on the front, down to
                                     // the back, across behind the connectors,
                                     // and up again. The pour parts around them.
@@ -496,22 +554,86 @@ function ground_zones(b: Board) -> Zone[] {
 /// The cost is two vias per key: with the back given over to the supply, the
 /// socket's ground terminal and the LED's both have to reach the front pour.
 /// `route_ground_vias` places them.
-function board_zones(b: Board, f: Features) -> Zone[] {
+function board_zones(outline: Vec2[], f: Features) -> Zone[] {
     let back = if (f.per_key_leds) {
         LED_VDD_NET()
     } else {
         "GND"
     };
     [
-        Zone { net: "GND", layer: "F.Cu", outline: b.outline },
-        Zone { net: back, layer: "B.Cu", outline: b.outline },
+        Zone { net: "GND", layer: "F.Cu", outline: outline },
+        Zone { net: back, layer: "B.Cu", outline: outline },
     ]
 }
 
+/// The lowest switch signal pad on a board.
+///
+/// This is the one number the placement and the router have to agree on: it
+/// fixes the escape line, and the connectors are placed relative to it so every
+/// fan-in diagonal runs *away* from the key field.
+function lowest_signal_pad(comps: Component[]) -> float {
+    comps.reduce(
+        (a, c) -> {
+            if (is_switch(c)) {
+                let p = comp_to_global(c, MX_SIGNAL_PAD());
+                if (p.y > a) {
+                    p.y
+                } else {
+                    a
+                }
+            } else {
+                a
+            }
+        },
+        0.0 - 100000.0,
+    )
+}
+
+/// Clearance kept between a track or via and the board edge when the outline
+/// is drawn around them. Half a trace plus the 0.5mm edge rule, rounded up.
+function EDGE_HALO() -> float {
+    1.0
+}
+
+/// Grow `hull` until it contains every track end and via, with `EDGE_HALO` to
+/// spare.
+///
+/// The placement draws the hull from the keys and the connectors, which is
+/// everything it knows about; the router then puts copper wherever the escapes
+/// and the LED chain actually need to go. Rather than pad the first guess and
+/// hope, take the hull the routing implies.
+function enclose(hull: Vec2[], tracks: Track[], vias: Via[]) -> Vec2[] {
+    let pts: Vec2[] = [];
+    for (let p in hull) {
+        pts.push(p);
+    }
+    let h = EDGE_HALO();
+    let ends: Vec2[] = [];
+    for (let t in tracks) {
+        ends.push(t.start);
+        ends.push(t.end);
+    }
+    for (let v in vias) {
+        ends.push(v.at);
+    }
+    for (let e in ends) {
+        // A square halo, so the hull clears the point from every direction.
+        pts.push(Vec2 { x: e.x - h, y: e.y - h });
+        pts.push(Vec2 { x: e.x + h, y: e.y - h });
+        pts.push(Vec2 { x: e.x + h, y: e.y + h });
+        pts.push(Vec2 { x: e.x - h, y: e.y + h });
+    }
+    convex_hull(pts)
+}
+
 function route_board(b: Board, m: Module, f: Features) -> Board {
-    let legs = collect_legs(b);
     let tracks: Track[] = [];
     let vias: Via[] = [];
+
+    // The escape line, below every key on the board.
+    let lowest = lowest_signal_pad(b.components);
+    let exit_y = lowest + COLUMN_EXIT();
+    let legs = collect_legs(b, exit_y);
 
     // Group by column. Keys in a column share an axis, which is what lets the
     // escape channel be a straight line.
@@ -521,18 +643,6 @@ function route_board(b: Board, m: Module, f: Features) -> Board {
             seen.push(l.column);
         }
     }
-    // The shared exit line, below every key on the board.
-    let lowest = legs.reduce(
-        (a, l) -> {
-            if (l.pad.y > a) {
-                l.pad.y
-            } else {
-                a
-            }
-        },
-        0.0 - 100000.0,
-    );
-    let exit_y = lowest + COLUMN_EXIT();
 
     let all_exits: Escape[] = [];
     let all_legs: Leg[] = [];
@@ -544,7 +654,7 @@ function route_board(b: Board, m: Module, f: Features) -> Board {
             .sort_by((a, b) -> {
                 a.pin - b.pin
             });
-        for (let e in route_column(group, exit_y, tracks, vias)) {
+        for (let e in route_column(group, tracks, vias)) {
             all_exits.push(e);
         }
         for (let l in group) {
@@ -558,13 +668,17 @@ function route_board(b: Board, m: Module, f: Features) -> Board {
     route_ground_vias(b, f, vias, tracks);
     route_supply_vias(b, f, vias, tracks);
 
+    // The outline is redrawn around the finished routing rather than guessed
+    // from the key positions, so a channel that reaches further than expected
+    // takes the board edge with it instead of running off it.
+    let outline = enclose(b.outline, tracks, vias);
     Board {
         id: b.id,
         components: b.components,
-        outline: b.outline,
+        outline: outline,
         tracks: tracks,
         vias: vias,
-        zones: board_zones(b, f),
+        zones: board_zones(outline, f),
     }
 }
 
@@ -608,8 +722,9 @@ function pad_net(c: Component, name: string) -> string {
 /// frame, so undoing that offset recovers the frame every constant below is
 /// quoted in -- the same one the hotswap footprint is drawn in.
 function led_key_pt(led: Component, v: Vec2) -> Vec2 {
-    let off = rotate_about(LED_OFFSET(), 0.0 - led.r, Vec2 { x: 0.0, y: 0.0 });
-    let p = rotate_about(v, 0.0 - led.r, Vec2 { x: 0.0, y: 0.0 });
+    // `led_component` stores -r on the LED, so the key's frame is +led.r here.
+    let off = rotate_about(LED_OFFSET(), led.r, Vec2 { x: 0.0, y: 0.0 });
+    let p = rotate_about(v, led.r, Vec2 { x: 0.0, y: 0.0 });
     Vec2 { x: led.x - off.x + p.x, y: led.y - off.y + p.y }
 }
 
@@ -654,7 +769,7 @@ function LED_DIN_VIA(down: bool) -> Vec2 {
 /// True when the chain runs down the board from `src` to `dst`, measured along
 /// the column's own axis rather than the board's.
 function led_hop_down(src: Component, dst: Component) -> bool {
-    let axis = rotate_about(Vec2 { x: 0.0, y: 1.0 }, 0.0 - src.r, Vec2 { x: 0.0, y: 0.0 });
+    let axis = rotate_about(Vec2 { x: 0.0, y: 1.0 }, src.r, Vec2 { x: 0.0, y: 0.0 });
     (dst.x - src.x) * axis.x + (dst.y - src.y) * axis.y > 0.0
 }
 
@@ -799,13 +914,14 @@ function route_led_transition(
 /// field crosses every one of them.
 function route_led_head(
     contact: Vec2,
+    normal: Vec2,
     dst: Component,
     outward: float,
     net: string,
     out: Track[],
     vias: Via[],
 ) -> void {
-    let v = Vec2 { x: contact.x, y: contact.y + via_standoff(0) };
+    let v = along(contact, normal, via_standoff(0));
     out.push(seg(contact, v, net));
     vias.push(Via { at: v, net: net });
     let p = led_key_pt(dst, Vec2 { x: outward * LED_TAIL_X(), y: LED_EXIT_Y() });
@@ -823,13 +939,14 @@ function route_led_head(
 function route_led_tail(
     src: Component,
     contact: Vec2,
+    normal: Vec2,
     outward: float,
     bottom_y: float,
     net: string,
     out: Track[],
     vias: Via[],
 ) -> void {
-    let v = Vec2 { x: contact.x, y: contact.y + via_standoff(1) };
+    let v = along(contact, normal, via_standoff(1));
     let p0 = comp_to_global(src, LED_DOUT_PAD());
     let p1 = led_key_pt(src, Vec2 { x: LED_DOUT_PAD().x, y: LED_EXIT_Y() });
     let p2 = led_key_pt(src, Vec2 { x: outward * LED_TAIL_X(), y: LED_EXIT_Y() });
@@ -891,8 +1008,9 @@ function route_leds(
 
     let first = leds.at(0) ?? no_component();
     let head = pad_net(first, "4");
+
     if let t: Vec2 = find_contact(conns, head) {
-        route_led_head(t, first, sign_away(first.x, mid), head, out, vias);
+        route_led_head(t, contact_normal(conns, head), first, sign_away(first.x, mid), head, out, vias);
     }
 
     let j = 0;
@@ -920,7 +1038,7 @@ function route_leds(
     let last = leds.at(n - 1) ?? no_component();
     let tail = pad_net(last, "2");
     if let t: Vec2 = find_contact(conns, tail) {
-        route_led_tail(last, t, sign_away(last.x, mid), bottom_y, tail, out, vias);
+        route_led_tail(last, t, contact_normal(conns, tail), sign_away(last.x, mid), bottom_y, tail, out, vias);
     }
 }
 
@@ -949,7 +1067,7 @@ function route_supply_vias(b: Board, f: Features, vias: Via[], out: Track[]) -> 
                 if (p.pad != "MP") {
                     if (p.net == LED_VDD_NET()) {
                         let pad = comp_to_global(c, ffc_pad_local(i, ways));
-                        let v = Vec2 { x: pad.x, y: pad.y + via_standoff(0) };
+                        let v = along(pad, conn_normal(c), via_standoff(0));
                         out.push(seg(pad, v, p.net));
                         vias.push(Via { at: v, net: p.net });
                     }

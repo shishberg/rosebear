@@ -112,3 +112,94 @@ test "both hands group into the same columns" {
     }
 }
 
+// ------------------------------------------------- hotswap, LEDs, connectors
+
+/// Where an LED's pad lands, measured in its own key's frame.
+///
+/// Constant across every key on the board when the LED is turned correctly, and
+/// that is the whole point of the test below.
+function led_pad_in_key_frame(k: PlacedKey, pad: Vec2) -> Vec2 {
+    let led = led_component(k, 1, "IN", "OUT");
+    let centre = to_kicad(k.pos());
+    let p = comp_to_global(led, pad);
+    rotate_about(Vec2 { x: p.x - centre.x, y: p.y - centre.y }, k.r, Vec2 { x: 0.0, y: 0.0 })
+}
+
+/// An LED is on the BACK, so KiCad mirrors it: its stored angle is applied to
+/// coordinates that have already been flipped. Store the key's own angle and
+/// the part's pads swing away from the key at twice the rate, which is fine on
+/// a finger column splayed 5 degrees and puts the data pad 2.37mm from a 2mm
+/// stem hole on the thumb key turned 90.
+test "an LED sits the same way in its key however the key is turned" {
+    let ref_key = find_placed(all_keys(), "matrix_pinky_top");
+    for (let pad in [LED_VDD_PAD(), LED_DOUT_PAD(), LED_GND_PAD(), LED_DIN_PAD()]) {
+        let want = led_pad_in_key_frame(ref_key, pad);
+        for (let k in all_keys()) {
+            let got = led_pad_in_key_frame(k, pad);
+            assert.approx_equal(got.x, want.x, 0.001);
+            assert.approx_equal(got.y, want.y, 0.001);
+        }
+        // And that constant position clears the stem hole, which is the key
+        // centre and 2mm in radius.
+        assert.is_true(want.x.hypot(want.y) > 3.0);
+    }
+}
+
+/// The pod sits between the halves, so both cables should leave toward the
+/// middle -- and the angle that does that is also the angle that keeps the
+/// fan-in planar, because it decides which end of the connector contact 1 is
+/// at. Getting it backwards is not a cosmetic error.
+test "a finger half's ribbon connectors face the pod, and its fan-in stays planar" {
+    for (let f in [features_base(), features_leds()]) {
+        let mods = partition_modules(all_keys());
+        let ribbons = build_ribbons(mods, f);
+        for (let hand in ["l", "r"]) {
+            let m = find_module(mods, `finger_${hand}`);
+            let b = build_board(m, ribbons, f);
+            let keys_x = m.keys.map((k) -> {
+                to_kicad(k.pos()).x
+            });
+            let conns = b.components.filter((c) -> {
+                is_connector(c)
+            });
+            assert.equal(conns.length(), 2);
+            for (let c in conns) {
+                if (hand == "l") {
+                    // Right edge, contacts turned to face the keys.
+                    assert.equal(c.r, 90.0);
+                    for (let x in keys_x) {
+                        assert.is_true(c.x > x);
+                    }
+                } else {
+                    assert.equal(c.r, 270.0);
+                    for (let x in keys_x) {
+                        assert.is_true(c.x < x);
+                    }
+                }
+            }
+            // Every contact is below the escape line, so no fan-in run doubles
+            // back over the key field to reach one.
+            let exit_y = lowest_signal_pad(b.components) + COLUMN_EXIT();
+            for (let l in collect_legs(b, exit_y)) {
+                assert.is_true(l.target.y > exit_y);
+            }
+        }
+    }
+}
+
+/// The placement draws the outline from the keys and the connectors, which is
+/// everything it knows; the router then puts copper where the escapes and the
+/// chain actually need to go. `enclose` redraws it around the result.
+test "the board outline contains every track the router laid" {
+    for (let f in [features_base(), features_leds()]) {
+        for (let b in build_boards(f)) {
+            for (let t in b.tracks) {
+                assert.is_true(point_in_hull(b.outline, t.start));
+                assert.is_true(point_in_hull(b.outline, t.end));
+            }
+            for (let v in b.vias) {
+                assert.is_true(point_in_hull(b.outline, v.at));
+            }
+        }
+    }
+}

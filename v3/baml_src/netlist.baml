@@ -240,23 +240,43 @@ function board_margin(f: Features) -> float {
     }
 }
 
-/// How far below the lowest key row the ribbon connectors sit.
+/// How far below the lowest key row a bottom-edge ribbon connector sits.
 function CONNECTOR_OFFSET() -> float {
     30.0
 }
 
+/// How far outboard of the key field a side-mounted connector stands.
+///
+/// Only the fan-in cares: it is the room the diagonals get to spread into
+/// before they turn square onto the 1.00mm contacts.
+function CONNECTOR_SIDE_OFFSET() -> float {
+    8.0
+}
+
+/// Gap between two connectors stacked on the same edge.
+function CONNECTOR_STACK_GAP() -> float {
+    5.0
+}
+
 /// Approximate outline of an FFC connector, used to grow the board hull.
 /// Molex 200528 is 1.0mm pitch with roughly 6mm of body either side of the
-/// contacts, and about 10mm deep including the mounting pegs.
-function connector_corners(ways: int, at: Vec2) -> Vec2[] {
+/// contacts, and about 10mm deep including the mounting pegs -- and the hull
+/// has to cover the pass-through band behind it as well as the body, or the
+/// tracks that run there fall off the edge.
+function connector_corners(ways: int, at: Vec2, r: float) -> Vec2[] {
     let hw = ((ways * 1.0) + 6.0) / 2.0;
-    let hh = 5.0;
-    [
-        Vec2 { x: at.x - hw, y: at.y - hh },
-        Vec2 { x: at.x + hw, y: at.y - hh },
-        Vec2 { x: at.x + hw, y: at.y + hh },
-        Vec2 { x: at.x - hw, y: at.y + hh },
-    ]
+    let front = 5.0;
+    let back = via_standoff(ways) + 2.0;
+    let local = [
+        Vec2 { x: 0.0 - hw, y: 0.0 - front },
+        Vec2 { x: hw, y: 0.0 - front },
+        Vec2 { x: hw, y: back },
+        Vec2 { x: 0.0 - hw, y: back },
+    ];
+    local.map((p) -> {
+        let q = rotate_about(p, 0.0 - r, Vec2 { x: 0.0, y: 0.0 });
+        Vec2 { x: at.x + q.x, y: at.y + q.y }
+    })
 }
 
 // ------------------------------------------------------------------ boards
@@ -317,7 +337,18 @@ function led_component(k: PlacedKey, index: int, din: string, dout: string) -> C
         footprint: LED_FOOTPRINT(),
         x: c.x,
         y: c.y,
-        r: k.r,
+        // Turned the OTHER way to the switch, and that is not a sign slip.
+        //
+        // A back-side footprint is mirrored, so KiCad applies its negated angle
+        // to coordinates that have already been flipped about the x axis. Store
+        // the key's own angle and the part's axes swing away from the key's at
+        // twice the rate: fine while the finger columns splay 5 degrees, and by
+        // the time the 1.5u thumb key reaches 60 the LED's data pad has come
+        // right back round onto the switch's 4mm stem hole -- 2.37mm from a
+        // hole with a 2mm radius. Storing -r lines the part's contact axis up
+        // with the key's whatever the key's angle, which is what makes the LED
+        // sit the same way round in every key on the board.
+        r: 0.0 - k.r,
         layer: "B.Cu",
         pads: [
             Pad { pad: "1", net: LED_VDD_NET() },
@@ -458,32 +489,68 @@ function build_board(
         0.0 - 100000.0,
     );
 
-    let conn_y = max_y + CONNECTOR_OFFSET();
+    // A finger half stands its connectors on the edge facing the pod -- the
+    // right of the left half and the left of the right half -- so both cables
+    // leave toward the middle of the keyboard instead of doubling back around
+    // the board.
+    //
+    // Still below the key field, though, and that part is not a choice: every
+    // column escapes along its own axis onto one horizontal line under the
+    // lowest key, so the contacts have to be reachable from that line.
+    //
+    // The thumb clusters keep the bottom edge. Their link runs to the finger
+    // board, which sits outboard of them, so "toward the pod" is the wrong way
+    // for a three-key board with nothing else on it.
+    let side_mount = m.id.starts_with("finger");
+    let inboard = if (m.id.ends_with("_r")) {
+        0.0 - 1.0
+    } else {
+        1.0
+    };
+    let conn_r = if (inboard > 0.0) {
+        90.0
+    } else {
+        270.0
+    };
+    let conn_x = if (inboard > 0.0) {
+        max_x + CONNECTOR_SIDE_OFFSET()
+    } else {
+        min_x - CONNECTOR_SIDE_OFFSET()
+    };
+    // The pod link is first, so it takes the slot nearest the keys: a fan-in
+    // diagonal that had to reach past the thumb connector would cross it.
+    let stack = lowest_signal_pad(comps) + COLUMN_EXIT() + BUS_GAP();
     let n_links = links.length();
     let span = max_x - min_x;
     let ci = 1;
+    let cursor = stack;
     for (let r in links) {
-        // Spread connectors evenly across the board width.
-        let frac = if (n_links <= 1) {
-            0.5
+        let ways = r.signals.length();
+        // Centre the BODY in its slot, not the contacts: a 20-way is 26mm of
+        // plastic and the courtyards touch otherwise.
+        let body = (ways * 1.0) + 6.0;
+        let at = if (side_mount) {
+            Vec2 { x: conn_x, y: cursor + body / 2.0 }
         } else {
-            (ci - 1) * 1.0 / ((n_links - 1) * 1.0)
+            // Bottom edge: spread the connectors evenly across the width.
+            let frac = if (n_links <= 1) {
+                0.5
+            } else {
+                (ci - 1) * 1.0 / ((n_links - 1) * 1.0)
+            };
+            let inward = inboard * 0.35;
+            Vec2 { x: min_x + span * (0.5 + inward * frac), y: max_y + CONNECTOR_OFFSET() }
         };
-        // Mirror the layout on the right hand, like everything else on it.
-        // Ribbons leave toward the inside of the board -- the pod link near the
-        // middle, the thumb link out past the inner column -- and the fan-in
-        // wants the pod connector under the middle of the key field rather than
-        // out at one end, where every column would funnel across the board.
-        let inward = if (m.id.ends_with("_r")) {
-            0.0 - 0.35
+        let ar = if (side_mount) {
+            conn_r
         } else {
-            0.35
+            0.0
         };
-        let cx = min_x + span * (0.5 + inward * frac);
-        comps.push(connector_component(`J${ci}`, r.signals, Vec2 { x: cx, y: conn_y }, 0.0));
-        for (let c in connector_corners(r.signals.length(), Vec2 { x: cx, y: conn_y })) {
+        comps.push(connector_component(`J${ci}`, r.signals, at, ar));
+        for (let c in connector_corners(ways, at, ar)) {
             corners.push(c);
         }
+        cursor = cursor + body + CONNECTOR_STACK_GAP();
         ci = ci + 1;
     }
 

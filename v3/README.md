@@ -88,29 +88,25 @@ the installed `.kicad_mod` so a KiCad update can't move it silently.
 
 | board | `build` | `build_leds` |
 |---|---|---|
-| `finger_l` | **0** | **0** |
-| `finger_r` | **0** | 5 |
-| `thumb_l` | **0** | 38 |
-| `thumb_r` | 2 | 34 (+1 unconnected) |
+| `finger_l` | **0** | 1 |
+| `finger_r` | **0** | 2 |
+| `thumb_l` | **0** | 9 |
+| `thumb_r` | **0** | 13 |
 | `pod` | 2 | 2 |
 
-Unconnected items are **0 everywhere** except `thumb_r` with LEDs.
+Unconnected items are **0 everywhere, both variants**.
 
-- `pod`: 2 × `lib_footprint_mismatch` on the SKQG buttons — the embedded
-  footprint differs from the library copy, which is inherent to a generated
-  board. Does not affect fabrication.
-- `thumb_r`: 2 × `copper_edge_clearance`. The thumb "columns" are one key each,
-  so a column has no axis of its own and its escape runs straight down the
-  board instead of along the cluster; on the mirrored hand that takes it off
-  the edge.
-- The LED variant's thumb boards are the real gap — see *Known gaps*.
+- `pod`: 2 × `lib_footprint_mismatch` on the SKQG buttons. Deliberate: the
+  emitter moves every reference designator to the fab layer, and the library
+  copy of that part keeps its on silkscreen. Nothing to fabricate differs.
+- LED variant: 1–2 × `tracks_crossing` per finger board where the chain's head
+  and tail leave the connector stack, and 9–13 on the thumb boards, which is a
+  placement problem rather than a routing one — see *Known gaps*.
 
 For scale: the same DRC over the ergogen-generated v2 board reports **139
 violations, 108 of them `copper_edge_clearance`** — copper too close to the
-board edge. The convex-hull-plus-margin outline here avoids that class entirely.
-
-For scale on the LED variant: `finger_l` carries 15 switches, 15 LEDs, two FFC
-connectors, a 47-net chain and two pours, and DRC reports **nothing at all**.
+board edge. Drawing the outline around the finished routing avoids that class
+entirely.
 
 The pod comes out **74.1 × 90.3mm**.
 
@@ -126,11 +122,21 @@ pin and one ribbon contact -- and everything else is ground.
   the board that ships has the copper DRC actually checked.
 - **Signals are river-routed.** Each key escapes sideways into a lane in the
   channel between its column and the next, the lanes run down the column to a
-  line shared by the whole board, and each exit joins its contact. Because
-  `ribbon_signals` emits key signals in column order and *we choose the
-  pinout*, exits and contacts are both sorted left to right, which makes this
-  a monotone matching between two parallel lines -- planar by construction. No
-  search, no rip-up, no stochastic result.
+  line shared by the whole board, and each exit turns in to its contact.
+
+  Planarity is a counting argument, not a search. Two chords joining two
+  disjoint arcs of a convex region never cross exactly when the matching
+  *reverses* the boundary order — first exit to last contact. `ribbon_signals`
+  emits key signals in column order and *we choose the pinout*, so the exits
+  are sorted; the connector's angle decides which end of it contact 1 sits at,
+  and the angle that points the cable at the pod is the angle that satisfies
+  the reversal. There is nothing left to choose, and nothing to search.
+- **The outline is drawn last.** The placement guesses a hull from the keys and
+  the connectors, which is all it knows; `enclose` then redraws it around every
+  track and via the router actually laid. This is what took the last
+  `copper_edge_clearance` violations off the boards, and it means a channel
+  that reaches further than expected takes the board edge with it rather than
+  running off it.
 - **Pass-throughs use the back.** The three thumb nets cross the finger board
   without touching a switch on it. They drop through vias behind the connector
   contacts, run on B.Cu, and come back up; the pour parts around them.
@@ -140,9 +146,9 @@ Three constants are load-bearing and were found by measurement, not taste:
 | constant | value | why |
 |---|---|---|
 | `LANE_PITCH` | 1.8mm | Two diagonals offset horizontally by *s* are only `s·cos θ` apart perpendicular. The widest fan-in here runs at 76° from vertical, so 1.0mm of lane pitch became 0.24mm of actual clearance -- a short. |
-| `CONNECTOR_OFFSET` | 30mm | Sets the drop from the exit line to the contacts, which sets θ above. |
+| `CONNECTOR_SIDE_OFFSET` | 8mm | How far outboard of the key field a finger half's connectors stand — the room the fan-in gets to spread into before it turns square onto the 1.00mm contacts. |
 | `COLUMN_EXIT` | 13mm | The exit line is common to the whole board but the columns are staggered, so 6mm below the *lowest* key was only 5mm below the highest column's bottom key -- above its LED's own dout row, which put the fan-in diagonals straight through the chain. |
-| pod connector at mid-span | — | With it at one end, every column funnels across the full board width. Centred, the fan-in halves and DRC goes clean. |
+| finger connectors on the inboard edge | — | The pod sits between the halves, so both cables leave toward the middle rather than doubling back around the board. Turning the connector through a right angle also turns the fan-in: a straight run per net would approach contacts 1mm apart at a hundredth of that across the runs, so each net drops at its own exit x to its contact's row and turns in square. |
 
 Freerouting was considered and isn't installed (no JRE, no jar). It would be
 the wrong tool anyway: it can't exploit the fact that we own the pinout, and
@@ -180,6 +186,15 @@ consecutive columns are always entered and left at the same end.
 
 The chain's two link vias sit *in front of* the thumb pass-through band rather
 than behind it — behind, they would have to cross every track in it.
+
+**An LED stores the negation of its key's angle.** It is on the back, so KiCad
+mirrors it: the stored angle is applied to coordinates that have already been
+flipped about the x axis. Store the key's own angle and the part's pads swing
+away from the key's axis at *twice* the rate — invisible on a finger column
+splayed 5°, and by the time the 1.5u thumb key reaches 60° the data pad has come
+right back round onto the switch's 4mm stem hole, 2.37mm from a hole with a 2mm
+radius. That one sign was most of the thumb boards' violations. There is a test
+that pins every LED pad's position in its key's frame across all 36 keys.
 
 ## The pod
 
@@ -266,31 +281,51 @@ neither is broken out, so both come free.
 
 ### Known gaps
 
-- **The LED variant's thumb boards do not route.** Not a routing problem: the
-  LEDs *collide with the switches*. A thumb "column" is one key, the keys are
-  1.5u and splayed 15°, and `LED_OFFSET` — a fixed 5mm below the key centre —
-  drops each LED onto its neighbour's stabiliser hole. Fixing it means choosing
-  a different LED position for large or closely-splayed keys, which is a
-  placement decision, not a router change. `finger_l` is clean and `finger_r`
-  has five near-misses of the same kind the finger boards have already had
-  tuned out, so the chain itself works.
+- **The LED variant's thumb chain still crosses itself** — 9 violations on
+  `thumb_l`, 13 on `thumb_r`, all in the chain, none unconnected. The *parts*
+  are now placed correctly (that was the mirrored-rotation bug, and it is
+  covered by a test); what is left is that the chain router has two shapes,
+  along a column and between columns, and a thumb cluster is neither. Its three
+  keys are one column each, on an arc, one of them a 1.5u turned 90° to its
+  neighbours — so every hop is a "between columns" traverse, and those are
+  quoted in each key's own frame, which on this cluster points three different
+  ways.
+
+  Several cluster-specific shapes were tried and measured: a bus row under the
+  cluster in board coordinates (collapses to nothing where the arc turns
+  steeply), and a run parallel to the arc at a fixed radius from each key
+  (lands on the hotswap socket of whichever key it passes, since the socket
+  reaches 7.7mm out and the gap between keys is 22mm). Both are recorded here
+  rather than left in the tree.
+
+  What actually decides it is a placement question: the 1.5u thumb key turned
+  90° has no clear side. Either it takes a different LED position from its
+  neighbours, or the cluster's keys move. That is a call about the case, not
+  about the router.
+- **The finger chain's head and tail cross where they leave the connectors** —
+  1 violation on `finger_l`, 2 on `finger_r`. Both ends of the chain leave the
+  connector stack on the back into the same corridor. Swapping which one takes
+  the inner standoff slot was tried and is worse; it wants a proper ordering
+  rule rather than a guess.
 - **The LED variant runs a 0.2mm copper-to-edge rule.** Not our routing: the
   KiCad `SK6812MINI-E_..._ReverseMount` footprint mills the window the light
   comes up through and puts the LED's own four pads 0.239mm from the edge of
   it. `build.baml` writes a `.kicad_pro` per board carrying the rule; the base
   variant keeps 0.5mm. Worth checking against a fab before ordering.
-- **Connector placement is derived, not designed.** The pod link sits at
-  mid-span and the thumb link toward the inner edge, both below the lowest key
-  row. That is now a routing-driven choice rather than an arbitrary one, but
-  the position still wants deciding against the case.
+- **Connector placement is derived, not designed.** A finger half stacks both
+  connectors on the edge facing the pod, below the key field, pod link first.
+  Below the key field is forced — every column escapes onto one line under the
+  lowest key, so the contacts have to be reachable from it — but how far
+  outboard they stand still wants deciding against the case. The thumb clusters
+  keep the bottom edge: their link runs to the finger board, which is outboard
+  of them, so "toward the pod" is the wrong way for a three-key board.
 - **The pod board is generated but hand-designed.** Nothing about it falls out
   of the key layout, so unlike the key boards its geometry is chosen rather than
   derived. The one thing that *is* derived is the part that matters: which GPIO
   each key lands on. See "The pod" below.
 - **Choc (PG1350) is not available.** Stock KiCad has MX only; Choc would need
   a third-party footprint library registered.
-- **Back-side silkscreen sits over the LED pads** (`silk_over_copper` on the
-  thumb boards). Cosmetic.
+- **Panelization is not attempted.** Deferred deliberately.
 
 ## Hotswap
 

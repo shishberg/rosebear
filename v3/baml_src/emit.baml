@@ -201,7 +201,10 @@ function embed_footprint(
     let elem = uuid_base * 10000;
     // Reference designators go on F.Fab, not silkscreen: auto-placed refdes on
     // a dense key grid collides with the footprint outlines, and the text is
-    // only useful for assembly anyway.
+    // only useful for assembly anyway. The generated hotswap footprints say so
+    // themselves; this covers the library parts, at the price of two
+    // `lib_footprint_mismatch` warnings on the pod's buttons, whose library
+    // copy keeps its reference on silk.
     let in_ref = false;
     // The footprint's own angle, which every pad has to repeat.
     let pad_angle = 0.0;

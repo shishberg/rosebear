@@ -7,7 +7,7 @@
 	(tags "Cherry MX keyswitch 2.75u PCB")
 	(property "Reference" "REF**"
 		(at 0 -7.874 0)
-		(layer "F.SilkS")
+		(layer "F.Fab")
 		(uuid "5f4b7cad-b738-43a8-b6c8-63f297f3fdd3")
 		(effects
 			(font

@@ -50,9 +50,20 @@ def shift_line(line):
 
 def gen(size):
     src = open(f"{KICAD}/SW_Cherry_MX_{size}_PCB.kicad_mod").read()
-    out, skip, depth = [], False, 0
+    out, skip, depth, in_ref = [], False, 0, False
     for line in src.split("\n"):
         stripped = line.strip()
+        # The reference designator belongs on the fab layer, not silkscreen.
+        # Auto-placed refdes on a key grid at 19mm pitch collides with the
+        # footprint outlines, and it is only wanted for assembly. Doing it here
+        # rather than while emitting the board keeps the board's copy of the
+        # footprint identical to this file, which is what DRC compares.
+        if stripped.startswith('(property "Reference"'):
+            in_ref = True
+        elif in_ref and stripped.startswith('(layer '):
+            out.append('\t\t(layer "F.Fab")')
+            in_ref = False
+            continue
         if skip:
             depth += line.count("(") - line.count(")")
             if depth <= 0:

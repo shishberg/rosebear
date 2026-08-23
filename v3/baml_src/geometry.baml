@@ -36,3 +36,31 @@ test "rotate_about: rotation about a non-origin pivot" {
     assert.approx_equal(r.x, 0.0, 0.000001);
     assert.approx_equal(r.y, 1.0, 0.000001)
 }
+
+/// True when `p` is inside the convex polygon `hull`, whose vertices run in a
+/// consistent direction (`convex_hull` guarantees that).
+///
+/// Every edge has the interior on the same side, so one sign test per edge is
+/// the whole of it.
+function point_in_hull(hull: Vec2[], p: Vec2) -> bool {
+    let n = hull.length();
+    if (n < 3) {
+        return false;
+    }
+    let pos = false;
+    let neg = false;
+    let i = 0;
+    while (i < n) {
+        let a = hull.at(i) ?? p;
+        let b = hull.at((i + 1) % n) ?? p;
+        let cross = (b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x);
+        if (cross > 0.000001) {
+            pos = true;
+        }
+        if (cross < 0.0 - 0.000001) {
+            neg = true;
+        }
+        i = i + 1;
+    }
+    !(pos && neg)
+}
