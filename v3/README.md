@@ -67,6 +67,30 @@ The growth is not just +1 data line: the doc's own rule ("that data line gets
 its own grounded neighbor") is encoded, so each data conductor is flanked by
 ground, and LED supply/return conductors are sized from the current budget.
 
+### The cable reverses the pinout
+
+A plain same-side FFC between two connectors that face each other joins the
+contact rows by *position*: the conductors cannot cross, and the facing turns
+one row around, so contact 1 of one connector lands on contact N of the other.
+Nothing in the toolchain models the cable — the combined view joins nets by
+name — so getting this wrong is invisible to DRC and costs a board spin. Two
+things encode it:
+
+- Each ribbon's `signals` list is the TO end's contact order; the FROM end
+  (the pod for the pod links, the finger board for the thumb links) assigns
+  its pads from the same list **reversed** (`from_end_signals`), rails and
+  spares included.
+- `evaluate.py` checks the physical mapping on `all.kicad_pcb`: for every
+  link it pairs each contact with the far contact at the same position along
+  the row and asserts they carry one net, and that the two rows line up
+  (a flat cable cannot shear sideways — the panel slides the pod so the pod
+  link's rows are level with the finger boards').
+
+The audit that introduced this found all four links cross-wired end to end,
+and the pod's two FFC connectors mounted with their cable openings facing the
+pod's centre instead of the hand they serve (the Molex 200528 takes its cable
+in over its own solder pads; the BackFlip actuator is at the rear).
+
 ## Placement
 
 Two bugs found here were each enough to scrap a board, and both passed a visual
@@ -117,8 +141,9 @@ side, and the hull is drawn to hold it.
 its own under `leds/`): every board in one file, in the positions they take on
 the desk. The four key boards keep their own coordinates — they come from one
 layout, so `finger_l` already knows where `thumb_l` is — and only the pod, which
-has no place in the key geometry, is moved: centred between the hands and
-dropped below them.
+has no place in the key geometry, is moved: centred between the hands, at the
+height that puts its ribbon connectors' contact rows level with the finger
+boards' — a straight cable cannot enter two rows at different heights.
 
 It is not a fabrication panel. It is a viewing aid, and it earns its keep: a
 board that is the wrong size, an outline that overlaps its neighbour, a

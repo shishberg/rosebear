@@ -277,6 +277,20 @@ function band_pinout(sigs: Signal[], mirrored: bool) -> Signal[] {
     out
 }
 
+/// The pad order for the FROM end of a ribbon: the shared signal list, reversed.
+///
+/// A ribbon's `signals` are in the TO end's contact order. The two connectors
+/// face each other, which turns one contact row around relative to the other,
+/// and a plain same-side FFC joins the rows by *position*: its conductors
+/// cannot cross, so contact 1 of one connector lands on contact N of the
+/// other. Assigning both ends from the same list in the same order would
+/// cross-wire every conductor on the cable -- invisibly, because the combined
+/// view joins nets by name and never models the cable. The FROM end therefore
+/// numbers its pads from the reversed list, rails and spares included.
+function from_end_signals(sigs: Signal[]) -> Signal[] {
+    sigs.reverse()
+}
+
 function build_ribbons(mods: Module[], f: Features) -> Ribbon[] throws baml.errors.InvalidArgument {
     let out: Ribbon[] = [];
     for (let hand in ["l", "r"]) {
@@ -289,8 +303,16 @@ function build_ribbons(mods: Module[], f: Features) -> Ribbon[] throws baml.erro
                 id: `pod_to_finger_${hand}`,
                 from_module: "pod",
                 to_module: finger.id,
+                // The pass-through block rides the pod link's tail in reverse
+                // key order. Its order is free -- the pod matches pins to
+                // contacts by height, and the finger board's strip is the only
+                // thing that reads it -- and the strip needs the contact
+                // nearest its lanes to take the nearest lane, or the runs
+                // interleave on the back and cross. The thumb link's contact
+                // order is not free (the cable fixes it against the thumb
+                // board's fan), so the tail bends instead.
                 signals: band_pinout(
-                    ribbon_signals(finger.keys, thumb.keys, f, hand.to_upper_case(), true),
+                    ribbon_signals(finger.keys, thumb.keys.reverse(), f, hand.to_upper_case(), true),
                     hand == "r",
                 ),
             },

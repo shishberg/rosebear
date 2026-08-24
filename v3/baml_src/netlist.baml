@@ -745,7 +745,15 @@ function build_board(
             // depth, one per contact x. See `route_passthroughs`.
             LINK_BODY_DEPTH()
         };
-        comps.push(connector_component(`J${ci}`, r.signals, at, ar));
+        // The from-end of a ribbon assigns its pads from the reversed list --
+        // see `from_end_signals`. On this module that is the thumb link's
+        // finger-side connector; the pod link's from-end is on the pod.
+        let pad_sigs = if (r.from_module == m.id) {
+            from_end_signals(r.signals)
+        } else {
+            r.signals
+        };
+        comps.push(connector_component(`J${ci}`, pad_sigs, at, ar));
         for (let c in connector_corners(ways, at, ar, back)) {
             corners.push(c);
         }

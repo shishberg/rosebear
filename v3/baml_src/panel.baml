@@ -225,15 +225,38 @@ function panel_boards(bs: Board[]) -> Board[] {
             }
     )
         / 2.0;
+    // The pod link is a straight ribbon between two side-mounted connectors:
+    // its conductors run parallel to the cable, so the two contact rows must
+    // sit at the same height or the cable cannot enter both. Slide the pod so
+    // its connector row lines up with the finger boards' -- they are level
+    // with each other already, being mirror images. POD_LIFT is the fallback
+    // when either connector is missing.
+    let finger_row = lefts
+        .filter((b) -> {
+            b.id.starts_with("finger")
+        })
+        .at(0)
+        ?.components.find((c) -> {
+            is_connector(c) && is_side_mounted(c)
+        })
+        ?.y;
+    let pod_row = (
+        if let pd: Board = pod {
+            pd.components.find((c) -> {
+                c.ref == "J1"
+            })
+        } else {
+            null
+        }
+    )?.y;
+    let pod_dy = if (finger_row != null && pod_row != null) {
+        (finger_row ?? 0.0) - (pod_row ?? 0.0)
+    } else {
+        mid_y - POD_LIFT() - (pb.min.y + pb.max.y) / 2.0
+    };
     bs.map((b) -> {
         if (b.id == "pod") {
-            translate_board(
-                b,
-                Vec2 {
-                    x: mid_x - (pb.min.x + pb.max.x) / 2.0,
-                    y: mid_y - POD_LIFT() - (pb.min.y + pb.max.y) / 2.0,
-                },
-            )
+            translate_board(b, Vec2 { x: mid_x - (pb.min.x + pb.max.x) / 2.0, y: pod_dy })
         } else if (b.id.ends_with("_l")) {
             translate_board(b, Vec2 { x: 0.0 - spread, y: 0.0 })
         } else {

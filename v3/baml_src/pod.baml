@@ -385,19 +385,25 @@ function pod_lane_x(side: float, k: int) -> float {
 
 /// Where a hand's ribbon connector sits: out past its own escape channel, on
 /// the edge of the board, cable leaving sideways.
+///
+/// The cable enters this part over its own solder pads -- the BackFlip
+/// actuator is at the rear -- so the contacts sit on the *outboard* side, 0.91
+/// past the origin, and the body stands between them and the channel. The
+/// mounting pegs land 1.79 inboard of the origin; this offset keeps them
+/// clear of the outermost lane.
 function pod_connector_pos(ways: int, side: float) -> Vec2 {
     let outer = pod_lane_x(side, pod_lanes(ways) - 1);
-    // The contacts sit 0.91mm off the footprint origin, on the side the cable
-    // does not leave from.
     Vec2 { x: outer + side * (POD_CONNECTOR_OFFSET() + 0.91), y: POD_CENTRE().y }
 }
 
-/// Turned so the contacts stack up the board and the cable leaves outward.
+/// Turned so the contacts stack up the board and the cable-entry side -- the
+/// contact side of the footprint, local -y -- faces outward, at the hand the
+/// ribbon goes to.
 function pod_connector_angle(side: float) -> float {
     if (side < 0.0) {
-        270.0
-    } else {
         90.0
+    } else {
+        270.0
     }
 }
 
@@ -598,21 +604,21 @@ function build_pod_board(
     let sock_l = socket_component(0.0 - 1.0, []);
     let sock_r = socket_component(1.0, []);
 
+    // The pod is the from-end of both ribbons, so its pads are assigned from
+    // the reversed lists -- see `from_end_signals`. `pod_legs` gets the same
+    // list, so contact i and pad i agree on their net.
+    let sigs_l = from_end_signals(left_r.signals);
+    let sigs_r = from_end_signals(right_r.signals);
     let conn_l = connector_component(
         "J1",
-        left_r.signals,
+        sigs_l,
         pod_connector_pos(left_r.signals.length(), 0.0 - 1.0),
         pod_connector_angle(0.0 - 1.0),
     );
-    let conn_r = connector_component(
-        "J2",
-        right_r.signals,
-        pod_connector_pos(right_r.signals.length(), 1.0),
-        pod_connector_angle(1.0),
-    );
+    let conn_r = connector_component("J2", sigs_r, pod_connector_pos(right_r.signals.length(), 1.0), pod_connector_angle(1.0));
 
-    let legs_l = pod_legs(conn_l, sock_l, left_r.signals, left_pins, 0.0 - 1.0);
-    let legs_r = pod_legs(conn_r, sock_r, right_r.signals, right_pins, 1.0);
+    let legs_l = pod_legs(conn_l, sock_l, sigs_l, left_pins, 0.0 - 1.0);
+    let legs_r = pod_legs(conn_r, sock_r, sigs_r, right_pins, 1.0);
     let sock_l2 = socket_component(0.0 - 1.0, socket_pads(HEADER_LEFT(), legs_l, btns, 0.0 - 1.0, want_5v));
     let sock_r2 = socket_component(1.0, socket_pads(HEADER_RIGHT(), legs_r, btns, 1.0, want_5v));
 
@@ -1027,8 +1033,9 @@ function pod_pinout(f: Features) -> string throws baml.errors.InvalidArgument {
         });
         let pins = choose_pins(hdr, gpio.length());
         let sock = socket_component(side, []);
-        let conn = connector_component("J", r.signals, pod_connector_pos(r.signals.length(), side), pod_connector_angle(side));
-        let legs = pod_legs(conn, sock, r.signals, pins, side);
+        let sigs = from_end_signals(r.signals);
+        let conn = connector_component("J", sigs, pod_connector_pos(r.signals.length(), side), pod_connector_angle(side));
+        let legs = pod_legs(conn, sock, sigs, pins, side);
 
         lines.push(`${hand.to_upper_case()} socket -- ${gpio.length()} signals`);
         for (

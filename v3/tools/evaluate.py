@@ -31,9 +31,20 @@ OUT = os.path.join(ROOT, "output_v3")
 
 BOARDS = ["finger_l", "finger_r", "thumb_l", "thumb_r", "pod"]
 # Boards joined by a ribbon whose two connectors must face each other
-# directly across a gap. (The pod's links leave sideways and are checked
-# separately, by direction only.)
+# directly across a gap. (The pod's links leave sideways; their full
+# conductor mapping is checked in check_ribbons, on the combined view.)
 LINK_PAIRS = [("finger_l", "thumb_l"), ("finger_r", "thumb_r")]
+# The FFC links: (connector A, connector B, axis the contacts pair on).
+# axis 0 pairs by x (a vertical gap), axis 1 by y (a sideways one).
+RIBBONS = [
+    ("finger_l-J1", "pod-J1", 1),
+    ("finger_r-J1", "pod-J2", 1),
+    ("finger_l-J2", "thumb_l-J1", 0),
+    ("finger_r-J2", "thumb_r-J1", 0),
+]
+# How far a contact may sit from its partner across the cable, mm. The
+# conductors of a flat ribbon are parallel, so the two rows must line up.
+RIBBON_ALIGN_TOL = 0.1
 # Minimum clearance between any two board outlines, mm.
 MIN_BOARD_GAP = 2.0
 # The facing link connectors: contact-row to contact-row distance, mm.
@@ -344,6 +355,57 @@ def check_geometry(card, boards):
         )
 
 
+def panel_contacts(text):
+    """Every FFC connector in all.kicad_pcb: ref -> [(pad, x, y, net)].
+
+    The DRC never sees the ribbons -- the combined view joins nets by name and
+    no model of the cable exists anywhere -- so a link whose two ends disagree
+    is invisible to every other check. This parse feeds the one that catches
+    it."""
+    out = {}
+    for block in re.split(r'\(footprint "', text)[1:]:
+        if "FFC-FPC" not in block.split('"')[0]:
+            continue
+        at = re.search(r"\(at ([-\d.]+) ([-\d.]+)(?: ([-\d.]+))?\)", block)
+        ref = re.search(r'\(property "Reference" "([^"]+)"', block)
+        if not at or not ref:
+            continue
+        fx, fy = float(at.group(1)), float(at.group(2))
+        a = math.radians(float(at.group(3) or 0))
+        c, sn = math.cos(a), math.sin(a)
+        pads = []
+        for pm in re.finditer(r'\(pad "(\d+)" [^(]*\n\s*\(at ([-\d.]+) ([-\d.]+)', block):
+            px, py = float(pm.group(2)), float(pm.group(3))
+            rest = block[pm.end():]
+            net = re.search(r'\(net "([^"]*)"\)', rest[:400])
+            pads.append((int(pm.group(1)), fx + px * c + py * sn,
+                         fy - px * sn + py * c, net.group(1) if net else None))
+        out[ref.group(1)] = sorted(pads)
+    return out
+
+
+def check_ribbons(card, text):
+    """A straight, same-side FFC joins its two connectors by position: the
+    conductors cannot cross, so the contact at one end lands on whichever
+    contact of the other end shares its place along the row. Every such pair
+    must carry one net, and the rows must line up for the cable to enter both."""
+    conns = panel_contacts(text)
+    for a, b, axis in RIBBONS:
+        if a not in conns or b not in conns:
+            card.check(False, f"ribbon {a}<->{b}", "connector missing")
+            continue
+        bad, worst = 0, 0.0
+        for pa in conns[a]:
+            best = min(conns[b], key=lambda p: abs(p[1 + axis] - pa[1 + axis]))
+            off = abs(best[1 + axis] - pa[1 + axis])
+            worst = max(worst, off)
+            if pa[3] != best[3] or off > RIBBON_ALIGN_TOL:
+                bad += 1
+        card.check(bad == 0, f"ribbon {a}<->{b}",
+                   f"{len(conns[a])} conductors, {bad} miswired, "
+                   f"worst offset {worst:.2f}mm")
+
+
 def check_panel(card, outdir, boards):
     """Checks on all.kicad_pcb, the one frame the pod's position exists in."""
     path = os.path.join(outdir, "all.kicad_pcb")
@@ -377,6 +439,7 @@ def check_panel(card, outdir, boards):
         if len(loop) > 2 and dist(loop[0], loop[-1]) < 1e-6:
             loop.pop()
         loops.append(loop)
+    check_ribbons(card, text)
     card.check(len(loops) == len(boards), "panel outline count",
                f"{len(loops)} loops for {len(boards)} boards")
 
