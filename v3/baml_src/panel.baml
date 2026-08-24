@@ -3,10 +3,10 @@
 // Not a panel for fabrication -- see the README; panelization is a separate
 // job. This is a viewing aid, and it exists because a board that is the wrong
 // size, or a connector pointing at nothing, is obvious in the assembly and
-// invisible one board at a time. The four key boards keep their own
-// coordinates, which already come from one layout and so are already in their
-// true relative positions; only the pod, which has no place in the key
-// geometry, gets moved.
+// invisible one board at a time. Each hand keeps its own internal coordinates,
+// which come from one layout and so are already in their true relative
+// positions; the pod goes between the halves, and the halves slide apart just
+// enough to make room for it.
 //
 // Shared net names -- GND, the thumb pass-throughs, the LED rails -- meet
 // across boards here, so KiCad's ratsnest draws the ribbons that would
@@ -174,29 +174,70 @@ function translate_board(b: Board, d: Vec2) -> Board {
     }
 }
 
+/// How far above the halves' vertical centre the pod sits. A little high
+/// reads right -- the ribbons leave the finger boards above their midline --
+/// but not so high it rides up past the key fields.
+function POD_LIFT() -> float {
+    8.0
+}
+
 /// The five boards laid out as they sit in use.
 ///
-/// The key boards are left alone: they were placed from one layout, so
-/// finger_l already knows where thumb_l is. The pod is centred between the
-/// hands and dropped below them, which is roughly where a cable of any sane
-/// length would let it sit.
+/// The pod sits *between* the halves, level with them and a touch high. Each
+/// hand keeps its own internal geometry -- finger_l already knows where
+/// thumb_l is -- but the two halves slide apart symmetrically when the pod
+/// needs more room than the layout leaves between them.
 function panel_boards(bs: Board[]) -> Board[] {
-    let keys = bs.filter((b) -> {
-        b.id != "pod"
+    let lefts = bs.filter((b) -> {
+        b.id.ends_with("_l")
     });
-    let kb = union_box(keys);
+    let rights = bs.filter((b) -> {
+        b.id.ends_with("_r")
+    });
+    let lb = union_box(lefts);
+    let rb = union_box(rights);
+    let pod = bs.find((b) -> {
+        b.id == "pod"
+    });
+    let pb = if let p: Board = pod {
+        board_box(p)
+    } else {
+        Box { min: Vec2 { x: 0.0, y: 0.0 }, max: Vec2 { x: 0.0, y: 0.0 } }
+    };
+    let need = (pb.max.x - pb.min.x) + 2.0 * PANEL_GAP();
+    let gap = rb.min.x - lb.max.x;
+    let spread = if (need > gap) {
+        (need - gap) / 2.0
+    } else {
+        0.0
+    };
+    let mid_x = (lb.max.x + rb.min.x) / 2.0;
+    let mid_y = (
+        if (lb.min.y < rb.min.y) {
+            lb.min.y
+        } else {
+            rb.min.y
+        }
+            + if (lb.max.y > rb.max.y) {
+                lb.max.y
+            } else {
+                rb.max.y
+            }
+    )
+        / 2.0;
     bs.map((b) -> {
         if (b.id == "pod") {
-            let pb = board_box(b);
             translate_board(
                 b,
                 Vec2 {
-                    x: (kb.min.x + kb.max.x) / 2.0 - (pb.min.x + pb.max.x) / 2.0,
-                    y: kb.max.y + PANEL_GAP() - pb.min.y,
+                    x: mid_x - (pb.min.x + pb.max.x) / 2.0,
+                    y: mid_y - POD_LIFT() - (pb.min.y + pb.max.y) / 2.0,
                 },
             )
+        } else if (b.id.ends_with("_l")) {
+            translate_board(b, Vec2 { x: 0.0 - spread, y: 0.0 })
         } else {
-            b
+            translate_board(b, Vec2 { x: spread, y: 0.0 })
         }
     })
 }

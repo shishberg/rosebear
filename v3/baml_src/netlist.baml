@@ -196,20 +196,86 @@ function centroid(pts: Vec2[]) -> Vec2 {
     Vec2 { x: sx / n, y: sy / n }
 }
 
-/// Push each hull vertex outward from the centroid, to leave room around the
-/// keys for the board edge.
+/// Grow a convex outline by a uniform margin, to leave room around the keys
+/// for the board edge.
+///
+/// This is an edge-normal offset -- every edge moves out by exactly `margin`,
+/// and each vertex lands where its two shifted edges meet. Pushing vertices
+/// out from the centroid instead is not uniform: an edge far from the centroid
+/// and nearly radial barely moves, and anything measured against the offset
+/// line (the finger/thumb gap is) comes out thinner than asked for.
 function expand_hull(hull: Vec2[], margin: float) -> Vec2[] {
-    let c = centroid(hull);
-    hull.map((p) -> {
-        let dx = p.x - c.x;
-        let dy = p.y - c.y;
-        let d = dx.hypot(dy);
-        if (d == 0.0) {
-            p
-        } else {
-            Vec2 { x: p.x + dx / d * margin, y: p.y + dy / d * margin }
-        }
-    })
+    let n = hull.length();
+    if (n < 3) {
+        return hull;
+    }
+    // Shoelace sign says which side of an edge is out.
+    let area = 0.0;
+    let i = 0;
+    while (i < n) {
+        let a = hull.at(i) ?? Vec2 { x: 0.0, y: 0.0 };
+        let b = hull.at(
+            if (i + 1 < n) {
+                i + 1
+            } else {
+                0
+            },
+        )
+            ?? Vec2 { x: 0.0, y: 0.0 };
+        area = area + (a.x * b.y - b.x * a.y);
+        i = i + 1;
+    }
+    let k = if (area > 0.0) {
+        1.0
+    } else {
+        0.0 - 1.0
+    };
+    let out: Vec2[] = [];
+    i = 0;
+    while (i < n) {
+        let prev = hull.at(
+            if (i > 0) {
+                i - 1
+            } else {
+                n - 1
+            },
+        )
+            ?? Vec2 { x: 0.0, y: 0.0 };
+        let cur = hull.at(i) ?? Vec2 { x: 0.0, y: 0.0 };
+        let next = hull.at(
+            if (i + 1 < n) {
+                i + 1
+            } else {
+                0
+            },
+        )
+            ?? Vec2 { x: 0.0, y: 0.0 };
+        out.push(offset_corner(prev, cur, next, k * margin));
+        i = i + 1;
+    }
+    out
+}
+
+/// Where a vertex lands when both its edges shift out by `m` (signed by the
+/// polygon's winding). Falls back to a plain normal push when the edges are
+/// parallel.
+function offset_corner(prev: Vec2, cur: Vec2, next: Vec2, m: float) -> Vec2 {
+    let d1 = Vec2 { x: cur.x - prev.x, y: cur.y - prev.y };
+    let d2 = Vec2 { x: next.x - cur.x, y: next.y - cur.y };
+    let l1 = d1.x.hypot(d1.y);
+    let l2 = d2.x.hypot(d2.y);
+    if (l1 == 0.0 || l2 == 0.0) {
+        return cur;
+    }
+    let a1 = Vec2 { x: cur.x + d1.y / l1 * m, y: cur.y - d1.x / l1 * m };
+    let a2 = Vec2 { x: cur.x + d2.y / l2 * m, y: cur.y - d2.x / l2 * m };
+    let denom = d1.x * d2.y - d1.y * d2.x;
+    if (denom.abs() < 0.000001) {
+        return a1;
+    }
+    // Solve a1 + t*d1 = a2 + u*d2 for t.
+    let t = ((a2.x - a1.x) * d2.y - (a2.y - a1.y) * d2.x) / denom;
+    Vec2 { x: a1.x + t * d1.x, y: a1.y + t * d1.y }
 }
 
 /// The box the LED chain can reach around one key, in that key's own frame.
@@ -240,12 +306,122 @@ function board_margin(f: Features) -> float {
     }
 }
 
-/// How far past the muster line the thumb link sits.
+/// Board edge to board edge across the finger->thumb ribbon.
+function LINK_GAP() -> float {
+    3.0
+}
+
+/// How far behind its contacts a link connector's board area runs: body plus
+/// the one row of standoff vias `route_passthroughs` keeps inside it.
+function LINK_BODY_DEPTH() -> float {
+    5.0
+}
+
+/// How far below the cluster's top corner the thumb link's centre sits.
 ///
-/// Far enough that its own pass-through standoffs, which run back under its
-/// body, stop short of the fan.
-function THUMB_LINK_DROP() -> float {
-    9.0
+/// Deeper costs thumb-board area; shallower squeezes the finger side of the
+/// pocket against the column above it until the connector body hits that
+/// column's bottom key.
+function LINK_SINK() -> float {
+    3.5
+}
+
+/// Contact row to clipped board edge, on the finger side of the link.
+function LINK_PAD_EDGE() -> float {
+    2.5
+}
+
+/// Where the finger->thumb link pair stands. One computation, called from
+/// both boards, so the two connectors agree by construction.
+class LinkSpot {
+    x: float,
+    finger_y: float,
+    thumb_y: float,
+}
+
+function link_spot(
+    id: string,
+    ways: int,
+    inboard: float,
+) -> LinkSpot throws baml.errors.InvalidArgument {
+    let hand = if (id.ends_with("_r")) {
+        "r"
+    } else {
+        "l"
+    };
+    let mods = partition_modules(all_keys());
+    let fingers = find_module(mods, `finger_${hand}`).keys;
+    let thumbs = find_module(mods, `thumb_${hand}`).keys;
+    let hw = ((ways * 1.0) + 6.0) / 2.0;
+
+    // The cluster's top corner fixes the whole vertical chain: thumb link
+    // centre, thumb board edge, the clip line that becomes the finger board's
+    // edge, and the finger link centre -- each a declared clearance apart.
+    let top = thumbs.reduce(
+        (a, k) -> {
+            key_corners(k).reduce(
+                (b, c) -> {
+                    if (c.y < b) {
+                        c.y
+                    } else {
+                        b
+                    }
+                },
+                a,
+            )
+        },
+        1000000.0,
+    );
+    let thumb_y = top + LINK_SINK();
+    let pocket_edge = thumb_y - 5.0 - thumb_board_margin();
+    let clip = pocket_edge - LINK_GAP();
+    let finger_y = clip - 0.91 - LINK_PAD_EDGE();
+
+    // Over the middle of the cluster, walking inboard past anything either
+    // connector body would hit. The corridor east of the finger columns and
+    // above the thumb cluster's home key is the one place both boards are
+    // clear: the home key sits well south of the key nearest the fingers, so
+    // the fan rows reach the contacts without crossing any key's hardware.
+    //
+    // The dodge is measured against each key's real footprint within the
+    // connector's own y-band, not its bounding box -- a splayed key's box
+    // corner reaches into the band long before the key itself does, and the
+    // box test walks the connector past the whole cluster.
+    let x = thumbs.reduce(
+        (a, k) -> {
+            a + to_kicad(k.pos()).x
+        },
+        0.0,
+    )
+        / (thumbs.length() * 1.0);
+    let f_top = finger_y - LINK_BODY_DEPTH();
+    let f_bot = finger_y + 5.0;
+    let t_top = thumb_y - 5.0;
+    let t_bot = thumb_y + LINK_BODY_DEPTH();
+    let pass = 0;
+    while (pass < 4) {
+        for (let k in fingers.concat(thumbs)) {
+            let cs = key_corners(k);
+            for (let e in [band_extent(cs, f_top, f_bot), band_extent(cs, t_top, t_bot)]) {
+                if (e.hit && x + hw + 1.0 > e.x1 && x - hw - 1.0 < e.x2) {
+                    x
+                        = if (inboard > 0.0) {
+                            e.x2 + hw + 1.0
+                        } else {
+                            e.x1 - hw - 1.0
+                        };
+                }
+            }
+        }
+        pass = pass + 1;
+    }
+    LinkSpot { x: x, finger_y: finger_y, thumb_y: thumb_y }
+}
+
+/// A thumb board hugs its keys tighter than a finger board: its outline is
+/// half of the link gap's budget, and the cluster has no fan band to cover.
+function thumb_board_margin() -> float {
+    2.0
 }
 
 /// Approximate outline of an FFC connector, used to grow the board hull.
@@ -444,19 +620,8 @@ function build_board(
         }
     }
 
-    // Connectors go below the lowest key row rather than among the switches,
-    // and their own outline contributes to the hull so the board grows to
-    // contain them.
-    let max_y = corners.reduce(
-        (a, p) -> {
-            if (p.y > a) {
-                p.y
-            } else {
-                a
-            }
-        },
-        0.0 - 100000.0,
-    );
+    // Connector edges contribute to the hull so the board grows to contain
+    // them.
     let min_x = corners.reduce(
         (a, p) -> {
             if (p.x < a) {
@@ -480,41 +645,17 @@ function build_board(
 
     // Where the connectors go, and it is the cables that decide it.
     //
-    // A finger half stands its pod link on the edge facing the pod, alongside
-    // the keys rather than below them, with its contacts on the outboard face
-    // so the cable leaves toward the middle of the keyboard. Its thumb link
-    // sits below the innermost column -- roughly where the thumb cluster is --
-    // facing down, so that cable leaves toward the cluster. A thumb cluster's
-    // one connector faces the other way, back up at the finger board.
+    // A finger half stands its pod link on the inboard edge, level with the
+    // middle of its keys, contacts outward so the cable leaves toward the pod
+    // between the halves. The finger->thumb and thumb->finger connectors are
+    // a FACING PAIR: same x, one on each board, contacts toward each other
+    // across the link gap, in the pocket just outboard of the cluster's
+    // nearest key -- so the ribbon between them is a straight few millimetres.
     //
     // Nothing here is a free choice once the cable directions are fixed. A
-    // connector's contacts face the way its cable leaves; the fan therefore has
-    // to arrive from behind them, under the body; and the order the contacts
-    // run in is what makes that fan planar. See `route_fanin`.
-    let sgn = escape_side(m.id);
-    let last_pad = last_signal_pad(comps, sgn);
-    let exit_y = last_pad + sgn * COLUMN_EXIT();
-    // The pod link's bus sets how deep the fan band is -- one row per
-    // conductor -- and everything below the keys sits past it.
-    let pod_ways = links.reduce(
-        (a, r) -> {
-            if (r.from_module == "pod") {
-                r.signals.length()
-            } else {
-                a
-            }
-        },
-        0,
-    );
-    let muster_y = exit_y
-        + sgn
-            * (
-                if (pod_ways > 0) {
-                    fan_depth(pod_ways)
-                } else {
-                    FAN_DEPTH()
-                }
-            );
+    // connector's contacts face the way its cable leaves; the fan therefore
+    // has to arrive from behind them, under the body; and the order the
+    // contacts run in is what makes that fan planar. See `route_fanin`.
 
     // Toward the pod: the right of the left half, the left of the right half.
     let inboard = if (m.id.ends_with("_r")) {
@@ -527,17 +668,32 @@ function build_board(
     } else {
         min_x
     };
-    // The key nearest the pod, which is where the thumb link hangs off.
-    let inner_x = m.keys.reduce(
+    let mean_key_y = m.keys.reduce(
         (a, k) -> {
-            let x = to_kicad(k.pos()).x;
-            if (x * inboard > a * inboard) {
-                x
-            } else {
+            a + to_kicad(k.pos()).y
+        },
+        0.0,
+    )
+        / (m.keys.length() * 1.0);
+
+    // The pod link and the thumb link now share the inboard side, so the pod
+    // link's contact row -- and the lanes that serve it -- must end clear
+    // above the thumb-link pocket, or the low lanes run through J2's pads.
+    let pocket_top = links.reduce(
+        (a, r) -> {
+            if (r.from_module == "pod") {
                 a
+            } else {
+                let spot = link_spot(m.id, r.signals.length(), inboard);
+                let t = spot.finger_y - LINK_BODY_DEPTH();
+                if (t < a) {
+                    t
+                } else {
+                    a
+                }
             }
         },
-        0.0 - 100000.0 * inboard,
+        1000000.0,
     );
 
     let ci = 1;
@@ -545,16 +701,20 @@ function build_board(
         let ways = r.signals.length();
         let side_mount = r.from_module == "pod";
         let at = if (side_mount) {
-            // The contact nearest the muster line sits level with the lowest
-            // switch pad, so the connector stands beside the bottom rows.
-            Vec2 {
-                x: key_edge + inboard * bus_reach(ways),
-                y: last_pad - (((ways - 1) * 1.0) / 2.0),
-            }
-        } else if (m.id.starts_with("thumb")) {
-            Vec2 { x: (min_x + max_x) / 2.0, y: muster_y }
+            let cap = pocket_top - ((ways - 1) * 1.0) / 2.0 - 1.5;
+            let y = if (cap < mean_key_y) {
+                cap
+            } else {
+                mean_key_y
+            };
+            Vec2 { x: key_edge + inboard * bus_reach(ways), y: y }
         } else {
-            Vec2 { x: inner_x, y: muster_y + THUMB_LINK_DROP() }
+            let spot = link_spot(m.id, ways, inboard);
+            if (m.id.starts_with("thumb")) {
+                Vec2 { x: spot.x, y: spot.thumb_y }
+            } else {
+                Vec2 { x: spot.x, y: spot.finger_y }
+            }
         };
         // 90 and 270 point the contacts out to the side; 0 points them up the
         // board and 180 points them down.
@@ -572,7 +732,9 @@ function build_board(
         let back = if (side_mount) {
             bus_reach(ways)
         } else {
-            via_standoff(ways) + 2.0
+            // The link pair keeps its standoff vias inside the body: one
+            // depth, one per contact x. See `route_passthroughs`.
+            LINK_BODY_DEPTH()
         };
         comps.push(connector_component(`J${ci}`, r.signals, at, ar));
         for (let c in connector_corners(ways, at, ar, back)) {
@@ -581,7 +743,14 @@ function build_board(
         ci = ci + 1;
     }
 
-    let hull = expand_hull(convex_hull(corners), board_margin(f));
+    let hull = expand_hull(
+        convex_hull(corners),
+        if (m.id.starts_with("thumb")) {
+            thumb_board_margin()
+        } else {
+            board_margin(f)
+        },
+    );
 
     Board { id: m.id, components: comps, outline: hull, tracks: [], vias: [], zones: [] }
 }
@@ -604,11 +773,55 @@ function ribbon_led_data(rs: Ribbon[]) -> string {
 function build_boards(f: Features) -> Board[] throws baml.errors.InvalidArgument {
     let mods = partition_modules(all_keys());
     let ribbons = build_ribbons(mods, f);
-    let boards = mods.map((m) -> {
-        route_board(build_board(m, ribbons, f), m, f)
-    });
+    // Thumb boards first: each finger board's outline is then clipped against
+    // its thumb sibling grown by the link gap. The finger hull is convex and
+    // the cluster tucks in under the splayed columns, so without the clip the
+    // hull sweeps over it -- this notch is what lets two separate coplanar
+    // boards share the corner.
+    let thumbs = mods
+        .filter((m) -> {
+            m.id.starts_with("thumb")
+        })
+        .map((m) -> {
+            route_board(build_board(m, ribbons, f), m, f)
+        });
+    let boards: Board[] = [];
+    for (let m in mods) {
+        if (m.id.starts_with("thumb")) {
+            boards.push(find_board(thumbs, m.id));
+        } else {
+            let b = route_board(build_board(m, ribbons, f), m, f);
+            let sib = find_board(thumbs, `thumb_${hand_of(m.id)}`);
+            let outline = clip_outline(b.outline, expand_hull(sib.outline, LINK_GAP()));
+            boards.push(
+                Board {
+                    id: b.id,
+                    components: b.components,
+                    outline: outline,
+                    tracks: b.tracks,
+                    vias: b.vias,
+                    zones: board_zones(outline, f),
+                },
+            );
+        }
+    }
     // The pod is a module in the wiring but not in the layout -- it has no keys
     // to partition -- so it is built rather than derived.
     boards.push(build_pod_board(ribbons, f));
     boards
+}
+
+function hand_of(id: string) -> string {
+    if (id.ends_with("_r")) {
+        "r"
+    } else {
+        "l"
+    }
+}
+
+function find_board(bs: Board[], id: string) -> Board throws baml.errors.InvalidArgument {
+    bs.find((b) -> {
+        b.id == id
+    })
+        ?? throw baml.errors.InvalidArgument { message: `no board '${id}'` }
 }

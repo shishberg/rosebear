@@ -243,6 +243,40 @@ function link_pinout(sigs: Signal[], reversed: bool) -> Signal[] {
     }
 }
 
+/// The pod link's contact order, fixed by the fan band above the keys.
+///
+/// The contact nearest the band takes the deepest row, and a deep row is one
+/// whose drop crosses nothing -- so along the connector the contacts must run
+/// in the same order the exits do along the top of the board. Exits run top
+/// key first within a column (the top key takes the innermost lane), inner
+/// column nearest the connector's edge: the left hand keeps its column order
+/// and turns each column upside down; the right hand mirrors the columns too.
+///
+/// The tail -- pass-throughs, ground, spare -- must sit at the *south* end of
+/// the contact row on both hands: its nets leave along lanes behind the
+/// connector running south to the strip, and from the south end those lanes
+/// start below every contact stub instead of cutting through them. South is
+/// contact `ways` on the left hand and contact 1 on the right, so the right
+/// hand carries its tail in front, reversed.
+function band_pinout(sigs: Signal[], mirrored: bool) -> Signal[] {
+    let rows = reverse_rows(sigs);
+    if (!mirrored) {
+        return rows;
+    }
+    let keys = mirror_pinout(rows).filter((s) -> {
+        s.kind == SignalKind.Key
+    });
+    let out = rows
+        .filter((s) -> {
+            s.kind != SignalKind.Key
+        })
+        .reverse();
+    for (let s in keys) {
+        out.push(s);
+    }
+    out
+}
+
 function build_ribbons(mods: Module[], f: Features) -> Ribbon[] throws baml.errors.InvalidArgument {
     let out: Ribbon[] = [];
     for (let hand in ["l", "r"]) {
@@ -255,22 +289,10 @@ function build_ribbons(mods: Module[], f: Features) -> Ribbon[] throws baml.erro
                 id: `pod_to_finger_${hand}`,
                 from_module: "pod",
                 to_module: finger.id,
-                // Contact 1 takes the shallowest row of the fan band, and a
-                // shallow row is one whose drop crosses nothing -- so contact 1
-                // has to be the easternmost exit on the board and every contact
-                // after it a step west. Rows reverse on both hands; columns
-                // only on the left, where they already run west to east.
-                //
-                // Reversing the whole list there, rather than just its keys,
-                // also puts the rails and the chain's data line at the shallow
-                // end of the band on both hands. Those are the nets that leave
-                // the band sideways for the key field, and from the shallow end
-                // they pass over the pass-through runs instead of through them.
-                signals: if (hand == "l") {
-                    ribbon_signals(finger.keys, thumb.keys, f, hand.to_upper_case(), true).reverse()
-                } else {
-                    reverse_rows(ribbon_signals(finger.keys, thumb.keys, f, hand.to_upper_case(), true))
-                },
+                signals: band_pinout(
+                    ribbon_signals(finger.keys, thumb.keys, f, hand.to_upper_case(), true),
+                    hand == "r",
+                ),
             },
         );
         // finger -> thumb carries only the thumb keys.

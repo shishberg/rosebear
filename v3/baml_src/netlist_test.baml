@@ -190,9 +190,7 @@ test "each ribbon connector points its cable at the board it links to" {
             assert.equal(conns.length(), 2);
 
             let sgn = escape_side(b.id);
-            let exit_y = last_signal_pad(b.components, sgn) + sgn * COLUMN_EXIT();
-            let ways = find_ribbon(ribbons, `pod_to_finger_${hand}`).width();
-            let muster_y = exit_y + sgn * fan_depth(ways);
+            let exit_y = board_exit_y(b, sgn);
 
             for (let c in conns) {
                 // A cable leaves the way the contacts face, which is the
@@ -206,10 +204,9 @@ test "each ribbon connector points its cable at the board it links to" {
                         assert.is_true((c.x - to_kicad(k.pos()).x) * inboard > 0.0);
                     }
                 } else {
-                    // The thumb link: down the board, past the fan, toward
-                    // where the cluster sits.
+                    // The thumb link: down the board, toward the cluster
+                    // below the key field.
                     assert.is_true(0.0 - n.y > 0.5);
-                    assert.is_true(c.y > muster_y);
                 }
             }
 
@@ -274,12 +271,52 @@ test "a thumb cluster's connector faces back up at its finger board" {
 test "the board outline contains every track the router laid" {
     for (let f in [features_base(), features_leds()]) {
         for (let b in build_boards(f)) {
+            // `point_in_poly`, not `point_in_hull`: the finger outline is
+            // clipped around the thumb cluster and no longer convex.
             for (let t in b.tracks) {
-                assert.is_true(point_in_hull(b.outline, t.start));
-                assert.is_true(point_in_hull(b.outline, t.end));
+                assert.is_true(point_in_poly(b.outline, t.start));
+                assert.is_true(point_in_poly(b.outline, t.end));
             }
             for (let v in b.vias) {
-                assert.is_true(point_in_hull(b.outline, v.at));
+                assert.is_true(point_in_poly(b.outline, v.at));
+            }
+        }
+    }
+}
+
+/// The two halves of the ribbon joint, built independently, must meet.
+test "the link connectors face each other across the gap" {
+    for (let f in [features_base(), features_leds()]) {
+        for (let hand in ["l", "r"]) {
+            let boards = build_boards(f);
+            let fb = find_board(boards, `finger_${hand}`);
+            let tb = find_board(boards, `thumb_${hand}`);
+            let fc = fb.components.find((c) -> {
+                is_connector(c) && !is_side_mounted(c)
+            })
+                ?? no_component();
+            let tc = tb.components.find((c) -> {
+                is_connector(c)
+            })
+                ?? no_component();
+
+            // Same x, contacts toward each other, a plug's worth of gap.
+            assert.approx_equal(fc.x, tc.x, 0.001);
+            assert.is_true(conn_normal(fc).y < 0.0 - 0.5);
+            assert.is_true(conn_normal(tc).y > 0.5);
+            let fy = comp_to_global(fc, ffc_pad_local(1, fc.pads.length() - 1)).y;
+            let ty = comp_to_global(tc, ffc_pad_local(1, tc.pads.length() - 1)).y;
+            assert.is_true(ty - fy > 2.0);
+            assert.is_true(ty - fy < 18.0);
+
+            // And the boards themselves stay apart: no outline vertex of one
+            // inside the other. (The evaluator does the full polygon check;
+            // this is the cheap in-pipeline guard.)
+            for (let p in tb.outline) {
+                assert.is_true(!point_in_poly(fb.outline, p));
+            }
+            for (let p in fb.outline) {
+                assert.is_true(!point_in_poly(tb.outline, p));
             }
         }
     }

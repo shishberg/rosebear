@@ -637,6 +637,120 @@ function route_fanin(legs: Leg[], exits: Escape[], out: Track[]) -> void {
     }
 }
 
+/// The thumb cluster's fan: contacts on one horizontal row, exits arriving
+/// laterally along the board.
+///
+/// The head-on shape (one straight run per net) fails here: the contacts are a
+/// millimetre apart and the runs arrive almost parallel to their row, so
+/// neighbours converge to nothing. And a front-side bus corner fails too: the
+/// strip between the contacts and the nearest key is walled off on the front
+/// by the connector's mounting pegs on one side and the key's dowel holes on
+/// the other, with no single height clear across both.
+///
+/// So the rows run on the back, where the connector has no copper at all.
+/// Each net drops from the exit line, crosses the board on its own back-side
+/// row tucked between the contact line and the nearest key's holes, turns up
+/// at its own contact's x, and surfaces through a via nestled just behind the
+/// contact -- the vias sit a contact pitch apart, so nothing shorts.
+///
+/// The nesting is forced the same way as every bus corner: the contact
+/// furthest from the exits takes the deepest row, because its turn-in crosses
+/// every shallower row and a shallower row must have ended (turned up at its
+/// own contact, nearer the exits) before that x. Exits, rows and contacts all
+/// run in the same order along the board or something crosses.
+function route_thumb_fanin(
+    legs: Leg[],
+    exits: Escape[],
+    exit_y: float,
+    sgn: float,
+    out: Track[],
+    vias: Via[],
+) -> void {
+    if (legs.length() == 0) {
+        return;
+    }
+    let n = legs.length() * 1.0;
+    let mean_ex = exits.reduce(
+        (a, e) -> {
+            a + e.p.x
+        },
+        0.0,
+    )
+        / (
+            if (exits.length() > 0) {
+                exits.length() * 1.0
+            } else {
+                1.0
+            }
+        );
+    let mean_cx = legs.reduce(
+        (a, l) -> {
+            a + l.target.x
+        },
+        0.0,
+    )
+        / n;
+    // +1 when the exits lie to the right of the contacts.
+    let away = if (mean_ex > mean_cx) {
+        1.0
+    } else {
+        0.0 - 1.0
+    };
+    // Farthest contact first: rank 0 takes the deepest row.
+    let ordered = legs.sort_by((a, b) -> {
+        if (a.target.x * away < b.target.x * away) {
+            0 - 1
+        } else {
+            1
+        }
+    });
+    let i = 0;
+    for (let l in ordered) {
+        let e = escape_of(exits, l.net);
+        // The shallowest row must still clear the surfacing vias, and the
+        // deepest must clear the nearest key's dowel hole, which starts about
+        // 2.7mm behind the contact line.
+        let row = l.target.y - sgn * (THUMB_ROW_BASE() + ((legs.length() - 1 - i) * 1.0) * THUMB_ROW_PITCH());
+        let up = Vec2 { x: l.target.x, y: row };
+        // Through to the back at the exit, and back up right behind the
+        // contact, clear of its neighbours by the contact pitch.
+        let vt = Vec2 { x: l.target.x, y: l.target.y - sgn * THUMB_VIA_TUCK() };
+        vias.push(Via { at: e, net: l.net });
+        for (let pair in [[e, Vec2 { x: e.x, y: row }], [Vec2 { x: e.x, y: row }, up], [up, vt]]) {
+            out.push(
+                Track {
+                    start: vec_at(pair, 0),
+                    end: vec_at(pair, 1),
+                    width: TRACE_W(),
+                    layer: "B.Cu",
+                    net: l.net,
+                },
+            );
+        }
+        vias.push(Via { at: vt, net: l.net });
+        out.push(seg(vt, l.target, l.net));
+        i = i + 1;
+    }
+}
+
+/// The thumb fan's back-side geometry, all measured from the contact line.
+///
+/// The row band lives in the 2.7mm between the contacts and the mounting-peg
+/// line of the connector's own footprint -- free on the back -- and must stay
+/// north of the nearest key's Ø3 dowel hole. The tuck via sits between the
+/// contact pads and the first row.
+function THUMB_ROW_BASE() -> float {
+    0.95
+}
+
+function THUMB_ROW_PITCH() -> float {
+    0.5
+}
+
+function THUMB_VIA_TUCK() -> float {
+    0.3
+}
+
 /// How far in front of a connector a pass-through drops to the back.
 ///
 /// Each pass-through gets its own standoff. Both connectors sit on the same
@@ -733,30 +847,66 @@ function route_passthroughs(
     out: Track[],
     vias: Via[],
 ) -> void {
+    // The pod link stands on the inboard edge; the thumb link faces down at
+    // the south edge. A pass net leaves the pod link along its own bus lane,
+    // runs SOUTH past the connector body -- the lane x is unique to its
+    // contact, and south of the connector nothing else wants it -- drops to
+    // the back on its own row of the south strip, crosses under the inner
+    // column, and comes up just behind the thumb link's contact.
+    //
+    // Two nested orders keep it planar, both forced. At the pod link the
+    // bottom contact takes the nearest lane, so each vertical drop starts
+    // before the stub of the net below it reaches its x. Along the strip the
+    // bottom contact takes the deepest row, and at the thumb link the rows
+    // turn up in the order the contacts run, each shallower row having ended
+    // -- turned up at its own contact -- before the next one crosses.
     let ordered = find_passthroughs(
         b.components.filter((c) -> {
             is_connector(c)
         }),
     )
         .sort_by((p, q) -> {
-            if (q.span > p.span) {
+            // Bottom pod-link contact first.
+            let pa = comp_to_global(p.a, ffc_pad_local(p.ia, p.a.pads.length() - 1));
+            let qa = comp_to_global(q.a, ffc_pad_local(q.ia, q.a.pads.length() - 1));
+            if (pa.y > qa.y) {
                 0 - 1
             } else {
                 1
             }
         });
-    // Slot 0 belongs to the supply, which only has to reach the plane and is
-    // better off not crossing the band to do it.
-    let n = 1;
+    let npass = ordered.length();
+    let k = 0;
     for (let pt in ordered) {
-        // Out of each contact on the front, down to the back, across between
-        // the two, and up again. The pour parts around them.
-        let va = conn_drop(pt.a, pt.ia, exit_y, sgn, n, pt.net, out);
-        let vz = conn_drop(pt.z, pt.iz, exit_y, sgn, n, pt.net, out);
-        n = n + 1;
-        vias.push(Via { at: va, net: pt.net });
-        let corner = Vec2 { x: va.x, y: vz.y };
-        for (let e in [[va, corner], [corner, vz]]) {
+        let ways_a = pt.a.pads.length() - 1;
+        let pad_a = comp_to_global(pt.a, ffc_pad_local(pt.ia, ways_a));
+        let na = conn_normal(pt.a);
+        let lane = along(pad_a, na, BUS_STANDOFF() + (k * 1.0) * BUS_PITCH());
+        // The strip: rows tucked between the thumb link's contacts and the
+        // board edge. The bottom contact's lane is nearest the pod link and
+        // reaches the *farthest* thumb-link contact -- both ends walk the same
+        // signal list -- so it takes the shallowest row and every lane after
+        // it nests one deeper, or the turn-ups cross the rows.
+        let row = pt.z.y + 1.85 - ((npass - 1 - k) * 1.0) * 0.65;
+        // Off the front before the run reaches the thumb link's mounting
+        // pegs, which sit right in the lane's path. Staggered so the vias
+        // clear each other despite the lanes' sub-via pitch.
+        let dive = Vec2 { x: lane.x, y: pt.z.y - LINK_BODY_DEPTH() - 0.5 - (k * 1.0) * 0.9 };
+        let va = Vec2 { x: lane.x, y: row };
+        out.push(seg(pad_a, lane, pt.net));
+        out.push(seg(lane, dive, pt.net));
+        vias.push(Via { at: dive, net: pt.net });
+        out.push(Track { start: dive, end: va, width: TRACE_W(), layer: "B.Cu", net: pt.net });
+
+        let ways_z = pt.z.pads.length() - 1;
+        let pad_z = comp_to_global(pt.z, ffc_pad_local(pt.iz, ways_z));
+        let nz = conn_normal(pt.z);
+        // All the thumb-link standoffs sit at one depth: the verticals up to
+        // them run at distinct x (one per contact), so unlike the old shared
+        // line there is nothing to short against.
+        let vz = along(pad_z, nz, VIA_STANDOFF() + 1.0);
+        let turn = Vec2 { x: pad_z.x, y: row };
+        for (let e in [[va, turn], [turn, vz]]) {
             out.push(
                 Track {
                     start: vec_at(e, 0),
@@ -768,6 +918,8 @@ function route_passthroughs(
             );
         }
         vias.push(Via { at: vz, net: pt.net });
+        out.push(seg(pad_z, vz, pt.net));
+        k = k + 1;
     }
 }
 
@@ -804,16 +956,14 @@ function board_zones(outline: Vec2[], f: Features) -> Zone[] {
 
 /// Which side of the key field a board escapes to: +1 below, -1 above.
 ///
-/// The finger halves run their columns down and out below the bottom row,
-/// which is where the pod cable and the thumb cable both want to be. A thumb
-/// cluster's one cable goes back up to the finger board, so it escapes over
-/// the top instead and its three keys never have to be crossed.
+/// Every key board escapes over the top. A thumb cluster's cable goes back up
+/// to its finger board, so up is where its connector is. The finger halves
+/// used to escape downward -- and their fan band then sat exactly where the
+/// thumb cluster tucks under the splayed columns, which is what made the two
+/// boards overlap. Above the top row nothing else wants the space, and the
+/// board's south edge can hug the bottom keys instead.
 function escape_side(id: string) -> float {
-    if (id.starts_with("thumb")) {
-        0.0 - 1.0
-    } else {
-        1.0
-    }
+    0.0 - 1.0
 }
 
 /// The last switch signal pad on the escape side of a board.
@@ -909,6 +1059,25 @@ function board_exits(b: Board, exit_y: float, sgn: float) -> Escape[] {
     out
 }
 
+/// The escape line of a board.
+///
+/// Finger halves: a fixed depth past the last key, past every key on the
+/// board. Thumb clusters: pinned to the connector instead -- the connector
+/// sits as tight over the keys as the link gap allows, and the exit line goes
+/// between it and the keys, one fan row per contact plus working clearance.
+function board_exit_y(b: Board, sgn: float) -> float {
+    if (b.id.starts_with("thumb")) {
+        if let c: Component = b.components.find((c) -> {
+            is_connector(c)
+        }) {
+            let ways = c.pads.length() - 1;
+            let cy = comp_to_global(c, ffc_pad_local(1, ways)).y;
+            return cy - sgn * (BUS_GAP() + (ways * 1.0) * BUS_PITCH() + 0.5);
+        }
+    }
+    last_signal_pad(b.components, sgn) + sgn * COLUMN_EXIT()
+}
+
 function route_board(b: Board, m: Module, f: Features) -> Board {
     let tracks: Track[] = [];
     let vias: Via[] = [];
@@ -916,7 +1085,7 @@ function route_board(b: Board, m: Module, f: Features) -> Board {
     // The escape line, past every key on the board.
     let sgn = escape_side(b.id);
     let lowest = last_signal_pad(b.components, sgn);
-    let exit_y = lowest + sgn * COLUMN_EXIT();
+    let exit_y = board_exit_y(b, sgn);
     let legs = collect_legs(b, exit_y, sgn);
 
     // Group by column. Keys in a column share an axis, which is what lets the
@@ -945,7 +1114,11 @@ function route_board(b: Board, m: Module, f: Features) -> Board {
             all_legs.push(l);
         }
     }
-    route_fanin(all_legs, all_exits, tracks);
+    if (b.id.starts_with("thumb")) {
+        route_thumb_fanin(all_legs, all_exits, exit_y, sgn, tracks, vias);
+    } else {
+        route_fanin(all_legs, all_exits, tracks);
+    }
 
     route_passthroughs(b, f, exit_y, sgn, tracks, vias);
     route_leds(b, m, f, lowest, exit_y, sgn, tracks, vias);
@@ -1406,7 +1579,16 @@ function route_supply_vias(
 function route_ground_vias(b: Board, f: Features, vias: Via[], out: Track[]) -> void {
     for (let c in b.components) {
         if (is_switch(c)) {
-            let v = comp_to_global(c, MX_GND_VIA());
+            // On a thumb board the stitch stays beside the socket's ground
+            // pad: the fan rows cross the near key's footprint on the back,
+            // and the finger boards' longer stub, swung by the key's splay,
+            // can end up running straight through them.
+            let spot = if (b.id.starts_with("thumb")) {
+                Vec2 { x: 0.0 - 9.2, y: 0.0 - 2.54 }
+            } else {
+                MX_GND_VIA()
+            };
+            let v = comp_to_global(c, spot);
             out.push(back(comp_to_global(c, MX_GND_PAD()), v, "GND"));
             vias.push(Via { at: v, net: "GND" });
         }
