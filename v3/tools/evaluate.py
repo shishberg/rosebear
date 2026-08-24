@@ -8,9 +8,8 @@ copper outside its own outline -- and it also runs DRC itself so one command
 answers "did I break anything".
 
 Usage:
-    python3 v3/tools/evaluate.py            # both variants, geometry + DRC
+    python3 v3/tools/evaluate.py            # geometry + DRC
     python3 v3/tools/evaluate.py --no-drc   # geometry only (fast, ~instant)
-    python3 v3/tools/evaluate.py --variant base
     python3 v3/tools/evaluate.py --render   # also render all.kicad_pcb to PNG
 
 Exit code 0 when every check passes, 1 otherwise.
@@ -522,7 +521,7 @@ def check_drc(card, outdir, variant):
             detail.append(", ".join(f"{k} x{v}" for k, v in bad.items()))
         if unconnected:
             detail.append(f"{unconnected} unconnected")
-        card.check(ok, f"DRC {variant}/{name}", "; ".join(detail))
+        card.check(ok, f"DRC {name}", "; ".join(detail))
 
 
 def render(outdir, variant):
@@ -550,28 +549,22 @@ def render(outdir, variant):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--variant", choices=["base", "leds", "both"], default="both")
     ap.add_argument("--no-drc", action="store_true")
     ap.add_argument("--render", action="store_true")
     args = ap.parse_args()
 
-    variants = {"base": OUT, "leds": os.path.join(OUT, "leds")}
-    if args.variant != "both":
-        variants = {args.variant: variants[args.variant]}
-
     card = Card()
-    for variant, outdir in variants.items():
-        if not os.path.isdir(outdir):
-            card.check(False, f"{variant} output", f"{outdir} missing")
-            continue
-        card.lines.append(f"{variant}:")
+    outdir = OUT
+    if not os.path.isdir(outdir):
+        card.check(False, "output", f"{outdir} missing")
+    else:
         boards = load_variant(outdir)
         check_geometry(card, boards)
         check_panel(card, outdir, boards)
         if not args.no_drc:
-            check_drc(card, outdir, variant)
+            check_drc(card, outdir, "")
         if args.render:
-            p = render(outdir, variant)
+            p = render(outdir, "boards")
             if p:
                 card.note(f"render: {p}")
 

@@ -1,7 +1,11 @@
 // Build entry point: config -> boards -> .kicad_pcb -> DRC.
 //
-//   baml run build            base variant (no per-key LEDs)
-//   baml run build_leds       per-key LED variant
+//   baml run build            the boards, with per-key LEDs fitted
+//
+// The LED variant is the only one built: leaving the LEDs off an assembled
+// board needs no PCB change, so a second no-LED output was just twice the
+// files. The no-LED Features still exist -- the derivation tests pin the
+// hand-derived numbers in v2-p4-pod.md against them.
 //
 // Deterministic: same config in, byte-identical boards out.
 
@@ -129,22 +133,9 @@ function drc(path: string) -> string throws baml.errors.Io | baml.errors.Timeout
 
 function build(
 ) -> string throws baml.errors.InvalidArgument | baml.errors.Io | baml.errors.ParseError | baml.errors.Timeout {
-    let paths = write_boards(features_base(), OUT_DIR());
+    let paths = write_boards(features_leds(), OUT_DIR());
     write_lib_table(OUT_DIR(), "../v3/");
-    write_panel(features_base(), OUT_DIR());
-    let lines: string[] = [];
-    for (let p in paths) {
-        lines.push(`--- ${p}`);
-        lines.push(drc(p));
-    }
-    lines.join("\n")
-}
-
-function build_leds(
-) -> string throws baml.errors.InvalidArgument | baml.errors.Io | baml.errors.ParseError | baml.errors.Timeout {
-    let paths = write_boards(features_leds(), `${OUT_DIR()}/leds`);
-    write_lib_table(`${OUT_DIR()}/leds`, "../../v3/");
-    write_panel(features_leds(), `${OUT_DIR()}/leds`);
+    write_panel(features_leds(), OUT_DIR());
     let lines: string[] = [];
     for (let p in paths) {
         lines.push(`--- ${p}`);

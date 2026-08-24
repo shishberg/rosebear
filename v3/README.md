@@ -9,7 +9,6 @@ and no diodes.
 ```
 baml test            # geometry golden test, ribbon and pod invariants
 baml run build       # emit all five boards + DRC         -> ../output_v3/
-baml run build_leds  # same, with per-key LEDs            -> ../output_v3/leds/
 baml run pinout      # the pod's GPIO assignment, for firmware
 baml run pinout_leds # same, with per-key LEDs
 ```
@@ -108,37 +107,37 @@ the installed `.kicad_mod` so a KiCad update can't move it silently.
 
 ## Status
 
-`baml run build` — five boards, KiCad 10 format, DRC clean apart from:
+`baml run build` — five boards, KiCad 10 format, per-key LEDs fitted (the
+no-LED option is simply not populating them — same PCB), DRC clean apart from:
 
-| board | `build` | `build_leds` |
-|---|---|---|
-| `finger_l` | **0** | **0** |
-| `finger_r` | **0** | **0** |
-| `thumb_l` | **0** | **0** |
-| `thumb_r` | **0** | **0** |
-| `pod` | 2 | 2 |
+| board | violations |
+|---|---|
+| `finger_l` | **0** |
+| `finger_r` | **0** |
+| `thumb_l` | **0** |
+| `thumb_r` | **0** |
+| `pod` | 2 |
 
-Unconnected items are **0 everywhere, both variants**.
+Unconnected items are **0 everywhere**.
 
 - `pod`: 2 × `lib_footprint_mismatch` on the SKQG buttons. Deliberate: the
   emitter moves every reference designator to the fab layer, and the library
   copy of that part keeps its on silkscreen. Nothing to fabricate differs.
-The two `pod` items are the only violations left in either variant.
+The two `pod` items are the only violations left.
 
 For scale: the same DRC over the ergogen-generated v2 board reports **139
 violations, 108 of them `copper_edge_clearance`** — copper too close to the
 board edge. Drawing the outline around the finished routing avoids that class
 entirely.
 
-Board sizes: finger **138 × 106mm** (133cm² of actual outline), thumb
-**67 × 51mm** (23cm²), pod **74 × 91mm**. With LEDs the finger board grows to
-**157 × 123mm** (165cm²): the chain's halo reaches past the keycaps on every
-side, and the hull is drawn to hold it.
+Board sizes: finger **157 × 129mm** (161cm² of actual outline), thumb
+**66 × 51mm** (24cm²), pod **80 × 92mm**. The LED chain's halo reaches past
+the keycaps on every side and the hull is drawn to hold it.
 
 ## All five boards in one file
 
-`baml run build` also writes `../output_v3/all.kicad_pcb` (and the LED variant
-its own under `leds/`): every board in one file, in the positions they take on
+`baml run build` also writes `../output_v3/all.kicad_pcb`: every board in one
+file, in the positions they take on
 the desk. The four key boards keep their own coordinates — they come from one
 layout, so `finger_l` already knows where `thumb_l` is — and only the pod, which
 has no place in the key geometry, is moved: centred between the hands, at the
@@ -194,7 +193,7 @@ Three constants are load-bearing and were found by measurement, not taste:
 |---|---|---|
 | `LANE_PITCH` | 1.8mm | Two diagonals offset horizontally by *s* are only `s·cos θ` apart perpendicular. The widest fan-in here runs at 76° from vertical, so 1.0mm of lane pitch became 0.24mm of actual clearance -- a short. |
 | `CONNECTOR_SIDE_OFFSET` | 8mm | How far outboard of the key field a finger half's connectors stand — the room the fan-in gets to spread into before it turns square onto the 1.00mm contacts. |
-| `COLUMN_EXIT` | 13mm | The exit line is common to the whole board but the columns are staggered, so 6mm below the *lowest* key was only 5mm below the highest column's bottom key -- above its LED's own dout row, which put the fan-in diagonals straight through the chain. |
+| the exit line | fitted | The escape channels must all end on one straight line -- two monotone point sequences on parallel lines join without crossing, and per-column exit heights lose that. But the line need not be horizontal: `finger_exit_line` fits the tightest straight line that clears every column's top pad, every key's ground-stitch via and the LED chain's over-the-top crossings, each by its own clearance. The whole fan band shears with it (verticals stay vertical, so every planarity argument survives), and the board's top edge follows the key stagger instead of sitting flat above the tallest column. |
 | finger connectors on the inboard edge | — | The pod sits between the halves, so both cables leave toward the middle rather than doubling back around the board. Turning the connector through a right angle also turns the fan-in: a straight run per net would approach contacts 1mm apart at a hundredth of that across the runs, so each net drops at its own exit x to its contact's row and turns in square. |
 
 Freerouting was considered and isn't installed (no JRE, no jar). It would be
@@ -204,7 +203,7 @@ likely want it.
 
 ## Per-key LEDs
 
-`build_leds` fits an SK6812MINI-E under every key, reverse-mounted so it shines
+The build fits an SK6812MINI-E under every key, reverse-mounted so it shines
 up through a milled window. The chain is the only net on a key board that is not
 a fan-in, and it drove the layer plan.
 
@@ -358,7 +357,7 @@ concessions rather than letting position decide:
 | 3 | IO2/3/4 | hardware JTAG |
 | 4 | IO36 | strapping — a key held at boot changes boot mode |
 
-The base build spends five SD-domain pins and one UART pin, and **leaves JTAG
+The assignment spends five SD-domain pins and one UART pin, and **leaves JTAG
 and the strapping pin alone**. Both buttons are on the left socket rather than
 one per side: buttons are ranked across the pair, and with LEDs fitted the right
 socket has exactly one pin spare — the strapping pin. Ranking matters twice
@@ -372,11 +371,11 @@ neither is broken out, so both come free.
 
 ### Known gaps
 
-- **The LED variant runs a 0.2mm copper-to-edge rule.** Not our routing: the
+- **The boards run a 0.2mm copper-to-edge rule.** Not our routing: the
   KiCad `SK6812MINI-E_..._ReverseMount` footprint mills the window the light
   comes up through and puts the LED's own four pads 0.239mm from the edge of
-  it. `build.baml` writes a `.kicad_pro` per board carrying the rule; the base
-  variant keeps 0.5mm. Worth checking against a fab before ordering.
+  it. `build.baml` writes a `.kicad_pro` per board carrying the rule. Worth
+  checking against a fab before ordering.
 - **Connector placement is derived, not designed.** Every connector now points
   its cable at the board it feeds, and that single rule fixes the rest: the pod
   link stands on the inboard edge level with the switches, cable out toward the

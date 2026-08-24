@@ -19,8 +19,8 @@ carrying the ESP32-P4. The key boards are passive — direct-wired keys, one
 conductor per key, no matrix. FFC ribbons join them: pod→finger (20-way) each
 side, finger→thumb (4-way) each side. Design source: `v2-p4-pod.md`; the
 pipeline is `v3/baml_src/` (BAML), and `output_v3/` is generated — never edit
-it. A `per_key_leds` variant adds reverse-mount LEDs and wider ribbons in
-`output_v3/leds/`.
+it, with reverse-mount per-key LEDs fitted (the no-LED option is the same
+PCB, unpopulated).
 
 ## The goals, in priority order
 
@@ -46,13 +46,13 @@ it. A `per_key_leds` variant adds reverse-mount LEDs and wider ribbons in
 ## How to inspect
 
 1. Rebuild from `v3/` (relative footprint paths): `cd v3 && baml test &&
-   baml run build && baml run build_leds`. A failing invariant test comes
+   baml run build`. A failing invariant test comes
    first; output from a failing build is stale and not worth looking at.
 2. Run the programmatic pass: `python3 v3/tools/evaluate.py` (add `--no-drc`
    while iterating, `--render` to get PNGs). It covers overlap, connector
    facing, copper containment, pod placement and DRC. A geometry FAIL is a
    pipeline bug — fix `v3/baml_src/`, never the output.
-3. **Render and actually look** — `output_v3/all.png` (and `leds/all.png`),
+3. **Render and actually look** — `output_v3/all.png`,
    plus a close-up of any board you changed. Read the picture against the
    goals; the checker cannot see ugliness. Ask, at minimum:
    - Could each ribbon really be plugged in? Trace the cable path with your

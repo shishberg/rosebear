@@ -7,10 +7,7 @@ v2: v2/config.yaml v2/footprints/*.js
 v3:
 	cd v3 && baml run build
 
-v3-leds:
-	cd v3 && baml run build_leds
-
 v3-test:
 	cd v3 && baml test
 
-.PHONY: v3 v3-leds v3-test
+.PHONY: v3 v3-test

@@ -190,7 +190,7 @@ test "each ribbon connector points its cable at the board it links to" {
             assert.equal(conns.length(), 2);
 
             let sgn = escape_side(b.id);
-            let exit_y = board_exit_y(b, sgn);
+            let el = board_exit_line(b, m, sgn, f);
 
             for (let c in conns) {
                 // A cable leaves the way the contacts face, which is the
@@ -212,7 +212,7 @@ test "each ribbon connector points its cable at the board it links to" {
 
             // Lane, contact and exit orders agree, so nothing in the bus
             // crosses anything else in it.
-            let legs = collect_legs(b, exit_y, sgn)
+            let legs = collect_legs(b, el, sgn)
                 .filter((l) -> {
                     l.bus_off > 0.0
                 })
@@ -231,7 +231,7 @@ test "each ribbon connector points its cable at the board it links to" {
                     }),
                 ),
             );
-            let exits = board_exits(b, exit_y, sgn);
+            let exits = board_exits(b, el, sgn);
             assert.is_true(
                 monotone(
                     legs.map((l) -> {
