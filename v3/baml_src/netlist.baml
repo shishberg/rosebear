@@ -240,22 +240,12 @@ function board_margin(f: Features) -> float {
     }
 }
 
-/// How far below the lowest key row a bottom-edge ribbon connector sits.
-function CONNECTOR_OFFSET() -> float {
-    30.0
-}
-
-/// How far outboard of the key field a side-mounted connector stands.
+/// How far past the muster line the thumb link sits.
 ///
-/// Only the fan-in cares: it is the room the diagonals get to spread into
-/// before they turn square onto the 1.00mm contacts.
-function CONNECTOR_SIDE_OFFSET() -> float {
-    8.0
-}
-
-/// Gap between two connectors stacked on the same edge.
-function CONNECTOR_STACK_GAP() -> float {
-    5.0
+/// Far enough that its own pass-through standoffs, which run back under its
+/// body, stop short of the fan.
+function THUMB_LINK_DROP() -> float {
+    9.0
 }
 
 /// Approximate outline of an FFC connector, used to grow the board hull.
@@ -263,10 +253,9 @@ function CONNECTOR_STACK_GAP() -> float {
 /// contacts, and about 10mm deep including the mounting pegs -- and the hull
 /// has to cover the pass-through band behind it as well as the body, or the
 /// tracks that run there fall off the edge.
-function connector_corners(ways: int, at: Vec2, r: float) -> Vec2[] {
+function connector_corners(ways: int, at: Vec2, r: float, back: float) -> Vec2[] {
     let hw = ((ways * 1.0) + 6.0) / 2.0;
     let front = 5.0;
-    let back = via_standoff(ways) + 2.0;
     let local = [
         Vec2 { x: 0.0 - hw, y: 0.0 - front },
         Vec2 { x: hw, y: 0.0 - front },
@@ -489,68 +478,106 @@ function build_board(
         0.0 - 100000.0,
     );
 
-    // A finger half stands its connectors on the edge facing the pod -- the
-    // right of the left half and the left of the right half -- so both cables
-    // leave toward the middle of the keyboard instead of doubling back around
-    // the board.
+    // Where the connectors go, and it is the cables that decide it.
     //
-    // Still below the key field, though, and that part is not a choice: every
-    // column escapes along its own axis onto one horizontal line under the
-    // lowest key, so the contacts have to be reachable from that line.
+    // A finger half stands its pod link on the edge facing the pod, alongside
+    // the keys rather than below them, with its contacts on the outboard face
+    // so the cable leaves toward the middle of the keyboard. Its thumb link
+    // sits below the innermost column -- roughly where the thumb cluster is --
+    // facing down, so that cable leaves toward the cluster. A thumb cluster's
+    // one connector faces the other way, back up at the finger board.
     //
-    // The thumb clusters keep the bottom edge. Their link runs to the finger
-    // board, which sits outboard of them, so "toward the pod" is the wrong way
-    // for a three-key board with nothing else on it.
-    let side_mount = m.id.starts_with("finger");
+    // Nothing here is a free choice once the cable directions are fixed. A
+    // connector's contacts face the way its cable leaves; the fan therefore has
+    // to arrive from behind them, under the body; and the order the contacts
+    // run in is what makes that fan planar. See `route_fanin`.
+    let sgn = escape_side(m.id);
+    let last_pad = last_signal_pad(comps, sgn);
+    let exit_y = last_pad + sgn * COLUMN_EXIT();
+    // The pod link's bus sets how deep the fan band is -- one row per
+    // conductor -- and everything below the keys sits past it.
+    let pod_ways = links.reduce(
+        (a, r) -> {
+            if (r.from_module == "pod") {
+                r.signals.length()
+            } else {
+                a
+            }
+        },
+        0,
+    );
+    let muster_y = exit_y
+        + sgn
+            * (
+                if (pod_ways > 0) {
+                    fan_depth(pod_ways)
+                } else {
+                    FAN_DEPTH()
+                }
+            );
+
+    // Toward the pod: the right of the left half, the left of the right half.
     let inboard = if (m.id.ends_with("_r")) {
         0.0 - 1.0
     } else {
         1.0
     };
-    let conn_r = if (inboard > 0.0) {
-        90.0
+    let key_edge = if (inboard > 0.0) {
+        max_x
     } else {
-        270.0
+        min_x
     };
-    let conn_x = if (inboard > 0.0) {
-        max_x + CONNECTOR_SIDE_OFFSET()
-    } else {
-        min_x - CONNECTOR_SIDE_OFFSET()
-    };
-    // The pod link is first, so it takes the slot nearest the keys: a fan-in
-    // diagonal that had to reach past the thumb connector would cross it.
-    let stack = lowest_signal_pad(comps) + COLUMN_EXIT() + BUS_GAP();
-    let n_links = links.length();
-    let span = max_x - min_x;
+    // The key nearest the pod, which is where the thumb link hangs off.
+    let inner_x = m.keys.reduce(
+        (a, k) -> {
+            let x = to_kicad(k.pos()).x;
+            if (x * inboard > a * inboard) {
+                x
+            } else {
+                a
+            }
+        },
+        0.0 - 100000.0 * inboard,
+    );
+
     let ci = 1;
-    let cursor = stack;
     for (let r in links) {
         let ways = r.signals.length();
-        // Centre the BODY in its slot, not the contacts: a 20-way is 26mm of
-        // plastic and the courtyards touch otherwise.
-        let body = (ways * 1.0) + 6.0;
+        let side_mount = r.from_module == "pod";
         let at = if (side_mount) {
-            Vec2 { x: conn_x, y: cursor + body / 2.0 }
+            // The contact nearest the muster line sits level with the lowest
+            // switch pad, so the connector stands beside the bottom rows.
+            Vec2 {
+                x: key_edge + inboard * bus_reach(ways),
+                y: last_pad - (((ways - 1) * 1.0) / 2.0),
+            }
+        } else if (m.id.starts_with("thumb")) {
+            Vec2 { x: (min_x + max_x) / 2.0, y: muster_y }
         } else {
-            // Bottom edge: spread the connectors evenly across the width.
-            let frac = if (n_links <= 1) {
-                0.5
-            } else {
-                (ci - 1) * 1.0 / ((n_links - 1) * 1.0)
-            };
-            let inward = inboard * 0.35;
-            Vec2 { x: min_x + span * (0.5 + inward * frac), y: max_y + CONNECTOR_OFFSET() }
+            Vec2 { x: inner_x, y: muster_y + THUMB_LINK_DROP() }
         };
+        // 90 and 270 point the contacts out to the side; 0 points them up the
+        // board and 180 points them down.
         let ar = if (side_mount) {
-            conn_r
-        } else {
+            if (inboard > 0.0) {
+                270.0
+            } else {
+                90.0
+            }
+        } else if (m.id.starts_with("thumb")) {
             0.0
+        } else {
+            180.0
+        };
+        let back = if (side_mount) {
+            bus_reach(ways)
+        } else {
+            via_standoff(ways) + 2.0
         };
         comps.push(connector_component(`J${ci}`, r.signals, at, ar));
-        for (let c in connector_corners(ways, at, ar)) {
+        for (let c in connector_corners(ways, at, ar, back)) {
             corners.push(c);
         }
-        cursor = cursor + body + CONNECTOR_STACK_GAP();
         ci = ci + 1;
     }
 

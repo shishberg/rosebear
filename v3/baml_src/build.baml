@@ -88,6 +88,25 @@ function write_boards(
 
 /// Run KiCad's own DRC over an emitted board. This is the check that matters:
 /// it proves the file parses in KiCad and that the geometry is manufacturable.
+/// All five boards in one file, laid out as they sit on the desk.
+///
+/// Written beside the individual boards on every build so it cannot go stale.
+/// Not DRC'd: it is a view of five separate boards that happen to share a file,
+/// and the interesting faults in it -- an outline overlapping its neighbour, a
+/// connector pointing away from the board it feeds -- are ones DRC has no rule
+/// for and a person spots at a glance.
+function write_panel(
+    f: Features,
+    outdir: string,
+) -> string throws baml.errors.InvalidArgument | baml.errors.Io | baml.errors.ParseError {
+    let bs = panel_boards(build_boards(f));
+    let path = `${outdir}/all.kicad_pcb`;
+    baml.fs.write(path, emit_panel(bs, "all"));
+    write_project(outdir, "all", f);
+    log.info(`wrote ${path} (${bs.length()} boards)`);
+    path
+}
+
 function drc(path: string) -> string throws baml.errors.Io | baml.errors.Timeout {
     let report = `${path}.drc.json`;
     // --refill-zones computes the ground pours (we emit only their outlines,
@@ -112,6 +131,7 @@ function build(
 ) -> string throws baml.errors.InvalidArgument | baml.errors.Io | baml.errors.ParseError | baml.errors.Timeout {
     let paths = write_boards(features_base(), OUT_DIR());
     write_lib_table(OUT_DIR(), "../v3/");
+    write_panel(features_base(), OUT_DIR());
     let lines: string[] = [];
     for (let p in paths) {
         lines.push(`--- ${p}`);
@@ -124,6 +144,7 @@ function build_leds(
 ) -> string throws baml.errors.InvalidArgument | baml.errors.Io | baml.errors.ParseError | baml.errors.Timeout {
     let paths = write_boards(features_leds(), `${OUT_DIR()}/leds`);
     write_lib_table(`${OUT_DIR()}/leds`, "../../v3/");
+    write_panel(features_leds(), `${OUT_DIR()}/leds`);
     let lines: string[] = [];
     for (let p in paths) {
         lines.push(`--- ${p}`);

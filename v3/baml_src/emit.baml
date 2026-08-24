@@ -474,9 +474,15 @@ function emit_zones(b: Board, names: string[], uuid_base: int) -> string {
     out.join("\n")
 }
 
-function emit_board(
-    b: Board,
+/// Emit one .kicad_pcb holding every board in `bs`, each with its own outline.
+///
+/// One board is the ordinary case and goes through here too, so the single
+/// boards and the combined view can never drift apart.
+function emit_panel(
+    bs: Board[],
+    title: string,
 ) -> string throws baml.errors.InvalidArgument | baml.errors.Io | baml.errors.ParseError {
+    let all = merge_boards(bs);
     let out: string[] = [];
     out.push("(kicad_pcb");
     out.push("\t(version 20260206)");
@@ -488,7 +494,7 @@ function emit_board(
     out.push("\t)");
     out.push("\t(paper \"A4\")");
     out.push("\t(title_block");
-    out.push(`\t\t(title "rosebear ${b.id}")`);
+    out.push(`\t\t(title "rosebear ${title}")`);
     out.push("\t)");
     out.push("\t(layers");
     out.push(board_layers());
@@ -497,18 +503,30 @@ function emit_board(
     out.push("\t\t(pad_to_mask_clearance 0)");
     out.push("\t)");
 
-    let names = net_names(b);
+    let names = net_names(all);
     out.push(net_table(names));
 
     let uid = 1000;
-    for (let c in b.components) {
+    for (let c in all.components) {
         out.push(embed_footprint(c, uid));
         uid = uid + 1;
     }
-    out.push(edge_cuts(b.outline, 90000));
-    out.push(emit_tracks(b, names, 200000));
-    out.push(emit_vias(b, names, 250000));
-    out.push(emit_zones(b, names, 300000));
+    // A UUID block per board: the outlines are separate polygons, not one
+    // ring, so they cannot share a numbering.
+    let i = 0;
+    for (let b in bs) {
+        out.push(edge_cuts(b.outline, 90000 + i * 1000));
+        i = i + 1;
+    }
+    out.push(emit_tracks(all, names, 200000));
+    out.push(emit_vias(all, names, 250000));
+    out.push(emit_zones(all, names, 300000));
     out.push(")");
     out.join("\n")
+}
+
+function emit_board(
+    b: Board,
+) -> string throws baml.errors.InvalidArgument | baml.errors.Io | baml.errors.ParseError {
+    emit_panel([b], b.id)
 }

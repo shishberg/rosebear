@@ -83,6 +83,49 @@ function BUS_GAP() -> float {
     2.5
 }
 
+/// How far behind the contacts the first bus lane runs.
+///
+/// Set by the connector's own mounting pegs, which are ground pads sitting
+/// 2.05 to 3.35mm behind the contact line at each end of the body. A lane runs
+/// the whole length of that line, so anything shallower than this shorts to
+/// them -- and only at the two ends, which is exactly the kind of fault that
+/// hides until DRC finds it.
+function BUS_STANDOFF() -> float {
+    3.9
+}
+
+/// Lane pitch in the inboard bus -- the band of parallel runs that carries the
+/// fan up the board to a connector standing alongside the keys.
+///
+/// Tighter than `LANE_PITCH`, and it can be: these runs are parallel over their
+/// whole length, so the only spacing that matters is this one. The column
+/// channels get the wider pitch because their diagonals have to converge.
+function BUS_PITCH() -> float {
+    0.65
+}
+
+/// How deep the fan band is for a connector met head-on, which needs no bus.
+function FAN_DEPTH() -> float {
+    14.0
+}
+
+/// How deep the fan band is for a bus of `ways` conductors: one row each.
+///
+/// The exits all land on one line spread across the whole board; the bus is a
+/// narrow band of parallel lanes at the inboard edge. Turning one into the
+/// other is a bus corner, and a bus corner needs a row per conductor -- each
+/// net drops to its own row, runs along it to its own lane, and only then turns
+/// up the board. Try it with diagonals straight onto the lanes and the
+/// diagonals cross the lanes, every one of them.
+function fan_depth(ways: int) -> float {
+    BUS_GAP() + (ways * 1.0) * BUS_PITCH() + 2.0
+}
+
+/// How far outboard of the key field a connector met by a bus stands.
+function bus_reach(ways: int) -> float {
+    BUS_STANDOFF() + (ways * 1.0) * BUS_PITCH() + 3.0
+}
+
 // ------------------------------------------------------- footprint geometry
 //
 // Pad offsets are declared rather than parsed. `route_test.baml` asserts each
@@ -187,6 +230,11 @@ class Leg {
     pin: int,
     /// Where this net's escape channel ends and its fan-in run begins.
     exit_y: float,
+    /// How far behind its contact this net's bus lane runs, and the row of the
+    /// fan band it gets there along. Zero for a connector met head-on, which
+    /// needs no bus at all.
+    bus_off: float,
+    bus_row: float,
 }
 
 /// The column a key net belongs to.
@@ -238,6 +286,110 @@ function contact_normal(conns: Component[], net: string) -> Vec2 {
     Vec2 { x: 0.0, y: 1.0 }
 }
 
+/// Rank of a contact in the inboard bus: 0 for the contact nearest the fan
+/// band, one more for every contact pitch away from it.
+///
+/// This is the whole lane assignment, and it is forced. A lane peels off the
+/// bus to reach its contact, crossing every lane still running past it; the
+/// only order in which that never happens is nearest-contact-on-nearest-lane,
+/// so each lane ends before the next one needs to cross it.
+function bus_rank(c: Component, pin: int, sgn: float) -> int {
+    let ways = c.pads.length() - 1;
+    let d = comp_to_global(c, ffc_pad_local(pin, ways)).y * sgn;
+    let rank = 0;
+    let i = 1;
+    while (i <= ways) {
+        if (comp_to_global(c, ffc_pad_local(i, ways)).y * sgn > d) {
+            rank = rank + 1;
+        }
+        i = i + 1;
+    }
+    rank
+}
+
+/// One net's place in the bus: how far behind the contacts its lane runs, and
+/// which row of the fan band it reaches that lane along.
+///
+/// The two orders are opposite, and that is the corner. The contact nearest the
+/// band takes the lane nearest the contacts -- it has the least far to go -- and
+/// therefore the row furthest into the band, because its lane has to run past
+/// every other row to get there.
+class BusLane {
+    off: float,
+    row: float,
+}
+
+function bus_lane(c: Component, pin: int, exit_y: float, sgn: float) -> BusLane {
+    let ways = c.pads.length() - 1;
+    let rank = bus_rank(c, pin, sgn);
+    BusLane {
+        off: BUS_STANDOFF() + (rank * 1.0) * BUS_PITCH(),
+        row: exit_y + sgn * (BUS_GAP() + (((ways - 1 - rank) * 1.0) * BUS_PITCH())),
+    }
+}
+
+/// A connector contact, named by the part it is on rather than by position, so
+/// the caller can ask for the bus lane that serves it.
+class ContactRef {
+    comp: Component,
+    pin: int,
+}
+
+function find_contact_ref(conns: Component[], net: string) -> ContactRef? {
+    for (let c in conns) {
+        let i = 1;
+        for (let p in c.pads) {
+            if (p.pad != "MP") {
+                if (p.net == net) {
+                    return ContactRef { comp: c, pin: i };
+                }
+                i = i + 1;
+            }
+        }
+    }
+    null
+}
+
+/// True when a connector is stood on edge and met by a bus rather than head-on.
+function is_side_mounted(c: Component) -> bool {
+    conn_normal(c).x.abs() > 0.5
+}
+
+/// Where a net leaves a connector contact for the back, laying the front copper
+/// that gets it there.
+///
+/// A connector the fan meets head-on gives each net its own standoff straight
+/// behind the contacts. One stood on edge has the bus behind it instead, so the
+/// net takes its bus lane out to the muster line and drops there, clear of the
+/// fan and of every other lane.
+function conn_drop(
+    c: Component,
+    pin: int,
+    exit_y: float,
+    sgn: float,
+    slot: int,
+    net: string,
+    out: Track[],
+) -> Vec2 {
+    let ways = c.pads.length() - 1;
+    let pad = comp_to_global(c, ffc_pad_local(pin, ways));
+    let n = conn_normal(c);
+    if (is_side_mounted(c)) {
+        // Down its own lane to its own row, and change layer there. Anywhere
+        // deeper would mean crossing the rows in between.
+        let bl = bus_lane(c, pin, exit_y, sgn);
+        let lane = along(pad, n, bl.off);
+        let v = Vec2 { x: lane.x, y: bl.row };
+        out.push(seg(pad, lane, net));
+        out.push(seg(lane, v, net));
+        v
+    } else {
+        let v = along(pad, n, via_standoff(slot));
+        out.push(seg(pad, v, net));
+        v
+    }
+}
+
 /// Where a net lands on a connector, if it lands on one at all.
 function find_contact(conns: Component[], net: string) -> Vec2? {
     let hits: Vec2[] = [];
@@ -271,7 +423,7 @@ function pin_index(conns: Component[], net: string) -> int {
     0
 }
 
-function collect_legs(b: Board, exit_y: float) -> Leg[] {
+function collect_legs(b: Board, exit_y: float, sgn: float) -> Leg[] {
     let conns = b.components.filter((c) -> {
         is_connector(c)
     });
@@ -299,6 +451,8 @@ function collect_legs(b: Board, exit_y: float) -> Leg[] {
                             normal: contact_normal(conns, net),
                             pin: pin_index(conns, net),
                             exit_y: exit_y,
+                            bus_off: leg_lane(conns, net, exit_y, sgn).off,
+                            bus_row: leg_lane(conns, net, exit_y, sgn).row,
                         },
                     );
                 }
@@ -306,6 +460,17 @@ function collect_legs(b: Board, exit_y: float) -> Leg[] {
         }
     }
     legs
+}
+
+/// The bus lane of whichever contact carries `net`, or nothing if that
+/// connector is met head-on.
+function leg_lane(conns: Component[], net: string, exit_y: float, sgn: float) -> BusLane {
+    if let r: ContactRef = find_contact_ref(conns, net) {
+        if (is_side_mounted(r.comp)) {
+            return bus_lane(r.comp, r.pin, exit_y, sgn);
+        }
+    }
+    BusLane { off: 0.0, row: 0.0 }
 }
 
 function seg(a: Vec2, b: Vec2, net: string) -> Track {
@@ -339,7 +504,11 @@ function route_column(legs: Leg[], out: Track[], vias: Via[]) -> Escape[] {
                 origin: Vec2 { x: 0.0, y: 0.0 },
                 r: 0.0,
                 target: Vec2 { x: 0.0, y: 0.0 },
+                normal: Vec2 { x: 0.0, y: 1.0 },
                 pin: 0,
+                exit_y: 0.0,
+                bus_off: 0.0,
+                bus_row: 0.0,
             },
     );
     let origin = bottom.origin;
@@ -353,9 +522,20 @@ function route_column(legs: Leg[], out: Track[], vias: Via[]) -> Escape[] {
         0.0
     };
 
-    // Lane order follows contact order, so lanes and contacts stay in step.
+    // Lane order follows position up the column, and is not a free choice.
+    // Every key steps out to the channel at the same innermost lane before
+    // moving to its own, so the innermost lane has to belong to the key
+    // closest to the exit line -- any other key's lane would run straight
+    // through the step-out of the key below it.
+    //
+    // That fixes the pinout rather than the other way round: the contacts must
+    // arrive in whatever order this leaves the exits in. See `link_pinout`.
     let ordered = legs.sort_by((a, b) -> {
-        a.pin - b.pin
+        if ((b.pad.y - b.exit_y).abs() > (a.pad.y - a.exit_y).abs()) {
+            0 - 1
+        } else {
+            1
+        }
     });
 
     let lane = 0;
@@ -435,17 +615,22 @@ function route_fanin(legs: Leg[], exits: Escape[], out: Track[]) -> void {
     for (let l in ordered) {
         let e = escape_of(exits, l.net);
         if (l.normal.x.abs() > 0.5) {
-            // Side-mounted: the contact line crosses the exit line, so turn the
-            // corner. In square to the pad, which is also the direction the
-            // ribbon pulls.
-            let corner = Vec2 { x: e.x, y: l.target.y };
-            out.push(seg(e, corner, l.net));
-            out.push(seg(corner, l.target, l.net));
+            // Stood on edge, alongside the keys: a bus corner. Straight out of
+            // the exit onto its own row of the fan band, along that row to its
+            // own lane, up the lane level with its contact, and in square to
+            // the pad.
+            let lane = along(l.target, l.normal, l.bus_off);
+            let drop = Vec2 { x: e.x, y: l.bus_row };
+            let corner = Vec2 { x: lane.x, y: l.bus_row };
+            out.push(seg(e, drop, l.net));
+            out.push(seg(drop, corner, l.net));
+            out.push(seg(corner, lane, l.net));
+            out.push(seg(lane, l.target, l.net));
         } else {
-            // Bottom-mounted, contacts parallel to the exit line: one straight
+            // Met head-on, contacts parallel to the escape line: one straight
             // run, ending in a short stub square to the pad so it is never
             // approached at a shallow angle.
-            let stub = along(l.target, l.normal, 0.0 - BUS_GAP());
+            let stub = along(l.target, l.normal, BUS_GAP());
             out.push(seg(e, stub, l.net));
             out.push(seg(stub, l.target, l.net));
         }
@@ -474,21 +659,20 @@ function VIA_DIA() -> float {
     0.6
 }
 
-/// Nets that arrive on one connector and leave on another.
-///
-/// The thumb cluster hangs off its finger board, so its three key nets cross
-/// the finger board without touching a switch on it: pod -> J1 -> J2 -> thumb.
-/// They are the one thing here that is not a fan-in, and the only place the
-/// board needs its second layer.
-function route_passthroughs(b: Board, f: Features, out: Track[], vias: Via[]) -> void {
-    let conns = b.components.filter((c) -> {
-        is_connector(c)
-    });
-    let n = if (f.per_key_leds) {
-        LED_LINK_SLOTS()
-    } else {
-        0
-    };
+/// One net that arrives on one connector and leaves on another.
+class PassThrough {
+    net: string,
+    a: Component,
+    ia: int,
+    z: Component,
+    iz: int,
+    /// How far the run has to travel across the board. Which end of the
+    /// standoff stack it takes turns on this, and only on this.
+    span: float,
+}
+
+function find_passthroughs(conns: Component[]) -> PassThrough[] {
+    let out: PassThrough[] = [];
     for (let a in conns) {
         for (let z in conns) {
             if (a.ref < z.ref) {
@@ -503,26 +687,16 @@ function route_passthroughs(b: Board, f: Features, out: Track[], vias: Via[]) ->
                                 if (pa.net == pz.net && pa.net.starts_with("KEY_")) {
                                     let pta = comp_to_global(a, ffc_pad_local(ia, ways_a));
                                     let ptz = comp_to_global(z, ffc_pad_local(iz, ways_z));
-                                    let off = via_standoff(n);
-                                    n = n + 1;
-                                    let va = along(pta, conn_normal(a), off);
-                                    let vz = along(ptz, conn_normal(z), off);
-                                    // Out of the contact on the front, down to
-                                    // the back, across behind the connectors,
-                                    // and up again. The pour parts around them.
-                                    out.push(seg(pta, va, pa.net));
-                                    vias.push(Via { at: va, net: pa.net });
                                     out.push(
-                                        Track {
-                                            start: va,
-                                            end: vz,
-                                            width: TRACE_W(),
-                                            layer: "B.Cu",
+                                        PassThrough {
                                             net: pa.net,
+                                            a: a,
+                                            ia: ia,
+                                            z: z,
+                                            iz: iz,
+                                            span: (pta.x - ptz.x).abs(),
                                         },
                                     );
-                                    vias.push(Via { at: vz, net: pa.net });
-                                    out.push(seg(vz, ptz, pa.net));
                                 }
                                 iz = iz + 1;
                             }
@@ -532,6 +706,68 @@ function route_passthroughs(b: Board, f: Features, out: Track[], vias: Via[]) ->
                 }
             }
         }
+    }
+    out
+}
+
+/// Nets that arrive on one connector and leave on another.
+///
+/// The thumb cluster hangs off its finger board, so its three key nets cross
+/// the finger board without touching a switch on it: pod -> J1 -> J2 -> thumb.
+/// They are the one thing here that is not a fan-in, and the only place the
+/// board needs its second layer.
+///
+/// Each takes its own lane out of the first connector, runs down it, and turns
+/// once to reach its own standoff behind the second. A straight line between
+/// the two would do neither: both ends are a millimetre-pitch row, so three
+/// straight runs between them lie almost on top of one another.
+///
+/// The corner only stays clear if the longest run turns furthest from the
+/// second connector. Turn the shortest one there instead and its cross-run
+/// passes under the lane of every run that overshoots it.
+function route_passthroughs(
+    b: Board,
+    f: Features,
+    exit_y: float,
+    sgn: float,
+    out: Track[],
+    vias: Via[],
+) -> void {
+    let ordered = find_passthroughs(
+        b.components.filter((c) -> {
+            is_connector(c)
+        }),
+    )
+        .sort_by((p, q) -> {
+            if (q.span > p.span) {
+                0 - 1
+            } else {
+                1
+            }
+        });
+    // Slot 0 belongs to the supply, which only has to reach the plane and is
+    // better off not crossing the band to do it.
+    let n = 1;
+    for (let pt in ordered) {
+        // Out of each contact on the front, down to the back, across between
+        // the two, and up again. The pour parts around them.
+        let va = conn_drop(pt.a, pt.ia, exit_y, sgn, n, pt.net, out);
+        let vz = conn_drop(pt.z, pt.iz, exit_y, sgn, n, pt.net, out);
+        n = n + 1;
+        vias.push(Via { at: va, net: pt.net });
+        let corner = Vec2 { x: va.x, y: vz.y };
+        for (let e in [[va, corner], [corner, vz]]) {
+            out.push(
+                Track {
+                    start: vec_at(e, 0),
+                    end: vec_at(e, 1),
+                    width: TRACE_W(),
+                    layer: "B.Cu",
+                    net: pt.net,
+                },
+            );
+        }
+        vias.push(Via { at: vz, net: pt.net });
     }
 }
 
@@ -566,17 +802,31 @@ function board_zones(outline: Vec2[], f: Features) -> Zone[] {
     ]
 }
 
-/// The lowest switch signal pad on a board.
+/// Which side of the key field a board escapes to: +1 below, -1 above.
+///
+/// The finger halves run their columns down and out below the bottom row,
+/// which is where the pod cable and the thumb cable both want to be. A thumb
+/// cluster's one cable goes back up to the finger board, so it escapes over
+/// the top instead and its three keys never have to be crossed.
+function escape_side(id: string) -> float {
+    if (id.starts_with("thumb")) {
+        0.0 - 1.0
+    } else {
+        1.0
+    }
+}
+
+/// The last switch signal pad on the escape side of a board.
 ///
 /// This is the one number the placement and the router have to agree on: it
 /// fixes the escape line, and the connectors are placed relative to it so every
-/// fan-in diagonal runs *away* from the key field.
-function lowest_signal_pad(comps: Component[]) -> float {
+/// fan-in run leaves *away* from the key field.
+function last_signal_pad(comps: Component[], sgn: float) -> float {
     comps.reduce(
         (a, c) -> {
             if (is_switch(c)) {
                 let p = comp_to_global(c, MX_SIGNAL_PAD());
-                if (p.y > a) {
+                if (p.y * sgn > a * sgn) {
                     p.y
                 } else {
                     a
@@ -585,8 +835,12 @@ function lowest_signal_pad(comps: Component[]) -> float {
                 a
             }
         },
-        0.0 - 100000.0,
+        0.0 - 100000.0 * sgn,
     )
+}
+
+function lowest_signal_pad(comps: Component[]) -> float {
+    last_signal_pad(comps, 1.0)
 }
 
 /// Clearance kept between a track or via and the board edge when the outline
@@ -626,14 +880,44 @@ function enclose(hull: Vec2[], tracks: Track[], vias: Via[]) -> Vec2[] {
     convex_hull(pts)
 }
 
+/// Every column's exits, without keeping the copper. Lets a test read the
+/// order the fan-in actually has to serve.
+function board_exits(b: Board, exit_y: float, sgn: float) -> Escape[] {
+    let tracks: Track[] = [];
+    let vias: Via[] = [];
+    let legs = collect_legs(b, exit_y, sgn);
+    let seen: string[] = [];
+    for (let l in legs) {
+        if (!contains_str(seen, l.column)) {
+            seen.push(l.column);
+        }
+    }
+    let out: Escape[] = [];
+    for (let col in seen) {
+        for (
+            let e in route_column(
+                legs.filter((l) -> {
+                    l.column == col
+                }),
+                tracks,
+                vias,
+            )
+        ) {
+            out.push(e);
+        }
+    }
+    out
+}
+
 function route_board(b: Board, m: Module, f: Features) -> Board {
     let tracks: Track[] = [];
     let vias: Via[] = [];
 
-    // The escape line, below every key on the board.
-    let lowest = lowest_signal_pad(b.components);
-    let exit_y = lowest + COLUMN_EXIT();
-    let legs = collect_legs(b, exit_y);
+    // The escape line, past every key on the board.
+    let sgn = escape_side(b.id);
+    let lowest = last_signal_pad(b.components, sgn);
+    let exit_y = lowest + sgn * COLUMN_EXIT();
+    let legs = collect_legs(b, exit_y, sgn);
 
     // Group by column. Keys in a column share an axis, which is what lets the
     // escape channel be a straight line.
@@ -663,10 +947,10 @@ function route_board(b: Board, m: Module, f: Features) -> Board {
     }
     route_fanin(all_legs, all_exits, tracks);
 
-    route_passthroughs(b, f, tracks, vias);
-    route_leds(b, m, f, lowest, tracks, vias);
+    route_passthroughs(b, f, exit_y, sgn, tracks, vias);
+    route_leds(b, m, f, lowest, exit_y, sgn, tracks, vias);
     route_ground_vias(b, f, vias, tracks);
-    route_supply_vias(b, f, vias, tracks);
+    route_supply_vias(b, f, exit_y, sgn, vias, tracks);
 
     // The outline is redrawn around the finished routing rather than guessed
     // from the key positions, so a channel that reaches further than expected
@@ -913,16 +1197,17 @@ function route_led_transition(
 /// between the two connectors, and a straight line from the contact to the key
 /// field crosses every one of them.
 function route_led_head(
-    contact: Vec2,
-    normal: Vec2,
+    ref: ContactRef,
+    exit_y: float,
+    sgn: float,
+    slot: int,
     dst: Component,
     outward: float,
     net: string,
     out: Track[],
     vias: Via[],
 ) -> void {
-    let v = along(contact, normal, via_standoff(0));
-    out.push(seg(contact, v, net));
+    let v = conn_drop(ref.comp, ref.pin, exit_y, sgn, slot, net, out);
     vias.push(Via { at: v, net: net });
     let p = led_key_pt(dst, Vec2 { x: outward * LED_TAIL_X(), y: LED_EXIT_Y() });
     let q = led_key_pt(dst, Vec2 { x: LED_DIN_ELBOW().x, y: LED_EXIT_Y() });
@@ -938,38 +1223,48 @@ function route_led_head(
 /// pass-through band, and only then turns in to the connector.
 function route_led_tail(
     src: Component,
-    contact: Vec2,
-    normal: Vec2,
+    ref: ContactRef,
+    exit_y: float,
+    sgn: float,
+    slot: int,
     outward: float,
     bottom_y: float,
     net: string,
     out: Track[],
     vias: Via[],
 ) -> void {
-    let v = along(contact, normal, via_standoff(1));
+    let v = conn_drop(ref.comp, ref.pin, exit_y, sgn, slot, net, out);
     let p0 = comp_to_global(src, LED_DOUT_PAD());
     let p1 = led_key_pt(src, Vec2 { x: LED_DOUT_PAD().x, y: LED_EXIT_Y() });
     let p2 = led_key_pt(src, Vec2 { x: outward * LED_TAIL_X(), y: LED_EXIT_Y() });
     // Down the outside of the key field before turning in. The last column is
     // whichever end of the chain is furthest from the connector, so the direct
     // line to it runs the length of that column.
-    let p3 = Vec2 { x: p2.x, y: bottom_y + LED_UNDER_Y() };
+    // Past the end of the key field on the side the board escapes to, which is
+    // over the top of a thumb cluster and under the bottom of a finger half.
+    let p3 = Vec2 { x: p2.x, y: bottom_y + sgn * LED_UNDER_Y() };
     for (let e in [[p0, p1], [p1, p2], [p2, p3], [p3, v]]) {
         out.push(back(vec_at(e, 0), vec_at(e, 1), net));
     }
     vias.push(Via { at: v, net: net });
-    out.push(seg(v, contact, net));
 }
 
-/// How many standoff slots behind the connectors the chain's two link vias
-/// claim, before the pass-throughs get any.
+/// Which standoff slot the chain's two link vias claim.
 ///
-/// In FRONT of the pass-through band, not behind it. The band runs across the
-/// back between the two connectors; a link via behind it has to cross every
-/// track in it to reach the key field, and going around means running along
-/// the connector row and off the side of the board.
-function LED_LINK_SLOTS() -> int {
-    2
+/// Behind the pass-through band, not in front of it. The band runs across the
+/// back between the two connectors, and the chain's two ends have to get past
+/// it to the key field. The connectors face away from the keys, so their
+/// standoffs run back toward the key field and the deepest slot is the one
+/// nearest it -- a link via anywhere shallower crosses every track in the band.
+function led_link_slot(b: Board, i: int) -> int {
+    find_passthroughs(
+        b.components.filter((c) -> {
+            is_connector(c)
+        }),
+    )
+        .length()
+        + 1
+        + i
 }
 
 function route_leds(
@@ -977,6 +1272,8 @@ function route_leds(
     m: Module,
     f: Features,
     bottom_y: float,
+    exit_y: float,
+    sgn: float,
     out: Track[],
     vias: Via[],
 ) -> void {
@@ -1009,8 +1306,8 @@ function route_leds(
     let first = leds.at(0) ?? no_component();
     let head = pad_net(first, "4");
 
-    if let t: Vec2 = find_contact(conns, head) {
-        route_led_head(t, contact_normal(conns, head), first, sign_away(first.x, mid), head, out, vias);
+    if let t: ContactRef = find_contact_ref(conns, head) {
+        route_led_head(t, exit_y, sgn, led_link_slot(b, 0), first, sign_away(first.x, mid), head, out, vias);
     }
 
     let j = 0;
@@ -1037,8 +1334,19 @@ function route_leds(
 
     let last = leds.at(n - 1) ?? no_component();
     let tail = pad_net(last, "2");
-    if let t: Vec2 = find_contact(conns, tail) {
-        route_led_tail(last, t, contact_normal(conns, tail), sign_away(last.x, mid), bottom_y, tail, out, vias);
+    if let t: ContactRef = find_contact_ref(conns, tail) {
+        route_led_tail(
+            last,
+            t,
+            exit_y,
+            sgn,
+            led_link_slot(b, 1),
+            sign_away(last.x, mid),
+            bottom_y,
+            tail,
+            out,
+            vias,
+        );
     }
 }
 
@@ -1055,21 +1363,28 @@ function sign_away(x: float, mid: float) -> float {
 /// The ribbon's LED_VDD conductors land on the connector's front pads, and the
 /// supply itself is the back pour, so each one needs a via of its own -- the
 /// mirror image of `route_ground_vias`.
-function route_supply_vias(b: Board, f: Features, vias: Via[], out: Track[]) -> void {
+function route_supply_vias(
+    b: Board,
+    f: Features,
+    exit_y: float,
+    sgn: float,
+    vias: Via[],
+    out: Track[],
+) -> void {
     if (!f.per_key_leds) {
         return;
     }
+    let k = 0;
     for (let c in b.components) {
         if (is_connector(c)) {
-            let ways = c.pads.length() - 1;
             let i = 1;
             for (let p in c.pads) {
                 if (p.pad != "MP") {
                     if (p.net == LED_VDD_NET()) {
-                        let pad = comp_to_global(c, ffc_pad_local(i, ways));
-                        let v = along(pad, conn_normal(c), via_standoff(0));
-                        out.push(seg(pad, v, p.net));
-                        vias.push(Via { at: v, net: p.net });
+                        vias.push(
+                            Via { at: conn_drop(c, i, exit_y, sgn, 0, p.net, out), net: p.net },
+                        );
+                        k = k + 1;
                     }
                     i = i + 1;
                 }

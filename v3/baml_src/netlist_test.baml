@@ -145,43 +145,124 @@ test "an LED sits the same way in its key however the key is turned" {
     }
 }
 
-/// The pod sits between the halves, so both cables should leave toward the
-/// middle -- and the angle that does that is also the angle that keeps the
-/// fan-in planar, because it decides which end of the connector contact 1 is
-/// at. Getting it backwards is not a cosmetic error.
-test "a finger half's ribbon connectors face the pod, and its fan-in stays planar" {
+/// Every cable should leave its board pointing at the board it goes to, and
+/// the fan that feeds it should be planar. Those are the same requirement:
+/// turning a connector to point its cable off the board also decides which end
+/// of it contact 1 is at, and that is what the fan's planarity turns on.
+///
+/// A pair of runs in a bus never cross exactly when the lane order, the contact
+/// order and the exit order all agree. Checking the three orderings is
+/// therefore the whole planarity argument, and it is cheaper than looking for
+/// intersections.
+function monotone(xs: float[]) -> bool {
+    let up = true;
+    let down = true;
+    let i = 1;
+    while (i < xs.length()) {
+        let a = xs.at(i - 1) ?? 0.0;
+        let b = xs.at(i) ?? 0.0;
+        if (b <= a) {
+            up = false;
+        }
+        if (b >= a) {
+            down = false;
+        }
+        i = i + 1;
+    }
+    up || down
+}
+
+test "each ribbon connector points its cable at the board it links to" {
     for (let f in [features_base(), features_leds()]) {
         let mods = partition_modules(all_keys());
         let ribbons = build_ribbons(mods, f);
         for (let hand in ["l", "r"]) {
+            let inboard = if (hand == "l") {
+                1.0
+            } else {
+                0.0 - 1.0
+            };
             let m = find_module(mods, `finger_${hand}`);
             let b = build_board(m, ribbons, f);
-            let keys_x = m.keys.map((k) -> {
-                to_kicad(k.pos()).x
-            });
             let conns = b.components.filter((c) -> {
                 is_connector(c)
             });
             assert.equal(conns.length(), 2);
+
+            let sgn = escape_side(b.id);
+            let exit_y = last_signal_pad(b.components, sgn) + sgn * COLUMN_EXIT();
+            let ways = find_ribbon(ribbons, `pod_to_finger_${hand}`).width();
+            let muster_y = exit_y + sgn * fan_depth(ways);
+
             for (let c in conns) {
-                if (hand == "l") {
-                    // Right edge, contacts turned to face the keys.
-                    assert.equal(c.r, 90.0);
-                    for (let x in keys_x) {
-                        assert.is_true(c.x > x);
+                // A cable leaves the way the contacts face, which is the
+                // opposite of the connector's own normal.
+                let n = conn_normal(c);
+                if (is_side_mounted(c)) {
+                    // The pod link: out to the side, toward the middle of the
+                    // keyboard, past every key on the board.
+                    assert.is_true(0.0 - n.x * inboard > 0.5);
+                    for (let k in m.keys) {
+                        assert.is_true((c.x - to_kicad(k.pos()).x) * inboard > 0.0);
                     }
                 } else {
-                    assert.equal(c.r, 270.0);
-                    for (let x in keys_x) {
-                        assert.is_true(c.x < x);
-                    }
+                    // The thumb link: down the board, past the fan, toward
+                    // where the cluster sits.
+                    assert.is_true(0.0 - n.y > 0.5);
+                    assert.is_true(c.y > muster_y);
                 }
             }
-            // Every contact is below the escape line, so no fan-in run doubles
-            // back over the key field to reach one.
-            let exit_y = lowest_signal_pad(b.components) + COLUMN_EXIT();
-            for (let l in collect_legs(b, exit_y)) {
-                assert.is_true(l.target.y > exit_y);
+
+            // Lane, contact and exit orders agree, so nothing in the bus
+            // crosses anything else in it.
+            let legs = collect_legs(b, exit_y, sgn)
+                .filter((l) -> {
+                    l.bus_off > 0.0
+                })
+                .sort_by((a, z) -> {
+                    if (a.bus_off < z.bus_off) {
+                        0 - 1
+                    } else {
+                        1
+                    }
+                });
+            assert.equal(legs.length(), 15);
+            assert.is_true(
+                monotone(
+                    legs.map((l) -> {
+                        l.target.y
+                    }),
+                ),
+            );
+            let exits = board_exits(b, exit_y, sgn);
+            assert.is_true(
+                monotone(
+                    legs.map((l) -> {
+                        escape_of(exits, l.net).x
+                    }),
+                ),
+            );
+        }
+    }
+}
+
+test "a thumb cluster's connector faces back up at its finger board" {
+    for (let f in [features_base(), features_leds()]) {
+        let mods = partition_modules(all_keys());
+        let ribbons = build_ribbons(mods, f);
+        for (let hand in ["l", "r"]) {
+            let m = find_module(mods, `thumb_${hand}`);
+            let b = build_board(m, ribbons, f);
+            let conns = b.components.filter((c) -> {
+                is_connector(c)
+            });
+            assert.equal(conns.length(), 1);
+            for (let c in conns) {
+                // Contacts face up the board; the keys are all below it.
+                assert.is_true(0.0 - conn_normal(c).y < 0.0 - 0.5);
+                for (let k in m.keys) {
+                    assert.is_true(c.y < to_kicad(k.pos()).y);
+                }
             }
         }
     }

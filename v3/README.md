@@ -90,8 +90,8 @@ the installed `.kicad_mod` so a KiCad update can't move it silently.
 |---|---|---|
 | `finger_l` | **0** | 1 |
 | `finger_r` | **0** | 2 |
-| `thumb_l` | **0** | 9 |
-| `thumb_r` | **0** | 13 |
+| `thumb_l` | **0** | 12 |
+| `thumb_r` | **0** | 16 |
 | `pod` | 2 | 2 |
 
 Unconnected items are **0 everywhere, both variants**.
@@ -100,7 +100,7 @@ Unconnected items are **0 everywhere, both variants**.
   emitter moves every reference designator to the fab layer, and the library
   copy of that part keeps its on silkscreen. Nothing to fabricate differs.
 - LED variant: 1–2 × `tracks_crossing` per finger board where the chain's head
-  and tail leave the connector stack, and 9–13 on the thumb boards, which is a
+  and tail leave the connector stack, and 12–16 on the thumb boards, which is a
   placement problem rather than a routing one — see *Known gaps*.
 
 For scale: the same DRC over the ergogen-generated v2 board reports **139
@@ -108,7 +108,29 @@ violations, 108 of them `copper_edge_clearance`** — copper too close to the
 board edge. Drawing the outline around the finished routing avoids that class
 entirely.
 
-The pod comes out **74.1 × 90.3mm**.
+Board sizes: finger **137 × 114mm** (122cm² of actual outline), thumb
+**69 × 77mm** (34cm²), pod **74 × 90mm**.
+
+## All five boards in one file
+
+`baml run build` also writes `../output_v3/all.kicad_pcb` (and the LED variant
+its own under `leds/`): every board in one file, in the positions they take on
+the desk. The four key boards keep their own coordinates — they come from one
+layout, so `finger_l` already knows where `thumb_l` is — and only the pod, which
+has no place in the key geometry, is moved: centred between the hands and
+dropped below them.
+
+It is not a fabrication panel. It is a viewing aid, and it earns its keep: a
+board that is the wrong size, an outline that overlaps its neighbour, a
+connector pointing away from the board it feeds are all obvious in the assembly
+and invisible one board at a time. It found the outline overlap in *Known gaps*
+within a minute of existing.
+
+Shared net names — `GND`, the thumb pass-throughs, the LED rails — meet across
+boards here, so KiCad's ratsnest draws the ribbons that are otherwise invisible.
+Refs are prefixed with the board id, since five boards' worth of `SW1` in one
+file is five different parts with one name. `emit_board` is `emit_panel` of a
+one-board list, so the single boards and the combined view cannot drift apart.
 
 ## Routing
 
@@ -281,8 +303,8 @@ neither is broken out, so both come free.
 
 ### Known gaps
 
-- **The LED variant's thumb chain still crosses itself** — 9 violations on
-  `thumb_l`, 13 on `thumb_r`, all in the chain, none unconnected. The *parts*
+- **The LED variant's thumb chain still crosses itself** — 12 violations on
+  `thumb_l`, 16 on `thumb_r`, all in the chain, none unconnected. The *parts*
   are now placed correctly (that was the mirrored-rotation bug, and it is
   covered by a test); what is left is that the chain router has two shapes,
   along a column and between columns, and a thumb cluster is neither. Its three
@@ -312,13 +334,22 @@ neither is broken out, so both come free.
   comes up through and puts the LED's own four pads 0.239mm from the edge of
   it. `build.baml` writes a `.kicad_pro` per board carrying the rule; the base
   variant keeps 0.5mm. Worth checking against a fab before ordering.
-- **Connector placement is derived, not designed.** A finger half stacks both
-  connectors on the edge facing the pod, below the key field, pod link first.
-  Below the key field is forced — every column escapes onto one line under the
-  lowest key, so the contacts have to be reachable from it — but how far
-  outboard they stand still wants deciding against the case. The thumb clusters
-  keep the bottom edge: their link runs to the finger board, which is outboard
-  of them, so "toward the pod" is the wrong way for a three-key board.
+- **Connector placement is derived, not designed.** Every connector now points
+  its cable at the board it feeds, and that single rule fixes the rest: the pod
+  link stands on the inboard edge level with the switches, cable out toward the
+  middle of the keyboard; the finger board's thumb link sits below the innermost
+  column facing down, where the cluster is; the thumb board's own connector sits
+  above its keys facing up. Turning a connector also decides which end of it
+  contact 1 is at, so the pinouts follow from the placement rather than being
+  chosen — see *Routing*. What is still undecided against the case is how far
+  outboard each one stands.
+- **The finger and thumb outlines overlap.** `../output_v3/all.kicad_pcb` puts
+  all five boards in one file at their real relative positions, and shows that
+  the finger board's convex hull sweeps over two of the three thumb switches:
+  the thumb cluster tucks in under the splayed columns, and a hull drawn round
+  the finger keys covers it. Two separate coplanar PCBs cannot do that. The
+  finger outline needs clipping back around the cluster, which makes it the
+  first non-convex outline in the pipeline.
 - **The pod board is generated but hand-designed.** Nothing about it falls out
   of the key layout, so unlike the key boards its geometry is chosen rather than
   derived. The one thing that *is* derived is the part that matters: which GPIO
