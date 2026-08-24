@@ -473,6 +473,17 @@ function leg_lane(conns: Component[], net: string, exit_y: float, sgn: float) ->
     BusLane { off: 0.0, row: 0.0 }
 }
 
+/// The unit vector pointing from `a` to `b`.
+function unit_from(a: Vec2, b: Vec2) -> Vec2 {
+    let dx = b.x - a.x;
+    let dy = b.y - a.y;
+    let l = dx.hypot(dy);
+    if (l < 0.000001) {
+        return Vec2 { x: 0.0, y: 0.0 };
+    }
+    Vec2 { x: dx / l, y: dy / l }
+}
+
 function seg(a: Vec2, b: Vec2, net: string) -> Track {
     Track { start: a, end: b, width: TRACE_W(), layer: "F.Cu", net: net }
 }
@@ -715,8 +726,24 @@ function route_thumb_fanin(
         // Through to the back at the exit, and back up right behind the
         // contact, clear of its neighbours by the contact pitch.
         let vt = Vec2 { x: l.target.x, y: l.target.y - sgn * THUMB_VIA_TUCK() };
-        vias.push(Via { at: e, net: l.net });
-        for (let pair in [[e, Vec2 { x: e.x, y: row }], [Vec2 { x: e.x, y: row }, up], [up, vt]]) {
+        // The dive via steps 1mm along the exit line toward the contacts: the
+        // escape delivering `e` surfaced through its own via a fraction north
+        // of it, and diving straight back down there puts the two holes
+        // nearly rim to rim.
+        let ed = Vec2 {
+            x: e.x
+                + (
+                    if (l.target.x > e.x) {
+                        1.0
+                    } else {
+                        0.0 - 1.0
+                    }
+                ),
+            y: e.y,
+        };
+        out.push(seg(e, ed, l.net));
+        vias.push(Via { at: ed, net: l.net });
+        for (let pair in [[ed, Vec2 { x: ed.x, y: row }], [Vec2 { x: ed.x, y: row }, up], [up, vt]]) {
             out.push(
                 Track {
                     start: vec_at(pair, 0),
@@ -824,6 +851,38 @@ function find_passthroughs(conns: Component[]) -> PassThrough[] {
     out
 }
 
+/// The pass-throughs in the order their lanes are laid out.
+///
+/// Bottom pod-link contact first: it takes the nearest lane, so each vertical
+/// drop starts before the stub of the net below it reaches its x.
+function sorted_passthroughs(conns: Component[]) -> PassThrough[] {
+    find_passthroughs(conns).sort_by((p, q) -> {
+        let pa = comp_to_global(p.a, ffc_pad_local(p.ia, p.a.pads.length() - 1));
+        let qa = comp_to_global(q.a, ffc_pad_local(q.ia, q.a.pads.length() - 1));
+        if (pa.y > qa.y) {
+            0 - 1
+        } else {
+            1
+        }
+    })
+}
+
+/// The x each pass lane runs south at, in that order.
+///
+/// Read by the LED chain too: the lanes are placed off the pod link and the
+/// chain's link contacts off the thumb link, so nothing stops the two from
+/// wanting the same strip of board.
+function pass_lane_xs(conns: Component[]) -> float[] {
+    let out: float[] = [];
+    let k = 0;
+    for (let pt in sorted_passthroughs(conns)) {
+        let pa = comp_to_global(pt.a, ffc_pad_local(pt.ia, pt.a.pads.length() - 1));
+        out.push(along(pa, conn_normal(pt.a), BUS_STANDOFF() + (k * 1.0) * BUS_PITCH()).x);
+        k = k + 1;
+    }
+    out
+}
+
 /// Nets that arrive on one connector and leave on another.
 ///
 /// The thumb cluster hangs off its finger board, so its three key nets cross
@@ -860,22 +919,26 @@ function route_passthroughs(
     // bottom contact takes the deepest row, and at the thumb link the rows
     // turn up in the order the contacts run, each shallower row having ended
     // -- turned up at its own contact -- before the next one crosses.
-    let ordered = find_passthroughs(
-        b.components.filter((c) -> {
-            is_connector(c)
-        }),
-    )
-        .sort_by((p, q) -> {
-            // Bottom pod-link contact first.
-            let pa = comp_to_global(p.a, ffc_pad_local(p.ia, p.a.pads.length() - 1));
-            let qa = comp_to_global(q.a, ffc_pad_local(q.ia, q.a.pads.length() - 1));
-            if (pa.y > qa.y) {
-                0 - 1
-            } else {
-                1
-            }
-        });
+    let conns = b.components.filter((c) -> {
+        is_connector(c)
+    });
+    let ordered = sorted_passthroughs(conns);
+    let lanes = pass_lane_xs(conns);
     let npass = ordered.length();
+    // How far each lane has to travel along the strip to reach its contact.
+    // The rows nest by that distance, not by the order the lanes leave the pod
+    // link: a lane crossing the whole strip has to pass under every vertical
+    // that drops into it, so it takes the deepest row and the shortest hop
+    // takes the shallowest. Which end of the thumb link the keys sit at
+    // depends on the hand and on how wide the link got, so the order is read
+    // off the pads rather than assumed.
+    let dists: float[] = [];
+    let ki = 0;
+    for (let pt in ordered) {
+        let pz = comp_to_global(pt.z, ffc_pad_local(pt.iz, pt.z.pads.length() - 1));
+        dists.push((pz.x - (lanes.at(ki) ?? 0.0)).abs());
+        ki = ki + 1;
+    }
     let k = 0;
     for (let pt in ordered) {
         let ways_a = pt.a.pads.length() - 1;
@@ -887,7 +950,13 @@ function route_passthroughs(
         // reaches the *farthest* thumb-link contact -- both ends walk the same
         // signal list -- so it takes the shallowest row and every lane after
         // it nests one deeper, or the turn-ups cross the rows.
-        let row = pt.z.y + 1.85 - ((npass - 1 - k) * 1.0) * 0.65;
+        let mine = dists.at(k) ?? 0.0;
+        let nearer = dists
+            .filter((d) -> {
+                d < mine
+            })
+            .length();
+        let row = pt.z.y + 1.85 - ((npass - 1 - nearer) * 1.0) * 0.65;
         // Off the front before the run reaches the thumb link's mounting
         // pegs, which sit right in the lane's path. Staggered so the vias
         // clear each other despite the lanes' sub-via pitch.
@@ -1257,15 +1326,23 @@ function LED_OVER_Y() -> float {
     0.0 - 14.0
 }
 
+/// Under the bottom the chain crosses close in, between the ground via row
+/// and the dout row: the board's south edge is cut back for the thumb board,
+/// and the old deep band ran outside it. Nothing else is down there -- the
+/// hotswap socket keeps all its hardware north of its key's centre -- so
+/// close in costs nothing.
 function LED_UNDER_Y() -> float {
-    16.0
+    8.2
 }
 
-/// Where the LED's ground pad reaches the front pour. Below and inboard, which
-/// is the one direction that clears the light window, the din stub, the dout
-/// row and the transition row all at once.
+/// Where the LED's ground pad reaches the front pour.
+///
+/// Straight below the ground pad and no further: everything south of a key is
+/// one shared corridor -- the under-the-bottom crossing and the tail both run
+/// through it -- and a hook that reached out across it would fence both off.
+/// Tucked between the pad row and that corridor, the drop is a stub.
 function LED_GND_VIA() -> Vec2 {
-    Vec2 { x: 1.0, y: 10.5 }
+    Vec2 { x: 2.73, y: 7.35 }
 }
 
 /// Where the hotswap socket's ground terminal reaches the front pour.
@@ -1277,6 +1354,23 @@ function MX_GND_VIA() -> Vec2 {
 /// its way down to the connector.
 function LED_TAIL_X() -> float {
     11.5
+}
+
+/// How far south of the head's own bus row the outboard channel starts.
+///
+/// Far enough that the diagonal onto it is clear of the hull's north-west
+/// corner, which cuts across the channel's line above this.
+function LED_HEAD_JOIN_Y() -> float {
+    12.0
+}
+
+/// How far inboard of the channel the head leaves its bus row.
+///
+/// The diagonal has to start where the board is still wide -- the corner is
+/// cut off above the channel -- and end outboard of the first column's
+/// transition lane.
+function LED_HEAD_JOIN_X() -> float {
+    8.0
 }
 
 /// One LED to the next within a column, on the front.
@@ -1314,6 +1408,127 @@ function route_din_stub(dst: Component, from: Vec2, net: string, out: Track[]) -
     out.push(back(e, p, net));
 }
 
+/// One thumb hop: LED to LED on the back where the field is open, over the
+/// front where it is not.
+///
+/// The cluster's keys are three one-key columns, so the snake-and-transition
+/// machinery would cross the field twice per hop. The LED pads are already on
+/// the back, and when the dout corner faces the next key the hop simply runs
+/// straight to its approach point.
+///
+/// The approach point sits out along the din row in the destination LED's own
+/// frame: a straight run at the elbow can graze the ground pad one pad-pitch
+/// from din, and aiming past it puts the incoming run on the din side of that
+/// pad whatever direction it arrives from.
+///
+/// When the exit and the travel direction disagree (dot below one-half), the
+/// hop must swing around the source key's hardware -- and on the mirrored
+/// hand two such swings would fence each other in: each hop's exit drop and
+/// east-west run box in the other's approach, and the dowel holes leave no
+/// planar corridor. So the swing surfaces: down to a line just south of the
+/// source key (the escape side is always north), along it past the
+/// destination, and back down at the approach point -- on the front, which
+/// above the fan band is nothing but pour and the keys' own holes.
+function route_led_thumb_hop(
+    src: Component,
+    dst: Component,
+    net: string,
+    out: Track[],
+    vias: Via[],
+) -> void {
+    let dout = comp_to_global(src, LED_DOUT_PAD());
+    let a = led_key_pt(src, LED_DOUT_VIA());
+    let f = comp_to_global(dst, THUMB_DIN_APPROACH());
+    out.push(back(dout, a, net));
+    let ex = unit_from(dout, a);
+    let v = unit_from(a, f);
+    if (ex.x * v.x + ex.y * v.y < 0.5) {
+        let ys = led_key_pt(src, Vec2 { x: 0.0, y: 0.0 }).y + 8.3;
+        let m1 = Vec2 { x: a.x, y: ys };
+        let m2 = Vec2 {
+            x: f.x
+                + 6.5
+                    * (
+                        if (a.x > f.x) {
+                            1.0
+                        } else {
+                            0.0 - 1.0
+                        }
+                    ),
+            y: ys,
+        };
+        vias.push(Via { at: a, net: net });
+        out.push(seg(a, m1, net));
+        out.push(seg(m1, m2, net));
+        out.push(seg(m2, f, net));
+        vias.push(Via { at: f, net: net });
+    } else {
+        out.push(back(a, f, net));
+    }
+    route_din_stub(dst, f, net, out);
+}
+
+/// Where a thumb hop aims before turning in: on the din row, in the LED's own
+/// frame (library coordinates -- `comp_to_global` mirrors the y), far enough
+/// out that the incoming diagonal passes wide of the ground pad, its via, and
+/// the din stub -- whatever direction it arrives from.
+function THUMB_DIN_APPROACH() -> Vec2 {
+    Vec2 { x: 9.2, y: 0.75 }
+}
+
+/// The thumb link's data contact into the cluster's first LED.
+///
+/// The drop goes through just behind the connector -- past the fan band's
+/// rows, which hug the contact line -- and the run to the key crosses only
+/// back-side pour from there.
+function route_led_thumb_head(
+    ref: ContactRef,
+    exit_y: float,
+    sgn: float,
+    dst: Component,
+    net: string,
+    out: Track[],
+    vias: Via[],
+) -> void {
+    let v = conn_drop(ref.comp, ref.pin, exit_y, sgn, 1, net, out);
+    vias.push(Via { at: v, net: net });
+    let e = led_key_pt(dst, LED_DIN_ELBOW());
+    let f = comp_to_global(dst, THUMB_DIN_APPROACH());
+    if ((f.x - e.x) * (v.x - e.x) + (f.y - e.y) * (v.y - e.y) > 0.0) {
+        // The din row points back toward the connector: run straight to the
+        // approach point and turn in along the row. The straight run passes
+        // clear of the first key's hardware on this hand.
+        // A jog first: the straight run would cross the far key's escape
+        // row and end on its surfacing via. Held at the approach point's x,
+        // the crossing of that row lands in the gap between the row's end
+        // and the next key's drop.
+        let q = Vec2 { x: f.x, y: f.y - 5.1 };
+        out.push(back(v, q, net));
+        out.push(back(q, f, net));
+        route_din_stub(dst, f, net, out);
+        return;
+    }
+    // The row points away: straight at the elbow, the run clips the first
+    // key's stem hole. The clear channel is the strip between that key's
+    // hardware and the board edge -- hold the drop's x (nudged a touch toward
+    // the edge) until almost level with the elbow, then cut across.
+    let w = Vec2 {
+        x: v.x
+            + 0.2
+                * (
+                    if (v.x > e.x) {
+                        1.0
+                    } else {
+                        0.0 - 1.0
+                    }
+                ),
+        y: e.y - 4.8,
+    };
+    out.push(back(v, w, net));
+    out.push(back(w, e, net));
+    route_din_stub(dst, e, net, out);
+}
+
 /// A column change, on the back, around the end of the key field.
 ///
 /// `sign` is -1 to cross over the top of the columns and +1 to cross under the
@@ -1331,13 +1546,24 @@ function route_led_transition(
     } else {
         LED_UNDER_Y()
     };
+    // Going over the top there is a whole board's width of empty north to
+    // cross in, so the run leaves on the usual exit row and climbs. Going
+    // under there is not: the thumb board's notch is cut out of the south
+    // edge, and a run that drops to a row of its own falls off the board. It
+    // crosses on the crossing row itself, which is the one row south of the
+    // keys that is inside the outline the whole way.
+    let row = if (sign < 0.0) {
+        LED_EXIT_Y()
+    } else {
+        cy
+    };
     let p0 = comp_to_global(src, LED_DOUT_PAD());
-    let p1 = led_key_pt(src, Vec2 { x: LED_DOUT_PAD().x, y: LED_EXIT_Y() });
-    let p2 = led_key_pt(src, Vec2 { x: LED_BUS_X(), y: LED_EXIT_Y() });
+    let p1 = led_key_pt(src, Vec2 { x: LED_DOUT_PAD().x, y: row });
+    let p2 = led_key_pt(src, Vec2 { x: LED_BUS_X(), y: row });
     let p3 = led_key_pt(src, Vec2 { x: LED_BUS_X(), y: cy });
     let q3 = led_key_pt(dst, Vec2 { x: LED_BUS_X(), y: cy });
-    let q2 = led_key_pt(dst, Vec2 { x: LED_BUS_X(), y: LED_EXIT_Y() });
-    let q1 = led_key_pt(dst, Vec2 { x: LED_DIN_ELBOW().x, y: LED_EXIT_Y() });
+    let q2 = led_key_pt(dst, Vec2 { x: LED_BUS_X(), y: row });
+    let q1 = led_key_pt(dst, Vec2 { x: LED_DIN_ELBOW().x, y: row });
     // The two columns are staggered, so their ends are not level. Crossing on
     // the straight line between them cuts the corner of whichever key sticks
     // out further; crossing at the extreme of the two clears both.
@@ -1364,29 +1590,127 @@ function route_led_transition(
     route_din_stub(dst, q1, net, out);
 }
 
-/// The ribbon's data conductor into the first LED, on the back.
+/// The pod link's data contact into the chain's first LED.
 ///
-/// Out past the pass-throughs first. They run on the back too, in a band
-/// between the two connectors, and a straight line from the contact to the key
-/// field crosses every one of them.
+/// The link stands on the inboard edge and the chain starts at the far,
+/// outboard column, so the run crosses the whole board. Each leg uses the
+/// layer that is empty there: a dive straight off the contact (under the
+/// thumb pass lanes, which drop across the tail contacts' front corridor),
+/// the link's own bus lane north on the front, then the back -- north of
+/// every column transition -- across to the chain side, and down the outside
+/// of the first column, where there is no neighbouring column to cross.
 function route_led_head(
     ref: ContactRef,
     exit_y: float,
     sgn: float,
-    slot: int,
     dst: Component,
     outward: float,
     net: string,
     out: Track[],
     vias: Via[],
 ) -> void {
-    let v = conn_drop(ref.comp, ref.pin, exit_y, sgn, slot, net, out);
-    vias.push(Via { at: v, net: net });
+    let c = ref.comp;
+    let ways = c.pads.length() - 1;
+    let pad = comp_to_global(c, ffc_pad_local(ref.pin, ways));
+    let n = conn_normal(c);
+    let w1 = along(pad, n, 2.2);
+    out.push(seg(pad, w1, net));
+    vias.push(Via { at: w1, net: net });
+    let bl = bus_lane(c, ref.pin, exit_y, sgn);
+    let l = along(pad, n, bl.off);
+    out.push(back(w1, l, net));
+    vias.push(Via { at: l, net: net });
+    let r = Vec2 { x: l.x, y: bl.row };
+    out.push(seg(l, r, net));
+    vias.push(Via { at: r, net: net });
+    // Down the outside of the first column in the *column's* frame, not the
+    // board's. The columns are splayed, so a plain vertical drop at the entry
+    // point's x walks across the key frame as it climbs -- into the hotswap
+    // pads on one hand and the transition lanes on the other -- while a line
+    // parallel to the column holds its offset the whole way. That line cannot
+    // reach the north row, which is up where the hull narrows into its corner,
+    // so the run turns onto it on a diagonal from a point inboard of it.
     let p = led_key_pt(dst, Vec2 { x: outward * LED_TAIL_X(), y: LED_EXIT_Y() });
+    let h = led_key_pt(dst, Vec2 { x: outward * LED_TAIL_X(), y: r.y + LED_HEAD_JOIN_Y() - dst.y });
+    let turn = Vec2 { x: h.x - outward * LED_HEAD_JOIN_X(), y: r.y };
+    out.push(back(r, turn, net));
+    out.push(back(turn, h, net));
+    out.push(back(h, p, net));
     let q = led_key_pt(dst, Vec2 { x: LED_DIN_ELBOW().x, y: LED_EXIT_Y() });
-    out.push(back(v, p, net));
     out.push(back(p, q, net));
     route_din_stub(dst, q, net, out);
+}
+
+/// The chain's drop off its link contact, kept out of the pass-through lanes.
+///
+/// The lanes' x is set by the pod link and the contact's by the thumb link,
+/// and on one hand the two land on top of each other -- the drop then runs
+/// down the middle of the band, shorting every lane it crosses. Where that
+/// happens it leans out to the far side of the band before diving, which is
+/// the side the lanes are not coming from.
+function led_link_drop(
+    ref: ContactRef,
+    exit_y: float,
+    sgn: float,
+    slot: int,
+    lanes: float[],
+    net: string,
+    out: Track[],
+) -> Vec2 {
+    let c = ref.comp;
+    if (is_side_mounted(c) || lanes.length() == 0) {
+        return conn_drop(c, ref.pin, exit_y, sgn, slot, net, out);
+    }
+    let pad = comp_to_global(c, ffc_pad_local(ref.pin, c.pads.length() - 1));
+    let v = along(pad, conn_normal(c), via_standoff(slot));
+    let close = lanes.filter((x) -> {
+        (x - pad.x).abs() < LANE_CLEAR()
+    });
+    if (close.length() == 0) {
+        out.push(seg(pad, v, net));
+        return v;
+    }
+    let mid = lanes.reduce(
+        (a, x) -> {
+            a + x
+        },
+        0.0,
+    )
+        / (lanes.length() * 1.0);
+    let far = if (pad.x > mid) {
+        lanes.reduce(
+            (a, x) -> {
+                if (x > a) {
+                    x
+                } else {
+                    a
+                }
+            },
+            0.0 - 100000.0,
+        )
+            + LANE_CLEAR()
+    } else {
+        lanes.reduce(
+            (a, x) -> {
+                if (x < a) {
+                    x
+                } else {
+                    a
+                }
+            },
+            100000.0,
+        )
+            - LANE_CLEAR()
+    };
+    let lean = Vec2 { x: far, y: v.y };
+    out.push(seg(pad, lean, net));
+    lean
+}
+
+/// How far a drop stands off a lane it must not touch: past the lane's own
+/// dive via, with room for the pour between them.
+function LANE_CLEAR() -> float {
+    1.8
 }
 
 /// The last LED's dout out to the ribbon, on the back.
@@ -1402,20 +1726,30 @@ function route_led_tail(
     slot: int,
     outward: float,
     bottom_y: float,
+    lanes: float[],
     net: string,
     out: Track[],
     vias: Via[],
 ) -> void {
-    let v = conn_drop(ref.comp, ref.pin, exit_y, sgn, slot, net, out);
+    let v = led_link_drop(ref, exit_y, sgn, slot, lanes, net, out);
     let p0 = comp_to_global(src, LED_DOUT_PAD());
-    let p1 = led_key_pt(src, Vec2 { x: LED_DOUT_PAD().x, y: LED_EXIT_Y() });
-    let p2 = led_key_pt(src, Vec2 { x: outward * LED_TAIL_X(), y: LED_EXIT_Y() });
-    // Down the outside of the key field before turning in. The last column is
-    // whichever end of the chain is furthest from the connector, so the direct
-    // line to it runs the length of that column.
-    // Past the end of the key field on the side the board escapes to, which is
-    // over the top of a thumb cluster and under the bottom of a finger half.
-    let p3 = Vec2 { x: p2.x, y: bottom_y + sgn * LED_UNDER_Y() };
+    // Which row it leaves on depends on which way out it goes, because the two
+    // sides of a key are closed off at different depths. Out over the din side
+    // the last hop's stub comes down to the elbow, and only the exit row is
+    // south of it; out over the dout side the next socket's ground hook
+    // reaches up past the exit row, and only the crossing row is north of it.
+    // The footprints do not mirror, so which side that is depends on the hand.
+    let row = if (outward > 0.0) {
+        LED_EXIT_Y()
+    } else {
+        LED_UNDER_Y()
+    };
+    let p1 = led_key_pt(src, Vec2 { x: LED_DOUT_PAD().x, y: row });
+    let p2 = led_key_pt(src, Vec2 { x: outward * LED_TAIL_X(), y: row });
+    // Down the outside of the last column to the drop via's own row, then
+    // straight across to it on the back -- south of the pass-through strip's
+    // dive vias and north of the clip pocket, where nothing else runs.
+    let p3 = Vec2 { x: p2.x, y: v.y };
     for (let e in [[p0, p1], [p1, p2], [p2, p3], [p3, v]]) {
         out.push(back(vec_at(e, 0), vec_at(e, 1), net));
     }
@@ -1476,11 +1810,17 @@ function route_leds(
     )
         / (n * 1.0);
 
+    let thumb = b.id.starts_with("thumb");
+
     let first = leds.at(0) ?? no_component();
     let head = pad_net(first, "4");
 
     if let t: ContactRef = find_contact_ref(conns, head) {
-        route_led_head(t, exit_y, sgn, led_link_slot(b, 0), first, sign_away(first.x, mid), head, out, vias);
+        if (thumb) {
+            route_led_thumb_head(t, exit_y, sgn, first, head, out, vias);
+        } else {
+            route_led_head(t, exit_y, sgn, first, sign_away(first.x, mid), head, out, vias);
+        }
     }
 
     let j = 0;
@@ -1488,7 +1828,9 @@ function route_leds(
         let src = leds.at(j) ?? no_component();
         let dst = leds.at(j + 1) ?? no_component();
         let net = pad_net(src, "2");
-        if ((cols.at(j) ?? "") == (cols.at(j + 1) ?? "")) {
+        if (thumb) {
+            route_led_thumb_hop(src, dst, net, out, vias);
+        } else if ((cols.at(j) ?? "") == (cols.at(j + 1) ?? "")) {
             route_led_hop(src, dst, net, out, vias);
         } else {
             // Which end of the column the chain reached. The LED before this
@@ -1516,6 +1858,7 @@ function route_leds(
             led_link_slot(b, 1),
             sign_away(last.x, mid),
             bottom_y,
+            pass_lane_xs(conns),
             tail,
             out,
             vias,
@@ -1554,9 +1897,23 @@ function route_supply_vias(
             for (let p in c.pads) {
                 if (p.pad != "MP") {
                     if (p.net == LED_VDD_NET()) {
-                        vias.push(
-                            Via { at: conn_drop(c, i, exit_y, sgn, 0, p.net, out), net: p.net },
-                        );
+                        // The back pour IS this rail, so the drop only has to
+                        // reach a via. Behind a head-on connector the first
+                        // couple of millimetres belong to the fan band's rows
+                        // and tuck vias (slot 2 clears them); a side-mounted
+                        // link dives straight off the contact, before the
+                        // thumb pass lanes cross its corridor.
+                        if (is_side_mounted(c)) {
+                            let ways2 = c.pads.length() - 1;
+                            let pad2 = comp_to_global(c, ffc_pad_local(i, ways2));
+                            let v2 = along(pad2, conn_normal(c), 2.2);
+                            out.push(seg(pad2, v2, p.net));
+                            vias.push(Via { at: v2, net: p.net });
+                        } else {
+                            vias.push(
+                                Via { at: conn_drop(c, i, exit_y, sgn, 2, p.net, out), net: p.net },
+                            );
+                        }
                         k = k + 1;
                     }
                     i = i + 1;
@@ -1593,7 +1950,15 @@ function route_ground_vias(b: Board, f: Features, vias: Via[], out: Track[]) -> 
             vias.push(Via { at: v, net: "GND" });
         }
         if (is_led(c) && f.per_key_leds) {
-            let v = led_key_pt(c, LED_GND_VIA());
+            // On a thumb board the key-frame drop swings with the splay,
+            // straight into the hop corridors; a short hook off the ground
+            // pad in the LED's own frame stays clear of everything the hops
+            // and the din approach use.
+            let v = if (b.id.starts_with("thumb")) {
+                comp_to_global(c, Vec2 { x: 2.73, y: 0.0 - 2.9 })
+            } else {
+                led_key_pt(c, LED_GND_VIA())
+            };
             out.push(back(comp_to_global(c, LED_GND_PAD()), v, "GND"));
             vias.push(Via { at: v, net: "GND" });
         }

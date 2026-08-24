@@ -113,6 +113,56 @@ function seg_cross(a: Vec2, b: Vec2, c: Vec2, d: Vec2) -> Vec2? {
 /// single notch out of the subject's boundary, crossing it exactly twice.
 /// Anything else (no crossings, or a stranger overlap) returns the subject
 /// unchanged and leaves the fault for the overlap checks to report.
+/// A value wrapped into [0, m).
+function wrapf(v: float, m: float) -> float {
+    let d = v;
+    while (d < 0.0) {
+        d = d + m;
+    }
+    while (d >= m) {
+        d = d - m;
+    }
+    d
+}
+
+/// Where a point on a polygon's boundary sits along it: vertex `j` is at
+/// parameter `j`, a point a fraction `t` along edge `j` at `j + t`. Snaps to
+/// the nearest edge, so a point computed by `seg_cross` lands exactly.
+function path_param(poly: Vec2[], p: Vec2) -> float {
+    let n = poly.length();
+    let best = 0.0;
+    let best_d = 1000000.0;
+    let j = 0;
+    while (j < n) {
+        let a = vec_at(poly, j);
+        let b = vec_at(poly, (j + 1) % n);
+        let ex = b.x - a.x;
+        let ey = b.y - a.y;
+        let l2 = ex * ex + ey * ey;
+        let t = if (l2 > 0.0) {
+            ((p.x - a.x) * ex + (p.y - a.y) * ey) / l2
+        } else {
+            0.0
+        };
+        let tc = if (t < 0.0) {
+            0.0
+        } else if (t > 1.0) {
+            1.0
+        } else {
+            t
+        };
+        let qx = a.x + tc * ex - p.x;
+        let qy = a.y + tc * ey - p.y;
+        let d = qx.hypot(qy);
+        if (d < best_d) {
+            best_d = d;
+            best = (j * 1.0) + tc;
+        }
+        j = j + 1;
+    }
+    best
+}
+
 function clip_outline(subject: Vec2[], clip: Vec2[]) -> Vec2[] {
     // Walk the subject boundary, keeping vertices outside the clip and
     // recording where it crosses in or out.
@@ -164,34 +214,59 @@ function clip_outline(subject: Vec2[], clip: Vec2[]) -> Vec2[] {
     if (crossings != 2 || entry_at < 0) {
         return subject;
     }
-    // Between entering and leaving the clip, follow the clip's own boundary
-    // -- the vertices of it that lie inside the subject, walked in the
-    // direction that joins entry to exit.
-    let inner: Vec2[] = [];
+    // Between entering and leaving the clip, follow the clip's own boundary.
+    // Both crossings sit on that boundary; parametrise it (vertex k is at
+    // position k, a crossing at fraction t along edge j is at j+t) and walk
+    // from the entry parameter to the exit parameter -- in whichever of the
+    // two directions keeps the walked vertices inside the subject. Ordering
+    // the arc by distance from the entry instead zig-zags as soon as the
+    // pocket is deeper than it is wide.
     let m = clip.length();
-    // Nearest clip vertex index after the entry point, walking each way.
-    let path_a: Vec2[] = [];
-    let path_b: Vec2[] = [];
+    let te = path_param(clip, entry);
+    let tx = path_param(clip, exitp);
+    let span = wrapf(tx - te, m * 1.0);
+    let fwd_idx: int[] = [];
+    let bwd_idx: int[] = [];
     let j = 0;
     while (j < m) {
-        let v = vec_at(clip, j);
-        if (point_in_poly(subject, v)) {
-            path_a.push(v);
+        let d = wrapf((j * 1.0) - te, m * 1.0);
+        if (d > 0.0 && d < span) {
+            fwd_idx.push(j);
+        } else if (d > span) {
+            bwd_idx.push(j);
         }
         j = j + 1;
     }
-    // Order the inside vertices by distance from the entry point; with a
-    // single notch they form one arc, and walking it from the entry end is
-    // the join we need.
-    let ordered = path_a.sort_by((p, q) -> {
-        let dp = (p.x - entry.x).hypot(p.y - entry.y);
-        let dq = (q.x - entry.x).hypot(q.y - entry.y);
-        if (dp < dq) {
+    let fs = fwd_idx.sort_by((p, q) -> {
+        if (wrapf((p * 1.0) - te, m * 1.0) < wrapf((q * 1.0) - te, m * 1.0)) {
             0 - 1
         } else {
             1
         }
     });
+    let bs = bwd_idx.sort_by((p, q) -> {
+        if (wrapf(te - (p * 1.0), m * 1.0) < wrapf(te - (q * 1.0), m * 1.0)) {
+            0 - 1
+        } else {
+            1
+        }
+    });
+    let fwd_ok = fs.reduce(
+        (a, k) -> {
+            a && point_in_poly(subject, vec_at(clip, k))
+        },
+        true,
+    );
+    let ordered = (
+        if (fwd_ok) {
+            fs
+        } else {
+            bs
+        }
+    )
+        .map((k) -> {
+            vec_at(clip, k)
+        });
     // Splice: subject-outside points up to the entry, the arc, then the rest.
     let res: Vec2[] = [];
     let k = 0;

@@ -120,7 +120,10 @@ function led_chain(m: Module) -> PlacedKey[] {
     }
     let is_thumb = m.keys.at(0)?.zone == "thumb";
     if (is_thumb) {
-        for (let cname in THUMB_ORDER()) {
+        // Far key first: the thumb link stands just beyond the far key, so
+        // starting there lets the head enter the chain without crossing the
+        // cluster, and the chain walks away from the connector.
+        for (let cname in THUMB_ORDER().reverse()) {
             for (let k in m.keys) {
                 if (k.column == cname) {
                     ordered.push(k);

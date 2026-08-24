@@ -88,10 +88,10 @@ the installed `.kicad_mod` so a KiCad update can't move it silently.
 
 | board | `build` | `build_leds` |
 |---|---|---|
-| `finger_l` | **0** | 1 |
-| `finger_r` | **0** | 2 |
-| `thumb_l` | **0** | 12 |
-| `thumb_r` | **0** | 16 |
+| `finger_l` | **0** | **0** |
+| `finger_r` | **0** | **0** |
+| `thumb_l` | **0** | **0** |
+| `thumb_r` | **0** | **0** |
 | `pod` | 2 | 2 |
 
 Unconnected items are **0 everywhere, both variants**.
@@ -99,17 +99,17 @@ Unconnected items are **0 everywhere, both variants**.
 - `pod`: 2 × `lib_footprint_mismatch` on the SKQG buttons. Deliberate: the
   emitter moves every reference designator to the fab layer, and the library
   copy of that part keeps its on silkscreen. Nothing to fabricate differs.
-- LED variant: 1–2 × `tracks_crossing` per finger board where the chain's head
-  and tail leave the connector stack, and 12–16 on the thumb boards, which is a
-  placement problem rather than a routing one — see *Known gaps*.
+The two `pod` items are the only violations left in either variant.
 
 For scale: the same DRC over the ergogen-generated v2 board reports **139
 violations, 108 of them `copper_edge_clearance`** — copper too close to the
 board edge. Drawing the outline around the finished routing avoids that class
 entirely.
 
-Board sizes: finger **137 × 114mm** (122cm² of actual outline), thumb
-**69 × 77mm** (34cm²), pod **74 × 90mm**.
+Board sizes: finger **138 × 106mm** (133cm² of actual outline), thumb
+**67 × 51mm** (23cm²), pod **74 × 91mm**. With LEDs the finger board grows to
+**157 × 123mm** (165cm²): the chain's halo reaches past the keycaps on every
+side, and the hull is drawn to hold it.
 
 ## All five boards in one file
 
@@ -209,6 +209,50 @@ consecutive columns are always entered and left at the same end.
 The chain's two link vias sit *in front of* the thumb pass-through band rather
 than behind it — behind, they would have to cross every track in it.
 
+**South of a key is one shared corridor.** The hotswap socket keeps all its
+hardware north of its key's centre, so the only clear lane across a key runs
+south of the LED — and three things want it: the under-the-bottom crossing
+between two columns, the tail on its way out, and the LED's own ground drop.
+The drop therefore goes straight down off the ground pad and stops
+(`LED_GND_VIA`), instead of hooking out across the corridor; the crossing and
+the tail then share the row (`LED_UNDER_Y`). The old deep crossing row is
+unusable anyway: the thumb board's notch is cut out of the south edge, and a
+crossing that dropped past it fell off the board.
+
+Which row the tail leaves on depends on which way out it goes, because the two
+sides of a key close off at different depths — the din stub comes down to the
+elbow on one side, the next socket's ground hook reaches up past the exit row
+on the other. The footprints do not mirror, so that is a per-hand choice, not a
+mirrored one.
+
+**The head runs in the column's frame, not the board's.** It leaves the pod
+link on that contact's own bus lane, crosses the empty north on the back, and
+comes down the outside of the first column. The columns are splayed: a plain
+vertical drop at the entry point's x walks across the key frame as it climbs —
+into the socket pads on one hand and the transition lanes on the other — while
+a line parallel to the column holds its offset all the way. That line cannot
+reach the north row, which is up where the hull narrows into its corner, so the
+run turns onto it on a short diagonal.
+
+**The thumb cluster gets its own chain shape.** Its three keys are one column
+each on an arc, so neither the along-a-column nor the between-columns shape
+fits. Each hop runs straight from the source's dout to an approach point out
+along the destination's din row; when the exit corner and the travel direction
+disagree the hop swings around the source's hardware, and on the mirrored hand
+that swing goes over the front, because two back-side swings fence each other
+in. The chain starts at the far key so its head enters without crossing the
+cluster.
+
+**The pass-through strip nests by travel distance.** Each pass lane drops to
+its own row of the strip and then runs along it to its contact; a lane that
+crosses the whole strip has to pass under every vertical dropping into it, so
+it takes the deepest row and the shortest hop the shallowest. Which end of the
+thumb link the keys sit at depends on the hand *and* on how wide the link got,
+so the order is read off the pads rather than assumed. The chain's own link
+contact can land in the middle of that band — the lanes are placed off the pod
+link and the contact off the thumb link — and where it does, its drop leans out
+to the far side of the band before diving.
+
 **An LED stores the negation of its key's angle.** It is on the back, so KiCad
 mirrors it: the stored angle is applied to coordinates that have already been
 flipped about the x axis. Store the key's own angle and the part's pads swing
@@ -303,32 +347,6 @@ neither is broken out, so both come free.
 
 ### Known gaps
 
-- **The LED variant's thumb chain still crosses itself** — 12 violations on
-  `thumb_l`, 16 on `thumb_r`, all in the chain, none unconnected. The *parts*
-  are now placed correctly (that was the mirrored-rotation bug, and it is
-  covered by a test); what is left is that the chain router has two shapes,
-  along a column and between columns, and a thumb cluster is neither. Its three
-  keys are one column each, on an arc, one of them a 1.5u turned 90° to its
-  neighbours — so every hop is a "between columns" traverse, and those are
-  quoted in each key's own frame, which on this cluster points three different
-  ways.
-
-  Several cluster-specific shapes were tried and measured: a bus row under the
-  cluster in board coordinates (collapses to nothing where the arc turns
-  steeply), and a run parallel to the arc at a fixed radius from each key
-  (lands on the hotswap socket of whichever key it passes, since the socket
-  reaches 7.7mm out and the gap between keys is 22mm). Both are recorded here
-  rather than left in the tree.
-
-  What actually decides it is a placement question: the 1.5u thumb key turned
-  90° has no clear side. Either it takes a different LED position from its
-  neighbours, or the cluster's keys move. That is a call about the case, not
-  about the router.
-- **The finger chain's head and tail cross where they leave the connectors** —
-  1 violation on `finger_l`, 2 on `finger_r`. Both ends of the chain leave the
-  connector stack on the back into the same corridor. Swapping which one takes
-  the inner standoff slot was tried and is worse; it wants a proper ordering
-  rule rather than a guess.
 - **The LED variant runs a 0.2mm copper-to-edge rule.** Not our routing: the
   KiCad `SK6812MINI-E_..._ReverseMount` footprint mills the window the light
   comes up through and puts the LED's own four pads 0.239mm from the edge of
