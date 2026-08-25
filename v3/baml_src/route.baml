@@ -128,9 +128,60 @@ function fan_depth(ways: int) -> float {
     BUS_GAP() + (ways * 1.0) * BUS_PITCH() + 2.0
 }
 
+/// Whether a signal claims a lane in the inboard bus.
+///
+/// Keys do: every one of them arrives from the fan band and turns in behind the
+/// contacts. So does the LED chain's data head, which leaves for the band the
+/// same way. The rest of the tail -- rails, ground, the trackball's pass-throughs,
+/// the spare -- leaves southward through the strip below the connector and never
+/// runs behind it.
+function takes_lane(s: Signal) -> bool {
+    s.kind == SignalKind.Key || s.kind == SignalKind.LedData
+}
+
+/// How many bus lanes a ribbon's contacts actually claim.
+///
+/// `bus_rank` counts contacts from the band end, so the deepest lane belongs to
+/// the *furthest* contact that takes one -- not to the last contact on the
+/// connector. Every contact past it is tail, and its lane is a lane nobody uses.
+///
+/// Which end the band is at falls out of where the keys are packed: `band_pinout`
+/// puts them in one block against it and hangs the tail off the other end, and
+/// the two hands disagree about which end that is.
+function bus_lanes(sigs: Signal[]) -> int {
+    let n = sigs.length();
+    let first = n;
+    let last = 0 - 1;
+    let i = 0;
+    for (let s in sigs) {
+        if (takes_lane(s)) {
+            if (i < first) {
+                first = i;
+            }
+            last = i;
+        }
+        i = i + 1;
+    }
+    if (last < 0) {
+        return 0;
+    }
+    if (first <= n - 1 - last) {
+        last + 1
+    } else {
+        n - first
+    }
+}
+
 /// How far outboard of the key field a connector met by a bus stands.
-function bus_reach(ways: int) -> float {
-    BUS_STANDOFF() + (ways * 1.0) * BUS_PITCH() + 3.0
+///
+/// One lane per contact that claims one, plus the standoff the shallowest lane
+/// keeps off the contacts and three millimetres between the deepest lane and the
+/// key field. It used to count every way on the ribbon, which paid for a lane
+/// behind each of the tail contacts as well -- lanes nothing runs down, and a
+/// belt of empty board between the connector and the innermost column to hold
+/// them.
+function bus_reach(lanes: int) -> float {
+    BUS_STANDOFF() + (lanes * 1.0) * BUS_PITCH() + 3.0
 }
 
 // ------------------------------------------------------- footprint geometry

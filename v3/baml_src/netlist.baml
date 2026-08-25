@@ -732,7 +732,7 @@ function build_board(
             } else {
                 mean_key_y
             };
-            Vec2 { x: key_edge + inboard * bus_reach(ways), y: y }
+            Vec2 { x: key_edge + inboard * bus_reach(bus_lanes(r.signals)), y: y }
         } else {
             let spot = link_spot(m.id, ways, inboard);
             if (m.id.starts_with("thumb")) {
@@ -755,7 +755,7 @@ function build_board(
             180.0
         };
         let back = if (side_mount) {
-            bus_reach(ways)
+            bus_reach(bus_lanes(r.signals))
         } else {
             // The link pair keeps its standoff vias inside the body: one
             // depth, one per contact x. See `route_passthroughs`.
