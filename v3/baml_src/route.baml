@@ -1100,6 +1100,152 @@ function pass_lane_xs(conns: Component[]) -> float[] {
     out
 }
 
+/// How far beyond the last pass contact the back-side descent band starts.
+///
+/// The turn-ups stand on the contacts themselves, so this has to clear a via:
+/// via radius, trace half-width, and the rule.
+function PASS_BAND_GAP() -> float {
+    0.75
+}
+
+function PASS_BAND_PITCH() -> float {
+    0.65
+}
+
+/// The x each pass-through comes down at on the back, in the same order.
+///
+/// Deliberately not the lane x. The lanes are placed off the pod link and the
+/// contacts they serve are on the thumb link, and the two have no reason to
+/// line up: widen the pod link's ribbon and it stands further outboard, which
+/// slides the whole lane band sideways across the thumb link's contacts. Each
+/// net traces a U -- down its lane, along its row, up at its contact -- and
+/// two U's stay clear of each other only if their spans nest or miss entirely.
+/// Let the band drift into the contacts and the spans interleave instead, and
+/// then no assignment of rows is planar, because the shallower row of an
+/// interleaved pair always crosses the other's descent. The LED-only build
+/// cleared this by 0.209mm, which is to say it was luck rather than design.
+///
+/// So the descents get a band of their own, placed off the contacts they serve
+/// rather than off the lanes they come from: just past the outermost pass
+/// contact, on the side the rest of the connector is, where the back of the
+/// board is nothing but the body's shadow. Every U then begins outside every
+/// contact and ends on its own, so nearest-contact-on-nearest-descent nests
+/// them by construction and the rows follow the same order.
+/// Where the descent band stands: which contact it starts just outside of, and
+/// which way it runs from there.
+class PassBand {
+    edge: float,
+    side: float,
+}
+
+/// The pass contacts' own x, in `sorted_passthroughs` order.
+function pass_contact_xs(conns: Component[]) -> float[] {
+    let xs: float[] = [];
+    for (let pt in sorted_passthroughs(conns)) {
+        xs.push(comp_to_global(pt.z, ffc_pad_local(pt.iz, pt.z.pads.length() - 1)).x);
+    }
+    xs
+}
+
+function pass_band(conns: Component[]) -> PassBand {
+    let ordered = sorted_passthroughs(conns);
+    let xs = pass_contact_xs(conns);
+    let n = xs.length();
+    if (n == 0) {
+        return PassBand { edge: 0.0, side: 1.0 };
+    }
+    let sum = 0.0;
+    for (let x in xs) {
+        sum = sum + x;
+    }
+    let mid = sum / (n * 1.0);
+    // The pass contacts sit together at one end of the link, so the way to the
+    // rest of it is the way with room: on the back, the body's own shadow.
+    let zx = (ordered.at(0)?.z.x) ?? mid;
+    let side = if (zx > mid) {
+        1.0
+    } else {
+        0.0 - 1.0
+    };
+    let edge = mid;
+    for (let x in xs) {
+        if ((x - mid) * side > (edge - mid) * side) {
+            edge = x;
+        }
+    }
+    PassBand { edge: edge, side: side }
+}
+
+/// How far out a pass-through sits in the band: 0 for the contact nearest it.
+///
+/// One number does three jobs, and they are the same nesting seen three ways.
+/// It picks the descent, so the widest U is outermost. It picks the row, so the
+/// widest U is deepest and every narrower one has turned up before it passes.
+/// And it picks the dive, so the run that jogs furthest across the back does it
+/// furthest from the link, north of every descent it would otherwise cross.
+function pass_ranks(conns: Component[]) -> int[] {
+    let xs = pass_contact_xs(conns);
+    let e = pass_band(conns).edge;
+    let out: int[] = [];
+    for (let x in xs) {
+        out.push(
+            xs
+                .filter((q) -> {
+                    (q - e).abs() < (x - e).abs()
+                })
+                .length(),
+        );
+    }
+    out
+}
+
+function pass_descent_xs(conns: Component[]) -> float[] {
+    let band = pass_band(conns);
+    let out: float[] = [];
+    for (let r in pass_ranks(conns)) {
+        out.push(band.edge + band.side * (PASS_BAND_GAP() + (r * 1.0) * PASS_BAND_PITCH()));
+    }
+    out
+}
+
+/// How far from the thumb link each run drops to the back: 0 for the nearest.
+///
+/// Not the rank. The jog from the lane to the descent band runs over the band,
+/// so a run has to make its jog clear of every descent already standing in the
+/// way -- which means north of them, since a descent runs from its own dive
+/// south. Order them by how far each descent is from the lanes and the run
+/// with the longest jog goes first, above all the rest.
+///
+/// Which end that is depends on the hand: the lanes come off the pod link and
+/// the band is placed off the thumb link, so on one half the jogs run outward
+/// over the band and on the other they run back inward over it. Reading the
+/// order off the two x's rather than off the contact order is what makes the
+/// same code do both.
+function pass_staggers(conns: Component[]) -> int[] {
+    let lanes = pass_lane_xs(conns);
+    let n = lanes.length();
+    if (n == 0) {
+        return [];
+    }
+    let sum = 0.0;
+    for (let x in lanes) {
+        sum = sum + x;
+    }
+    let ref = sum / (n * 1.0);
+    let ds = pass_descent_xs(conns);
+    let out: int[] = [];
+    for (let d in ds) {
+        out.push(
+            ds
+                .filter((q) -> {
+                    (q - ref).abs() < (d - ref).abs()
+                })
+                .length(),
+        );
+    }
+    out
+}
+
 /// Nets that arrive on one connector and leave on another.
 ///
 /// The thumb cluster hangs off its finger board, so its three key nets cross
@@ -1141,21 +1287,10 @@ function route_passthroughs(
     });
     let ordered = sorted_passthroughs(conns);
     let lanes = pass_lane_xs(conns);
+    let descents = pass_descent_xs(conns);
+    let ranks = pass_ranks(conns);
+    let staggers = pass_staggers(conns);
     let npass = ordered.length();
-    // How far each lane has to travel along the strip to reach its contact.
-    // The rows nest by that distance, not by the order the lanes leave the pod
-    // link: a lane crossing the whole strip has to pass under every vertical
-    // that drops into it, so it takes the deepest row and the shortest hop
-    // takes the shallowest. Which end of the thumb link the keys sit at
-    // depends on the hand and on how wide the link got, so the order is read
-    // off the pads rather than assumed.
-    let dists: float[] = [];
-    let ki = 0;
-    for (let pt in ordered) {
-        let pz = comp_to_global(pt.z, ffc_pad_local(pt.iz, pt.z.pads.length() - 1));
-        dists.push((pz.x - (lanes.at(ki) ?? 0.0)).abs());
-        ki = ki + 1;
-    }
     let k = 0;
     for (let pt in ordered) {
         let ways_a = pt.a.pads.length() - 1;
@@ -1163,26 +1298,27 @@ function route_passthroughs(
         let na = conn_normal(pt.a);
         let lane = along(pad_a, na, BUS_STANDOFF() + (k * 1.0) * BUS_PITCH());
         // The strip: rows tucked between the thumb link's contacts and the
-        // board edge. The bottom contact's lane is nearest the pod link and
-        // reaches the *farthest* thumb-link contact -- both ends walk the same
-        // signal list -- so it takes the shallowest row and every lane after
-        // it nests one deeper, or the turn-ups cross the rows.
-        let mine = dists.at(k) ?? 0.0;
-        let nearer = dists
-            .filter((d) -> {
-                d < mine
-            })
-            .length();
-        let row = pt.z.y + 1.85 - ((npass - 1 - nearer) * 1.0) * 0.65;
+        // board edge. The contact nearest the descent band has the narrowest
+        // U, so it takes the shallowest row and every one outside it nests a
+        // row deeper, or the turn-ups cross the rows.
+        let r = ranks.at(k) ?? 0;
+        let row = pt.z.y + 1.85 - ((npass - 1 - r) * 1.0) * 0.65;
         // Off the front before the run reaches the thumb link's mounting
         // pegs, which sit right in the lane's path. Staggered so the vias
-        // clear each other despite the lanes' sub-via pitch.
-        let dive = Vec2 { x: lane.x, y: pt.z.y - LINK_BODY_DEPTH() - 0.5 - (k * 1.0) * 0.9 };
-        let va = Vec2 { x: lane.x, y: row };
+        // clear each other despite the lanes' sub-via pitch, and so the run
+        // with furthest to jog crosses the back above the rest.
+        let sg = staggers.at(k) ?? 0;
+        let dive = Vec2 { x: lane.x, y: pt.z.y - LINK_BODY_DEPTH() - 0.5 - (sg * 1.0) * 0.9 };
+        // Across the back to the descent band, then down it. The jog is what
+        // decouples the lanes from the contacts; see `pass_descent_xs`.
+        let dx = descents.at(k) ?? lane.x;
+        let jog = Vec2 { x: dx, y: dive.y };
+        let va = Vec2 { x: dx, y: row };
         out.push(seg(pad_a, lane, pt.net));
         out.push(seg(lane, dive, pt.net));
         vias.push(Via { at: dive, net: pt.net });
-        out.push(Track { start: dive, end: va, width: TRACE_W(), layer: "B.Cu", net: pt.net });
+        out.push(Track { start: dive, end: jog, width: TRACE_W(), layer: "B.Cu", net: pt.net });
+        out.push(Track { start: jog, end: va, width: TRACE_W(), layer: "B.Cu", net: pt.net });
 
         let ways_z = pt.z.pads.length() - 1;
         let pad_z = comp_to_global(pt.z, ffc_pad_local(pt.iz, ways_z));

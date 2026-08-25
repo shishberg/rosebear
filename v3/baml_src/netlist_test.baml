@@ -390,3 +390,52 @@ test "no trackball track crosses another net on its own layer" {
         }
     }
 }
+
+/// A cheap reject before the real crossing test: two segments whose bounding
+/// boxes miss each other cannot cross, and on a board of a thousand-odd tracks
+/// almost every pair misses.
+function boxes_miss(a1: Vec2, a2: Vec2, b1: Vec2, b2: Vec2) -> bool {
+    let axl = if (a1.x < a2.x) { a1.x } else { a2.x };
+    let axh = if (a1.x > a2.x) { a1.x } else { a2.x };
+    let ayl = if (a1.y < a2.y) { a1.y } else { a2.y };
+    let ayh = if (a1.y > a2.y) { a1.y } else { a2.y };
+    let bxl = if (b1.x < b2.x) { b1.x } else { b2.x };
+    let bxh = if (b1.x > b2.x) { b1.x } else { b2.x };
+    let byl = if (b1.y < b2.y) { b1.y } else { b2.y };
+    let byh = if (b1.y > b2.y) { b1.y } else { b2.y };
+    axh < bxl || bxh < axl || ayh < byl || byh < ayl
+}
+
+/// The same all-pairs check `no two nets cross on the same layer` runs over the
+/// pod, run over the key boards.
+///
+/// The pod had this and the key boards did not, and the gap cost real copper:
+/// the thumb pass-throughs run their lanes off one connector and their contacts
+/// off another, and when the pod link widened for the trackball the two slid
+/// across each other and three nets shorted on the back. KiCad's DRC caught it
+/// in the end, but only after the boards were written; the planarity arguments
+/// in `route.baml` are the design, so they belong in a test that fails first.
+test "no two nets cross on the same layer, on any key board" {
+    for (let f in [features_base(), features_leds(), features_trackball()]) {
+        for (let b in build_boards(f)) {
+            let n = b.tracks.length();
+            let i = 0;
+            while (i < n) {
+                let t = b.tracks.at(i)
+                    ?? Track { start: Vec2 { x: 0.0, y: 0.0 }, end: Vec2 { x: 0.0, y: 0.0 }, width: 0.0, layer: "", net: "" };
+                let j = i + 1;
+                while (j < n) {
+                    let u = b.tracks.at(j)
+                        ?? Track { start: Vec2 { x: 0.0, y: 0.0 }, end: Vec2 { x: 0.0, y: 0.0 }, width: 0.0, layer: "", net: "" };
+                    if (t.layer == u.layer && t.net != u.net) {
+                        if (!boxes_miss(t.start, t.end, u.start, u.end)) {
+                            assert.is_true(!segments_cross(t.start, t.end, u.start, u.end));
+                        }
+                    }
+                    j = j + 1;
+                }
+                i = i + 1;
+            }
+        }
+    }
+}

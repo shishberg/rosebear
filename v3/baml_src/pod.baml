@@ -732,6 +732,13 @@ function pod_stitching_vias() -> Via[] {
         Via { at: Vec2 { x: c.x + 6.0, y: c.y - 26.0 }, net: "GND" },
         Via { at: Vec2 { x: c.x - 6.0, y: c.y + 26.0 }, net: "GND" },
         Via { at: Vec2 { x: c.x + 6.0, y: c.y + 26.0 }, net: "GND" },
+        // The south-east corner, outside the escape channels entirely. The
+        // right link's fan runs along two sides of it, and once that link
+        // carried the trackball's five extra ways the fan grew long enough to
+        // close the corner off: about 170mm2 of front pour with no path back
+        // to the rest of it. Every other tie here is a pair astride a channel;
+        // this one is a corner the channels finally walled in.
+        Via { at: Vec2 { x: c.x + 31.5, y: c.y + 17.5 }, net: "GND" },
     ]
 }
 

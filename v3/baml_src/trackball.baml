@@ -245,8 +245,9 @@ function has_trackball(id: string, f: Features) -> bool {
 // Under the inner column that leaves 2.3mm, and five lanes at 0.5mm pitch fit
 // in it with a quarter of a millimetre at each end. Nothing else fits there
 // at all, which is why the whole bundle is on one layer and why the step onto
-// these rows waits until x=259, where the pocket edge has sloped far enough
-// south to admit the outermost of them.
+// these rows lands at x=262, where the pocket edge has sloped far enough
+// south to admit the outermost of them and the inner column's LED corner is
+// still ahead. See `TB_STEP_X0`.
 //
 // Two orders are forced and they are the same one. The southernmost contact
 // takes the westernmost turn (or its drop crosses the run of the net below
@@ -296,16 +297,31 @@ function tb_flank_x(k: int) -> float {
 
 /// Where the step from the staging rows to the final rows begins and ends.
 ///
-/// It begins where the pocket edge has dropped far enough south to hold the
-/// outermost row (x=259 leaves it 0.37mm clear of the edge, against a 0.2mm
-/// rule) and it ends before the inner column's front hop row starts at
-/// x=263.37.
+/// Two ends, two different constraints, and between them the length is set by
+/// a third.
+///
+/// The east end has to clear the corner the inner column's LED turns: it comes
+/// down the front at x=263.37 and turns east at y=103.75. The step lands at
+/// x=262, west of that corner, so the only thing that passes it is the final
+/// row itself, running east 0.55mm south of the hop row.
+///
+/// The east end also has to be far enough east that the pocket edge -- which
+/// runs south-east across this strip -- has dropped clear of the outermost
+/// row at y=106.3. That wants x >= 257.9; 262 clears it by 0.36mm against a
+/// 0.2mm rule.
+///
+/// The length is the binding one. Five parallel diagonals 0.5mm apart in y sit
+/// only `0.5 * dx/len` apart measured square to themselves, so a short steep
+/// step pinches them together: over the 3.1mm drop the run has to be at least
+/// 6.4mm for 0.25mm-wide traces to keep 0.2mm. Nine millimetres leaves 0.22mm,
+/// and the strip between x=248 and the LED's corner holds nothing else, so
+/// there is no reason to be stingy with it.
 function TB_STEP_X0() -> float {
-    259.0
+    253.0
 }
 
 function TB_STEP_X1() -> float {
-    263.5
+    262.0
 }
 
 /// How far behind its contact a lane drops to the back. The pod link's own

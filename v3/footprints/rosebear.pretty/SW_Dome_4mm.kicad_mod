@@ -3,7 +3,7 @@
 	(generator "pcbnew")
 	(generator_version "10.0")
 	(layer "F.Cu")
-	(descr "4mm metal dome contact, two-pad land. Sits under the centre of the trackball unit so pressing the ball closes it. Pad 1 is the switched line, pad 2 the dome skirt, which is grounded. Dimensions are a generic 4mm dome land and are UNVERIFIED against a part in hand.")
+	(descr "4mm metal dome contact, two-pad land. Sits under the centre of the trackball unit so pressing the ball closes it. Pad 1 is the switched line, pad 2 the dome skirt, which is grounded. No courtyard: this land lives inside the ball unit's own footprint by design, so the ball's courtyard is the one that has to be kept clear, and a courtyard here would only report the overlap it is meant to have. Dimensions are a generic 4mm dome land and are UNVERIFIED against a part in hand.")
 	(tags "dome tactile switch trackball click")
 	(property "Reference" "REF**"
 		(at 0 -2.9 0)
@@ -38,17 +38,6 @@
 		(fill no)
 		(layer "F.Fab")
 		(uuid "20000000-0000-4000-8000-000000000003")
-	)
-	(fp_rect
-		(start -2.4 -1.7)
-		(end 2.4 1.7)
-		(stroke
-			(width 0.05)
-			(type solid)
-		)
-		(fill no)
-		(layer "F.CrtYd")
-		(uuid "20000000-0000-4000-8000-000000000004")
 	)
 	(pad "1" smd rect
 		(at 0 0)
