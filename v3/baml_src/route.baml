@@ -70,12 +70,19 @@ function LANE_X0() -> float {
 /// of the column's band rows (`band_groups`); the planarity argument is the
 /// group nesting, not a board-wide line.
 ///
-/// Pad half-width + trace + clearance past the extreme pad edge. The LED
-/// chain never reaches north of the keys -- its column transitions run
-/// through the field on the exit row -- so both variants only need the line
-/// clear of the extreme socket pad.
+/// Pad half-height + trace half-width + clearance past the pad centre: the
+/// socket's signal pad is 2.5 tall, so its edge is 1.25 out and 1.6 clears it
+/// by a quarter of a millimetre against a 0.2 rule. The LED chain never
+/// reaches north of the keys -- its column transitions run through the field
+/// on the exit row -- so both variants only need the line clear of the extreme
+/// socket pad.
+///
+/// It was 3.5, which is what the pad wanted if you measured from its edge
+/// rather than its centre and then rounded up twice. Nearly two millimetres
+/// of that came straight off the top of every board, because this plus
+/// `BUS_GAP` is where the fan band's deepest row sits.
 function column_exit() -> float {
-    3.5
+    1.6
 }
 
 /// Clearance kept between the fan-in bus and the connector contacts.
@@ -1564,10 +1571,10 @@ function finger_exit_line(b: Board, sgn: float) -> float {
     let pts = column_exit_points(b.components, sgn, column_exit());
     for (let c in b.components) {
         if (is_switch(c)) {
-            // Every key's ground stitch via sits 10.5mm up the key -- 5.4
-            // past the signal pad -- right where the bus rows want to run.
-            // Keep the *shallowest* row (BUS_GAP out from the line) clear of
-            // it, which bounds the line through the row's own offset.
+            // Every key's ground stitch via sits 6mm up the key, just past
+            // the socket's own pads, where the bus rows want to run. Keep the
+            // *shallowest* row (BUS_GAP out from the line) clear of it, which
+            // bounds the line through the row's own offset.
             let v = comp_to_global(c, MX_GND_VIA());
             pts.push(Vec2 { x: v.x, y: v.y + sgn * (0.65 - BUS_GAP()) });
         }
@@ -1774,10 +1781,14 @@ function LED_EXIT_Y() -> float {
 
 /// The row a transition crosses a key tile on: just NORTH of the ground
 /// stitch via (the socket's ground stub runs from pad to via right through
-/// the strip between them, so the crossing cannot go there), and still well
-/// south of the fan band's deepest row.
+/// the strip between them, so the crossing cannot go there), and still south
+/// of the fan band's deepest row.
+///
+/// It tracks the stitch via, which is why it moved four millimetres south
+/// when the via did. The band came south with both of them, so the room
+/// between this row and the band's deepest row is what it always was.
 function LED_TOP_ROW() -> float {
-    0.0 - 11.5
+    0.0 - 7.5
 }
 
 /// Under the bottom the chain crosses close in, between the ground via row
@@ -1800,8 +1811,20 @@ function LED_GND_VIA() -> Vec2 {
 }
 
 /// Where the hotswap socket's ground terminal reaches the front pour.
+///
+/// Straight up from the pad and no further than it has to be. It used to sit
+/// at (-6.5,-10.5): eight millimetres of stub, laid on a slight diagonal, to
+/// reach a spot 10.5mm up a key whose own hardware stops at 6.33. That cost
+/// twice over, because the via is one of the two things the fan band has to
+/// keep clear of -- so the band, and with it the whole north edge of the
+/// board, stood off the tallest column at the height of a via nobody had put
+/// anywhere in particular.
+///
+/// x is the pad's own, so the stub is a plain vertical run; the strip it runs
+/// up is clear either side, the socket's 3mm hole ending at x=-5.31 and the
+/// previous column's outermost channel lane at -9.12.
 function MX_GND_VIA() -> Vec2 {
-    Vec2 { x: 0.0 - 6.5, y: 0.0 - 10.5 }
+    Vec2 { x: 0.0 - 7.085, y: 0.0 - 6.0 }
 }
 
 /// The lane the last LED's dout takes out past the end of the key field, on
