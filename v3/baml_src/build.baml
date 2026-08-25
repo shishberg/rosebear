@@ -95,10 +95,17 @@ function write_boards(
 /// All five boards in one file, laid out as they sit on the desk.
 ///
 /// Written beside the individual boards on every build so it cannot go stale.
-/// Not DRC'd: it is a view of five separate boards that happen to share a file,
-/// and the interesting faults in it -- an outline overlapping its neighbour, a
+///
+/// Its DRC report is not kept: it is a view of five separate boards that happen
+/// to share a file, so every cable between them reads as an unconnected net and
+/// the interesting faults in it -- an outline overlapping its neighbour, a
 /// connector pointing away from the board it feeds -- are ones DRC has no rule
 /// for and a person spots at a glance.
+///
+/// It still has to go through `refill`, because the zone fill rides along with
+/// DRC and there is no other way to ask for it. Without that the panel opens
+/// with its pours as bare outlines: no ground plane, and every ground pad in
+/// all five boards showing an airwire to every other one.
 function write_panel(
     f: Features,
     outdir: string,
@@ -111,11 +118,14 @@ function write_panel(
     path
 }
 
+/// Run DRC over a board, filling its zones on the way through.
+///
+/// We emit zones as outlines only, so `--refill-zones` is what turns them into
+/// copper and `--save-board` is what writes that copper back. Both are needed
+/// for the shipped board to be the one DRC actually checked -- and, separately,
+/// for the board to have a ground plane at all when it is opened.
 function drc(path: string) -> string throws baml.errors.Io | baml.errors.Timeout {
     let report = `${path}.drc.json`;
-    // --refill-zones computes the ground pours (we emit only their outlines,
-    // not their fill), and --save-board writes them back, so the board that
-    // ships has the copper DRC actually checked.
     let r = baml.sys.exec(
         KICAD_CLI(),
         ["pcb", "drc", "--format", "json", "-o", report, "--refill-zones", "--save-board", path],
@@ -135,11 +145,14 @@ function build(
 ) -> string throws baml.errors.InvalidArgument | baml.errors.Io | baml.errors.ParseError | baml.errors.Timeout {
     let paths = write_boards(features_trackball(), OUT_DIR());
     write_lib_table(OUT_DIR(), "../v3/");
-    write_panel(features_trackball(), OUT_DIR());
+    let panel = write_panel(features_trackball(), OUT_DIR());
     let lines: string[] = [];
     for (let p in paths) {
         lines.push(`--- ${p}`);
         lines.push(drc(p));
     }
+    // The panel goes through the same pass for its zone fill, but its report is
+    // dropped on the floor -- see `write_panel` for why it is not worth reading.
+    drc(panel);
     lines.join("\n")
 }

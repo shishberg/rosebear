@@ -395,14 +395,46 @@ test "no trackball track crosses another net on its own layer" {
 /// boxes miss each other cannot cross, and on a board of a thousand-odd tracks
 /// almost every pair misses.
 function boxes_miss(a1: Vec2, a2: Vec2, b1: Vec2, b2: Vec2) -> bool {
-    let axl = if (a1.x < a2.x) { a1.x } else { a2.x };
-    let axh = if (a1.x > a2.x) { a1.x } else { a2.x };
-    let ayl = if (a1.y < a2.y) { a1.y } else { a2.y };
-    let ayh = if (a1.y > a2.y) { a1.y } else { a2.y };
-    let bxl = if (b1.x < b2.x) { b1.x } else { b2.x };
-    let bxh = if (b1.x > b2.x) { b1.x } else { b2.x };
-    let byl = if (b1.y < b2.y) { b1.y } else { b2.y };
-    let byh = if (b1.y > b2.y) { b1.y } else { b2.y };
+    let axl = if (a1.x < a2.x) {
+        a1.x
+    } else {
+        a2.x
+    };
+    let axh = if (a1.x > a2.x) {
+        a1.x
+    } else {
+        a2.x
+    };
+    let ayl = if (a1.y < a2.y) {
+        a1.y
+    } else {
+        a2.y
+    };
+    let ayh = if (a1.y > a2.y) {
+        a1.y
+    } else {
+        a2.y
+    };
+    let bxl = if (b1.x < b2.x) {
+        b1.x
+    } else {
+        b2.x
+    };
+    let bxh = if (b1.x > b2.x) {
+        b1.x
+    } else {
+        b2.x
+    };
+    let byl = if (b1.y < b2.y) {
+        b1.y
+    } else {
+        b2.y
+    };
+    let byh = if (b1.y > b2.y) {
+        b1.y
+    } else {
+        b2.y
+    };
     axh < bxl || bxh < axl || ayh < byl || byh < ayl
 }
 
@@ -422,11 +454,23 @@ test "no two nets cross on the same layer, on any key board" {
             let i = 0;
             while (i < n) {
                 let t = b.tracks.at(i)
-                    ?? Track { start: Vec2 { x: 0.0, y: 0.0 }, end: Vec2 { x: 0.0, y: 0.0 }, width: 0.0, layer: "", net: "" };
+                    ?? Track {
+                        start: Vec2 { x: 0.0, y: 0.0 },
+                        end: Vec2 { x: 0.0, y: 0.0 },
+                        width: 0.0,
+                        layer: "",
+                        net: "",
+                    };
                 let j = i + 1;
                 while (j < n) {
                     let u = b.tracks.at(j)
-                        ?? Track { start: Vec2 { x: 0.0, y: 0.0 }, end: Vec2 { x: 0.0, y: 0.0 }, width: 0.0, layer: "", net: "" };
+                        ?? Track {
+                            start: Vec2 { x: 0.0, y: 0.0 },
+                            end: Vec2 { x: 0.0, y: 0.0 },
+                            width: 0.0,
+                            layer: "",
+                            net: "",
+                        };
                     if (t.layer == u.layer && t.net != u.net) {
                         if (!boxes_miss(t.start, t.end, u.start, u.end)) {
                             assert.is_true(!segments_cross(t.start, t.end, u.start, u.end));
