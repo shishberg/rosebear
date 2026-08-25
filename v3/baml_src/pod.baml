@@ -314,8 +314,15 @@ function pod_lanes(n: int) -> int {
 }
 
 /// Where the buttons and the mounting holes sit, past the end of the module.
+///
+/// 38 put the south pair barely a millimetre and a half off the trackball
+/// bundle's outermost lane -- legal, but an M2 screw head is 3.8mm across and
+/// would have sat right on top of it. Three more millimetres puts the whole
+/// fan-out clear of both heads, and the board grows by that much at each end
+/// rather than the traces being asked to dodge. `POWER_RAIL_OFFSET` moves with
+/// it, so the north pair keeps the same 4mm off the supply rail.
 function POD_END_OFFSET() -> float {
-    38.0
+    41.0
 }
 
 /// Where the module's centre lands, in board coordinates. Arbitrary -- each
@@ -1124,9 +1131,11 @@ function back(a: Vec2, b: Vec2, net: string) -> Track {
 /// How far above the module's centre the LED supply rail runs.
 ///
 /// Past the top of the escape channels -- no lane reaches higher than the
-/// topmost pin -- and clear of the mounting holes.
+/// topmost pin -- and 4mm inside the north mounting holes, which is what keeps
+/// the rail out of the holes themselves. Tied to `POD_END_OFFSET` for that
+/// reason: move the holes and the rail has to follow.
 function POWER_RAIL_OFFSET() -> float {
-    42.0
+    POD_END_OFFSET() + 4.0
 }
 
 /// The LED supply, when the LED variant is built.

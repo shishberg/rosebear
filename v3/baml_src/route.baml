@@ -1916,10 +1916,46 @@ function route_led_thumb_hop(
         out.push(seg(m1, m2, net));
         out.push(seg(m2, f, net));
         vias.push(Via { at: f, net: net });
-    } else {
-        out.push(back(a, f, net));
+        route_din_stub(dst, f, net, out);
+        return;
     }
+    // The approach point sits out along the din row past the elbow. When the
+    // run arrives from the elbow's side it goes by the elbow, on to the
+    // approach point, and turns straight back through the angle it came in
+    // at -- a hairpin closing to about 35 degrees.
+    //
+    // The overshoot itself has to stay: aim at the elbow instead and the run
+    // lands on the destination LED's ground pad, which is what the approach
+    // point exists to get outside of. What can go is the point of the
+    // hairpin. Come into the approach point square to the row -- one corner
+    // out at the turn, then in along the row -- and the same path is two
+    // obtuse bends instead of one spike, for the price of a couple of
+    // millimetres.
+    let e = led_key_pt(dst, LED_DIN_ELBOW());
+    if ((f.x - e.x) * (f.x - a.x) + (f.y - e.y) * (f.y - a.y) > 0.0) {
+        let u = unit_from(e, f);
+        let s = if ((a.x - f.x) * (0.0 - u.y) + (a.y - f.y) * u.x > 0.0) {
+            THUMB_DIN_TURN()
+        } else {
+            0.0 - THUMB_DIN_TURN()
+        };
+        let q = Vec2 { x: f.x - s * u.y, y: f.y + s * u.x };
+        out.push(back(a, q, net));
+        out.push(back(q, f, net));
+        route_din_stub(dst, f, net, out);
+        return;
+    }
+    out.push(back(a, f, net));
     route_din_stub(dst, f, net, out);
+}
+
+/// How far square of the din row the hairpin's turn stands.
+///
+/// Far enough that the corner is a corner rather than a kink, and short enough
+/// that the leg back in stays outside the destination LED's pads -- which the
+/// approach point is already 4.7mm clear of along the row.
+function THUMB_DIN_TURN() -> float {
+    2.5
 }
 
 /// Where a thumb hop aims before turning in: on the din row, in the LED's own

@@ -300,15 +300,22 @@ function BOARD_MARGIN() -> float {
     4.0
 }
 
-/// With LEDs fitted the chain's transitions and its tail run outside the key
-/// rectangle -- over the top of a column, or out past the last one -- so the
-/// hull has to be drawn further out or they fall off the board edge.
+/// One margin for both variants.
+///
+/// The LED variant used to take 8mm, because the chain's transitions and its
+/// tail run outside the key rectangle and this hull was the last word on where
+/// the board edge went. It is not any more: `enclose` redraws the outline
+/// around the finished routing with `EDGE_HALO` to spare, so copper that
+/// reaches past the keys takes the edge with it and does not need to be
+/// guessed at here.
+///
+/// The extra four millimetres bought nothing and cost two visible things: a
+/// belt of empty board outboard of the ribbon connector, and -- where the
+/// margin swelled around the thumb link's connector, past the pocket the
+/// cluster is cut out of -- a two-millimetre spur of board hanging down beside
+/// the thumb board, attached to nothing and thin enough to snap off.
 function board_margin(f: Features) -> float {
-    if (f.per_key_leds) {
-        8.0
-    } else {
-        BOARD_MARGIN()
-    }
+    BOARD_MARGIN()
 }
 
 /// Board edge to board edge across the finger->thumb ribbon.

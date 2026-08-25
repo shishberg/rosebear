@@ -17,17 +17,18 @@
 
 // --------------------------------------------------------------- placement
 
-/// Where the ball sits: below the middle and index columns, clear of the
-/// bottom row and east of the thumb board's pocket.
+/// Where the ball sits: below the ring and middle columns, clear of the bottom
+/// row and well east of the thumb board's pocket.
 ///
-/// The middle column stands at x=309.87 and the index at x=288.87, so this is
-/// between them; the bottom keys of the two reach y=91.4 at the furthest, and
+/// The ring column stands at x=330.39 and the middle at x=309.87, so this is
+/// between them; the bottom keys of the two reach y=88.75 at the furthest, and
 /// their LEDs' light windows y=97.9, so 112 leaves the whole site south of the
-/// key field. The pocket the thumb board is clipped out of ends on the line
-/// from (287.6,107.8) to (291.7,123.2), which the westernmost trace here
-/// clears by a millimetre.
+/// key field. It used to sit a column further inboard, between index and
+/// middle, hard against the thumb board's pocket; out here the pocket is
+/// nowhere near it and the corridor's last leg is the only thing that got
+/// longer.
 function TRACKBALL_AT() -> Vec2 {
-    Vec2 { x: 301.0, y: 112.0 }
+    Vec2 { x: 320.0, y: 112.0 }
 }
 
 /// Half the spacing of the four hall switches, on both axes.
@@ -288,11 +289,15 @@ function tb_row_y(k: int) -> float {
 
 /// Where lane `k` turns south again, on the site's west flank.
 ///
+/// Quoted off the site rather than absolutely: the final rows run east under
+/// the key field for as far as the ball is from the pinch, and the flank has to
+/// follow it. 5.8mm west of centre clears the ball's west spigot.
+///
 /// The northern rows turn furthest east, which is the same nesting once more:
 /// a northern row that turned west of a southern one would drop straight
 /// through it.
 function tb_flank_x(k: int) -> float {
-    295.2 - (k * 1.0) * 0.8
+    TRACKBALL_AT().x - 5.8 - (k * 1.0) * 0.8
 }
 
 /// Where the step from the staging rows to the final rows begins and ends.
