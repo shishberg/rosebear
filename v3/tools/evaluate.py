@@ -486,6 +486,80 @@ def kicad_cli():
     return None
 
 
+def check_band_fit(card, outdir):
+    """The fan band must hug the key field, not float above it.
+
+    The finger boards' escape channels all end on one horizontal exit line and
+    the bus rows stack north of it. The line is fitted to the TALLEST column,
+    so above that column the deepest row that serves it sits at BUS_GAP plus
+    its forced nesting depth -- about 8mm with 25-way links. Anything much
+    beyond that means the fit regressed (a fixed exit depth, phantom rows for
+    contacts that never ride the band, ...) and the board is carrying empty
+    copper-free space above the keys again.
+
+    This check exists because a render at panel zoom hides 10-20mm of vertical
+    slack, and DRC has no rule against wasted board. Measured per column, on
+    F.Cu only -- back-layer LED runs cross this region legitimately.
+    """
+    for name in ("finger_l", "finger_r"):
+        path = os.path.join(outdir, f"{name}.kicad_pcb")
+        if not os.path.isfile(path):
+            continue
+        text = open(path).read()
+        keys = []
+        for block in re.split(r'\(footprint "', text)[1:]:
+            fpname = block.split('"')[0]
+            at = re.search(r"\(at ([-\d.]+) ([-\d.]+)", block)
+            if "MX" in fpname.upper() and at:
+                keys.append((float(at.group(1)), float(at.group(2))))
+        segs = [
+            (float(a), float(c), float(d), float(e))
+            for a, c, d, e, in re.findall(
+                r'\(segment\s+\(start ([-\d.]+) ([-\d.]+)\)\s+'
+                r'\(end ([-\d.]+) ([-\d.]+)\)\s+\(width [\d.]+\)\s+'
+                r'\(layer "F\.Cu"\)',
+                text,
+            )
+        ]
+        cols = []
+        for k in sorted(keys):
+            if cols and k[0] - cols[-1][-1][0] < 10:
+                cols[-1].append(k)
+            else:
+                cols.append([k])
+        gaps = []
+        for c in cols:
+            xc = sum(k[0] for k in c) / len(c)
+            top = min(k[1] for k in c) - 9.5  # keycap top edge
+            band = None
+            for step in range(39):  # sample across the keycap width
+                x = xc - 9.5 + step * 0.5
+                for x1, y1, x2, y2 in segs:
+                    lo, hi = min(x1, x2), max(x1, x2)
+                    if lo <= x <= hi and hi - lo > 0.5:
+                        y = y1 + (y2 - y1) * ((x - x1) / (x2 - x1))
+                        if y < top - 0.05 and (band is None or y > band):
+                            band = y
+            gaps.append((top, top - band if band is not None else None))
+        # The line is fitted to the TALLEST column (smallest keycap-top y);
+        # that is where the fit binds and where a regression shows first.
+        tall = min(gaps, key=lambda g: g[0], default=None)
+        detail = "/".join(
+            "-" if g is None else f"{g:.1f}" for _, g in gaps
+        )
+        ok = tall is not None and tall[1] is not None and tall[1] <= 10.0
+        card.check(
+            ok,
+            f"band hugs {name}",
+            f"gap to keycaps per column {detail}mm "
+            + (
+                f"(tallest column {tall[1]:.1f}, limit 10)"
+                if tall and tall[1] is not None
+                else "(no band over the tallest column)"
+            ),
+        )
+
+
 def check_drc(card, outdir, variant):
     cli = kicad_cli()
     if not cli:
@@ -561,6 +635,7 @@ def main():
         boards = load_variant(outdir)
         check_geometry(card, boards)
         check_panel(card, outdir, boards)
+        check_band_fit(card, outdir)
         if not args.no_drc:
             check_drc(card, outdir, "")
         if args.render:

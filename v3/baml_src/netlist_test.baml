@@ -190,7 +190,7 @@ test "each ribbon connector points its cable at the board it links to" {
             assert.equal(conns.length(), 2);
 
             let sgn = escape_side(b.id);
-            let el = board_exit_line(b, m, sgn, f);
+            let el = board_exit_line(b, sgn);
 
             for (let c in conns) {
                 // A cable leaves the way the contacts face, which is the

@@ -288,7 +288,7 @@ function led_reach_corners(k: PlacedKey) -> Vec2[] {
         // exit row and the hull has to hold both. Drawing it to the crossing
         // row instead pulls the south edge up against the thumb board's
         // expanded hull, and the notch stops being a single bite out of it.
-        for (let sy in [LED_OVER_Y() - 3.0, LED_EXIT_Y() + 5.0]) {
+        for (let sy in [0.0 - 9.5, LED_EXIT_Y() + 5.0]) {
             let v = local_to_board(Vec2 { x: sx * (LED_TAIL_X() + 1.0), y: sy }, k);
             out.push(Vec2 { x: c.x + v.x, y: c.y + v.y });
         }
@@ -615,9 +615,9 @@ function build_board(
             corners.push(c);
         }
         // With LEDs fitted the chain reaches past the keycaps -- out to the
-        // side on the way to the connector, and over the end of a column on
-        // the way to the next one. Feed those corners into the hull too rather
-        // than hoping the margin covers them.
+        // side on the way to the connector, and under the bottom of a column
+        // on the way to the next one. Feed those corners into the hull too
+        // rather than hoping the margin covers them.
         // A thumb board is exempt: its chain hops straight from key to key on
         // the back, inside the footprints' own boxes, so the halo would only
         // swell the board -- and shove the clip pocket into the finger board's

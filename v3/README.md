@@ -130,9 +130,9 @@ violations, 108 of them `copper_edge_clearance`** — copper too close to the
 board edge. Drawing the outline around the finished routing avoids that class
 entirely.
 
-Board sizes: finger **157 × 129mm** (161cm² of actual outline), thumb
+Board sizes: finger **156 × 110mm** (148cm² of actual outline), thumb
 **66 × 51mm** (24cm²), pod **80 × 92mm**. The LED chain's halo reaches past
-the keycaps on every side and the hull is drawn to hold it.
+the keycaps to the sides and below, and the hull is drawn to hold it.
 
 ## All five boards in one file
 
@@ -193,7 +193,7 @@ Three constants are load-bearing and were found by measurement, not taste:
 |---|---|---|
 | `LANE_PITCH` | 1.8mm | Two diagonals offset horizontally by *s* are only `s·cos θ` apart perpendicular. The widest fan-in here runs at 76° from vertical, so 1.0mm of lane pitch became 0.24mm of actual clearance -- a short. |
 | `CONNECTOR_SIDE_OFFSET` | 8mm | How far outboard of the key field a finger half's connectors stand — the room the fan-in gets to spread into before it turns square onto the 1.00mm contacts. |
-| the exit line | fitted | The escape channels must all end on one straight line -- two monotone point sequences on parallel lines join without crossing, and per-column exit heights lose that. But the line need not be horizontal: `finger_exit_line` fits the tightest straight line that clears every column's top pad, every key's ground-stitch via and the LED chain's over-the-top crossings, each by its own clearance. The whole fan band shears with it (verticals stay vertical, so every planarity argument survives), and the board's top edge follows the key stagger instead of sitting flat above the tallest column. |
+| the exit line | fitted | The escape channels must all end on one common horizontal line -- two monotone point sequences on parallel lines join without crossing, and per-column exit heights lose that. `finger_exit_line` puts it as low as every constraint allows: each column's top signal pad and each key's ground-stitch via, by their own clearances. The tallest column binds, so the line sits just above the middle column (0.9mm past its keycap edge) and the bus rows stack north of it -- only rows that actually ride the band get a slot, so the tail contacts of the 25-way link add no height. The LED chain stays out of the way entirely: its column transitions thread the field on the exit row and each key's north strip instead of crossing over the top of the columns. |
 | finger connectors on the inboard edge | — | The pod sits between the halves, so both cables leave toward the middle rather than doubling back around the board. Turning the connector through a right angle also turns the fan-in: a straight run per net would approach contacts 1mm apart at a hundredth of that across the runs, so each net drops at its own exit x to its contact's row and turns in square. |
 
 Freerouting was considered and isn't installed (no JRE, no jar). It would be

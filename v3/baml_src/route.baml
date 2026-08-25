@@ -70,22 +70,12 @@ function LANE_X0() -> float {
 /// parallel lines can always be joined without a crossing; exits at differing
 /// heights lose that guarantee, and the staggered columns differ by ~25mm.
 ///
-/// The depth is the variant's, not the board's: everything above the line is
-/// margin, and the base board only has to get the line clear of the extreme
-/// socket pad. With LEDs the chain's over-the-top runs cross at `LED_OVER_Y`
-/// -- past the end of every column, the one place the back is free -- and the
-/// exit line has to stay beyond them, or the fan-in diagonals go straight
-/// through the chain.
-function column_exit(f: Features) -> float {
-    if (f.per_key_leds) {
-        // LED_OVER_Y is 14.0 past the key centre; the extreme signal pad the
-        // line is measured from sits 6.33 before it. ~0.9 keeps the crossing
-        // clear of the exit line's own diagonals.
-        14.0 - 6.33 + 0.9
-    } else {
-        // Pad half-width + trace + clearance past the extreme pad edge.
-        3.5
-    }
+/// Pad half-width + trace + clearance past the extreme pad edge. The LED
+/// chain never reaches north of the keys -- its column transitions run
+/// through the field on the exit row -- so both variants only need the line
+/// clear of the extreme socket pad.
+function column_exit() -> float {
+    3.5
 }
 
 /// Clearance kept between the fan-in bus and the connector contacts.
@@ -238,16 +228,13 @@ class Leg {
     normal: Vec2,
     /// Contact number, which is also this net's rank in the fan-in.
     pin: int,
-    /// The exit line, split into its height at x=0 and its slope, so the
-    /// channel can intersect it wherever the column stands.
+    /// The height of the shared exit line every escape channel ends on.
     exit_y: float,
-    exit_m: float,
     /// How far behind its contact this net's bus lane runs, and the row of the
     /// fan band it gets there along. Zero for a connector met head-on, which
     /// needs no bus at all.
     bus_off: float,
     bus_row: float,
-    bus_m: float,
 }
 
 /// The column a key net belongs to.
@@ -327,45 +314,53 @@ function bus_rank(c: Component, pin: int, sgn: float) -> int {
 /// band takes the lane nearest the contacts -- it has the least far to go -- and
 /// therefore the row furthest into the band, because its lane has to run past
 /// every other row to get there.
-/// The escape line as a line, not a height: y = y0 + m*x.
-///
-/// Flat is the safe default and the thumb boards keep it. The finger boards
-/// slope it: the columns are staggered by ~25mm, and a horizontal line held
-/// clear of the *highest* column leaves that whole stagger empty above every
-/// other column. Any straight line keeps the planarity guarantee -- two
-/// monotone sequences of points on two parallel lines still join without
-/// crossing -- and the whole fan band shears with it, which preserves every
-/// crossing argument because a shear maps verticals to verticals and keeps
-/// vertical distances.
-class ExitLine {
-    y0: float,
-    m: float,
-}
-
-function exit_at(l: ExitLine, x: float) -> float {
-    l.y0 + l.m * x
-}
-
 class BusLane {
     off: float,
     row: float,
-    m: float,
 }
 
-function bus_lane(c: Component, pin: int, el: ExitLine, sgn: float) -> BusLane {
+/// Whether a contact's net actually rides the fan band. The tail of the pod
+/// link -- pass-throughs, rails, the spare -- leaves its contacts southward
+/// and never touches the band, so giving those contacts band rows would only
+/// stack empty rows between the keys and the key rows.
+function is_band_net(net: string) -> bool {
+    net.starts_with("KEY_") || net.starts_with("LED_DATA")
+}
+
+function bus_lane(c: Component, pin: int, exit_y: float, sgn: float) -> BusLane {
     let ways = c.pads.length() - 1;
     let rank = bus_rank(c, pin, sgn);
+    // Rows are allotted only to the contacts that ride the band, packed from
+    // the exit line north; the nesting argument only needs their ORDER, which
+    // matches the full contact order.
+    let d = comp_to_global(c, ffc_pad_local(pin, ways)).y * sgn;
+    let brank = 0;
+    let bn = 0;
+    let i = 1;
+    while (i <= ways) {
+        if (is_band_net(pad_net(c, `${i}`))) {
+            bn = bn + 1;
+            if (comp_to_global(c, ffc_pad_local(i, ways)).y * sgn > d) {
+                brank = brank + 1;
+            }
+        }
+        i = i + 1;
+    }
+    // The LED data head rides the SHALLOWEST row, not the one its (tail)
+    // contact position implies: it crosses the whole board on the back, and
+    // the chain's column transitions poke up to their crossing rows just
+    // south of the band -- the northmost row is the one place it clears them
+    // on its own layer. It is alone on the back up there, so it crosses the
+    // key rows' order harmlessly.
+    let brow = if (pad_net(c, `${pin}`).starts_with("LED_DATA")) {
+        bn - 1
+    } else {
+        bn - 1 - brank
+    };
     BusLane {
         off: BUS_STANDOFF() + (rank * 1.0) * BUS_PITCH(),
-        // A line parallel to the exit line: `row` is its height at x=0 and
-        // `row_at` evaluates it where it is actually used.
-        row: el.y0 + sgn * (BUS_GAP() + (((ways - 1 - rank) * 1.0) * BUS_PITCH())),
-        m: el.m,
+        row: exit_y + sgn * (BUS_GAP() + ((brow * 1.0) * BUS_PITCH())),
     }
-}
-
-function row_at(bl: BusLane, x: float) -> float {
-    bl.row + bl.m * x
 }
 
 /// A connector contact, named by the part it is on rather than by position, so
@@ -405,7 +400,7 @@ function is_side_mounted(c: Component) -> bool {
 function conn_drop(
     c: Component,
     pin: int,
-    el: ExitLine,
+    el: float,
     sgn: float,
     slot: int,
     net: string,
@@ -419,7 +414,7 @@ function conn_drop(
         // deeper would mean crossing the rows in between.
         let bl = bus_lane(c, pin, el, sgn);
         let lane = along(pad, n, bl.off);
-        let v = Vec2 { x: lane.x, y: row_at(bl, lane.x) };
+        let v = Vec2 { x: lane.x, y: bl.row };
         out.push(seg(pad, lane, net));
         out.push(seg(lane, v, net));
         v
@@ -463,7 +458,7 @@ function pin_index(conns: Component[], net: string) -> int {
     0
 }
 
-function collect_legs(b: Board, el: ExitLine, sgn: float) -> Leg[] {
+function collect_legs(b: Board, el: float, sgn: float) -> Leg[] {
     let conns = b.components.filter((c) -> {
         is_connector(c)
     });
@@ -490,11 +485,9 @@ function collect_legs(b: Board, el: ExitLine, sgn: float) -> Leg[] {
                             target: t,
                             normal: contact_normal(conns, net),
                             pin: pin_index(conns, net),
-                            exit_y: el.y0,
-                            exit_m: el.m,
+                            exit_y: el,
                             bus_off: leg_lane(conns, net, el, sgn).off,
                             bus_row: leg_lane(conns, net, el, sgn).row,
-                            bus_m: leg_lane(conns, net, el, sgn).m,
                         },
                     );
                 }
@@ -506,13 +499,13 @@ function collect_legs(b: Board, el: ExitLine, sgn: float) -> Leg[] {
 
 /// The bus lane of whichever contact carries `net`, or nothing if that
 /// connector is met head-on.
-function leg_lane(conns: Component[], net: string, el: ExitLine, sgn: float) -> BusLane {
+function leg_lane(conns: Component[], net: string, el: float, sgn: float) -> BusLane {
     if let r: ContactRef = find_contact_ref(conns, net) {
         if (is_side_mounted(r.comp)) {
             return bus_lane(r.comp, r.pin, el, sgn);
         }
     }
-    BusLane { off: 0.0, row: 0.0, m: 0.0 }
+    BusLane { off: 0.0, row: 0.0 }
 }
 
 /// The unit vector pointing from `a` to `b`.
@@ -560,10 +553,8 @@ function route_column(legs: Leg[], out: Track[], vias: Via[]) -> Escape[] {
                 normal: Vec2 { x: 0.0, y: 1.0 },
                 pin: 0,
                 exit_y: 0.0,
-                exit_m: 0.0,
                 bus_off: 0.0,
                 bus_row: 0.0,
-                bus_m: 0.0,
             },
     );
     let origin = bottom.origin;
@@ -586,10 +577,7 @@ function route_column(legs: Leg[], out: Track[], vias: Via[]) -> Escape[] {
     // That fixes the pinout rather than the other way round: the contacts must
     // arrive in whatever order this leaves the exits in. See `link_pinout`.
     let ordered = legs.sort_by((a, b) -> {
-        if (
-            (b.pad.y - (b.exit_y + b.exit_m * b.pad.x)).abs()
-                > (a.pad.y - (a.exit_y + a.exit_m * a.pad.x)).abs()
-        ) {
+        if ((b.pad.y - b.exit_y).abs() > (a.pad.y - a.exit_y).abs()) {
             0 - 1
         } else {
             1
@@ -605,8 +593,8 @@ function route_column(legs: Leg[], out: Track[], vias: Via[]) -> Escape[] {
         // the column however it is splayed; it leaves that frame on the shared
         // exit line.
         let down = from_frame(Vec2 { x: lx, y: local.y + 1.0 }, origin, r);
-        // Intersect the channel with the exit line, which may be sloped.
-        let steps = (l.exit_y + l.exit_m * turn.x - turn.y) / ((down.y - turn.y) - l.exit_m * (down.x - turn.x));
+        // Intersect the channel with the exit line.
+        let steps = (l.exit_y - turn.y) / (down.y - turn.y);
         let exit = Vec2 { x: turn.x + (down.x - turn.x) * steps, y: turn.y + (down.y - turn.y) * steps };
         // Sideways out of the socket, then down the channel to the exit line.
         //
@@ -679,8 +667,8 @@ function route_fanin(legs: Leg[], exits: Escape[], out: Track[]) -> void {
             // own lane, up the lane level with its contact, and in square to
             // the pad.
             let lane = along(l.target, l.normal, l.bus_off);
-            let drop = Vec2 { x: e.x, y: l.bus_row + l.bus_m * e.x };
-            let corner = Vec2 { x: lane.x, y: l.bus_row + l.bus_m * lane.x };
+            let drop = Vec2 { x: e.x, y: l.bus_row };
+            let corner = Vec2 { x: lane.x, y: l.bus_row };
             out.push(seg(e, drop, l.net));
             out.push(seg(drop, corner, l.net));
             out.push(seg(corner, lane, l.net));
@@ -1149,7 +1137,7 @@ function enclose(hull: Vec2[], tracks: Track[], vias: Via[]) -> Vec2[] {
 
 /// Every column's exits, without keeping the copper. Lets a test read the
 /// order the fan-in actually has to serve.
-function board_exits(b: Board, el: ExitLine, sgn: float) -> Escape[] {
+function board_exits(b: Board, el: float, sgn: float) -> Escape[] {
     let tracks: Track[] = [];
     let vias: Via[] = [];
     let legs = collect_legs(b, el, sgn);
@@ -1182,17 +1170,17 @@ function board_exits(b: Board, el: ExitLine, sgn: float) -> Escape[] {
 /// board. Thumb clusters: pinned to the connector instead -- the connector
 /// sits as tight over the keys as the link gap allows, and the exit line goes
 /// between it and the keys, one fan row per contact plus working clearance.
-function board_exit_line(b: Board, m: Module, sgn: float, f: Features) -> ExitLine {
+function board_exit_line(b: Board, sgn: float) -> float {
     if (b.id.starts_with("thumb")) {
         if let c: Component = b.components.find((c) -> {
             is_connector(c)
         }) {
             let ways = c.pads.length() - 1;
             let cy = comp_to_global(c, ffc_pad_local(1, ways)).y;
-            return ExitLine { y0: cy - sgn * (BUS_GAP() + (ways * 1.0) * BUS_PITCH() + 0.5), m: 0.0 };
+            return cy - sgn * (BUS_GAP() + (ways * 1.0) * BUS_PITCH() + 0.5);
         }
     }
-    finger_exit_line(b, m, sgn, f)
+    finger_exit_line(b, sgn)
 }
 
 /// One constraint point per column: its extreme signal pad, pushed out by the
@@ -1246,49 +1234,17 @@ function column_exit_points(comps: Component[], sgn: float, ce: float) -> Vec2[]
     pts
 }
 
-/// The finger boards' exit line: the tightest straight line that clears every
-/// column by `column_exit`.
+/// The finger boards' exit line: horizontal, as low as every constraint
+/// allows.
 ///
-/// Each column pins the line at one point, and the pod link adds one more --
-/// its shallowest bus row must stay clear of its top contact. The tightest
-/// valid line is a support line of those points: it touches two and stays on
-/// the escape side of the rest, so trying every pair and keeping the best
-/// valid one IS the search. The slope is capped: the band's clearances are
-/// measured vertically, and a shear shrinks them by the slope's cosine, so
-/// 0.35 keeps better than 94% of every one.
-function finger_exit_line(b: Board, m: Module, sgn: float, f: Features) -> ExitLine {
-    let pts = column_exit_points(b.components, sgn, column_exit(f));
-    if (f.per_key_leds) {
-        // The chain's over-the-top column transitions climb to the *taller*
-        // neighbour's crossing row, and the LED data head run -- which rides
-        // a bus row on the back all the way across the board -- has to pass
-        // north of every one of them. Bound the line at both ends of each
-        // crossing, through the shallowest row's offset as with the vias.
-        let leds = b.components.filter((c) -> {
-            is_led(c)
-        });
-        let cols = led_chain(m).map((k) -> {
-            k.column
-        });
-        let j = 0;
-        while (j < leds.length() - 1) {
-            let src = leds.at(j) ?? no_component();
-            let dst = leds.at(j + 1) ?? no_component();
-            let prev = leds.at(j - 1) ?? src;
-            if ((cols.at(j) ?? "") != (cols.at(j + 1) ?? "") && prev.y > src.y) {
-                let p3 = led_key_pt(src, Vec2 { x: LED_BUS_X(), y: LED_OVER_Y() });
-                let q3 = led_key_pt(dst, Vec2 { x: LED_BUS_X(), y: LED_OVER_Y() });
-                let ex = if (p3.y < q3.y) {
-                    p3.y
-                } else {
-                    q3.y
-                };
-                pts.push(Vec2 { x: p3.x, y: ex + sgn * (0.65 - BUS_GAP()) });
-                pts.push(Vec2 { x: q3.x, y: ex + sgn * (0.65 - BUS_GAP()) });
-            }
-            j = j + 1;
-        }
-    }
+/// The tallest column's constraint is the one that binds, so the band sits
+/// just above the middle column and the shorter columns keep whatever margin
+/// the stagger gives them. A sloped line could trade some of that margin
+/// back, but it buys nothing where it matters -- the tallest column pins it
+/// -- and horizontal keeps every clearance in the band a plain vertical
+/// distance.
+function finger_exit_line(b: Board, sgn: float) -> float {
+    let pts = column_exit_points(b.components, sgn, column_exit());
     for (let c in b.components) {
         if (is_switch(c)) {
             // Every key's ground stitch via sits 10.5mm up the key -- 5.4
@@ -1310,9 +1266,8 @@ function finger_exit_line(b: Board, m: Module, sgn: float, f: Features) -> ExitL
             pts.push(Vec2 { x: top.x, y: top.y + sgn * (0.5 - BUS_GAP()) });
         }
     }
-    // Flat through the outermost point: always valid, and the baseline the
-    // sloped candidates have to beat.
-    let flat = pts.reduce(
+    // Flat through the outermost point.
+    pts.reduce(
         (a, p) -> {
             if ((p.y - a) * sgn > 0.0) {
                 p.y
@@ -1321,50 +1276,7 @@ function finger_exit_line(b: Board, m: Module, sgn: float, f: Features) -> ExitL
             }
         },
         (pts.at(0)?.y) ?? 0.0,
-    );
-    let best = ExitLine { y0: flat, m: 0.0 };
-    let best_waste = line_waste(best, pts, sgn);
-    let i = 0;
-    while (i < pts.length()) {
-        let j = i + 1;
-        while (j < pts.length()) {
-            let a = pts.at(i) ?? Vec2 { x: 0.0, y: 0.0 };
-            let z = pts.at(j) ?? Vec2 { x: 0.0, y: 0.0 };
-            if ((z.x - a.x).abs() > 3.0) {
-                let m = (z.y - a.y) / (z.x - a.x);
-                if (m.abs() <= 0.35) {
-                    let cand = ExitLine { y0: a.y - m * a.x, m: m };
-                    let w = line_waste(cand, pts, sgn);
-                    if (w >= 0.0 && w < best_waste) {
-                        best = cand;
-                        best_waste = w;
-                    }
-                }
-            }
-            j = j + 1;
-        }
-        i = i + 1;
-    }
-    best
-}
-
-/// Total distance the line stands off its constraint points, or -1 when it
-/// violates one -- on the wrong side of it by more than float fuzz.
-function line_waste(l: ExitLine, pts: Vec2[], sgn: float) -> float {
-    let total = 0.0;
-    let ok = true;
-    for (let p in pts) {
-        let w = (exit_at(l, p.x) - p.y) * sgn;
-        if (w < 0.0 - 0.001) {
-            ok = false;
-        }
-        total = total + w;
-    }
-    if (ok) {
-        total
-    } else {
-        0.0 - 1.0
-    }
+    )
 }
 
 function route_board(b: Board, m: Module, f: Features) -> Board {
@@ -1374,7 +1286,7 @@ function route_board(b: Board, m: Module, f: Features) -> Board {
     // The escape line, past every key on the board.
     let sgn = escape_side(b.id);
     let lowest = last_signal_pad(b.components, sgn);
-    let el = board_exit_line(b, m, sgn, f);
+    let el = board_exit_line(b, sgn);
     let legs = collect_legs(b, el, sgn);
 
     // Group by column. Keys in a column share an axis, which is what lets the
@@ -1404,12 +1316,12 @@ function route_board(b: Board, m: Module, f: Features) -> Board {
         }
     }
     if (b.id.starts_with("thumb")) {
-        route_thumb_fanin(all_legs, all_exits, el.y0, sgn, tracks, vias);
+        route_thumb_fanin(all_legs, all_exits, el, sgn, tracks, vias);
     } else {
         route_fanin(all_legs, all_exits, tracks);
     }
 
-    route_passthroughs(b, f, el.y0, sgn, tracks, vias);
+    route_passthroughs(b, f, el, sgn, tracks, vias);
     route_leds(b, m, f, lowest, el, sgn, tracks, vias);
     route_ground_vias(b, f, vias, tracks);
     route_supply_vias(b, f, el, sgn, vias, tracks);
@@ -1539,11 +1451,12 @@ function LED_EXIT_Y() -> float {
     13.0
 }
 
-/// How far past the end key a transition crosses: over the top, or under the
-/// bottom. Both are outside the key field, which is the only place the back is
-/// free all the way across.
-function LED_OVER_Y() -> float {
-    0.0 - 14.0
+/// The row a transition crosses a key tile on: just NORTH of the ground
+/// stitch via (the socket's ground stub runs from pad to via right through
+/// the strip between them, so the crossing cannot go there), and still well
+/// south of the fan band's deepest row.
+function LED_TOP_ROW() -> float {
+    0.0 - 11.5
 }
 
 /// Under the bottom the chain crosses close in, between the ground via row
@@ -1703,7 +1616,7 @@ function THUMB_DIN_APPROACH() -> Vec2 {
 /// back-side pour from there.
 function route_led_thumb_head(
     ref: ContactRef,
-    el: ExitLine,
+    el: float,
     sgn: float,
     dst: Component,
     net: string,
@@ -1749,11 +1662,23 @@ function route_led_thumb_head(
     route_din_stub(dst, e, net, out);
 }
 
-/// A column change, on the back, around the end of the key field.
+/// A column change, on the back.
 ///
-/// `sign` is -1 to cross over the top of the columns and +1 to cross under the
-/// bottom -- whichever end the chain reached, which is the same end for both
-/// columns because the chain snakes.
+/// `sign` is -1 when the chain reached the TOP of both columns and +1 the
+/// bottom -- the same end for both because the chain snakes.
+///
+/// At the bottom it crosses under the key field, close in: the thumb board's
+/// notch is cut out of the south edge, and a run any deeper falls off the
+/// board.
+///
+/// At the top it does NOT go over: an over-the-top run would fence the fan
+/// band away from the keys and cost the whole board that height. It cannot
+/// simply run across at the exit row either -- west of every key that has a
+/// key below it, the lower socket's ground hook climbs right through that row
+/// -- so both ends attach on their EAST sides, where the exit row is clear,
+/// and the link between them runs up the shared corridor and across the
+/// EASTERN key's north strip, the gap between its socket and its ground
+/// stitch via. It threads the field; it never leaves it to the north.
 function route_led_transition(
     src: Component,
     dst: Component,
@@ -1761,46 +1686,58 @@ function route_led_transition(
     sign: float,
     out: Track[],
 ) -> void {
-    let cy = if (sign < 0.0) {
-        LED_OVER_Y()
-    } else {
-        LED_UNDER_Y()
-    };
-    // Going over the top there is a whole board's width of empty north to
-    // cross in, so the run leaves on the usual exit row and climbs. Going
-    // under there is not: the thumb board's notch is cut out of the south
-    // edge, and a run that drops to a row of its own falls off the board. It
-    // crosses on the crossing row itself, which is the one row south of the
-    // keys that is inside the outline the whole way.
-    let row = if (sign < 0.0) {
-        LED_EXIT_Y()
-    } else {
-        cy
-    };
     let p0 = comp_to_global(src, LED_DOUT_PAD());
-    let p1 = led_key_pt(src, Vec2 { x: LED_DOUT_PAD().x, y: row });
-    let p2 = led_key_pt(src, Vec2 { x: LED_BUS_X(), y: row });
-    let p3 = led_key_pt(src, Vec2 { x: LED_BUS_X(), y: cy });
-    let q3 = led_key_pt(dst, Vec2 { x: LED_BUS_X(), y: cy });
-    let q2 = led_key_pt(dst, Vec2 { x: LED_BUS_X(), y: row });
-    let q1 = led_key_pt(dst, Vec2 { x: LED_DIN_ELBOW().x, y: row });
+    if (sign < 0.0) {
+        let p1 = led_key_pt(src, Vec2 { x: LED_DOUT_PAD().x, y: LED_EXIT_Y() });
+        let p2 = led_key_pt(src, Vec2 { x: LED_BUS_X(), y: LED_EXIT_Y() });
+        // The eastern key of the pair, whichever way the chain is going: its
+        // north strip is the crossing, and the corridor between the columns
+        // is its west flank.
+        let e = if (src.x > dst.x) {
+            src
+        } else {
+            dst
+        };
+        let n1 = led_key_pt(e, Vec2 { x: 0.0 - LED_BUS_X(), y: LED_TOP_ROW() });
+        let n2 = led_key_pt(e, Vec2 { x: LED_BUS_X(), y: LED_TOP_ROW() });
+        let m1 = if (src.x > dst.x) {
+            n2
+        } else {
+            n1
+        };
+        let m2 = if (src.x > dst.x) {
+            n1
+        } else {
+            n2
+        };
+        let q2 = led_key_pt(dst, Vec2 { x: LED_BUS_X(), y: LED_EXIT_Y() });
+        let q1 = led_key_pt(dst, Vec2 { x: LED_DIN_ELBOW().x, y: LED_EXIT_Y() });
+        for (let e2 in [[p0, p1], [p1, p2], [p2, m1], [m1, m2], [m2, q2], [q2, q1]]) {
+            let a = vec_at(e2, 0);
+            let z = vec_at(e2, 1);
+            if (a.x != z.x || a.y != z.y) {
+                out.push(back(a, z, net));
+            }
+        }
+        route_din_stub(dst, q1, net, out);
+        return;
+    }
+    let cy = LED_UNDER_Y();
+    let p1 = led_key_pt(src, Vec2 { x: LED_DOUT_PAD().x, y: cy });
+    let p2 = led_key_pt(src, Vec2 { x: LED_BUS_X(), y: cy });
+    let q2 = led_key_pt(dst, Vec2 { x: LED_BUS_X(), y: cy });
+    let q1 = led_key_pt(dst, Vec2 { x: LED_DIN_ELBOW().x, y: cy });
     // The two columns are staggered, so their ends are not level. Crossing on
     // the straight line between them cuts the corner of whichever key sticks
     // out further; crossing at the extreme of the two clears both.
-    let ex = if (sign < 0.0) {
-        if (p3.y < q3.y) {
-            p3.y
-        } else {
-            q3.y
-        }
-    } else if (p3.y > q3.y) {
-        p3.y
+    let ex = if (p2.y > q2.y) {
+        p2.y
     } else {
-        q3.y
+        q2.y
     };
-    let m1 = Vec2 { x: p3.x, y: ex };
-    let m2 = Vec2 { x: q3.x, y: ex };
-    for (let e in [[p0, p1], [p1, p2], [p2, p3], [p3, m1], [m1, m2], [m2, q3], [q3, q2], [q2, q1]]) {
+    let m1 = Vec2 { x: p2.x, y: ex };
+    let m2 = Vec2 { x: q2.x, y: ex };
+    for (let e in [[p0, p1], [p1, p2], [p2, m1], [m1, m2], [m2, q2], [q2, q1]]) {
         let a = vec_at(e, 0);
         let z = vec_at(e, 1);
         if (a.x != z.x || a.y != z.y) {
@@ -1816,12 +1753,12 @@ function route_led_transition(
 /// outboard column, so the run crosses the whole board. Each leg uses the
 /// layer that is empty there: a dive straight off the contact (under the
 /// thumb pass lanes, which drop across the tail contacts' front corridor),
-/// the link's own bus lane north on the front, then the back -- north of
-/// every column transition -- across to the chain side, and down the outside
+/// then the back the whole way: out to its own bus row -- north of every key
+/// and of the whole chain -- across to the chain side, and down the outside
 /// of the first column, where there is no neighbouring column to cross.
 function route_led_head(
     ref: ContactRef,
-    el: ExitLine,
+    el: float,
     sgn: float,
     dst: Component,
     outward: float,
@@ -1839,10 +1776,8 @@ function route_led_head(
     let bl = bus_lane(c, ref.pin, el, sgn);
     let l = along(pad, n, bl.off);
     out.push(back(w1, l, net));
-    vias.push(Via { at: l, net: net });
-    let r = Vec2 { x: l.x, y: row_at(bl, l.x) };
-    out.push(seg(l, r, net));
-    vias.push(Via { at: r, net: net });
+    let r = Vec2 { x: l.x, y: bl.row };
+    out.push(back(l, r, net));
     // Down the outside of the first column in the *column's* frame, not the
     // board's. The columns are splayed, so a plain vertical drop at the entry
     // point's x walks across the key frame as it climbs -- into the hotswap
@@ -1851,11 +1786,8 @@ function route_led_head(
     // reach the north row, which is up where the hull narrows into its corner,
     // so the run turns onto it on a diagonal from a point inboard of it.
     let p = led_key_pt(dst, Vec2 { x: outward * LED_TAIL_X(), y: LED_EXIT_Y() });
-    // The cross run follows the row's slope, so its height at this end is the
-    // row's height *here*, not back at the connector.
-    let ry = row_at(bl, dst.x);
-    let h = led_key_pt(dst, Vec2 { x: outward * LED_TAIL_X(), y: ry + LED_HEAD_JOIN_Y() - dst.y });
-    let turn = Vec2 { x: h.x - outward * LED_HEAD_JOIN_X(), y: row_at(bl, h.x - outward * LED_HEAD_JOIN_X()) };
+    let h = led_key_pt(dst, Vec2 { x: outward * LED_TAIL_X(), y: bl.row + LED_HEAD_JOIN_Y() - dst.y });
+    let turn = Vec2 { x: h.x - outward * LED_HEAD_JOIN_X(), y: bl.row };
     out.push(back(r, turn, net));
     out.push(back(turn, h, net));
     out.push(back(h, p, net));
@@ -1873,7 +1805,7 @@ function route_led_head(
 /// the side the lanes are not coming from.
 function led_link_drop(
     ref: ContactRef,
-    el: ExitLine,
+    el: float,
     sgn: float,
     slot: int,
     lanes: float[],
@@ -1944,7 +1876,7 @@ function LANE_CLEAR() -> float {
 function route_led_tail(
     src: Component,
     ref: ContactRef,
-    el: ExitLine,
+    el: float,
     sgn: float,
     slot: int,
     outward: float,
@@ -2002,7 +1934,7 @@ function route_leds(
     m: Module,
     f: Features,
     bottom_y: float,
-    el: ExitLine,
+    el: float,
     sgn: float,
     out: Track[],
     vias: Via[],
@@ -2105,7 +2037,7 @@ function sign_away(x: float, mid: float) -> float {
 function route_supply_vias(
     b: Board,
     f: Features,
-    el: ExitLine,
+    el: float,
     sgn: float,
     vias: Via[],
     out: Track[],
