@@ -64,11 +64,11 @@ function LANE_X0() -> float {
     7.8
 }
 
-/// How far past the last signal pad the escape channels all end.
+/// How far past the last signal pad a column's escape channels end.
 ///
-/// They must end on a *common* line. Two monotone sequences of points on two
-/// parallel lines can always be joined without a crossing; exits at differing
-/// heights lose that guarantee, and the staggered columns differ by ~25mm.
+/// A column's channels end on a common line of their own, one `BUS_GAP` short
+/// of the column's band rows (`band_groups`); the planarity argument is the
+/// group nesting, not a board-wide line.
 ///
 /// Pad half-width + trace + clearance past the extreme pad edge. The LED
 /// chain never reaches north of the keys -- its column transitions run
@@ -319,48 +319,221 @@ class BusLane {
     row: float,
 }
 
-/// Whether a contact's net actually rides the fan band. The tail of the pod
-/// link -- pass-throughs, rails, the spare -- leaves its contacts southward
-/// and never touches the band, so giving those contacts band rows would only
-/// stack empty rows between the keys and the key rows.
-function is_band_net(net: string) -> bool {
-    net.starts_with("KEY_") || net.starts_with("LED_DATA")
+/// One column's rows in the fan band. `base` is the group's deepest row --
+/// the one nearest the keys -- and the column's other rows stack outward from
+/// it a `BUS_PITCH` apart. The pseudo-column "LED" is the data head's single
+/// back-side row, outward of every key group.
+class BandGroup {
+    column: string,
+    base: float,
 }
 
-function bus_lane(c: Component, pin: int, exit_y: float, sgn: float) -> BusLane {
-    let ways = c.pads.length() - 1;
-    let rank = bus_rank(c, pin, sgn);
-    // Rows are allotted only to the contacts that ride the band, packed from
-    // the exit line north; the nesting argument only needs their ORDER, which
-    // matches the full contact order.
-    let d = comp_to_global(c, ffc_pad_local(pin, ways)).y * sgn;
-    let brank = 0;
-    let bn = 0;
-    let i = 1;
-    while (i <= ways) {
-        if (is_band_net(pad_net(c, `${i}`))) {
-            bn = bn + 1;
-            if (comp_to_global(c, ffc_pad_local(i, ways)).y * sgn > d) {
-                brank = brank + 1;
+function find_group(groups: BandGroup[], col: string) -> BandGroup? {
+    groups.find((g) -> {
+        g.column == col
+    })
+}
+
+/// Where `col`'s escape channels end: one `BUS_GAP` short of the deepest row
+/// they must reach. A board with no band (a head-on connector) keeps the
+/// shared exit line.
+function group_exit(groups: BandGroup[], col: string, el: float, sgn: float) -> float {
+    if let g: BandGroup = find_group(groups, col) {
+        return g.base - sgn * BUS_GAP();
+    }
+    el
+}
+
+/// The mean x of a column's switches, for ordering columns by distance from
+/// the connector.
+function column_mid_x(b: Board, col: string) -> float {
+    let sum = 0.0;
+    let n = 0;
+    for (let c in b.components) {
+        if (is_switch(c)) {
+            let net = (
+                c.pads
+                    .find((p) -> {
+                        p.pad == "1"
+                    })
+                    ?.net
+            )
+                ?? "";
+            if (net != "" && column_of(net) == col) {
+                sum = sum + c.x;
+                n = n + 1;
             }
         }
-        i = i + 1;
     }
-    // The LED data head rides the SHALLOWEST row, not the one its (tail)
-    // contact position implies: it crosses the whole board on the back, and
-    // the chain's column transitions poke up to their crossing rows just
-    // south of the band -- the northmost row is the one place it clears them
-    // on its own layer. It is alone on the back up there, so it crosses the
-    // key rows' order harmlessly.
-    let brow = if (pad_net(c, `${pin}`).starts_with("LED_DATA")) {
-        bn - 1
+    if (n == 0) {
+        return 0.0;
+    }
+    sum / (n * 1.0)
+}
+
+/// The fan band, packed toward the keys column by column.
+///
+/// One shared ladder of rows put the whole band at the tallest column's
+/// height and gave every net its own slot, so the space over the tallest
+/// column was mostly slots whose rows had already turned off toward the
+/// connector -- centimetres of empty board. Instead each column's rows sit as
+/// deep as their own path allows. A group's rows run from its column's drops
+/// to the connector, over every column nearer than it, so a group clears
+///
+///   * the exit constraints of its own column and of every column it crosses
+///     (signal-pad clearance, the ground stitch vias, the connector's top
+///     contact), carried as a running outermost bound, and
+///   * the previous group's rows, which it has to pass outside of to reach
+///     the connector -- the same nesting that made the single ladder planar,
+///     minus the empty slots.
+///
+/// Nearer the connector still means deeper, so drops, rows, lanes and
+/// contacts keep exactly the relative order they had; only the padding
+/// between groups is gone. The tail of the pod link -- pass-throughs, rails,
+/// the spare -- leaves its contacts southward and never touches the band, so
+/// it gets no rows at all.
+function band_groups(b: Board, sgn: float) -> BandGroup[] {
+    let groups: BandGroup[] = [];
+    let scs = b.components.filter((c) -> {
+        is_connector(c) && is_side_mounted(c)
+    });
+    if (scs.length() == 0) {
+        return groups;
+    }
+    let sc = scs.at(0) ?? no_component();
+
+    // Columns, nearest the connector first: the order the groups nest in,
+    // because a column's rows cross every column nearer than it.
+    let cols: string[] = [];
+    for (let c in b.components) {
+        if (is_switch(c)) {
+            let net = (
+                c.pads
+                    .find((p) -> {
+                        p.pad == "1"
+                    })
+                    ?.net
+            )
+                ?? "";
+            if (net != "" && !contains_str(cols, column_of(net))) {
+                cols.push(column_of(net));
+            }
+        }
+    }
+    let ordered = cols.sort_by((a, z) -> {
+        if ((column_mid_x(b, a) - sc.x).abs() < (column_mid_x(b, z) - sc.x).abs()) {
+            0 - 1
+        } else {
+            1
+        }
+    });
+
+    // The bound every group shares: the connector's top contact, which every
+    // row runs to.
+    let ways = sc.pads.length() - 1;
+    let a = comp_to_global(sc, ffc_pad_local(1, ways));
+    let z = comp_to_global(sc, ffc_pad_local(ways, ways));
+    let top = if ((a.y - z.y) * sgn > 0.0) {
+        a
     } else {
-        bn - 1 - brank
+        z
     };
-    BusLane {
-        off: BUS_STANDOFF() + (rank * 1.0) * BUS_PITCH(),
-        row: exit_y + sgn * (BUS_GAP() + ((brow * 1.0) * BUS_PITCH())),
+    let line = top.y + sgn * (0.5 - BUS_GAP());
+
+    let prev_top = 0.0;
+    let first = true;
+    for (let col in ordered) {
+        let nk = 0;
+        for (let c in b.components) {
+            if (is_switch(c)) {
+                let net = (
+                    c.pads
+                        .find((p) -> {
+                            p.pad == "1"
+                        })
+                        ?.net
+                )
+                    ?? "";
+                if (net != "" && column_of(net) == col) {
+                    nk = nk + 1;
+                    // The column's own exit clearance...
+                    let p = comp_to_global(c, MX_SIGNAL_PAD());
+                    let pc = p.y + sgn * column_exit();
+                    if ((pc - line) * sgn > 0.0) {
+                        line = pc;
+                    }
+                    // ...and its ground stitch via, kept 0.65 clear of the
+                    // deepest row (`finger_exit_line` carries the twin bound).
+                    let v = comp_to_global(c, MX_GND_VIA());
+                    let vc = v.y + sgn * (0.65 - BUS_GAP());
+                    if ((vc - line) * sgn > 0.0) {
+                        line = vc;
+                    }
+                }
+            }
+        }
+        let cand = line + sgn * BUS_GAP();
+        let stacked = prev_top + sgn * BUS_PITCH();
+        let base = if (first) {
+            cand
+        } else {
+            if ((stacked - cand) * sgn > 0.0) {
+                stacked
+            } else {
+                cand
+            }
+        };
+        groups.push(BandGroup { column: col, base: base });
+        prev_top = base + sgn * (((nk - 1) * 1.0) * BUS_PITCH());
+        first = false;
     }
+    groups.push(BandGroup { column: "LED", base: prev_top + sgn * BUS_PITCH() });
+    groups
+}
+
+function bus_lane(
+    c: Component,
+    pin: int,
+    exit_y: float,
+    sgn: float,
+    groups: BandGroup[],
+) -> BusLane {
+    let ways = c.pads.length() - 1;
+    let rank = bus_rank(c, pin, sgn);
+    let off = BUS_STANDOFF() + (rank * 1.0) * BUS_PITCH();
+    let net = pad_net(c, `${pin}`);
+    // The LED data head rides outward of every key group: it crosses the
+    // whole board on the back, and the chain's column transitions poke up to
+    // their crossing rows just south of the band -- outside the band is the
+    // one place it clears them on its own layer.
+    if (net.starts_with("LED_DATA")) {
+        if let g: BandGroup = find_group(groups, "LED") {
+            return BusLane { off: off, row: g.base };
+        }
+    }
+    if (net.starts_with("KEY_")) {
+        if let g: BandGroup = find_group(groups, column_of(net)) {
+            // Within a column the contact nearest the keys keeps the row
+            // nearest them -- the same relative order the single ladder gave,
+            // which is the order the drops nest in at the column.
+            let d = comp_to_global(c, ffc_pad_local(pin, ways)).y * sgn;
+            let j = 0;
+            let i = 1;
+            while (i <= ways) {
+                let n2 = pad_net(c, `${i}`);
+                if (n2.starts_with("KEY_") && column_of(n2) == column_of(net)) {
+                    if (comp_to_global(c, ffc_pad_local(i, ways)).y * sgn < d) {
+                        j = j + 1;
+                    }
+                }
+                i = i + 1;
+            }
+            return BusLane { off: off, row: g.base + sgn * ((j * 1.0) * BUS_PITCH()) };
+        }
+    }
+    // No band group carries this net: sit just clear of the band, one pitch
+    // short of where its deepest row would be.
+    BusLane { off: off, row: exit_y + sgn * (BUS_GAP() - BUS_PITCH()) }
 }
 
 /// A connector contact, named by the part it is on rather than by position, so
@@ -402,6 +575,7 @@ function conn_drop(
     pin: int,
     el: float,
     sgn: float,
+    groups: BandGroup[],
     slot: int,
     net: string,
     out: Track[],
@@ -412,7 +586,7 @@ function conn_drop(
     if (is_side_mounted(c)) {
         // Down its own lane to its own row, and change layer there. Anywhere
         // deeper would mean crossing the rows in between.
-        let bl = bus_lane(c, pin, el, sgn);
+        let bl = bus_lane(c, pin, el, sgn, groups);
         let lane = along(pad, n, bl.off);
         let v = Vec2 { x: lane.x, y: bl.row };
         out.push(seg(pad, lane, net));
@@ -462,6 +636,7 @@ function collect_legs(b: Board, el: float, sgn: float) -> Leg[] {
     let conns = b.components.filter((c) -> {
         is_connector(c)
     });
+    let groups = band_groups(b, sgn);
     let legs: Leg[] = [];
     for (let c in b.components) {
         if (is_switch(c)) {
@@ -485,9 +660,9 @@ function collect_legs(b: Board, el: float, sgn: float) -> Leg[] {
                             target: t,
                             normal: contact_normal(conns, net),
                             pin: pin_index(conns, net),
-                            exit_y: el,
-                            bus_off: leg_lane(conns, net, el, sgn).off,
-                            bus_row: leg_lane(conns, net, el, sgn).row,
+                            exit_y: group_exit(groups, column_of(net), el, sgn),
+                            bus_off: leg_lane(conns, net, el, sgn, groups).off,
+                            bus_row: leg_lane(conns, net, el, sgn, groups).row,
                         },
                     );
                 }
@@ -499,10 +674,16 @@ function collect_legs(b: Board, el: float, sgn: float) -> Leg[] {
 
 /// The bus lane of whichever contact carries `net`, or nothing if that
 /// connector is met head-on.
-function leg_lane(conns: Component[], net: string, el: float, sgn: float) -> BusLane {
+function leg_lane(
+    conns: Component[],
+    net: string,
+    el: float,
+    sgn: float,
+    groups: BandGroup[],
+) -> BusLane {
     if let r: ContactRef = find_contact_ref(conns, net) {
         if (is_side_mounted(r.comp)) {
-            return bus_lane(r.comp, r.pin, el, sgn);
+            return bus_lane(r.comp, r.pin, el, sgn, groups);
         }
     }
     BusLane { off: 0.0, row: 0.0 }
@@ -590,8 +771,8 @@ function route_column(legs: Leg[], out: Track[], vias: Via[]) -> Escape[] {
         let lx = LANE_X0() + (lane * 1.0) * LANE_PITCH();
         let turn = from_frame(Vec2 { x: lx, y: local.y }, origin, r);
         // The channel is straight in the column frame, so it stays parallel to
-        // the column however it is splayed; it leaves that frame on the shared
-        // exit line.
+        // the column however it is splayed; it leaves that frame on its
+        // column's exit line.
         let down = from_frame(Vec2 { x: lx, y: local.y + 1.0 }, origin, r);
         // Intersect the channel with the exit line.
         let steps = (l.exit_y - turn.y) / (down.y - turn.y);
@@ -1287,6 +1468,7 @@ function route_board(b: Board, m: Module, f: Features) -> Board {
     let sgn = escape_side(b.id);
     let lowest = last_signal_pad(b.components, sgn);
     let el = board_exit_line(b, sgn);
+    let groups = band_groups(b, sgn);
     let legs = collect_legs(b, el, sgn);
 
     // Group by column. Keys in a column share an axis, which is what lets the
@@ -1322,9 +1504,9 @@ function route_board(b: Board, m: Module, f: Features) -> Board {
     }
 
     route_passthroughs(b, f, el, sgn, tracks, vias);
-    route_leds(b, m, f, lowest, el, sgn, tracks, vias);
+    route_leds(b, m, f, lowest, el, sgn, groups, tracks, vias);
     route_ground_vias(b, f, vias, tracks);
-    route_supply_vias(b, f, el, sgn, vias, tracks);
+    route_supply_vias(b, f, el, sgn, groups, vias, tracks);
 
     // The outline is redrawn around the finished routing rather than guessed
     // from the key positions, so a channel that reaches further than expected
@@ -1618,12 +1800,13 @@ function route_led_thumb_head(
     ref: ContactRef,
     el: float,
     sgn: float,
+    groups: BandGroup[],
     dst: Component,
     net: string,
     out: Track[],
     vias: Via[],
 ) -> void {
-    let v = conn_drop(ref.comp, ref.pin, el, sgn, 1, net, out);
+    let v = conn_drop(ref.comp, ref.pin, el, sgn, groups, 1, net, out);
     vias.push(Via { at: v, net: net });
     let e = led_key_pt(dst, LED_DIN_ELBOW());
     let f = comp_to_global(dst, THUMB_DIN_APPROACH());
@@ -1760,6 +1943,7 @@ function route_led_head(
     ref: ContactRef,
     el: float,
     sgn: float,
+    groups: BandGroup[],
     dst: Component,
     outward: float,
     net: string,
@@ -1773,7 +1957,7 @@ function route_led_head(
     let w1 = along(pad, n, 2.2);
     out.push(seg(pad, w1, net));
     vias.push(Via { at: w1, net: net });
-    let bl = bus_lane(c, ref.pin, el, sgn);
+    let bl = bus_lane(c, ref.pin, el, sgn, groups);
     let l = along(pad, n, bl.off);
     out.push(back(w1, l, net));
     let r = Vec2 { x: l.x, y: bl.row };
@@ -1807,6 +1991,7 @@ function led_link_drop(
     ref: ContactRef,
     el: float,
     sgn: float,
+    groups: BandGroup[],
     slot: int,
     lanes: float[],
     net: string,
@@ -1814,7 +1999,7 @@ function led_link_drop(
 ) -> Vec2 {
     let c = ref.comp;
     if (is_side_mounted(c) || lanes.length() == 0) {
-        return conn_drop(c, ref.pin, el, sgn, slot, net, out);
+        return conn_drop(c, ref.pin, el, sgn, groups, slot, net, out);
     }
     let pad = comp_to_global(c, ffc_pad_local(ref.pin, c.pads.length() - 1));
     let v = along(pad, conn_normal(c), via_standoff(slot));
@@ -1878,6 +2063,7 @@ function route_led_tail(
     ref: ContactRef,
     el: float,
     sgn: float,
+    groups: BandGroup[],
     slot: int,
     outward: float,
     bottom_y: float,
@@ -1886,7 +2072,7 @@ function route_led_tail(
     out: Track[],
     vias: Via[],
 ) -> void {
-    let v = led_link_drop(ref, el, sgn, slot, lanes, net, out);
+    let v = led_link_drop(ref, el, sgn, groups, slot, lanes, net, out);
     let p0 = comp_to_global(src, LED_DOUT_PAD());
     // Which row it leaves on depends on which way out it goes, because the two
     // sides of a key are closed off at different depths. Out over the din side
@@ -1936,6 +2122,7 @@ function route_leds(
     bottom_y: float,
     el: float,
     sgn: float,
+    groups: BandGroup[],
     out: Track[],
     vias: Via[],
 ) -> void {
@@ -1972,9 +2159,9 @@ function route_leds(
 
     if let t: ContactRef = find_contact_ref(conns, head) {
         if (thumb) {
-            route_led_thumb_head(t, el, sgn, first, head, out, vias);
+            route_led_thumb_head(t, el, sgn, groups, first, head, out, vias);
         } else {
-            route_led_head(t, el, sgn, first, sign_away(first.x, mid), head, out, vias);
+            route_led_head(t, el, sgn, groups, first, sign_away(first.x, mid), head, out, vias);
         }
     }
 
@@ -2010,6 +2197,7 @@ function route_leds(
             t,
             el,
             sgn,
+            groups,
             led_link_slot(b, 1),
             sign_away(last.x, mid),
             bottom_y,
@@ -2039,6 +2227,7 @@ function route_supply_vias(
     f: Features,
     el: float,
     sgn: float,
+    groups: BandGroup[],
     vias: Via[],
     out: Track[],
 ) -> void {
@@ -2066,7 +2255,10 @@ function route_supply_vias(
                             vias.push(Via { at: v2, net: p.net });
                         } else {
                             vias.push(
-                                Via { at: conn_drop(c, i, el, sgn, 2, p.net, out), net: p.net },
+                                Via {
+                                    at: conn_drop(c, i, el, sgn, groups, 2, p.net, out),
+                                    net: p.net,
+                                },
                             );
                         }
                         k = k + 1;

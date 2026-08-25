@@ -547,13 +547,13 @@ def check_band_fit(card, outdir):
         detail = "/".join(
             "-" if g is None else f"{g:.1f}" for _, g in gaps
         )
-        ok = tall is not None and tall[1] is not None and tall[1] <= 10.0
+        ok = tall is not None and tall[1] is not None and tall[1] <= 6.0
         card.check(
             ok,
             f"band hugs {name}",
             f"gap to keycaps per column {detail}mm "
             + (
-                f"(tallest column {tall[1]:.1f}, limit 10)"
+                f"(tallest column {tall[1]:.1f}, limit 6)"
                 if tall and tall[1] is not None
                 else "(no band over the tallest column)"
             ),
