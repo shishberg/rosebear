@@ -28,12 +28,32 @@ function legs_for(hand: string, f: Features) -> PodLeg[] throws baml.errors.Inva
     let ribbons = build_ribbons(partition_modules(all_keys()), f);
     let r = pod_ribbon(ribbons, hand);
     let side = side_for(hand);
-    let gpio = r.signals.filter((s) -> {
-        needs_gpio(s)
-    });
-    let pins = choose_pins(header_for(hand), gpio.length());
-    let conn = connector_component("J", r.signals, pod_connector_pos(r.signals.length(), side), pod_connector_angle(side));
-    pod_legs(conn, socket_component(side, []), r.signals, pins, side)
+    let sigs = from_end_signals(r.signals);
+    let pins = socket_taken(header_for(hand), sigs);
+    let conn = connector_component("J", sigs, pod_connector_pos(r.signals.length(), side), pod_connector_angle(side));
+    pod_legs(conn, socket_component(side, []), sigs, pins, side, cross_pad_numbers(sigs, header_for(hand)))
+}
+
+/// The cross legs the trackball variant adds, built the way the board builds
+/// them.
+function cross_for(f: Features) -> PodLeg[] throws baml.errors.InvalidArgument {
+    let ribbons = build_ribbons(partition_modules(all_keys()), f);
+    let sigs_r = from_end_signals(pod_ribbon(ribbons, "r").signals);
+    let pads = cross_pad_numbers(sigs_r, HEADER_RIGHT());
+    if (pads.length() == 0) {
+        return [];
+    }
+    let sigs_l = from_end_signals(pod_ribbon(ribbons, "l").signals);
+    let left_pins = socket_taken(HEADER_LEFT(), sigs_l);
+    let btns = pod_button_pins(ribbons, f);
+    let conn = connector_component("J", sigs_r, pod_connector_pos(sigs_r.length(), 1.0), pod_connector_angle(1.0));
+    pod_cross_legs(
+        conn,
+        socket_component(0.0 - 1.0, []),
+        sigs_r,
+        pads,
+        pod_cross_pins(pads.length(), left_pins, btns),
+    )
 }
 
 /// How many conductors this hand's pod ribbon carries.
@@ -73,7 +93,7 @@ test "every pin name appears once" {
 /// outermost lane -- otherwise a sideways run crosses a lane that already has
 /// copper at that height, and two nets short.
 test "contacts and pins run in step, so no two escapes cross" {
-    for (let f in [features_base(), features_leds()]) {
+    for (let f in [features_base(), features_leds(), features_trackball()]) {
         for (let hand in pod_sides()) {
             // Ascending contact height must mean ascending pin height. Any
             // inversion is a net dragged across the whole channel.
@@ -100,7 +120,7 @@ test "contacts and pins run in step, so no two escapes cross" {
 test "the two halves of a pod fan never overlap, so they can share lanes" {
     // This is what makes the channel half as wide as the ribbon. If the halves
     // ever met in y, two nets on the same lane would short.
-    for (let f in [features_base(), features_leds()]) {
+    for (let f in [features_base(), features_leds(), features_trackball()]) {
         for (let hand in pod_sides()) {
             let legs = legs_for(hand, f);
             let down_max = 0.0 - 100000.0;
@@ -128,7 +148,7 @@ test "the channel is wide enough for the half that actually needs it" {
     // `pod_lanes` guesses half the ribbon plus one, and the connector is
     // placed from that guess. If a real split is wider, lanes run out past the
     // contacts they are meant to reach.
-    for (let f in [features_base(), features_leds()]) {
+    for (let f in [features_base(), features_leds(), features_trackball()]) {
         for (let hand in pod_sides()) {
             let legs = legs_for(hand, f);
             assert.is_true(pod_half_width(legs) <= pod_lanes(ribbon_ways(hand, f)));
@@ -137,7 +157,7 @@ test "the channel is wide enough for the half that actually needs it" {
 }
 
 test "every signal that needs a GPIO gets its own pin" {
-    for (let f in [features_base(), features_leds()]) {
+    for (let f in [features_base(), features_leds(), features_trackball()]) {
         let nets: string[] = [];
         let pins: string[] = [];
         for (let hand in pod_sides()) {
@@ -161,7 +181,7 @@ test "every signal that needs a GPIO gets its own pin" {
 /// A key on a strapping pin is a keyboard that boots into download mode if you
 /// happen to be resting a finger on it.
 test "no button lands on a strapping or JTAG pin" {
-    for (let f in [features_base(), features_leds()]) {
+    for (let f in [features_base(), features_leds(), features_trackball()]) {
         let ribbons = build_ribbons(partition_modules(all_keys()), f);
         let btns = pod_button_pins(ribbons, f);
         assert.equal(btns.length(), 2);
@@ -173,7 +193,7 @@ test "no button lands on a strapping or JTAG pin" {
 }
 
 test "no key lands on a strapping pin" {
-    for (let f in [features_base(), features_leds()]) {
+    for (let f in [features_base(), features_leds(), features_trackball()]) {
         for (let hand in pod_sides()) {
             let hdr = header_for(hand);
             for (let l in legs_for(hand, f)) {
@@ -197,33 +217,69 @@ test "no key lands on a strapping pin" {
 /// contact order, which shorted nineteen nets on a board that otherwise looked
 /// entirely reasonable.
 test "socket pads carry the nets their traces carry" {
-    let b = build_pod_board(build_ribbons(partition_modules(all_keys()), features_base()), features_base());
-    for (let sock in b.components) {
-        if (sock.ref.starts_with("J_")) {
-            let n = 1;
-            while (n <= HEADER_WAYS()) {
-                let net = (
-                    sock.pads
-                        .find((p) -> {
-                            p.pad == `${n}`
-                        })
-                        ?.net
-                )
-                    ?? "";
-                if (net.starts_with("KEY_")) {
-                    let pos = socket_pin_pos(sock, n);
-                    // Some track on this pad's net must actually start there.
-                    let hit = b.tracks.find((t) -> {
-                        t.net == net
-                            && (t.start.x - pos.x).abs() < 0.001
-                            && (t.start.y - pos.y).abs() < 0.001
-                    });
-                    assert.is_true(hit != null);
+    for (let f in [features_base(), features_trackball()]) {
+        let b = build_pod_board(build_ribbons(partition_modules(all_keys()), f), f);
+        for (let sock in b.components) {
+            if (sock.ref.starts_with("J_")) {
+                let n = 1;
+                while (n <= HEADER_WAYS()) {
+                    let net = (
+                        sock.pads
+                            .find((p) -> {
+                                p.pad == `${n}`
+                            })
+                            ?.net
+                    )
+                        ?? "";
+                    if (net.starts_with("KEY_") || net.starts_with("TB_")) {
+                        let pos = socket_pin_pos(sock, n);
+                        // Some track on this pad's net must actually start there.
+                        let hit = b.tracks.find((t) -> {
+                            t.net == net
+                                && (t.start.x - pos.x).abs() < 0.001
+                                && (t.start.y - pos.y).abs() < 0.001
+                        });
+                        assert.is_true(hit != null);
+                    }
+                    n = n + 1;
                 }
-                n = n + 1;
             }
         }
     }
+}
+
+/// The trackball's overflow: five nets, one on the right socket, four served
+/// from the left across the board.
+test "trackball nets all reach a pin and none costs the strapping pin" {
+    let cross = cross_for(features_trackball());
+    assert.equal(cross.length(), 4);
+    let nets = cross.map((l) -> {
+        l.net
+    });
+    for (let l in cross) {
+        assert.is_true(TRACKBALL_NETS().includes(l.net));
+        assert.is_true(l.pin_no > 0);
+        let name = (
+            HEADER_LEFT()
+                .find((p) -> {
+                    p.pin == l.pin_no
+                })
+                ?.name
+        )
+            ?? "";
+        assert.is_true(!STRAP_PINS().includes(name));
+    }
+    // The fifth trackball net stays on the right socket.
+    let right_nets = legs_for("r", features_trackball()).map((l) -> {
+        l.net
+    });
+    let on_right = TRACKBALL_NETS().filter((n) -> {
+        right_nets.includes(n)
+    });
+    assert.equal(on_right.length() + nets.length(), 5);
+    // And the LED variants have no overflow at all.
+    assert.equal(cross_for(features_leds()).length(), 0);
+    assert.equal(cross_for(features_base()).length(), 0)
 }
 
 // ------------------------------------------------------------- planarity
@@ -249,7 +305,7 @@ function segments_cross(a1: Vec2, a2: Vec2, b1: Vec2, b2: Vec2) -> bool {
 }
 
 test "no two nets cross on the same layer" {
-    for (let f in [features_base(), features_leds()]) {
+    for (let f in [features_base(), features_leds(), features_trackball()]) {
         let b = build_pod_board(build_ribbons(partition_modules(all_keys()), f), f);
         let n = b.tracks.length();
         let i = 0;

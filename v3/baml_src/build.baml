@@ -133,9 +133,9 @@ function drc(path: string) -> string throws baml.errors.Io | baml.errors.Timeout
 
 function build(
 ) -> string throws baml.errors.InvalidArgument | baml.errors.Io | baml.errors.ParseError | baml.errors.Timeout {
-    let paths = write_boards(features_leds(), OUT_DIR());
+    let paths = write_boards(features_trackball(), OUT_DIR());
     write_lib_table(OUT_DIR(), "../v3/");
-    write_panel(features_leds(), OUT_DIR());
+    write_panel(features_trackball(), OUT_DIR());
     let lines: string[] = [];
     for (let p in paths) {
         lines.push(`--- ${p}`);

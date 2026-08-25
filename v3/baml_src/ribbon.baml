@@ -84,6 +84,9 @@ function ribbon_signals(
     /// awkward to replace. v2-p4-pod.md omits it on the short finger->thumb
     /// hop, and this follows that.
     include_spare: bool,
+    /// The trackball rides this ribbon's tail: five GPIO lines to the hall
+    /// switches and dome button on the right finger board.
+    trackball: bool,
 ) -> Signal[] {
     let sigs: Signal[] = [];
 
@@ -127,6 +130,14 @@ function ribbon_signals(
 
     if (include_spare) {
         sigs.push(Signal { name: `SPARE_${led_tag}`, kind: SignalKind.Spare });
+    }
+    if (trackball) {
+        // Pushed last so `band_pinout`'s tail reversal lands them on the
+        // southernmost contacts, where their lanes leave the connector without
+        // crossing any key stub.
+        for (let n in TRACKBALL_NETS()) {
+            sigs.push(Signal { name: n, kind: SignalKind.Trackball });
+        }
     }
     sigs
 }
@@ -312,7 +323,17 @@ function build_ribbons(mods: Module[], f: Features) -> Ribbon[] throws baml.erro
                 // order is not free (the cable fixes it against the thumb
                 // board's fan), so the tail bends instead.
                 signals: band_pinout(
-                    ribbon_signals(finger.keys, thumb.keys.reverse(), f, hand.to_upper_case(), true),
+                    ribbon_signals(
+                        finger.keys,
+                        thumb.keys.reverse(),
+                        f,
+                        hand.to_upper_case(),
+                        // The trackball takes the right link's spare: the
+                        // right socket has no free pins left, so the spare's
+                        // GPIO is re-spent on the trackball instead.
+                        !(f.trackball && hand == "r"),
+                        f.trackball && hand == "r",
+                    ),
                     hand == "r",
                 ),
             },
@@ -323,7 +344,10 @@ function build_ribbons(mods: Module[], f: Features) -> Ribbon[] throws baml.erro
                 id: `finger_${hand}_to_thumb_${hand}`,
                 from_module: finger.id,
                 to_module: thumb.id,
-                signals: link_pinout(ribbon_signals(thumb.keys, [], f, `T${hand.to_upper_case()}`, false), hand == "r"),
+                signals: link_pinout(
+                    ribbon_signals(thumb.keys, [], f, `T${hand.to_upper_case()}`, false, false),
+                    hand == "r",
+                ),
             },
         );
     }

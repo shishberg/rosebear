@@ -13,14 +13,38 @@ class Features {
     /// Budgeted current per LED in milliamps. SK6812MINI-E draws ~60mA at full
     /// white; firmware normally caps well below that. Drives conductor count.
     led_ma_per_key: float,
+    /// Blackberry-style trackball on the right finger board: a mechanical
+    /// jog-ball unit (EVQWJN007 class) whose four spindle magnets are read by
+    /// hall-effect switches on the PCB, plus a centre dome switch under the
+    /// ball. Five GPIO: UP/DOWN/LEFT/RIGHT pulse lines and the button.
+    trackball: bool,
 }
 
 function features_base() -> Features {
-    Features { per_key_leds: false, led_ma_per_key: 0.0 }
+    Features { per_key_leds: false, led_ma_per_key: 0.0, trackball: false }
 }
 
 function features_leds() -> Features {
-    Features { per_key_leds: true, led_ma_per_key: 20.0 }
+    Features { per_key_leds: true, led_ma_per_key: 20.0, trackball: false }
+}
+
+function features_trackball() -> Features {
+    Features { per_key_leds: true, led_ma_per_key: 20.0, trackball: true }
+}
+
+/// The trackball's GPIO signals, in ribbon-tail order. The four movement lines
+/// are open-drain hall outputs (pulled up by the ESP32-P4); BTN is the dome
+/// switch to ground. All live on the right pod link's tail.
+///
+/// The order is load-bearing at the far end. The tail is reversed onto the
+/// right hand's contacts, so the LAST name here lands on the southernmost
+/// contact and the first on the northernmost -- and on the finger board that
+/// fixes which lane ends up innermost when the bundle turns down the
+/// trackball's west flank. The button goes first because its target, the dome
+/// at the ball's centre, is the one the bundle passes first. See
+/// `route_tb_leg`.
+function TRACKBALL_NETS() -> string[] {
+    ["TB_BTN", "TB_UP", "TB_DOWN", "TB_LEFT", "TB_RIGHT"]
 }
 
 // ------------------------------------------------------------------ signals
@@ -31,6 +55,7 @@ enum SignalKind {
     Power,
     LedData,
     Spare,
+    Trackball,
 }
 
 class Signal {

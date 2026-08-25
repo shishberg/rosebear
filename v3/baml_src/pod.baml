@@ -374,7 +374,72 @@ class PodLeg {
 /// board is poured with, so it reaches the pour through the connector's own
 /// contact. Power is routed separately, on the back.
 function needs_gpio(s: Signal) -> bool {
-    s.kind == SignalKind.Key || s.kind == SignalKind.LedData || s.kind == SignalKind.Spare
+    s.kind == SignalKind.Key
+        || s.kind == SignalKind.LedData
+        || s.kind == SignalKind.Spare
+        || s.kind == SignalKind.Trackball
+}
+
+function contains_int(xs: int[], n: int) -> bool {
+    xs.find((x) -> {
+        x == n
+    })
+        != null
+}
+
+/// GPIO a socket can spend without touching the strapping pin -- the one
+/// concession `pin_cost` orders last and this board never makes.
+function socket_capacity(hdr: HeaderPin[]) -> int {
+    hdr
+        .filter((p) -> {
+            is_gpio(p) && pin_cost(p.name) < 4
+        })
+        .length()
+}
+
+/// Pad numbers on a pod connector that its own socket cannot serve.
+///
+/// With the trackball fitted the right ribbon asks for more GPIO than its
+/// socket has short of the strapping pin, so the overflow is served from the
+/// other socket. It has to come off the highest-numbered pads -- the
+/// southernmost contacts -- because those are the only ones a trace from
+/// across the board can reach without crossing the fan: around the south end
+/// of the socket and up the outboard side of the connector, where the only
+/// other copper is the supply drop well to the north.
+function cross_pad_numbers(sigs: Signal[], hdr: HeaderPin[]) -> int[] {
+    let need = sigs
+        .filter((s) -> {
+            needs_gpio(s)
+        })
+        .length();
+    let cap = socket_capacity(hdr);
+    let out: int[] = [];
+    if (need <= cap) {
+        return out;
+    }
+    let i = sigs.length();
+    while (i >= 1 && out.length() < need - cap) {
+        let s = sigs.at(i - 1) ?? Signal { name: "", kind: SignalKind.Ground };
+        if (needs_gpio(s)) {
+            out.push(i);
+        }
+        i = i - 1;
+    }
+    out
+}
+
+/// The pins a socket spends on its own ribbon, cross-served pads excluded.
+function socket_taken(
+    hdr: HeaderPin[],
+    sigs: Signal[],
+) -> HeaderPin[] throws baml.errors.InvalidArgument {
+    let n = sigs
+        .filter((s) -> {
+            needs_gpio(s)
+        })
+        .length()
+        - cross_pad_numbers(sigs, hdr).length();
+    choose_pins(hdr, n)
 }
 
 /// Distance from the socket's pin column to lane `k`, counting outward.
@@ -424,12 +489,14 @@ function pod_legs(
     sigs: Signal[],
     pins: HeaderPin[],
     side: float,
+    /// Pads served from the other socket -- see `cross_pad_numbers`.
+    skip_pads: int[],
 ) -> PodLeg[] {
     let ways = conn.pads.length() - 1;
     let routed: PodLeg[] = [];
     let i = 1;
     for (let s in sigs) {
-        if (needs_gpio(s)) {
+        if (needs_gpio(s) && !contains_int(skip_pads, i)) {
             routed.push(
                 PodLeg {
                     net: s.name,
@@ -534,6 +601,124 @@ function pod_half_width(legs: PodLeg[]) -> int {
     }
 }
 
+/// The left-socket pins that serve the right connector's overflow pads.
+///
+/// Taken from what the left socket has spare after its own ribbon and the
+/// buttons, cheapest concession first -- with the trackball fitted that is
+/// IO40 (SD domain) and the three JTAG pins. Returned northernmost pin first,
+/// which is the order `route_pod_cross` nests them in.
+function pod_cross_pins(
+    n: int,
+    left_taken: HeaderPin[],
+    btns: ButtonPin[],
+) -> HeaderPin[] throws baml.errors.InvalidArgument {
+    let btn_names = btns
+        .filter((b) -> {
+            b.side < 0.0
+        })
+        .map((b) -> {
+            b.pin.name
+        });
+    let avail = spare_pins(HEADER_LEFT(), left_taken).filter((p) -> {
+        !contains_str(btn_names, p.name)
+    });
+    if (avail.length() < n) {
+        throw baml.errors.InvalidArgument {
+            message: `cross-socket overflow needs ${n} pins but the left socket has ${avail.length()} spare`
+        };
+    }
+    let taken: HeaderPin[] = [];
+    let i = 0;
+    while (i < n) {
+        taken.push(avail.at(i) ?? no_pin());
+        i = i + 1;
+    }
+    // The socket is turned 180 degrees, so descending pin number is ascending
+    // y: highest pin first puts the northernmost pin first.
+    taken.sort_by((a, b) -> {
+        b.pin - a.pin
+    })
+}
+
+/// Match the overflow pads to their left-socket pins.
+///
+/// The pairing is fixed by the route's nesting (see `route_pod_cross`): the
+/// northernmost pin takes the outermost mid-lane, the shallowest row and the
+/// innermost outboard lane, which lands it on the southernmost pad. So pins
+/// north-first pair with pads south-first.
+function pod_cross_legs(
+    conn_r: Component,
+    sock_l: Component,
+    sigs_r: Signal[],
+    pads: int[],
+    pins: HeaderPin[],
+) -> PodLeg[] {
+    let ways = conn_r.pads.length() - 1;
+    let south_first = pads.sort_by((a, b) -> {
+        b - a
+    });
+    let out: PodLeg[] = [];
+    let k = 0;
+    for (let p in pins) {
+        let pad = south_first.at(k) ?? 0;
+        let s = sigs_r.at(pad - 1) ?? Signal { name: "", kind: SignalKind.Ground };
+        out.push(
+            PodLeg {
+                net: s.name,
+                pin_no: p.pin,
+                pin: socket_pin_pos(sock_l, p.pin),
+                contact: comp_to_global(conn_r, ffc_pad_local(pad, ways)),
+            },
+        );
+        k = k + 1;
+    }
+    out
+}
+
+/// Route the overflow legs: left socket pins to right-connector pads, all on
+/// the front, around the south end of the right socket.
+///
+/// Each leg is five segments: east out of its pin, south down a mid-lane
+/// between the module's sockets, east along a row below the right socket's
+/// bottom pin, north up an outboard lane east of the connector's contacts, and
+/// west into its pad. Planarity is the same nesting argument as the fan,
+/// applied three times: the northernmost pin takes the outermost mid-lane (its
+/// exit crosses nobody's lane), the shallowest row (nobody's lane passes its
+/// end), and the innermost outboard lane paired with the southernmost pad
+/// (nobody's entry crosses its climb). Legs are given northernmost pin first.
+///
+/// The mid-lanes run just east of SW2 -- which `build_pod_board` moves inboard
+/// when the overflow exists -- and west of the right socket's pads; the rows
+/// clear the socket's bottom pad and the button's; the outboard lanes clear
+/// the contacts on one side and the supply drop's via stays north of every
+/// climb. A pin abreast of the stitching vias jogs south before running east.
+function route_pod_cross(legs: PodLeg[], out: Track[]) -> void {
+    let c = POD_CENTRE();
+    let k = 0;
+    for (let l in legs) {
+        let mid = Vec2 { x: c.x + 10.2 - (k * 1.0) * 0.6, y: c.y + 34.6 + (k * 1.0) * 0.6 };
+        let outb = l.contact.x + 1.68 + (k * 1.0) * 0.6;
+        let exit_y = if ((l.pin.y - (c.y - 26.0)).abs() < 2.0) {
+            c.y - 23.8
+        } else {
+            l.pin.y
+        };
+        if (exit_y != l.pin.y) {
+            let jog = Vec2 { x: l.pin.x + 2.7, y: l.pin.y };
+            out.push(seg(l.pin, jog, l.net));
+            out.push(seg(jog, Vec2 { x: jog.x, y: exit_y }, l.net));
+            out.push(seg(Vec2 { x: jog.x, y: exit_y }, Vec2 { x: mid.x, y: exit_y }, l.net));
+        } else {
+            out.push(seg(l.pin, Vec2 { x: mid.x, y: exit_y }, l.net));
+        }
+        out.push(seg(Vec2 { x: mid.x, y: exit_y }, mid, l.net));
+        out.push(seg(mid, Vec2 { x: outb, y: mid.y }, l.net));
+        out.push(seg(Vec2 { x: outb, y: mid.y }, Vec2 { x: outb, y: l.contact.y }, l.net));
+        out.push(seg(Vec2 { x: outb, y: l.contact.y }, l.contact, l.net));
+        k = k + 1;
+    }
+}
+
 /// Stitch the copper under the module to the back.
 ///
 /// Each escape channel is a wall of about twenty parallel traces running most
@@ -575,15 +760,17 @@ function build_pod_board(
     let left_r = pod_ribbon(ribbons, "l");
     let right_r = pod_ribbon(ribbons, "r");
 
-    let left_gpio = left_r.signals.filter((s) -> {
-        needs_gpio(s)
-    });
-    let right_gpio = right_r.signals.filter((s) -> {
-        needs_gpio(s)
-    });
+    // The pod is the from-end of both ribbons, so its pads are assigned from
+    // the reversed lists -- see `from_end_signals`. `pod_legs` gets the same
+    // list, so contact i and pad i agree on their net.
+    let sigs_l = from_end_signals(left_r.signals);
+    let sigs_r = from_end_signals(right_r.signals);
 
-    let left_pins = choose_pins(HEADER_LEFT(), left_gpio.length());
-    let right_pins = choose_pins(HEADER_RIGHT(), right_gpio.length());
+    // Pads a socket cannot serve are served from across the board; with the
+    // trackball fitted that is four of the right connector's tail.
+    let cross_pads = cross_pad_numbers(sigs_r, HEADER_RIGHT());
+    let left_pins = socket_taken(HEADER_LEFT(), sigs_l);
+    let right_pins = socket_taken(HEADER_RIGHT(), sigs_r);
 
     // Ribbon contacts take a GPIO each; the buttons take what is left. Which
     // side they take it from is decided by cost, not by symmetry: with LEDs
@@ -604,11 +791,6 @@ function build_pod_board(
     let sock_l = socket_component(0.0 - 1.0, []);
     let sock_r = socket_component(1.0, []);
 
-    // The pod is the from-end of both ribbons, so its pads are assigned from
-    // the reversed lists -- see `from_end_signals`. `pod_legs` gets the same
-    // list, so contact i and pad i agree on their net.
-    let sigs_l = from_end_signals(left_r.signals);
-    let sigs_r = from_end_signals(right_r.signals);
     let conn_l = connector_component(
         "J1",
         sigs_l,
@@ -617,17 +799,25 @@ function build_pod_board(
     );
     let conn_r = connector_component("J2", sigs_r, pod_connector_pos(right_r.signals.length(), 1.0), pod_connector_angle(1.0));
 
-    let legs_l = pod_legs(conn_l, sock_l, sigs_l, left_pins, 0.0 - 1.0);
-    let legs_r = pod_legs(conn_r, sock_r, sigs_r, right_pins, 1.0);
-    let sock_l2 = socket_component(0.0 - 1.0, socket_pads(HEADER_LEFT(), legs_l, btns, 0.0 - 1.0, want_5v));
+    let legs_l = pod_legs(conn_l, sock_l, sigs_l, left_pins, 0.0 - 1.0, []);
+    let legs_r = pod_legs(conn_r, sock_r, sigs_r, right_pins, 1.0, cross_pads);
+    let cross = pod_cross_legs(conn_r, sock_l, sigs_r, cross_pads, pod_cross_pins(cross_pads.length(), left_pins, btns));
+    let sock_l2 = socket_component(0.0 - 1.0, socket_pads(HEADER_LEFT(), legs_l.concat(cross), btns, 0.0 - 1.0, want_5v));
     let sock_r2 = socket_component(1.0, socket_pads(HEADER_RIGHT(), legs_r, btns, 1.0, want_5v));
 
     // Buttons sit past the end of the module, which is the only part of the
     // board a finger can reach once the module is seated on its sockets. The
-    // ribbons leave sideways, so nothing else wants this strip.
+    // ribbons leave sideways, so nothing else wants this strip. SW2 moves
+    // inboard when the cross legs exist: their mid-lanes need the strip just
+    // east of it.
     let btn_y = c.y + POD_END_OFFSET();
     let sw_l = button_component("SW1", Vec2 { x: c.x - 7.0, y: btn_y }, "BTN1");
-    let sw_r = button_component("SW2", Vec2 { x: c.x + 7.0, y: btn_y }, "BTN2");
+    let sw_r_x = if (cross.length() > 0) {
+        c.x + 4.0
+    } else {
+        c.x + 7.0
+    };
+    let sw_r = button_component("SW2", Vec2 { x: sw_r_x, y: btn_y }, "BTN2");
 
     let comps = [sock_l2, sock_r2, conn_l, conn_r, sw_l, sw_r];
 
@@ -644,6 +834,13 @@ function build_pod_board(
     }
     for (let p in rect_corners(Vec2 { x: c.x, y: btn_y }, 12.0, 4.0)) {
         corners.push(p);
+    }
+    // The cross legs' rows and outboard lanes run through the board's SE
+    // notch, between the button strip and the right connector; fill it.
+    if (cross.length() > 0) {
+        for (let p in rect_corners(Vec2 { x: c.x + 34.0, y: c.y + 27.0 }, 5.5, 10.5)) {
+            corners.push(p);
+        }
     }
 
     // The LED supply rail runs past the top of the module, above the escape
@@ -669,6 +866,7 @@ function build_pod_board(
     let tracks: Track[] = [];
     route_pod_side(legs_l, 0.0 - 1.0, tracks);
     route_pod_side(legs_r, 1.0, tracks);
+    route_pod_cross(cross, tracks);
 
     let vias = pod_stitching_vias();
     route_buttons([sw_l, sw_r], btns, sock_l, sock_r, tracks, vias);
@@ -1031,11 +1229,12 @@ function pod_pinout(f: Features) -> string throws baml.errors.InvalidArgument {
         let gpio = r.signals.filter((s) -> {
             needs_gpio(s)
         });
-        let pins = choose_pins(hdr, gpio.length());
-        let sock = socket_component(side, []);
         let sigs = from_end_signals(r.signals);
+        let cross_pads = cross_pad_numbers(sigs, hdr);
+        let pins = socket_taken(hdr, sigs);
+        let sock = socket_component(side, []);
         let conn = connector_component("J", sigs, pod_connector_pos(r.signals.length(), side), pod_connector_angle(side));
-        let legs = pod_legs(conn, sock, sigs, pins, side);
+        let legs = pod_legs(conn, sock, sigs, pins, side, cross_pads);
 
         lines.push(`${hand.to_upper_case()} socket -- ${gpio.length()} signals`);
         for (
@@ -1076,8 +1275,33 @@ function pod_pinout(f: Features) -> string throws baml.errors.InvalidArgument {
         let taken_btn = mine.map((b) -> {
             b.pin.name
         });
+        // Overflow from the OTHER socket's connector, served by this one.
+        let cross_names: string[] = [];
+        if (hand == "l") {
+            let sigs_r = from_end_signals(pod_ribbon(ribbons, "r").signals);
+            let pads_r = cross_pad_numbers(sigs_r, HEADER_RIGHT());
+            if (pads_r.length() > 0) {
+                let cpins = pod_cross_pins(pads_r.length(), pins, btns);
+                let south_first = pads_r.sort_by((a, b) -> {
+                    b - a
+                });
+                let k = 0;
+                for (let p in cpins) {
+                    let pad = south_first.at(k) ?? 0;
+                    let net = (sigs_r.at(pad - 1)?.name) ?? "?";
+                    let note = if (pin_cost(p.name) == 0) {
+                        ""
+                    } else {
+                        `  <- ${concession(p.name)}`
+                    };
+                    lines.push(`  pin ${p.pin}\t${p.name}\t${net} (right ribbon pad ${pad})${note}`);
+                    cross_names.push(p.name);
+                    k = k + 1;
+                }
+            }
+        }
         lines.push(
-            `  unused: ${left_over.filter((p) -> { !contains_str(taken_btn, p.name) }).map((p) -> { p.name }).join(", ")}`,
+            `  unused: ${left_over.filter((p) -> { !contains_str(taken_btn, p.name) && !contains_str(cross_names, p.name) }).map((p) -> { p.name }).join(", ")}`,
         );
         lines.push("");
     }
@@ -1106,6 +1330,10 @@ function pinout_leds() -> string throws baml.errors.InvalidArgument {
     pod_pinout(features_leds())
 }
 
+function pinout_trackball() -> string throws baml.errors.InvalidArgument {
+    pod_pinout(features_trackball())
+}
+
 /// Which button, if any, is wired to this pin. Buttons are numbered in the
 /// order `button_pins` returns them, which is the order they are placed.
 function button_net_for(btns: ButtonPin[], side: float, p: HeaderPin) -> string {
@@ -1127,10 +1355,8 @@ function pod_button_pins(
     let spares: HeaderPin[][] = [];
     for (let hand in ["l", "r"]) {
         let hdr = header_for(hand);
-        let gpio = pod_ribbon(ribbons, hand).signals.filter((s) -> {
-            needs_gpio(s)
-        });
-        spares.push(spare_pins(hdr, choose_pins(hdr, gpio.length())));
+        let sigs = from_end_signals(pod_ribbon(ribbons, hand).signals);
+        spares.push(spare_pins(hdr, socket_taken(hdr, sigs)));
     }
     button_pins(spares.at(0) ?? [], spares.at(1) ?? [], 2)
 }

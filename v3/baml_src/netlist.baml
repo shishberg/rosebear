@@ -608,6 +608,15 @@ function build_board(
         }
     }
 
+    // The trackball, if this is the board that carries it. It sits south of
+    // the key field, well inside the hull the keys already draw, so it
+    // contributes no corners of its own.
+    if (has_trackball(m.id, f)) {
+        for (let c in trackball_components(f)) {
+            comps.push(c);
+        }
+    }
+
     // Key footprint corners drive the board outline.
     let corners: Vec2[] = [];
     for (let k in m.keys) {

@@ -321,3 +321,72 @@ test "the link connectors face each other across the gap" {
         }
     }
 }
+
+// ---------------------------------------------------------- the trackball
+//
+// The trackball's corridor is the one path on these boards that is quoted by
+// hand rather than derived, so it gets the check the derived routing gets for
+// free: nothing it lays may cross anything already there.
+
+/// The board the trackball is fitted to, routed.
+function trackball_board() -> Board throws baml.errors.InvalidArgument {
+    find_board(build_boards(features_trackball()), "finger_r")
+}
+
+test "every trackball net runs from the pod link to a part on the board" {
+    let b = trackball_board();
+    for (let net in TRACKBALL_NETS()) {
+        // One contact on the pod link...
+        let hits = b.components.filter((c) -> {
+            is_connector(c)
+                && c.pads.find((p) -> {
+                    p.net == net
+                })
+                    != null
+        });
+        assert.equal(hits.length(), 1);
+        // ...and one pad on a hall or the dome, and nothing else.
+        let parts = b.components.filter((c) -> {
+            !is_connector(c)
+                && c.pads.find((p) -> {
+                    p.net == net
+                })
+                    != null
+        });
+        assert.equal(parts.length(), 1);
+        // ...with copper joining them.
+        let laid = b.tracks.filter((t) -> {
+            t.net == net
+        });
+        assert.is_true(laid.length() > 4);
+    }
+    // And the board that has no trackball has none of this.
+    let plain = find_board(build_boards(features_leds()), "finger_r");
+    for (let net in TRACKBALL_NETS()) {
+        assert.equal(
+            plain.tracks
+                .filter((t) -> {
+                    t.net == net
+                })
+                .length(),
+            0,
+        );
+    }
+}
+
+test "no trackball track crosses another net on its own layer" {
+    let b = trackball_board();
+    let mine = b.tracks.filter((t) -> {
+        t.net.starts_with("TB_")
+    });
+    // The corridor is five lanes plus the site; if this ever collapses to a
+    // handful the test below is passing on nothing.
+    assert.is_true(mine.length() > 30);
+    for (let t in mine) {
+        for (let u in b.tracks) {
+            if (t.layer == u.layer && t.net != u.net) {
+                assert.is_true(!segments_cross(t.start, t.end, u.start, u.end));
+            }
+        }
+    }
+}

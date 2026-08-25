@@ -1505,6 +1505,9 @@ function route_board(b: Board, m: Module, f: Features) -> Board {
 
     route_passthroughs(b, f, el, sgn, tracks, vias);
     route_leds(b, m, f, lowest, el, sgn, groups, tracks, vias);
+    // After the LED chain, because the trackball's corridor is quoted against
+    // where the chain's copper actually lands in the south strip.
+    route_trackball(b, f, tracks, vias);
     route_ground_vias(b, f, vias, tracks);
     route_supply_vias(b, f, el, sgn, groups, vias, tracks);
 
