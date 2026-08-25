@@ -378,6 +378,102 @@ function column_mid_x(b: Board, col: string) -> float {
     sum / (n * 1.0)
 }
 
+/// The board's columns, nearest the side-mounted connector first.
+///
+/// The order the band's groups nest in, because a column's rows cross every
+/// column nearer than it -- and the order that names the near column, the one
+/// close enough to reach its contacts without joining the band at all.
+function columns_near_first(b: Board) -> string[] {
+    let scs = b.components.filter((c) -> {
+        is_connector(c) && is_side_mounted(c)
+    });
+    if (scs.length() == 0) {
+        return [];
+    }
+    let sc = scs.at(0) ?? no_component();
+    let cols: string[] = [];
+    for (let c in b.components) {
+        if (is_switch(c)) {
+            let net = (
+                c.pads
+                    .find((p) -> {
+                        p.pad == "1"
+                    })
+                    ?.net
+            )
+                ?? "";
+            if (net != "" && !contains_str(cols, column_of(net))) {
+                cols.push(column_of(net));
+            }
+        }
+    }
+    cols.sort_by((a, z) -> {
+        if ((column_mid_x(b, a) - sc.x).abs() < (column_mid_x(b, z) - sc.x).abs()) {
+            0 - 1
+        } else {
+            1
+        }
+    })
+}
+
+/// The column that stands alongside the connector, if there is one.
+///
+/// Its contacts are the ones nearest the band, so `bus_rank` hands it the
+/// outermost bus lanes -- the ones on the key side of every other lane, with
+/// nothing but empty board between them and the column itself. That column has
+/// no reason to escape north into the band and come back: it can cross the gap
+/// on its own rows and turn straight in. See `route_near_column`.
+///
+/// The thumb cluster is excluded: its fan runs on the back and its contacts sit
+/// on a row rather than a line, so there is no "alongside" to exploit.
+///
+/// So is a column whose escape via sits on the far side of the key from the
+/// connector. The hotswap socket is not symmetric: the signal pad is out on one
+/// side and the via that surfaces it is further out still, past the socket's
+/// own pads. Where the connector is on that side -- the left hand's, whose
+/// contacts face the key field across an empty strip -- the row leaves the via
+/// already pointing at them. Where it is on the other -- the right hand's,
+/// where the connector stands inboard of the innermost column -- a lateral row
+/// would have to come back over the key it just left, straight through the
+/// socket's leaf hole, and then cross the trackball's corridor to get to the
+/// contacts. That column keeps the band.
+function near_column(b: Board) -> string {
+    if (b.id.starts_with("thumb")) {
+        return "";
+    }
+    let cand = (columns_near_first(b).at(0)) ?? "";
+    if (cand == "") {
+        return "";
+    }
+    let conns = b.components.filter((c) -> {
+        is_connector(c)
+    });
+    for (let c in b.components) {
+        if (is_switch(c)) {
+            let net = (
+                c.pads
+                    .find((p) -> {
+                        p.pad == "1"
+                    })
+                    ?.net
+            )
+                ?? "";
+            if (net != "" && column_of(net) == cand) {
+                let pad = comp_to_global(c, MX_SIGNAL_PAD());
+                let entry = from_frame(Vec2 { x: LANE_X0(), y: MX_SIGNAL_PAD().y }, Vec2 { x: c.x, y: c.y }, c.r);
+                if let t: Vec2 = find_contact(conns, net) {
+                    if ((entry.x - pad.x) * (t.x - pad.x) <= 0.0) {
+                        return "";
+                    }
+                } else {
+                    return "";
+                }
+            }
+        }
+    }
+    cand
+}
+
 /// The fan band, packed toward the keys column by column.
 ///
 /// One shared ladder of rows put the whole band at the tallest column's
@@ -409,31 +505,12 @@ function band_groups(b: Board, sgn: float) -> BandGroup[] {
     }
     let sc = scs.at(0) ?? no_component();
 
-    // Columns, nearest the connector first: the order the groups nest in,
-    // because a column's rows cross every column nearer than it.
-    let cols: string[] = [];
-    for (let c in b.components) {
-        if (is_switch(c)) {
-            let net = (
-                c.pads
-                    .find((p) -> {
-                        p.pad == "1"
-                    })
-                    ?.net
-            )
-                ?? "";
-            if (net != "" && !contains_str(cols, column_of(net))) {
-                cols.push(column_of(net));
-            }
-        }
-    }
-    let ordered = cols.sort_by((a, z) -> {
-        if ((column_mid_x(b, a) - sc.x).abs() < (column_mid_x(b, z) - sc.x).abs()) {
-            0 - 1
-        } else {
-            1
-        }
-    });
+    let ordered = columns_near_first(b);
+    // The near column reaches its contacts sideways and takes no rows. Its
+    // keys still constrain the band, though -- every other column's rows run
+    // over its tiles to get to the connector -- so it stays in the loop for
+    // the bounds and only skips the group.
+    let near = near_column(b);
 
     // The bound every group shares: the connector's top contact, which every
     // row runs to.
@@ -479,20 +556,22 @@ function band_groups(b: Board, sgn: float) -> BandGroup[] {
                 }
             }
         }
-        let cand = line + sgn * BUS_GAP();
-        let stacked = prev_top + sgn * BUS_PITCH();
-        let base = if (first) {
-            cand
-        } else {
-            if ((stacked - cand) * sgn > 0.0) {
-                stacked
-            } else {
+        if (col != near) {
+            let cand = line + sgn * BUS_GAP();
+            let stacked = prev_top + sgn * BUS_PITCH();
+            let base = if (first) {
                 cand
-            }
-        };
-        groups.push(BandGroup { column: col, base: base });
-        prev_top = base + sgn * (((nk - 1) * 1.0) * BUS_PITCH());
-        first = false;
+            } else {
+                if ((stacked - cand) * sgn > 0.0) {
+                    stacked
+                } else {
+                    cand
+                }
+            };
+            groups.push(BandGroup { column: col, base: base });
+            prev_top = base + sgn * (((nk - 1) * 1.0) * BUS_PITCH());
+            first = false;
+        }
     }
     groups.push(BandGroup { column: "LED", base: prev_top + sgn * BUS_PITCH() });
     groups
@@ -802,6 +881,45 @@ function route_column(legs: Leg[], out: Track[], vias: Via[]) -> Escape[] {
         lane = lane + 1;
     }
     exits
+}
+
+/// Take the column that stands alongside the connector straight across to it.
+///
+/// Every other column has to escape north to the fan band, because the band is
+/// the only place a row can cross the columns between it and the connector.
+/// This one has no columns between: it is the connector's neighbour, and
+/// `bus_rank` has already given its contacts the outermost bus lanes, the ones
+/// on its own side of every other lane. Sending it north meant four and a half
+/// centimetres up the board and three back down, per net, to reach a pad a
+/// centimetre and a half away.
+///
+/// So each key crosses on its own row -- the row its pad already sits on --
+/// turns at its own lane, and comes in square to its contact. Three claims
+/// make that planar, and all three hold for the same reason: the lanes,
+/// the rows and the contacts are in the same order.
+///
+///   * Lane against row. Lane order runs away from the connector as contact
+///     order runs toward the band, and rows are the keys in that same order,
+///     so a lane only ever crosses the rows of keys whose lanes are further
+///     out still -- and those rows stop short of it.
+///   * Lane against the run-in. A run-in leaves its lane heading for the
+///     contacts, past every lane inboard of it; those lanes belong to contacts
+///     nearer the band, so they have turned off before this contact's row.
+///   * Row against row. They are the key rows, a key pitch apart.
+///
+/// The pad stub and its via are the column channel's, unchanged: a hotswap
+/// terminal is on the back and has to surface before it goes anywhere.
+function route_near_column(legs: Leg[], out: Track[], vias: Via[]) -> void {
+    for (let l in legs) {
+        let entry = from_frame(Vec2 { x: LANE_X0(), y: MX_SIGNAL_PAD().y }, l.origin, l.r);
+        let lane = along(l.target, l.normal, l.bus_off);
+        let turn = Vec2 { x: lane.x, y: entry.y };
+        out.push(back(l.pad, entry, l.net));
+        vias.push(Via { at: entry, net: l.net });
+        out.push(seg(entry, turn, l.net));
+        out.push(seg(turn, lane, l.net));
+        out.push(seg(lane, l.target, l.net));
+    }
 }
 
 /// Fan the column exits into the connector.
@@ -1623,6 +1741,7 @@ function route_board(b: Board, m: Module, f: Features) -> Board {
         }
     }
 
+    let near = near_column(b);
     let all_exits: Escape[] = [];
     let all_legs: Leg[] = [];
     for (let col in seen) {
@@ -1633,11 +1752,17 @@ function route_board(b: Board, m: Module, f: Features) -> Board {
             .sort_by((a, b) -> {
                 a.pin - b.pin
             });
-        for (let e in route_column(group, tracks, vias)) {
-            all_exits.push(e);
-        }
-        for (let l in group) {
-            all_legs.push(l);
+        if (col == near) {
+            // Straight across to the connector; it never joins the fan, so it
+            // contributes neither exits nor legs to it.
+            route_near_column(group, tracks, vias);
+        } else {
+            for (let e in route_column(group, tracks, vias)) {
+                all_exits.push(e);
+            }
+            for (let l in group) {
+                all_legs.push(l);
+            }
         }
     }
     if (b.id.starts_with("thumb")) {
