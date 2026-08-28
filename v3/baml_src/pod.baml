@@ -391,9 +391,32 @@ function pod_lane_x(side: float, k: int) -> float {
 /// past the origin, and the body stands between them and the channel. The
 /// mounting pegs land 1.79 inboard of the origin; this offset keeps them
 /// clear of the outermost lane.
-function pod_connector_pos(ways: int, side: float) -> Vec2 {
-    let outer = pod_lane_x(side, pod_lanes(ways) - 1);
+function pod_connector_pos(lanes: int, side: float) -> Vec2 {
+    let outer = pod_lane_x(side, lanes - 1);
     Vec2 { x: outer + side * (POD_CONNECTOR_OFFSET() + 0.91), y: POD_CENTRE().y }
+}
+
+/// How many lanes this hand's channel actually needs.
+///
+/// `pod_lanes` is a guess, and only a guess: the split between the two halves
+/// of the fan is decided by where each chosen pin lands against the contacts,
+/// and a short ribbon -- the matrix's eleven ways against the direct-wired
+/// twenty -- can put every leg on the same side. Then the fan runs out past
+/// the lane the connector was placed from, and the outer lanes pass under the
+/// mounting pegs.
+///
+/// Laying the fan out twice costs nothing. The guess only feeds the
+/// connector's x, and the split depends only on y, so a fan built against the
+/// guessed position already has the true half-width.
+function pod_channel_lanes(sigs: Signal[], pins: HeaderPin[], side: float) -> int {
+    let guess = pod_lanes(sigs.length());
+    let probe = connector_component("J", sigs, pod_connector_pos(guess, side), pod_connector_angle(side));
+    let w = pod_half_width(pod_legs(probe, socket_component(side, []), sigs, pins, side));
+    if (w > guess) {
+        w
+    } else {
+        guess
+    }
 }
 
 /// Turned so the contacts stack up the board and the cable-entry side -- the
@@ -612,10 +635,15 @@ function build_pod_board(
     let conn_l = connector_component(
         "J1",
         sigs_l,
-        pod_connector_pos(left_r.signals.length(), 0.0 - 1.0),
+        pod_connector_pos(pod_channel_lanes(sigs_l, left_pins, 0.0 - 1.0), 0.0 - 1.0),
         pod_connector_angle(0.0 - 1.0),
     );
-    let conn_r = connector_component("J2", sigs_r, pod_connector_pos(right_r.signals.length(), 1.0), pod_connector_angle(1.0));
+    let conn_r = connector_component(
+        "J2",
+        sigs_r,
+        pod_connector_pos(pod_channel_lanes(sigs_r, right_pins, 1.0), 1.0),
+        pod_connector_angle(1.0),
+    );
 
     let legs_l = pod_legs(conn_l, sock_l, sigs_l, left_pins, 0.0 - 1.0);
     let legs_r = pod_legs(conn_r, sock_r, sigs_r, right_pins, 1.0);
@@ -1036,7 +1064,12 @@ function pod_pinout(f: Features) -> string throws baml.errors.InvalidArgument {
         let pins = choose_pins(hdr, gpio.length());
         let sock = socket_component(side, []);
         let sigs = from_end_signals(r.signals);
-        let conn = connector_component("J", sigs, pod_connector_pos(r.signals.length(), side), pod_connector_angle(side));
+        let conn = connector_component(
+            "J",
+            sigs,
+            pod_connector_pos(pod_channel_lanes(sigs, pins, side), side),
+            pod_connector_angle(side),
+        );
         let legs = pod_legs(conn, sock, sigs, pins, side);
 
         lines.push(`${hand.to_upper_case()} socket -- ${gpio.length()} signals`);

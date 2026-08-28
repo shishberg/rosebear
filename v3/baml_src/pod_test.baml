@@ -32,7 +32,12 @@ function legs_for(hand: string, f: Features) -> PodLeg[] throws baml.errors.Inva
         needs_gpio(s)
     });
     let pins = choose_pins(header_for(hand), gpio.length());
-    let conn = connector_component("J", r.signals, pod_connector_pos(r.signals.length(), side), pod_connector_angle(side));
+    let conn = connector_component(
+        "J",
+        r.signals,
+        pod_connector_pos(pod_channel_lanes(r.signals, pins, side), side),
+        pod_connector_angle(side),
+    );
     pod_legs(conn, socket_component(side, []), r.signals, pins, side)
 }
 
@@ -126,12 +131,21 @@ test "the two halves of a pod fan never overlap, so they can share lanes" {
 
 test "the channel is wide enough for the half that actually needs it" {
     // `pod_lanes` guesses half the ribbon plus one, and the connector is
-    // placed from that guess. If a real split is wider, lanes run out past the
-    // contacts they are meant to reach.
-    for (let f in [features_base(), features_leds()]) {
+    // placed from a lane count. If a real split is wider than the placement
+    // allows for, lanes run out past the contacts they are meant to reach --
+    // and under the connector's mounting pegs, which is how the eleven-way
+    // matrix ribbon shorted four nets to ground.
+    for (let f in [features_base(), features_leds(), features_flex()]) {
         for (let hand in pod_sides()) {
             let legs = legs_for(hand, f);
-            assert.is_true(pod_half_width(legs) <= pod_lanes(ribbon_ways(hand, f)));
+            let r = pod_ribbon(build_ribbons(partition_modules(all_keys()), f), hand);
+            let gpio = r.signals.filter((s) -> {
+                needs_gpio(s)
+            });
+            let pins = choose_pins(header_for(hand), gpio.length());
+            assert.is_true(
+                pod_half_width(legs) <= pod_channel_lanes(r.signals, pins, side_for(hand)),
+            );
         }
     }
 }
