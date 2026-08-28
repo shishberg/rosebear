@@ -326,6 +326,30 @@ function hinge_ys(s: Strip, w: Well, p: FlexParams) -> float[] {
     out
 }
 
+/// KiCad y south of which a strip is rigid: past its last hinge row, with the
+/// flex clearance to the cut.
+///
+/// The tail is the only part of a strip nothing folds, so it is the only part
+/// a copper plane may cover. A strip with no hinge rows at all is rigid end to
+/// end.
+function strip_tail_y(s: Strip, w: Well, p: FlexParams) -> float {
+    let ys = hinge_ys(s, w, p);
+    if (ys.length() == 0) {
+        return 0.0 - s.y1;
+    }
+    let lo = ys.reduce(
+        (a, y) -> {
+            if (y < a) {
+                y
+            } else {
+                a
+            }
+        },
+        1000000.0,
+    );
+    0.0 - lo + p.slot_w / 2.0 + FLEX_EDGE_CLEAR()
+}
+
 /// Distance from a key on `s` to the nearest hinge cut edge, in millimetres.
 ///
 /// The real one, off this strip's own hinge rows, rather than the design figure

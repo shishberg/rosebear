@@ -241,8 +241,40 @@ function flex_board(
         cuts: placed.cuts,
         tracks: cu.tracks,
         vias: cu.vias,
-        zones: board_zones(outline, f),
+        zones: flex_zones(ss, w, p),
     }
+}
+
+/// The pours on a segmented board: ground over the tail, and nowhere else.
+///
+/// `board_zones` pours over the whole outline, which on this board means a
+/// solid plane across every ligament and down every neck -- a stiffener and a
+/// crack starter at the two places that fold.
+///
+/// Losing it costs nothing here. Under the matrix neither switch terminal is
+/// ground, so the only ground on a finger board is the two links' contacts and
+/// their mounting pegs, and both links stand on the tail of the inboard strip,
+/// south of every hinge row. One pour over that tail reaches all six pads and
+/// never leaves the rigid island it sits on. Every other strip has no ground
+/// pad at all, and a pour there would be an isolated island.
+function flex_zones(
+    ss: Strip[],
+    w: Well,
+    p: FlexParams,
+) -> Zone[] throws baml.errors.InvalidArgument {
+    let s = find_strip(ss, link_column(true));
+    let y0 = strip_tail_y(s, w, p);
+    let y1 = 0.0 - s.y0;
+    let poly = [
+        Vec2 { x: s.cx - s.half_w, y: y0 },
+        Vec2 { x: s.cx + s.half_w, y: y0 },
+        Vec2 { x: s.cx + s.half_w, y: y1 },
+        Vec2 { x: s.cx - s.half_w, y: y1 },
+    ];
+    [
+        Zone { net: "GND", layer: "F.Cu", outline: poly },
+        Zone { net: "GND", layer: "B.Cu", outline: poly },
+    ]
 }
 
 /// Every board of the segmented variant.
