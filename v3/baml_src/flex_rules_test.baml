@@ -10,90 +10,76 @@
 // build them, so a future router that lays copper some other way still answers
 // to them.
 
-/// The bounding box of a polygon. `Box` is `panel.baml`'s, which is the same
-/// pair of corners these checks want: a hinge slot is a horizontal stadium and
-/// a strip is a vertical band, so overlap in x and y is the whole question.
-function poly_box(poly: Vec2[]) -> Box {
-    let big = 1000000.0;
-    Box {
-        min: Vec2 {
-            x: poly.reduce(
-                (a, p) -> {
-                    if (p.x < a) {
-                        p.x
-                    } else {
-                        a
-                    }
-                },
-                big,
-            ),
-            y: poly.reduce(
-                (a, p) -> {
-                    if (p.y < a) {
-                        p.y
-                    } else {
-                        a
-                    }
-                },
-                big,
-            ),
-        },
-        max: Vec2 {
-            x: poly.reduce(
-                (a, p) -> {
-                    if (p.x > a) {
-                        p.x
-                    } else {
-                        a
-                    }
-                },
-                0.0 - big,
-            ),
-            y: poly.reduce(
-                (a, p) -> {
-                    if (p.y > a) {
-                        p.y
-                    } else {
-                        a
-                    }
-                },
-                0.0 - big,
-            ),
-        },
-    }
+/// A routed flex board with the cut it was made by: the strips, the frame they
+/// are stated in, and how many conductors its necks were cut for.
+///
+/// Two shapes of board answer to these rules and they do not describe
+/// themselves the same way. A finger board's strips are columns in board
+/// coordinates; a thumb cluster's islands are rectangles in the cluster's own
+/// frame, which is the only frame they are rectangles in. So the rules work in
+/// whatever frame the strips came in, and each board says how to get there.
+class FlexCut {
+    board: Board,
+    strips: Strip[],
+    frame: Frame,
+    neck_traces: int,
 }
 
-function box_grow(b: Box, d: float) -> Box {
-    Box {
-        min: Vec2 { x: b.min.x - d, y: b.min.y - d },
-        max: Vec2 { x: b.max.x + d, y: b.max.y + d },
-    }
-}
-
-function boxes_overlap(a: Box, b: Box) -> bool {
-    a.min.x < b.max.x && b.min.x < a.max.x && a.min.y < b.max.y && b.min.y < a.max.y
-}
-
-function box_holds(b: Box, p: Vec2) -> bool {
-    p.x >= b.min.x && p.x <= b.max.x && p.y >= b.min.y && p.y <= b.max.y
-}
-
-/// The segmented finger boards, routed. The thumb clusters are still rigid --
-/// #7 segments them -- so they have no folds for these rules to be about.
-function flex_finger_boards() -> Board[] throws baml.errors.InvalidArgument {
-    build_flex_boards(features_flex()).filter((b) -> {
-        b.id.starts_with("finger")
-    })
-}
-
-/// The strips a finger board was cut from.
-function board_strips(b: Board) -> Strip[] throws baml.errors.InvalidArgument {
+/// Every routed flex board, finger and thumb.
+function flex_cut_boards() -> FlexCut[] throws baml.errors.InvalidArgument {
     let f = features_flex();
-    let m = partition_modules(layout_keys(f)).find((x) -> {
-        x.id == b.id
+    let p = flex_defaults();
+    let out: FlexCut[] = [];
+    for (let b in build_flex_boards(f)) {
+        // The pod is a rigid board that happens to ship in the flex variant.
+        // Nothing on it folds, so none of this is about it.
+        if (!b.id.starts_with("finger") && !b.id.starts_with("thumb")) {
+            continue;
+        }
+        let m = partition_modules(layout_keys(f)).find((x) -> {
+            x.id == b.id
+        })
+            ?? throw baml.errors.InvalidArgument { message: `no module '${b.id}'` };
+        if (b.id.starts_with("finger")) {
+            out.push(
+                FlexCut {
+                    board: b,
+                    strips: flex_strips(m, ROSEBEAR_WELL(), p),
+                    frame: board_frame(),
+                    neck_traces: flex_neck_traces(m),
+                },
+            );
+        } else if (b.id.starts_with("thumb")) {
+            out.push(
+                FlexCut {
+                    board: b,
+                    strips: thumb_islands(m, p),
+                    frame: thumb_frame(m),
+                    neck_traces: thumb_neck_traces(),
+                },
+            );
+        }
+    }
+    out
+}
+
+/// The frame a board's own coordinates are already in.
+///
+/// `in_frame` reads a KiCad point, so the identity has to undo the y flip that
+/// reading does: a frame mirrored in y, composed with the mirror, is nothing.
+function board_frame() -> Frame {
+    Frame { o: Vec2 { x: 0.0, y: 0.0 }, c: 1.0, s: 0.0, r: 0.0, flip: 0.0 - 1.0 }
+}
+
+/// A point off the board, in the frame its strips are stated in.
+function in_frame(c: FlexCut, p: Vec2) -> Vec2 {
+    into_frame(c.frame, to_kicad(p))
+}
+
+function in_frame_poly(c: FlexCut, ps: Vec2[]) -> Vec2[] {
+    ps.map((p) -> {
+        in_frame(c, p)
     })
-        ?? throw baml.errors.InvalidArgument { message: `no module '${b.id}'` };
-    flex_strips(m, ROSEBEAR_WELL(), flex_defaults())
 }
 
 /// The band of x a strip occupies. Everything outside every band is a neck.
@@ -117,16 +103,18 @@ test "no copper plane crosses a hinge row, or reaches into a neck" {
     // where the board is meant to give, and a crack starter at the cut edge
     // that starts it. `flex_zones` keeps the pour on the tail; this is what
     // says so about the board that came out.
-    for (let b in flex_finger_boards()) {
-        let ss = board_strips(b);
+    for (let c in flex_cut_boards()) {
+        let b = c.board;
         assert.is_true(b.zones.length() > 0);
         for (let z in b.zones) {
-            let zb = poly_box(z.outline);
+            let zb = poly_box(in_frame_poly(c, z.outline));
             for (let cut in b.cuts) {
-                assert.is_true(!boxes_overlap(zb, box_grow(poly_box(cut), FLEX_EDGE_CLEAR())));
+                assert.is_true(
+                    !boxes_overlap(zb, box_grow(poly_box(in_frame_poly(c, cut)), FLEX_EDGE_CLEAR())),
+                );
             }
             // And inside one strip's width, so none of it is in a neck.
-            assert.is_true(on_a_strip(ss, zb.min) && on_a_strip(ss, zb.max));
+            assert.is_true(on_a_strip(c.strips, zb.min) && on_a_strip(c.strips, zb.max));
         }
     }
 }
@@ -134,17 +122,18 @@ test "no copper plane crosses a hinge row, or reaches into a neck" {
 test "no via sits in a hinge row or a neck" {
     // A via is a rigid plated barrel. Put one in a part that folds and the
     // barrel is the stress riser the fold cracks at.
-    for (let b in flex_finger_boards()) {
-        let ss = board_strips(b);
+    for (let c in flex_cut_boards()) {
+        let b = c.board;
         assert.is_true(b.vias.length() > 0);
         let r = FLEX_VIA_PAD() / 2.0 + FLEX_EDGE_CLEAR();
         for (let v in b.vias) {
+            let at = in_frame(c, v.at);
             for (let cut in b.cuts) {
                 assert.is_true(
-                    !boxes_overlap(box_grow(poly_box(cut), r), box_grow(poly_box([v.at]), r)),
+                    !boxes_overlap(box_grow(poly_box(in_frame_poly(c, cut)), r), box_grow(poly_box([at]), r)),
                 );
             }
-            assert.is_true(on_a_strip(ss, v.at));
+            assert.is_true(on_a_strip(c.strips, at));
         }
     }
 }
@@ -163,30 +152,33 @@ function MAX_FOLD_SKEW_TAN() -> float {
 test "every trace crosses a fold square to it" {
     // Per strip, because a fold is a strip-wide line and a track out in a neck
     // shares nothing with it but a y coordinate.
-    for (let b in flex_finger_boards()) {
-        for (let s in board_strips(b)) {
+    for (let c in flex_cut_boards()) {
+        let b = c.board;
+        for (let s in c.strips) {
             let band = strip_band(s);
             for (let cut in b.cuts) {
-                let cb = poly_box(cut);
+                let cb = poly_box(in_frame_poly(c, cut));
                 let cy = (cb.min.y + cb.max.y) / 2.0;
                 if (box_holds(band, Vec2 { x: (cb.min.x + cb.max.x) / 2.0, y: cy })) {
                     for (let tr in b.tracks) {
-                        let lo = if (tr.start.y < tr.end.y) {
-                            tr.start.y
+                        let a = in_frame(c, tr.start);
+                        let e = in_frame(c, tr.end);
+                        let lo = if (a.y < e.y) {
+                            a.y
                         } else {
-                            tr.end.y
+                            e.y
                         };
-                        let hi = if (tr.start.y > tr.end.y) {
-                            tr.start.y
+                        let hi = if (a.y > e.y) {
+                            a.y
                         } else {
-                            tr.end.y
+                            e.y
                         };
-                        let dx = tr.end.x - tr.start.x;
-                        let dy = tr.end.y - tr.start.y;
+                        let dx = e.x - a.x;
+                        let dy = e.y - a.y;
                         if (lo < cy && cy < hi) {
                             // Where it meets the fold. Only the crossings on
                             // this strip are this fold's business.
-                            let at = tr.start.x + dx * (cy - tr.start.y) / dy;
+                            let at = a.x + dx * (cy - a.y) / dy;
                             if (box_holds(band, Vec2 { x: at, y: cy })) {
                                 assert.is_true(dx.abs() <= dy.abs() * MAX_FOLD_SKEW_TAN());
                             }
@@ -200,9 +192,9 @@ test "every trace crosses a fold square to it" {
 
 test "flex copper is laid to the flex rules, not the board's general ones" {
     // Width first, on the copper itself.
-    for (let b in flex_finger_boards()) {
-        assert.is_true(b.tracks.length() > 0);
-        for (let t in b.tracks) {
+    for (let c in flex_cut_boards()) {
+        assert.is_true(c.board.tracks.length() > 0);
+        for (let t in c.board.tracks) {
             assert.approx_equal(t.width, FLEX_TRACE_W(), 0.000001);
         }
     }
@@ -251,16 +243,57 @@ test "nothing rigid straddles a fold" {
     // 7.5-to-10.5mm band, toward the middle of their column -- but the paper
     // proof caught a version where it was not, and construction is not a check.
     let p = flex_defaults();
-    for (let b in flex_finger_boards()) {
-        for (let c in b.components) {
+    for (let cut in flex_cut_boards()) {
+        for (let c in cut.board.components) {
+            let at = in_frame(cut, Vec2 { x: c.x, y: c.y });
             let reach = part_reach_along(c, p) + p.slot_w / 2.0 + FLEX_EDGE_CLEAR();
-            for (let cut in b.cuts) {
-                let cb = poly_box(cut);
+            for (let row in cut.board.cuts) {
+                let cb = poly_box(in_frame_poly(cut, row));
                 let cy = (cb.min.y + cb.max.y) / 2.0;
-                if (c.x > cb.min.x - reach && c.x < cb.max.x + reach) {
-                    assert.is_true((c.y - cy).abs() > reach);
+                if (at.x > cb.min.x - reach && at.x < cb.max.x + reach) {
+                    assert.is_true((at.y - cy).abs() > reach);
                 }
             }
+            // And the necks, which the hinge rows say nothing about: a part
+            // that overhangs a serpentine is a part glued to the one thing on
+            // the board that has to move.
+            assert.is_true(on_a_strip(cut.strips, at));
+        }
+    }
+}
+
+test "no neck carries more conductors than it was cut for" {
+    // The neck's width is chosen from a trace count, and then the router lays
+    // whatever it lays. This is the check that the two agree -- and the reason
+    // the cluster is cut `{near, home} | {far}` rather than the other way, which
+    // would send a third line over the seam.
+    for (let c in flex_cut_boards()) {
+        let i = 1;
+        while (i < c.strips.length()) {
+            let a = strip_at(c.strips, i - 1);
+            let b = strip_at(c.strips, i);
+            // Midway across the gap, where the board is only the neck.
+            let gap = (a.cx + a.half_w + (b.cx - b.half_w)) / 2.0;
+            let nets: string[] = [];
+            for (let t in c.board.tracks) {
+                let p = in_frame(c, t.start);
+                let q = in_frame(c, t.end);
+                let lo = if (p.x < q.x) {
+                    p.x
+                } else {
+                    q.x
+                };
+                let hi = if (p.x > q.x) {
+                    p.x
+                } else {
+                    q.x
+                };
+                if (lo <= gap && gap <= hi && !nets.includes(t.net)) {
+                    nets.push(t.net);
+                }
+            }
+            assert.is_true(nets.length() <= c.neck_traces);
+            i = i + 1;
         }
     }
 }

@@ -54,6 +54,21 @@ function SWITCH_HALF_SPAN() -> float {
     8.36
 }
 
+/// How far that same footprint reaches ALONG the key -- the axis a finger
+/// column runs down, and the one a thumb key is turned across.
+///
+/// The socket's pads reach y = -6.58, further than any hole. Both installed
+/// hotswap footprints give the same number: the 1.5u part is the same socket
+/// under a wider keycap and adds no stabiliser holes, so one constant covers
+/// the thumb's 1.5u key as well as the 1u ones.
+///
+/// A finger strip never has to know this -- a column is cut long enough for
+/// its keys by `end_margin` -- but a thumb island is a rectangle around keys
+/// turned every which way, and both half-extents go into it.
+function SWITCH_HALF_DEPTH() -> float {
+    6.58
+}
+
 /// Narrowest a column strip can be and still carry a switch.
 function min_strip_width() -> float {
     2.0 * (SWITCH_HALF_SPAN() + BOARD_EDGE_CLEAR())
@@ -224,11 +239,34 @@ class Strip {
     y1: float,
     /// Key centres along the column, ascending.
     key_ys: float[],
+    /// Where the neck on this strip's east side attaches, along the column.
+    ///
+    /// Carried rather than derived, because the two things that are cut into
+    /// strips want it in different places: a finger column wants it in the
+    /// tail south of the bottom key, where the strip is clear full width, and
+    /// a thumb island wants it at the low edge so the serpentine runs back up
+    /// the seam instead of out past the board.
+    neck_y: float,
+    /// Centreline length of that neck. Also carried: it is the fold the two
+    /// sides have to take, which the well knows for a column pair and nothing
+    /// yet knows for a thumb seam.
+    neck_len: float,
 }
 
 /// Strip width for a given column pitch: the pitch less the gap the necks need.
 function strip_width(w: Well, p: FlexParams) -> float {
     developed_col_pitch(w) - p.gap
+}
+
+/// The column east of `c` in `COLUMN_ORDER`, or `c` itself at the end.
+///
+/// `strips_of` needs it to record each strip's neck length, and the last
+/// strip has no neck east of it -- a length of zero would be a lie, so it
+/// carries its own gap's, which nothing reads.
+function next_column(c: string) -> string {
+    let cols = COLUMN_ORDER();
+    let i = index_of_str(cols, c);
+    cols.at(i + 1) ?? c
 }
 
 /// Cut a module's keys into one strip per column.
@@ -276,6 +314,8 @@ function strips_of(keys: PlacedKey[], w: Well, p: FlexParams) -> Strip[] {
                     y0: lo - p.end_margin,
                     y1: hi + p.end_margin,
                     key_ys: ys,
+                    neck_y: lo - band_offset(),
+                    neck_len: neck_length(w, cname, next_column(cname)),
                 },
             );
         }
@@ -716,20 +756,19 @@ function neck_edges(
 
 /// Where a neck attaches to a strip, along the column.
 ///
-/// In the tail, south of the bottom key. Everything a Kailh footprint owns
-/// lies north of its key centre, so the strip below the bottom key is clear
-/// across its full width on both layers -- which makes it the one place a bus
-/// can run, and therefore the one place a neck should land: every trace that
-/// crosses a neck reaches it from the north without doubling back.
+/// On a finger column that is the tail, south of the bottom key: everything a
+/// Kailh footprint owns lies north of its key centre, so the strip below the
+/// bottom key is clear across its full width on both layers -- which makes it
+/// the one place a bus can run, and therefore the one place a neck should
+/// land, with every trace reaching it from the north without doubling back.
 ///
 /// Per strip, not shared: adjacent columns are staggered by up to 6mm, so the
 /// two ends of a neck are at different heights. `neck_leg_pair` absorbs it.
-function strip_neck_y(s: Strip, w: Well) -> float {
+function strip_neck_y(s: Strip) -> float {
     if (s.key_ys.length() == 0) {
         return (s.y0 + s.y1) / 2.0;
     }
-    // Ergogen y is up, so "south of the bottom key" subtracts.
-    (s.key_ys.at(0) ?? 0.0) - band_offset()
+    s.neck_y
 }
 
 /// The gap a neck spans: edge of one strip to edge of the next.
@@ -745,29 +784,32 @@ function neck_half(p: FlexParams, n_traces: int) -> float {
 }
 
 /// The neck between two strips, as its two edges.
-function strip_neck(
-    w: Well,
-    a: Strip,
-    b: Strip,
-    p: FlexParams,
-    n_traces: int,
-    segs: int,
-) -> NeckEdges {
+function strip_neck(a: Strip, b: Strip, p: FlexParams, n_traces: int, segs: int) -> NeckEdges {
     let span = neck_span(a, b);
-    let y0 = strip_neck_y(a, w);
-    let y1 = strip_neck_y(b, w);
+    let y0 = strip_neck_y(a);
+    let y1 = strip_neck_y(b);
     neck_edges(
         a.cx + a.half_w,
         b.cx - b.half_w,
         y0,
-        neck_leg_pair(span, neck_length(w, a.column, b.column), y0, y1),
+        neck_leg_pair(span, a.neck_len, y0, y1),
         neck_width(p, n_traces),
         segs,
     )
 }
 
 function strip_at(ss: Strip[], i: int) -> Strip {
-    ss.at(i) ?? Strip { column: "", cx: 0.0, half_w: 0.0, y0: 0.0, y1: 0.0, key_ys: [] }
+    ss.at(i)
+        ?? Strip {
+            column: "",
+            cx: 0.0,
+            half_w: 0.0,
+            y0: 0.0,
+            y1: 0.0,
+            key_ys: [],
+            neck_y: 0.0,
+            neck_len: 0.0,
+        }
 }
 
 /// The board's single closed Edge.Cuts contour: strips joined by necks.
@@ -777,7 +819,7 @@ function strip_at(ss: Strip[], i: int) -> Strip {
 /// and back along the underside of every neck. The hinge cuts do not appear
 /// here at all -- with the ligaments at the strip edges, every hinge row is a
 /// slot in the middle of the board and an interior contour of its own.
-function flex_ring(ss: Strip[], w: Well, p: FlexParams, neck_traces: int, samples: int) -> Vec2[] {
+function flex_ring(ss: Strip[], p: FlexParams, neck_traces: int, samples: int) -> Vec2[] {
     let out: Vec2[] = [];
     let n = ss.length();
     if (n == 0) {
@@ -802,9 +844,9 @@ function flex_ring(ss: Strip[], w: Well, p: FlexParams, neck_traces: int, sample
         out.push(Vec2 { x: xr, y: s.y1 });
         if (i + 1 < n) {
             let t = strip_at(ss, i + 1);
-            out.push(Vec2 { x: xr, y: strip_neck_y(s, w) + half });
+            out.push(Vec2 { x: xr, y: strip_neck_y(s) + half });
             // The neck's upper edge starts exactly where that point sits.
-            let up = strip_neck(w, s, t, p, neck_traces, samples).upper;
+            let up = strip_neck(s, t, p, neck_traces, samples).upper;
             for (let q in up.slice(1, up.length())) {
                 out.push(q);
             }
@@ -823,8 +865,8 @@ function flex_ring(ss: Strip[], w: Well, p: FlexParams, neck_traces: int, sample
         let s = strip_at(ss, j);
         let r = strip_at(ss, j - 1);
         out.push(Vec2 { x: s.cx - s.half_w, y: s.y0 });
-        out.push(Vec2 { x: s.cx - s.half_w, y: strip_neck_y(s, w) - half });
-        let down = strip_neck(w, r, s, p, neck_traces, samples).lower;
+        out.push(Vec2 { x: s.cx - s.half_w, y: strip_neck_y(s) - half });
+        let down = strip_neck(r, s, p, neck_traces, samples).lower;
         for (let q in down.slice(1, down.length())) {
             out.push(q);
         }
@@ -875,7 +917,17 @@ test "four hinge rows per column, none of them through a switch" {
     let w = ROSEBEAR_WELL();
     let p = flex_defaults();
     let ss = test_strips();
-    let s = ss.at(2) ?? Strip { column: "", cx: 0.0, half_w: 0.0, y0: 0.0, y1: 0.0, key_ys: [] };
+    let s = ss.at(2)
+        ?? Strip {
+            column: "",
+            cx: 0.0,
+            half_w: 0.0,
+            y0: 0.0,
+            y1: 0.0,
+            key_ys: [],
+            neck_y: 0.0,
+            neck_len: 0.0,
+        };
     // Two inter-key gaps, two hinge rows each.
     let ys = hinge_ys(s, w, p);
     assert.equal(ys.length(), 4);
@@ -1009,7 +1061,7 @@ test "a neck's turns are wide enough that its inner edge does not fold" {
 test "the outline is one closed ring covering every strip" {
     let p = flex_defaults();
     let ss = test_strips();
-    let ring = flex_ring(ss, ROSEBEAR_WELL(), p, 8, 16);
+    let ring = flex_ring(ss, p, 8, 16);
     assert.is_true(ring.length() > 20);
     // Every strip's four corners are inside the ring's bounding box.
     let min_x = ring.reduce(
@@ -1032,16 +1084,35 @@ test "the outline is one closed ring covering every strip" {
         },
         0.0 - 100000.0,
     );
-    let first = ss.at(0) ?? Strip { column: "", cx: 0.0, half_w: 0.0, y0: 0.0, y1: 0.0, key_ys: [] };
+    let first = ss.at(0)
+        ?? Strip {
+            column: "",
+            cx: 0.0,
+            half_w: 0.0,
+            y0: 0.0,
+            y1: 0.0,
+            key_ys: [],
+            neck_y: 0.0,
+            neck_len: 0.0,
+        };
     let last = ss.at(ss.length() - 1)
-        ?? Strip { column: "", cx: 0.0, half_w: 0.0, y0: 0.0, y1: 0.0, key_ys: [] };
+        ?? Strip {
+            column: "",
+            cx: 0.0,
+            half_w: 0.0,
+            y0: 0.0,
+            y1: 0.0,
+            key_ys: [],
+            neck_y: 0.0,
+            neck_len: 0.0,
+        };
     assert.approx_equal(min_x, first.cx - first.half_w, 0.000001);
     assert.approx_equal(max_x, last.cx + last.half_w, 0.000001)
 }
 
 test "the ring does not self-intersect" {
     let p = flex_defaults();
-    let ring = flex_ring(test_strips(), ROSEBEAR_WELL(), p, 8, 16);
+    let ring = flex_ring(test_strips(), p, 8, 16);
     let n = ring.length();
     let i = 0;
     while (i < n) {

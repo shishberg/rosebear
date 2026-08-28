@@ -33,6 +33,17 @@ test "switch footprint agrees with the geometry the router assumes" {
         // And nothing through-hole carrying a net: a hotswap key has no pin to
         // solder, so a plated pad here would mean the wrong footprint.
         assert.is_true(!contains(text, `(pad "1" thru_hole`));
+        // The two half-extents a thumb island is built out of, measured from
+        // the library rather than remembered. Across the key it is terminal
+        // 2's pad that reaches furthest; along it, the lower pin relief. Both
+        // hold for the 1.5u part too -- it is the same socket under a wider
+        // keycap, with no stabiliser holes -- which is what lets one pair of
+        // constants cover the thumb cluster.
+        assert.is_true(contains(text, "(size 2.55 2.5)"));
+        assert.approx_equal(SWITCH_HALF_SPAN(), MX_GND_PAD().x.abs() + 2.55 / 2.0, 0.000001);
+        assert.is_true(contains(text, "(at 2.54 -5.08)"));
+        assert.is_true(contains(text, "(size 3 3)"));
+        assert.approx_equal(SWITCH_HALF_DEPTH(), 5.08 + 3.0 / 2.0, 0.000001);
     }
 }
 

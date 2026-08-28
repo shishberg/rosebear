@@ -341,3 +341,168 @@ function band_extent(poly: Vec2[], y1: float, y2: float) -> XSpan {
     );
     XSpan { hit: true, x1: lo, x2: hi }
 }
+
+// ------------------------------------------------------------------- angles
+
+/// The direction of `v`, in degrees counter-clockwise from +x.
+///
+/// BAML's number methods stop at `sin`, `cos`, `sqrt` and `hypot` -- there is
+/// no `atan2` to call -- so this brackets the answer by quadrant and bisects.
+/// Inside a 90-degree bracket the cross product `cos(a)*vy - sin(a)*vx` falls
+/// monotonically through zero exactly at the direction of `v`, which is all
+/// bisection needs. Sixty halvings take a 90-degree bracket to 1e-16 degrees,
+/// which is finer than a double can hold anyway.
+///
+/// Only the thumb cluster needs it: its frame is fixed by two key centres, and
+/// the connector and diodes that stand in that frame need the angle itself
+/// rather than the unit vector everything else is built from.
+function angle_of(v: Vec2) -> float {
+    if (v.x.abs() < 0.000000000001 && v.y.abs() < 0.000000000001) {
+        return 0.0;
+    }
+    let lo = if (v.y >= 0.0) {
+        if (v.x >= 0.0) {
+            0.0
+        } else {
+            90.0
+        }
+    } else {
+        if (v.x >= 0.0) {
+            0.0 - 90.0
+        } else {
+            0.0 - 180.0
+        }
+    };
+    let a = lo;
+    let b = lo + 90.0;
+    let i = 0;
+    while (i < 60) {
+        let m = (a + b) / 2.0;
+        let t = deg_to_rad(m);
+        if (t.cos() * v.y - t.sin() * v.x > 0.0) {
+            a = m;
+        } else {
+            b = m;
+        }
+        i = i + 1;
+    }
+    (a + b) / 2.0
+}
+
+test "angle_of names the direction of a vector" {
+    assert.approx_equal(angle_of(Vec2 { x: 1.0, y: 0.0 }), 0.0, 0.000001);
+    assert.approx_equal(angle_of(Vec2 { x: 0.0, y: 2.0 }), 90.0, 0.000001);
+    assert.approx_equal(angle_of(Vec2 { x: 0.0 - 1.0, y: 0.0 }), 180.0, 0.000001);
+    assert.approx_equal(angle_of(Vec2 { x: 0.0, y: 0.0 - 3.0 }), 0.0 - 90.0, 0.000001);
+    assert.approx_equal(angle_of(Vec2 { x: 1.0, y: 1.0 }), 45.0, 0.000001)
+}
+
+test "angle_of inverts a rotation" {
+    // Round trip through the only other thing that knows what an angle means.
+    let a = 0.0 - 28.5;
+    let u = rotate_about(Vec2 { x: 1.0, y: 0.0 }, a, Vec2 { x: 0.0, y: 0.0 });
+    assert.approx_equal(angle_of(u), a, 0.000001)
+}
+
+// -------------------------------------------------------------------- boxes
+
+/// An axis-aligned rectangle, by opposite corners.
+class Box {
+    min: Vec2,
+    max: Vec2,
+}
+
+/// The bounding box of a set of points.
+function poly_box(poly: Vec2[]) -> Box {
+    let big = 1000000.0;
+    Box {
+        min: Vec2 {
+            x: poly.reduce(
+                (a, p) -> {
+                    if (p.x < a) {
+                        p.x
+                    } else {
+                        a
+                    }
+                },
+                big,
+            ),
+            y: poly.reduce(
+                (a, p) -> {
+                    if (p.y < a) {
+                        p.y
+                    } else {
+                        a
+                    }
+                },
+                big,
+            ),
+        },
+        max: Vec2 {
+            x: poly.reduce(
+                (a, p) -> {
+                    if (p.x > a) {
+                        p.x
+                    } else {
+                        a
+                    }
+                },
+                0.0 - big,
+            ),
+            y: poly.reduce(
+                (a, p) -> {
+                    if (p.y > a) {
+                        p.y
+                    } else {
+                        a
+                    }
+                },
+                0.0 - big,
+            ),
+        },
+    }
+}
+
+function box_grow(b: Box, d: float) -> Box {
+    Box {
+        min: Vec2 { x: b.min.x - d, y: b.min.y - d },
+        max: Vec2 { x: b.max.x + d, y: b.max.y + d },
+    }
+}
+
+function box_union(a: Box, b: Box) -> Box {
+    Box {
+        min: Vec2 {
+            x: if (a.min.x < b.min.x) {
+                a.min.x
+            } else {
+                b.min.x
+            },
+            y: if (a.min.y < b.min.y) {
+                a.min.y
+            } else {
+                b.min.y
+            },
+        },
+        max: Vec2 {
+            x: if (a.max.x > b.max.x) {
+                a.max.x
+            } else {
+                b.max.x
+            },
+            y: if (a.max.y > b.max.y) {
+                a.max.y
+            } else {
+                b.max.y
+            },
+        },
+    }
+}
+
+function boxes_overlap(a: Box, b: Box) -> bool {
+    a.min.x < b.max.x && b.min.x < a.max.x && a.min.y < b.max.y && b.min.y < a.max.y
+}
+
+function box_holds(b: Box, p: Vec2) -> bool {
+    p.x >= b.min.x && p.x <= b.max.x && p.y >= b.min.y && p.y <= b.max.y
+}

@@ -270,11 +270,16 @@ function conn_lane_u(c: Component, i: int) -> float {
 }
 
 /// Which contact of `c` carries `net`, 1-based, or 0 if none does.
+/// Which contact on a connector carries `net`, or 0.
+///
+/// Contacts only: the last pad on an FFC part is the mounting peg, which is
+/// tied to ground and would otherwise answer for the ground CONDUCTOR and send
+/// whatever was looking for it one position too far along the row.
 function contact_of(c: Component, net: string) -> int {
     let out = 0;
     let i = 1;
     for (let q in c.pads) {
-        if (q.net == net) {
+        if (q.net == net && i <= link_ways(c)) {
             out = i;
         }
         i = i + 1;
@@ -615,8 +620,8 @@ function route_flex_bus(b: Board, s: Strip, dir: float) -> Copper {
 /// centreline is good to a few microns in the straights and wrong by more than
 /// a trace width in the turns.
 function neck_trace(w: Well, a: Strip, c: Strip, off: float, segs: int) -> Vec2[] {
-    let y0 = strip_neck_y(a, w);
-    let y1 = strip_neck_y(c, w);
+    let y0 = strip_neck_y(a);
+    let y1 = strip_neck_y(c);
     // Ergogen y is up; KiCad y is down.
     let e = 0.0 - off;
     let side = if (e < 0.0) {
@@ -629,7 +634,7 @@ function neck_trace(w: Well, a: Strip, c: Strip, off: float, segs: int) -> Vec2[
             a.cx + a.half_w,
             c.cx - c.half_w,
             y0,
-            neck_leg_pair(neck_span(a, c), neck_length(w, a.column, c.column), y0, y1),
+            neck_leg_pair(neck_span(a, c), a.neck_len, y0, y1),
             2.0 * e.abs(),
             side,
             segs,

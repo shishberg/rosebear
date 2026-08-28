@@ -12,11 +12,6 @@
 // across boards here, so KiCad's ratsnest draws the ribbons that would
 // otherwise be invisible.
 
-class Box {
-    min: Vec2,
-    max: Vec2,
-}
-
 function shift(p: Vec2, d: Vec2) -> Vec2 {
     Vec2 { x: p.x + d.x, y: p.y + d.y }
 }

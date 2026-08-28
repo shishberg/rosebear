@@ -385,7 +385,16 @@ test "a diode clears both the switch and its hinge rows" {
         p,
     )
         .at(0)
-        ?? Strip { column: "", cx: 0.0, half_w: 0.0, y0: 0.0, y1: 0.0, key_ys: [] };
+        ?? Strip {
+            column: "",
+            cx: 0.0,
+            half_w: 0.0,
+            y0: 0.0,
+            y1: 0.0,
+            key_ys: [],
+            neck_y: 0.0,
+            neck_len: 0.0,
+        };
     let key = s.key_ys.at(0) ?? 0.0;
     let nearest = hinge_ys(s, w, p).reduce(
         (a, y) -> {

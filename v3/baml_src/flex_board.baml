@@ -62,6 +62,8 @@ function flex_strips(m: Module, w: Well, p: FlexParams) -> Strip[] {
             },
             y1: s.y1,
             key_ys: s.key_ys,
+            neck_y: s.neck_y,
+            neck_len: s.neck_len,
         }
     })
 }
@@ -117,8 +119,8 @@ function flex_neck_traces(m: Module) -> int {
 }
 
 /// The board's single closed outline, in KiCad coordinates.
-function flex_outline(ss: Strip[], w: Well, p: FlexParams, m: Module) -> Vec2[] {
-    to_kicad_poly(flex_ring(ss, w, p, flex_neck_traces(m), NECK_SAMPLES()))
+function flex_outline(ss: Strip[], p: FlexParams, m: Module) -> Vec2[] {
+    to_kicad_poly(flex_ring(ss, p, flex_neck_traces(m), NECK_SAMPLES()))
 }
 
 /// Every interior contour on the board: the hinge slots, in KiCad coordinates.
@@ -223,7 +225,7 @@ function flex_board(
         ci = ci + 1;
     }
 
-    let outline = flex_outline(ss, w, p, m);
+    let outline = flex_outline(ss, p, m);
     let placed = Board {
         id: m.id,
         components: comps,
@@ -279,14 +281,17 @@ function flex_zones(
 
 /// Every board of the segmented variant.
 ///
-/// The thumb clusters are still built as rigid boards here; #7 segments them.
+/// Both shapes of board are cut into islands joined by serpentines; they differ
+/// in what an island is. A finger half is cut down its columns by `strips_of`,
+/// which the unrolled well makes square and regular. The cluster is cut across
+/// its one foldable seam by `thumb_islands`, in a frame of its own.
 function build_flex_boards(f: Features) -> Board[] throws baml.errors.InvalidArgument {
     let mods = partition_modules(layout_keys(f));
     let ribbons = build_ribbons(mods, f);
     let boards: Board[] = [];
     for (let m in mods) {
         if (m.id.starts_with("thumb")) {
-            boards.push(build_board(m, ribbons, f));
+            boards.push(thumb_flex_board(m, ribbons, f));
         } else {
             boards.push(flex_board(m, ribbons, f));
         }
