@@ -51,6 +51,26 @@ function edge_clearance(f: Features) -> string {
     }
 }
 
+/// Design rules that differ from KiCad's defaults, as JSON fields.
+///
+/// The segmented variant runs finer than the rigid one and has to say so: a
+/// neck 1.6mm wide carrying four conductors has no room for 0.2mm tracks at
+/// 0.2mm clearance, and its edges are 0.3mm from copper by construction. These
+/// are the numbers `flex.baml` sizes everything from, not a relaxation applied
+/// afterwards to make DRC quiet.
+function design_rules(f: Features) -> string[] {
+    if (f.flex) {
+        [
+            `\t\t\t\t"min_clearance": ${FLEX_TRACE_SPACE()}`,
+            `\t\t\t\t"min_copper_edge_clearance": ${FLEX_EDGE_CLEAR()}`,
+            `\t\t\t\t"min_track_width": ${FLEX_TRACE_W()}`,
+            `\t\t\t\t"min_via_diameter": ${FLEX_VIA_PAD()}`,
+        ]
+    } else {
+        [`\t\t\t\t"min_copper_edge_clearance": ${edge_clearance(f)}`]
+    }
+}
+
 /// The same number, for the geometry that has to respect it.
 ///
 /// `flex.baml` sizes a column strip so the switch socket's pads clear the strip
@@ -60,6 +80,36 @@ function BOARD_EDGE_CLEAR() -> float {
 }
 
 /// A project file per board, carrying the design rules DRC checks against.
+/// The default net class: what a track actually gets checked against.
+///
+/// `design_rules` sets the board minimums; those are a floor, not the rule DRC
+/// applies. Clearance and width come from the net class, so the fine variant
+/// has to say it twice or DRC checks the fine geometry against the coarse
+/// default.
+function net_class(f: Features) -> string[] {
+    if (f.flex) {
+        [
+            "\t\"net_settings\": {",
+            // KiCad ignores a net_settings block with no schema version on it,
+            // silently, and checks the fine geometry against the coarse
+            // defaults instead.
+            "\t\t\"meta\": { \"version\": 4 },",
+            "\t\t\"classes\": [",
+            "\t\t\t{",
+            "\t\t\t\t\"name\": \"Default\",",
+            `\t\t\t\t"clearance": ${FLEX_TRACE_SPACE()},`,
+            `\t\t\t\t"track_width": ${FLEX_TRACE_W()},`,
+            `\t\t\t\t"via_diameter": ${FLEX_VIA_PAD()},`,
+            `\t\t\t\t"via_drill": ${FLEX_VIA_DRILL()}`,
+            "\t\t\t}",
+            "\t\t]",
+            "\t},",
+        ]
+    } else {
+        []
+    }
+}
+
 function write_project(path: string, id: string, f: Features) -> void throws baml.errors.Io {
     baml.fs.write(
         `${path}/${id}.kicad_pro`,
@@ -68,14 +118,13 @@ function write_project(path: string, id: string, f: Features) -> void throws bam
             "\t\"board\": {",
             "\t\t\"design_settings\": {",
             "\t\t\t\"rules\": {",
-            `\t\t\t\t"min_copper_edge_clearance": ${edge_clearance(f)}`,
+            design_rules(f).join(",\n"),
             "\t\t\t}",
             "\t\t}",
             "\t},",
-            `\t"meta": { "filename": "${id}.kicad_pro", "version": 3 }`,
-            "}",
-            "",
         ]
+            .concat(net_class(f))
+            .concat([`\t"meta": { "filename": "${id}.kicad_pro", "version": 3 }`, "}", ""])
             .join("\n"),
     )
 }

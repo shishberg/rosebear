@@ -247,16 +247,23 @@ function reverse_rows(sigs: Signal[]) -> Signal[] {
 /// rows do, which is the whole key order backwards on the left hand.
 function link_pinout(sigs: Signal[], reversed: bool) -> Signal[] {
     // `mirror_pinout` sorts by the COLUMN embedded in a per-key net name. A
-    // matrix has no such names -- a row line belongs to every column -- so the
-    // reordering has nothing to sort by and the order stays as `matrix_signals`
-    // built it. Which order the contacts actually want is a routing question,
-    // and belongs with the router that will read it; see the note in
-    // `matrix.baml`.
-    if (reversed && !is_matrix_pinout(sigs)) {
-        mirror_pinout(sigs)
-    } else {
-        sigs
+    // matrix has no such names -- a row line belongs to every column -- so
+    // there is nothing to sort by, and the order is settled by the finger
+    // board's fan instead.
+    //
+    // That fan comes down the tail in pod-contact order and peels off one lane
+    // at a time, shallowest first. The thumb link stands square across the end
+    // of the tail, so its contacts run along x -- and the finger board takes
+    // its pads from this list REVERSED (`from_end_signals`). Working back
+    // through both reversals: the left hand wants the list as `matrix_signals`
+    // built it, and the mirrored hand wants it turned round.
+    if (reversed) {
+        return sigs.reverse();
     }
+    if (!is_matrix_pinout(sigs)) {
+        return sigs;
+    }
+    sigs
 }
 
 /// Whether a pinout is made of matrix lines rather than per-key nets.
@@ -282,9 +289,65 @@ function is_matrix_pinout(sigs: Signal[]) -> bool {
 /// start below every contact stub instead of cutting through them. South is
 /// contact `ways` on the left hand and contact 1 on the right, so the right
 /// hand carries its tail in front, reversed.
+/// Whether `s` is the inboard column's line.
+function is_inner_col_signal(s: Signal) -> bool {
+    s.name.starts_with("COL_")
+        && s.name.ends_with(
+            `_${(COLUMN_ORDER().at(COLUMN_ORDER().length() - 1) ?? "").to_upper_case()}`,
+        )
+}
+
+/// A matrix pinout, in the order the finger board's bus can hand it over.
+///
+/// The bus order is settled by the key field: a column line lands on the
+/// northernmost lane in the tail or crosses the ones already there, so the
+/// front stack runs outboard column south to inboard column north, with the
+/// row lines north of all of them on the back. The inboard column is the
+/// exception -- it never crosses a neck and joins the bus straight off its own
+/// keys, north of the rows -- so its contact moves to the far end.
+///
+/// The contacts then run in the bus order UPSIDE DOWN: a lane that has to reach
+/// a southern contact must sit inboard of every lane above it, and inboard is
+/// where the northern lanes already are.
+function matrix_band_order(sigs: Signal[]) -> Signal[] {
+    let inner = sigs.filter((s) -> {
+        is_inner_col_signal(s)
+    });
+    let rest = sigs.filter((s) -> {
+        !is_inner_col_signal(s)
+    });
+    let last_row = 0 - 1;
+    let i = 0;
+    for (let s in rest) {
+        if (s.name.starts_with("ROW_")) {
+            last_row = i;
+        }
+        i = i + 1;
+    }
+    let out: Signal[] = [];
+    let j = 0;
+    for (let s in rest) {
+        out.push(s);
+        if (j == last_row) {
+            for (let m in inner) {
+                out.push(m);
+            }
+        }
+        j = j + 1;
+    }
+    if (last_row < 0) {
+        return sigs;
+    }
+    out
+}
+
 function band_pinout(sigs: Signal[], mirrored: bool) -> Signal[] {
     if (is_matrix_pinout(sigs)) {
-        return sigs;
+        let ordered = matrix_band_order(sigs);
+        if (mirrored) {
+            return ordered.reverse();
+        }
+        return ordered;
     }
     let rows = reverse_rows(sigs);
     if (!mirrored) {

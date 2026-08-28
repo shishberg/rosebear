@@ -59,6 +59,44 @@ function min_strip_width() -> float {
     2.0 * (SWITCH_HALF_SPAN() + BOARD_EDGE_CLEAR())
 }
 
+/// How far the switch's own DRILL holes reach either side of a key centre.
+///
+/// The two pin clearance holes sit at x = +/-5.08 with a 1.7mm drill, so they
+/// shut out both layers to 5.93mm; inside that the 4mm stem hole and two 3mm
+/// pin reliefs leave nothing usable either. Outside it the FRONT of the board
+/// is clear all the way to the strip edge -- the socket's own pads are on the
+/// back -- and that is the only place a trace can run the length of a column
+/// past a Kailh socket.
+///
+/// This is the number that decides where the ligaments go: a ligament that is
+/// not in a lane is a ligament no trace can cross.
+function SWITCH_HOLE_SPAN() -> float {
+    5.93
+}
+
+/// Inner edge of a lane band, as a distance from the key centre.
+function lane_band_lo() -> float {
+    SWITCH_HOLE_SPAN() + BOARD_EDGE_CLEAR()
+}
+
+/// Outer edge of a lane band. The strip edge, less the clearance.
+function lane_band_hi(w: Well, p: FlexParams) -> float {
+    strip_width(w, p) / 2.0 - BOARD_EDGE_CLEAR()
+}
+
+/// Traces that fit in one lane band at the board's general trace width.
+function lanes_per_band(w: Well, p: FlexParams) -> int {
+    let usable = lane_band_hi(w, p) - lane_band_lo();
+    let pitch = TRACE_W() + TRACE_W();
+    if (usable < TRACE_W()) {
+        return 0;
+    }
+    let n = ((usable - TRACE_W()) / pitch + 1.0 + 0.000001).floor();
+    n.iround() catch_all (e) {
+        _ => 0
+    }
+}
+
 /// Copper layers available to cross a hinge.
 ///
 /// Both, and that is a compromise worth naming: on a bend only the neutral
@@ -69,13 +107,35 @@ function FLEX_LAYERS() -> int {
     2
 }
 
+/// Margin carried by every lane, on top of the fab rules.
+///
+/// A neck's turns reach the board file as straight segments, and a polyline
+/// inscribed in an arc is always inside it -- so two lanes offset from the same
+/// centreline arrive tens of nanometres closer than their radii, and a neck
+/// laid out to exactly the fab minimum fails DRC on the sampling rather than on
+/// the design. Two hundredths of a millimetre is three orders of magnitude
+/// more than that error and still under a tenth of a trace width.
+function FLEX_LANE_SLACK() -> float {
+    0.02
+}
+
+/// Centre-to-centre spacing of parallel conductors in a strip or a neck.
+function flex_lane_pitch() -> float {
+    FLEX_TRACE_W() + FLEX_TRACE_SPACE() + FLEX_LANE_SLACK()
+}
+
+/// Clearance from the outermost lane to the edge it runs beside.
+function flex_lane_clear() -> float {
+    FLEX_EDGE_CLEAR() + FLEX_LANE_SLACK()
+}
+
 /// Traces that fit across a ligament of width `w`.
 function traces_per_ligament(w: float) -> int {
-    let usable = w - 2.0 * FLEX_EDGE_CLEAR();
+    let usable = w - 2.0 * flex_lane_clear();
     if (usable < FLEX_TRACE_W()) {
         return 0;
     }
-    let pitch = FLEX_TRACE_W() + FLEX_TRACE_SPACE();
+    let pitch = flex_lane_pitch();
     // A nanometre of slack. `width_for_traces` is the exact inverse of this,
     // and without it the round trip loses a trace to the last bit of a float:
     // a neck sized for eight came back carrying six.
@@ -266,6 +326,28 @@ function hinge_ys(s: Strip, w: Well, p: FlexParams) -> float[] {
     out
 }
 
+/// Distance from a key on `s` to the nearest hinge cut edge, in millimetres.
+///
+/// The real one, off this strip's own hinge rows, rather than the design figure
+/// in `nearest_hinge_cut`: a strip's rows fall between the keys the layout
+/// actually placed, which is not quite the developed pitch the well is rolled
+/// from. Anything squeezed between a part and a cut -- the switch-to-diode hop
+/// is the tight one -- has to measure the cut it is actually beside.
+function key_cut_reach(s: Strip, y: float, w: Well, p: FlexParams) -> float {
+    let best = 0.0 - 1.0;
+    for (let hy in hinge_ys(s, w, p)) {
+        let d = (hy - y).abs() - p.slot_w / 2.0;
+        if (best < 0.0 || d < best) {
+            best = d;
+        }
+    }
+    if (best < 0.0) {
+        nearest_hinge_cut(w, p)
+    } else {
+        best
+    }
+}
+
 /// Distance from a key centre to the nearest hinge CUT.
 ///
 /// The hinge rows sit symmetrically about the midpoint between two keys, so the
@@ -305,122 +387,40 @@ function stadium(x0: float, x1: float, y: float, w: float, segs: int) -> Vec2[] 
     out
 }
 
-/// Across-strip length of one gap in a hinge row.
+/// Half-width of the material a hinge row leaves at each edge of the strip.
 ///
-/// Slots and ligaments share the strip width equally, which is close to what
-/// BastardKB drew (15.8mm strip, three 2mm ligaments, four ~2.45mm slots).
-function hinge_slot_len(s: Strip, n_lig: int, p: FlexParams) -> float {
-    (2.0 * s.half_w - (n_lig * 1.0) * p.ligament_w) / ((n_lig + 1) * 1.0)
+/// The ligaments go where the LANES are, because a ligament anywhere else is a
+/// ligament no trace can cross -- and past a Kailh socket the only lanes are
+/// the two bands outside the switch's drill holes. So the hinge row is one
+/// slot spanning everything between them, and the material left is the two
+/// edge bands. That also puts the ligaments where a hinge wants them: material
+/// at the extreme edges is what stops a fold turning into a twist.
+///
+/// BastardKB spread three even ligaments across their strip instead, and could,
+/// because their plate takes a soldered MX switch whose two holes sit at
+/// +/-3.81 and block nothing.
+function hinge_ligament_w(s: Strip) -> float {
+    s.half_w - SWITCH_HOLE_SPAN()
 }
 
-/// The INTERIOR slots of one hinge row.
-///
-/// `n_lig` ligaments across a strip means `n_lig + 1` gaps between them, but
-/// only the `n_lig - 1` in the middle are holes. The two outermost open through
-/// the strip's edge -- that is what makes a hinge row a row of ligaments rather
-/// than a perforated sheet -- so they are notches in the outline walk instead,
-/// and `edge_notch` draws them. Emitting them here as separate contours put
-/// each one exactly tangent to the board edge, which KiCad reads as a
-/// self-intersecting outline: 83 violations on the first board that emitted.
-function hinge_slots(s: Strip, y: float, n_lig: int, p: FlexParams) -> Vec2[][] {
-    let slot_len = hinge_slot_len(s, n_lig, p);
+/// The slot making up one hinge row: everything between the two ligaments.
+function hinge_slots(s: Strip, y: float, p: FlexParams) -> Vec2[][] {
+    let x = SWITCH_HOLE_SPAN();
     let out: Vec2[][] = [];
-    if (slot_len <= p.slot_w) {
+    if (hinge_ligament_w(s) < p.ligament_w) {
         return out;
     }
-    let i = 1;
-    while (i < n_lig) {
-        let x = s.cx - s.half_w + (i * 1.0) * (slot_len + p.ligament_w);
-        out.push(stadium(x + p.slot_w / 2.0, x + slot_len - p.slot_w / 2.0, y, p.slot_w, 4));
-        i = i + 1;
-    }
-    out
-}
-
-/// One end cut of a hinge row, as vertices spliced into the outline walk.
-///
-/// Cut in from the strip edge at `x`, `depth` deep and `p.slot_w` wide, with a
-/// rounded inner end -- a square internal corner in a part that bends is a
-/// crack starter, which is the same job the drilled circles do at the ends of
-/// BastardKB's slots.
-///
-/// `inward` is +1 when the material lies to the +x side of the edge; `up` is
-/// +1 when the walk is running in +y. The arc has to sweep through the inward
-/// direction, not away from it, which is what the product of the two decides.
-function edge_notch(
-    x: float,
-    inward: float,
-    y: float,
-    depth: float,
-    up: float,
-    p: FlexParams,
-    segs: int,
-) -> Vec2[] {
-    let r = p.slot_w / 2.0;
-    let cx = x + inward * (depth - r);
-    let t0 = 0.0 - 90.0 * up;
-    let sweep = 180.0 * up * inward;
-    let out: Vec2[] = [];
-    out.push(Vec2 { x: x, y: y - up * r });
-    let i = 0;
-    while (i <= segs) {
-        let a = deg_to_rad(t0 + sweep * (i * 1.0) / (segs * 1.0));
-        out.push(Vec2 { x: cx + r * a.cos(), y: y + r * a.sin() });
-        i = i + 1;
-    }
-    out.push(Vec2 { x: x, y: y + up * r });
-    out
-}
-
-/// Walk one side of a strip from `ya` to `yb`, notching it at every hinge row
-/// on the way.
-///
-/// Emits the notches and the far end, but NOT `(x, ya)`: the caller has always
-/// just emitted that point, as the end of a neck or the corner of a strip, and
-/// a repeated vertex is a zero-length segment on Edge.Cuts.
-function edge_walk_to(
-    x: float,
-    inward: float,
-    ya: float,
-    yb: float,
-    ys: float[],
-    depth: float,
-    p: FlexParams,
-    segs: int,
-) -> Vec2[] {
-    let up = if (yb >= ya) {
-        1.0
-    } else {
-        0.0 - 1.0
-    };
-    let r = p.slot_w / 2.0;
-    let hits = ys
-        .filter((y) -> {
-            (y - ya) * up > r && (yb - y) * up > r
-        })
-        .sort_by((a, b) -> {
-            if ((a - b) * up < 0.0) {
-                0 - 1
-            } else {
-                1
-            }
-        });
-    let out: Vec2[] = [];
-    for (let y in hits) {
-        for (let q in edge_notch(x, inward, y, depth, up, p, segs)) {
-            out.push(q);
-        }
-    }
-    out.push(Vec2 { x: x, y: yb });
+    // The end caps are round -- a square internal corner in a part that bends
+    // is where a crack starts -- so pull the centreline in by their radius.
+    out.push(stadium(s.cx - x + p.slot_w / 2.0, s.cx + x - p.slot_w / 2.0, y, p.slot_w, 8));
     out
 }
 
 /// Every hinge slot on a strip.
-function strip_hinge_cuts(s: Strip, w: Well, p: FlexParams, n_traces: int) -> Vec2[][] {
-    let n_lig = ligaments_for(n_traces, p.ligament_w);
+function strip_hinge_cuts(s: Strip, w: Well, p: FlexParams) -> Vec2[][] {
     let out: Vec2[][] = [];
     for (let y in hinge_ys(s, w, p)) {
-        for (let poly in hinge_slots(s, y, n_lig, p)) {
+        for (let poly in hinge_slots(s, y, p)) {
             out.push(poly);
         }
     }
@@ -495,9 +495,9 @@ function width_for_traces(n: int) -> float {
         _ => n
     };
     if (k < 1) {
-        return 2.0 * FLEX_EDGE_CLEAR();
+        return 2.0 * flex_lane_clear();
     }
-    (k * 1.0) * FLEX_TRACE_W() + ((k - 1) * 1.0) * FLEX_TRACE_SPACE() + 2.0 * FLEX_EDGE_CLEAR()
+    ((k - 1) * 1.0) * flex_lane_pitch() + FLEX_TRACE_W() + 2.0 * flex_lane_clear()
 }
 
 /// Perpendicular width of a neck carrying `n` traces, never below the floor in
@@ -521,18 +521,45 @@ function neck_radius(span: float) -> float {
     span / 4.0
 }
 
-/// Straight run of each of a neck's two legs, for a given total length.
+/// Total straight run in a neck, for a given centreline length.
 ///
-/// Total centreline is the two quarter-turns, the half-turn and the two legs:
-/// 2*(pi*r/2) + pi*r + 2*leg.
-function neck_leg(span: float, total: float) -> float {
-    let r = neck_radius(span);
-    let turns = 6.283185307179586 * r;
-    let leg = (total - turns) / 2.0;
+/// Everything the two quarter turns and the half turn do not already account
+/// for. Split between the two legs by `neck_leg_pair`.
+function neck_straight(span: float, total: float) -> float {
+    let turns = 6.283185307179586 * neck_radius(span);
+    let leg = total - turns;
     if (leg < 0.0) {
         0.0
     } else {
         leg
+    }
+}
+
+/// The two legs' lengths, given where the neck has to start and finish.
+///
+/// The legs run opposite ways, so their DIFFERENCE is the height the neck
+/// climbs across the gap: `y1 - y0`. Their sum is the straight run. Adjacent
+/// columns are staggered by up to 6mm and each attaches at its own strip's
+/// hinge-free band, so a neck that had to start and end level would not reach.
+class NeckLegs {
+    up: float,
+    down: float,
+}
+
+function neck_leg_pair(span: float, total: float, y0: float, y1: float) -> NeckLegs {
+    let straight = neck_straight(span, total);
+    let climb = y1 - y0;
+    let up = (straight + climb) / 2.0;
+    let down = (straight - climb) / 2.0;
+    // A climb bigger than the straight run would want a negative leg. Give the
+    // whole run to the one that has to grow and let the neck be longer than
+    // asked for -- longer is always safe.
+    if (up < 0.0) {
+        NeckLegs { up: 0.0, down: 0.0 - climb }
+    } else if (down < 0.0) {
+        NeckLegs { up: climb, down: 0.0 }
+    } else {
+        NeckLegs { up: up, down: down }
     }
 }
 
@@ -556,26 +583,25 @@ function arc_pts(c: Vec2, r: float, t0: float, t1: float, segs: int, skip_first:
 /// A neck's centreline, west to east, sampled.
 ///
 /// Quarter-turn up out of the strip, a leg north, a half-turn over, a leg back
-/// south, a quarter-turn out into the next strip. Tangent-continuous
-/// throughout, which is what lets `offset_path` take a finite-difference normal
-/// and get a constant-width band out of it.
-function neck_centreline(x0: float, x1: float, y: float, leg: float, segs: int) -> Vec2[] {
+/// south, a quarter-turn out into the next strip. The two legs need not match:
+/// their difference is how far the neck climbs to meet the next strip's band.
+function neck_centreline(x0: float, x1: float, y: float, legs: NeckLegs, segs: int) -> Vec2[] {
     let r = neck_radius(x1 - x0);
-    let top = y + r + leg;
+    let top = y + r + legs.up;
     let out: Vec2[] = [];
     for (let q in arc_pts(Vec2 { x: x0, y: y + r }, r, 0.0 - 90.0, 0.0, segs, false)) {
         out.push(q);
     }
-    if (leg > 0.0) {
+    if (legs.up > 0.0) {
         out.push(Vec2 { x: x0 + r, y: top });
     }
     for (let q in arc_pts(Vec2 { x: x0 + 2.0 * r, y: top }, r, 180.0, 0.0, segs, true)) {
         out.push(q);
     }
-    if (leg > 0.0) {
-        out.push(Vec2 { x: x0 + 3.0 * r, y: y + r });
+    if (legs.down > 0.0) {
+        out.push(Vec2 { x: x0 + 3.0 * r, y: top - legs.down });
     }
-    for (let q in arc_pts(Vec2 { x: x1, y: y + r }, r, 180.0, 270.0, segs, true)) {
+    for (let q in arc_pts(Vec2 { x: x1, y: top - legs.down }, r, 180.0, 270.0, segs, true)) {
         out.push(q);
     }
     out
@@ -616,24 +642,23 @@ function neck_side(
     x0: float,
     x1: float,
     y: float,
-    leg: float,
+    legs: NeckLegs,
     width: float,
     side: float,
     segs: int,
 ) -> Vec2[] {
     let r = neck_radius(x1 - x0);
     let h = side * width / 2.0;
-    let top = y + r + leg;
+    let top = y + r + legs.up;
     let out: Vec2[] = [];
     // In: a quarter turn to the left, out of the strip and up the gap.
     for (let q in arc_pts(Vec2 { x: x0, y: y + r }, r - h, 0.0 - 90.0, 0.0, segs, false)) {
         out.push(q);
     }
-    // North, up the gap. Heading +y, so the left-hand edge is the -x one.
-    // A gap with no step needs no leg at all, and then the two turns meet
-    // directly -- pushing a zero-length straight there would repeat a vertex,
-    // which Edge.Cuts reads as a degenerate self-intersecting segment.
-    if (leg > 0.0) {
+    // North, up the gap. Heading +y, so the left-hand edge is the -x one. A
+    // zero-length leg would repeat a vertex, which Edge.Cuts reads as a
+    // degenerate self-intersecting segment.
+    if (legs.up > 0.0) {
         out.push(Vec2 { x: x0 + r - h, y: top });
     }
     // Over: a half turn to the right.
@@ -641,11 +666,11 @@ function neck_side(
         out.push(q);
     }
     // And back south, so now the left-hand edge is the +x one.
-    if (leg > 0.0) {
-        out.push(Vec2 { x: x0 + 3.0 * r + h, y: y + r });
+    if (legs.down > 0.0) {
+        out.push(Vec2 { x: x0 + 3.0 * r + h, y: top - legs.down });
     }
     // Out: a quarter turn to the left, into the next strip.
-    for (let q in arc_pts(Vec2 { x: x1, y: y + r }, r - h, 180.0, 270.0, segs, true)) {
+    for (let q in arc_pts(Vec2 { x: x1, y: top - legs.down }, r - h, 180.0, 270.0, segs, true)) {
         out.push(q);
     }
     out
@@ -655,40 +680,32 @@ function neck_edges(
     x0: float,
     x1: float,
     y: float,
-    leg: float,
+    legs: NeckLegs,
     width: float,
     segs: int,
 ) -> NeckEdges {
     NeckEdges {
-        upper: neck_side(x0, x1, y, leg, width, 1.0, segs),
-        lower: neck_side(x0, x1, y, leg, width, 0.0 - 1.0, segs).reverse(),
+        upper: neck_side(x0, x1, y, legs, width, 1.0, segs),
+        lower: neck_side(x0, x1, y, legs, width, 0.0 - 1.0, segs).reverse(),
     }
 }
 
-// ---------------------------------------------------------------- the outline
-
-/// The middle of a strip's KEYS.
+/// Where a neck attaches to a strip, along the column.
 ///
-/// Not the middle of the strip: a strip carrying a connector runs on past its
-/// last key in a tail, and letting that pull the neck down would land it on a
-/// hinge row.
-function strip_key_mid(s: Strip) -> float {
-    let n = s.key_ys.length();
-    if (n == 0) {
-        (s.y0 + s.y1) / 2.0
-    } else {
-        ((s.key_ys.at(0) ?? 0.0) + (s.key_ys.at(n - 1) ?? 0.0)) / 2.0
+/// In the tail, south of the bottom key. Everything a Kailh footprint owns
+/// lies north of its key centre, so the strip below the bottom key is clear
+/// across its full width on both layers -- which makes it the one place a bus
+/// can run, and therefore the one place a neck should land: every trace that
+/// crosses a neck reaches it from the north without doubling back.
+///
+/// Per strip, not shared: adjacent columns are staggered by up to 6mm, so the
+/// two ends of a neck are at different heights. `neck_leg_pair` absorbs it.
+function strip_neck_y(s: Strip, w: Well) -> float {
+    if (s.key_ys.length() == 0) {
+        return (s.y0 + s.y1) / 2.0;
     }
-}
-
-/// Where the neck between two strips sits along the column.
-///
-/// Level with the middle row, which is a rigid part of both strips. A neck at
-/// an end would be a long lever on a strip that is already hinged, and would
-/// twist rather than bend; a neck at a hinge row would attach to the ligaments
-/// themselves.
-function neck_y(a: Strip, b: Strip) -> float {
-    (strip_key_mid(a) + strip_key_mid(b)) / 2.0
+    // Ergogen y is up, so "south of the bottom key" subtracts.
+    (s.key_ys.at(0) ?? 0.0) - band_offset()
 }
 
 /// The gap a neck spans: edge of one strip to edge of the next.
@@ -699,7 +716,7 @@ function neck_span(a: Strip, b: Strip) -> float {
 /// Half a neck's width, which is its half-height where it meets a strip edge:
 /// the centreline leaves the strip horizontally, so there the normal is
 /// vertical.
-function neck_half(w: Well, a: Strip, b: Strip, p: FlexParams, n_traces: int) -> float {
+function neck_half(p: FlexParams, n_traces: int) -> float {
     neck_width(p, n_traces) / 2.0
 }
 
@@ -713,11 +730,13 @@ function strip_neck(
     segs: int,
 ) -> NeckEdges {
     let span = neck_span(a, b);
+    let y0 = strip_neck_y(a, w);
+    let y1 = strip_neck_y(b, w);
     neck_edges(
         a.cx + a.half_w,
         b.cx - b.half_w,
-        neck_y(a, b),
-        neck_leg(span, neck_length(w, a.column, b.column)),
+        y0,
+        neck_leg_pair(span, neck_length(w, a.column, b.column), y0, y1),
         neck_width(p, n_traces),
         segs,
     )
@@ -727,28 +746,20 @@ function strip_at(ss: Strip[], i: int) -> Strip {
     ss.at(i) ?? Strip { column: "", cx: 0.0, half_w: 0.0, y0: 0.0, y1: 0.0, key_ys: [] }
 }
 
-/// The board's single closed Edge.Cuts contour: strips joined by necks, each
-/// strip's sides notched at every hinge row.
+/// The board's single closed Edge.Cuts contour: strips joined by necks.
 ///
 /// One ring, not a polygon per strip. KiCad wants a board to be one closed
-/// contour, and overlapping outlines fail DRC rather than uniting -- so the
-/// walk goes up the outside of every strip and back along the underside of
-/// every neck, and the outermost hinge cuts are part of that walk rather than
-/// separate holes tangent to it.
-function flex_ring(
-    ss: Strip[],
-    w: Well,
-    p: FlexParams,
-    n_traces: int,
-    neck_traces: int,
-    samples: int,
-) -> Vec2[] {
+/// contour and unites nothing, so the walk goes up the outside of every strip
+/// and back along the underside of every neck. The hinge cuts do not appear
+/// here at all -- with the ligaments at the strip edges, every hinge row is a
+/// slot in the middle of the board and an interior contour of its own.
+function flex_ring(ss: Strip[], w: Well, p: FlexParams, neck_traces: int, samples: int) -> Vec2[] {
     let out: Vec2[] = [];
     let n = ss.length();
     if (n == 0) {
         return out;
     }
-    let n_lig = ligaments_for(n_traces, p.ligament_w);
+    let half = neck_half(p, neck_traces);
 
     // Outbound, west to east: up the left of each strip, across its top, down
     // its right to the next neck, then out along the neck's upper edge. Only
@@ -760,45 +771,21 @@ function flex_ring(
         let s = strip_at(ss, i);
         let xl = s.cx - s.half_w;
         let xr = s.cx + s.half_w;
-        let depth = hinge_slot_len(s, n_lig, p);
-        let ys = hinge_ys(s, w, p);
-        let lo = if (i == 0) {
+        if (i == 0) {
             out.push(Vec2 { x: xl, y: s.y0 });
-            s.y0
-        } else {
-            let r = strip_at(ss, i - 1);
-            neck_y(r, s) + neck_half(w, r, s, p, neck_traces)
-        };
-        for (let q in edge_walk_to(xl, 1.0, lo, s.y1, ys, depth, p, 4)) {
-            out.push(q);
         }
+        out.push(Vec2 { x: xl, y: s.y1 });
         out.push(Vec2 { x: xr, y: s.y1 });
         if (i + 1 < n) {
             let t = strip_at(ss, i + 1);
-            let y = neck_y(s, t);
-            for (
-                let q in edge_walk_to(
-                    xr,
-                    0.0 - 1.0,
-                    s.y1,
-                    y + neck_half(w, s, t, p, neck_traces),
-                    ys,
-                    depth,
-                    p,
-                    4,
-                )
-            ) {
-                out.push(q);
-            }
-            // The neck's upper edge starts exactly where that walk ended.
+            out.push(Vec2 { x: xr, y: strip_neck_y(s, w) + half });
+            // The neck's upper edge starts exactly where that point sits.
             let up = strip_neck(w, s, t, p, neck_traces, samples).upper;
             for (let q in up.slice(1, up.length())) {
                 out.push(q);
             }
         } else {
-            for (let q in edge_walk_to(xr, 0.0 - 1.0, s.y1, s.y0, ys, depth, p, 4)) {
-                out.push(q);
-            }
+            out.push(Vec2 { x: xr, y: s.y0 });
         }
         i = i + 1;
     }
@@ -811,42 +798,13 @@ function flex_ring(
     while (j >= 1) {
         let s = strip_at(ss, j);
         let r = strip_at(ss, j - 1);
-        let y = neck_y(r, s);
-        let half = neck_half(w, r, s, p, neck_traces);
         out.push(Vec2 { x: s.cx - s.half_w, y: s.y0 });
-        for (
-            let q in edge_walk_to(
-                s.cx - s.half_w,
-                1.0,
-                s.y0,
-                y - half,
-                hinge_ys(s, w, p),
-                hinge_slot_len(s, n_lig, p),
-                p,
-                4,
-            )
-        ) {
-            out.push(q);
-        }
-        // The neck's lower edge starts exactly where that walk ended.
+        out.push(Vec2 { x: s.cx - s.half_w, y: strip_neck_y(s, w) - half });
         let down = strip_neck(w, r, s, p, neck_traces, samples).lower;
         for (let q in down.slice(1, down.length())) {
             out.push(q);
         }
-        for (
-            let q in edge_walk_to(
-                r.cx + r.half_w,
-                0.0 - 1.0,
-                y - half,
-                r.y0,
-                hinge_ys(r, w, p),
-                hinge_slot_len(r, n_lig, p),
-                p,
-                4,
-            )
-        ) {
-            out.push(q);
-        }
+        out.push(Vec2 { x: r.cx + r.half_w, y: r.y0 });
         j = j - 1;
     }
     out
@@ -929,17 +887,20 @@ test "a 2mm ligament carries ten traces, so a matrix needs two" {
     assert.equal(ligaments_for(1, 2.0), 2)
 }
 
-test "a hinge row is slots and ligaments across the whole strip" {
+test "a hinge row is one slot between two edge ligaments" {
     let p = flex_defaults();
-    let ss = test_strips();
     let s = strip_at(test_strips(), 0);
-    // Three ligaments means four gaps, of which the two end ones open through
-    // the strip edge and belong to the outline -- so two are holes.
-    let slots = hinge_slots(s, 0.0, 3, p);
-    assert.equal(slots.length(), 2);
-    // Slots and ligaments together account for the full strip width.
-    let slot_len = hinge_slot_len(s, 3, p);
-    assert.approx_equal(4.0 * slot_len + 3.0 * p.ligament_w, 2.0 * s.half_w, 0.000001);
+    // One interior slot. The ligaments are at the strip EDGES, outside the
+    // switch's drill span, because that is the only place a trace can pass a
+    // key on the back layer -- so the hinge row is a single hole, not a row of
+    // them, and there are no notches in the outline.
+    let slots = hinge_slots(s, 0.0, p);
+    assert.equal(slots.length(), 1);
+    // The slot spans the switch's drill span, leaving a ligament each side.
+    assert.approx_equal(hinge_ligament_w(s), s.half_w - SWITCH_HOLE_SPAN(), 0.000001);
+    assert.approx_equal(hinge_ligament_w(s), 2.93, 0.000001);
+    // Two of them carry more than the worst neck's traffic.
+    assert.is_true(2 * traces_per_ligament(hinge_ligament_w(s)) >= 8);
     // And the cut stays inside the strip.
     for (let poly in slots) {
         for (let q in poly) {
@@ -985,9 +946,16 @@ test "a neck's drawn centreline is the length it was asked for" {
     let w = ROSEBEAR_WELL();
     let p = flex_defaults();
     let want = neck_length(w, "index", "inner");
-    let leg = neck_leg(p.gap, want);
-    let got = path_length(neck_centreline(0.0, p.gap, 0.0, leg, 64));
-    assert.approx_equal(got, want, 0.01)
+    // Level ends: the two legs are equal and the drawn length is the ask.
+    let legs = neck_leg_pair(p.gap, want, 0.0, 0.0);
+    assert.approx_equal(legs.up, legs.down, 0.000001);
+    let got = path_length(neck_centreline(0.0, p.gap, 0.0, legs, 64));
+    assert.approx_equal(got, want, 0.01);
+    // A stagger between the two ends is paid for out of the legs, so the
+    // centreline stays the length the strain budget asked for.
+    let climbed = neck_leg_pair(p.gap, want, 0.0, 6.0);
+    assert.approx_equal(climbed.up - climbed.down, 6.0, 0.000001);
+    assert.approx_equal(path_length(neck_centreline(0.0, p.gap, 0.0, climbed, 64)), want, 0.01)
 }
 
 test "a neck is wide enough for the traces crossing it, and no wider" {
@@ -1017,7 +985,7 @@ test "a neck's turns are wide enough that its inner edge does not fold" {
 test "the outline is one closed ring covering every strip" {
     let p = flex_defaults();
     let ss = test_strips();
-    let ring = flex_ring(ss, ROSEBEAR_WELL(), p, 4, 8, 16);
+    let ring = flex_ring(ss, ROSEBEAR_WELL(), p, 8, 16);
     assert.is_true(ring.length() > 20);
     // Every strip's four corners are inside the ring's bounding box.
     let min_x = ring.reduce(
@@ -1049,7 +1017,7 @@ test "the outline is one closed ring covering every strip" {
 
 test "the ring does not self-intersect" {
     let p = flex_defaults();
-    let ring = flex_ring(test_strips(), ROSEBEAR_WELL(), p, 4, 8, 16);
+    let ring = flex_ring(test_strips(), ROSEBEAR_WELL(), p, 8, 16);
     let n = ring.length();
     let i = 0;
     while (i < n) {

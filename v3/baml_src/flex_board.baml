@@ -19,7 +19,7 @@
 /// it stands on` checks it against the derived ribbon widths rather than
 /// trusting this number.
 function FLEX_TAIL() -> float {
-    22.0
+    34.0
 }
 
 /// Clearance from the end of a tail to the connector body.
@@ -29,18 +29,15 @@ function FLEX_TAIL_MARGIN() -> float {
 
 /// Which column strip a link's connector stands on.
 ///
-/// The pod link goes on the inboard-most column and the thumb link on the one
-/// beside it -- the two strips nearest the cluster and the cable run, and the
-/// only ones with anywhere for a cable to go that is not across another
-/// column. Named rather than indexed: `strips_of` returns west to east, which
-/// is a different end of the list for each hand, and the answer is not.
+/// Both of them stand on the inboard-most column, stacked along its tail. They
+/// used to sit on neighbouring strips, which is tidier to look at and wrong to
+/// route: the thumb link's nets all arrive from the pod link, so putting the
+/// two on different strips sends four conductors back out across a neck and
+/// then in again. Named rather than indexed: `strips_of` returns west to east,
+/// which is a different end of the list for each hand, and the answer is not.
 function link_column(from_pod: bool) -> string {
     let cols = COLUMN_ORDER();
-    if (from_pod) {
-        cols.at(cols.length() - 1) ?? "inner"
-    } else {
-        cols.at(cols.length() - 2) ?? "index"
-    }
+    cols.at(cols.length() - 1) ?? "inner"
 }
 
 /// Does this strip carry a connector, and so need a tail?
@@ -121,15 +118,14 @@ function flex_neck_traces(m: Module) -> int {
 
 /// The board's single closed outline, in KiCad coordinates.
 function flex_outline(ss: Strip[], w: Well, p: FlexParams, m: Module) -> Vec2[] {
-    to_kicad_poly(flex_ring(ss, w, p, flex_hinge_traces(), flex_neck_traces(m), NECK_SAMPLES()))
+    to_kicad_poly(flex_ring(ss, w, p, flex_neck_traces(m), NECK_SAMPLES()))
 }
 
 /// Every interior contour on the board: the hinge slots, in KiCad coordinates.
 function flex_cuts(ss: Strip[], w: Well, p: FlexParams) -> Vec2[][] {
-    let n = flex_hinge_traces();
     let out: Vec2[][] = [];
     for (let s in ss) {
-        for (let poly in strip_hinge_cuts(s, w, p, n)) {
+        for (let poly in strip_hinge_cuts(s, w, p)) {
             out.push(to_kicad_poly(poly));
         }
     }
@@ -160,12 +156,18 @@ function link_stand(s: Strip, hand: string, from_pod: bool, ways: int) -> LinkSt
     // The tail's outer end, in KiCad coordinates -- ergogen y0 is the far end
     // of the column, which the flip puts at the bottom of the board.
     let end = to_kicad(Vec2 { x: s.cx, y: s.y0 }).y;
+    // The thumb link takes the very end of the tail; the pod link stacks north
+    // of it with a margin between the two bodies.
+    let thumb_y = end - FLEX_TAIL_MARGIN() - FFC_BODY_FRONT();
     if (from_pod) {
-        // Half the body length in from the end, contacts facing inboard. 270
-        // points them east, 90 west; `ffc_pad_local` puts them at local -y.
-        let hw = ((ways * 1.0) + 6.0) / 2.0;
+        // Side-mounted: contacts inboard, body lying ALONG the strip, so a
+        // wide connector needs tail length rather than strip width. 270 points
+        // the contacts east, 90 west; `ffc_pad_local` puts them at local -y.
         LinkStand {
-            at: Vec2 { x: s.cx, y: end - FLEX_TAIL_MARGIN() - hw },
+            at: Vec2 {
+                x: s.cx,
+                y: thumb_y - FFC_BODY_BACK() - FLEX_TAIL_MARGIN() - ffc_body_half(ways),
+            },
             r: if (inboard > 0.0) {
                 270.0
             } else {
@@ -174,17 +176,13 @@ function link_stand(s: Strip, hand: string, from_pod: bool, ways: int) -> LinkSt
         }
     } else {
         // Contacts pointing off the end of the tail, at the cluster below.
-        LinkStand { at: Vec2 { x: s.cx, y: end - FLEX_TAIL_MARGIN() - 0.91 }, r: 180.0 }
+        LinkStand { at: Vec2 { x: s.cx, y: thumb_y }, r: 180.0 }
     }
 }
 
 // --------------------------------------------------------------------- board
 
-/// One half's finger board, cut into strips.
-///
-/// No routing: `route_flex_board` does that, and until it exists this emits a
-/// placed, cut, unrouted board -- which is exactly what is needed to check the
-/// outline in KiCad.
+/// One half's finger board, cut into strips, placed and routed.
 function flex_board(
     m: Module,
     ribbons: Ribbon[],
@@ -225,21 +223,31 @@ function flex_board(
         ci = ci + 1;
     }
 
-    Board {
+    let outline = flex_outline(ss, w, p, m);
+    let placed = Board {
         id: m.id,
         components: comps,
-        outline: flex_outline(ss, w, p, m),
+        outline: outline,
         cuts: flex_cuts(ss, w, p),
         tracks: [],
         vias: [],
         zones: [],
+    };
+    let cu = route_flex(placed, m, ss, w);
+    Board {
+        id: placed.id,
+        components: placed.components,
+        outline: placed.outline,
+        cuts: placed.cuts,
+        tracks: cu.tracks,
+        vias: cu.vias,
+        zones: board_zones(outline, f),
     }
 }
 
 /// Every board of the segmented variant.
 ///
 /// The thumb clusters are still built as rigid boards here; #7 segments them.
-/// Nothing is routed yet -- see `route_flex_board`.
 function build_flex_boards(f: Features) -> Board[] throws baml.errors.InvalidArgument {
     let mods = partition_modules(layout_keys(f));
     let ribbons = build_ribbons(mods, f);
