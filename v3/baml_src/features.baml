@@ -13,14 +13,58 @@ class Features {
     /// Budgeted current per LED in milliamps. SK6812MINI-E draws ~60mA at full
     /// white; firmware normally caps well below that. Drives conductor count.
     led_ma_per_key: float,
+    /// Scan the keys as a diode matrix instead of giving each one its own GPIO.
+    ///
+    /// Costs one SOD-123 per key. Buys back 18 of the pod's 36 GPIO, narrows
+    /// every ribbon, and -- the reason it matters for a segmented board --
+    /// stops the signal count accumulating along the row of column strips, so
+    /// a fixed handful of traces crosses every neck. See `matrix.baml`.
+    matrix: bool,
+    /// Cut the key boards into per-column strips joined by serpentine necks,
+    /// laid out at the developed pitch of a Dactyl Manuform key well.
+    ///
+    /// Implies the `config_dactyl.baml` layout rather than `config_rosebear`'s:
+    /// the flat pitch a segmented board is cut at is the unrolled arc length of
+    /// the well, not a number chosen for a flat board. See `flex.baml`.
+    flex: bool,
+}
+
+/// The layout a variant is built from.
+///
+/// One function so nothing downstream has to know which; a board is cut from
+/// whichever of the two layouts its features ask for.
+function layout_keys(f: Features) -> PlacedKey[] throws baml.errors.InvalidArgument {
+    if (f.flex) {
+        dactyl_all_keys()
+    } else {
+        all_keys()
+    }
 }
 
 function features_base() -> Features {
-    Features { per_key_leds: false, led_ma_per_key: 0.0 }
+    Features { per_key_leds: false, led_ma_per_key: 0.0, matrix: false, flex: false }
 }
 
 function features_leds() -> Features {
-    Features { per_key_leds: true, led_ma_per_key: 20.0 }
+    Features { per_key_leds: true, led_ma_per_key: 20.0, matrix: false, flex: false }
+}
+
+/// Direct wiring replaced by a scanned diode matrix.
+function features_matrix() -> Features {
+    Features { per_key_leds: false, led_ma_per_key: 0.0, matrix: true, flex: false }
+}
+
+function features_matrix_leds() -> Features {
+    Features { per_key_leds: true, led_ma_per_key: 20.0, matrix: true, flex: false }
+}
+
+/// The segmented board: matrix wiring on the developed dactyl layout.
+///
+/// The matrix is not optional here. Direct wiring makes the neck traffic
+/// accumulate along the strips, and the necks are the one place on this board
+/// where there is no room to accumulate anything.
+function features_flex() -> Features {
+    Features { per_key_leds: false, led_ma_per_key: 0.0, matrix: true, flex: true }
 }
 
 // ------------------------------------------------------------------ signals

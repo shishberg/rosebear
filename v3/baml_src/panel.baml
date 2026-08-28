@@ -150,6 +150,11 @@ function translate_board(b: Board, d: Vec2) -> Board {
         outline: b.outline.map((p) -> {
             shift(p, d)
         }),
+        cuts: b.cuts.map((poly) -> {
+            poly.map((p) -> {
+                shift(p, d)
+            })
+        }),
         tracks: b.tracks.map((t) -> {
             Track {
                 start: shift(t.start, d),
@@ -267,10 +272,13 @@ function panel_boards(bs: Board[]) -> Board[] {
 
 /// One board carrying every board's copper, for the emitter's net table.
 function merge_boards(bs: Board[]) -> Board {
-    let out = Board { id: "all", components: [], outline: [], tracks: [], vias: [], zones: [] };
+    let out = Board { id: "all", components: [], outline: [], cuts: [], tracks: [], vias: [], zones: [] };
     for (let b in bs) {
         for (let c in b.components) {
             out.components.push(c);
+        }
+        for (let k in b.cuts) {
+            out.cuts.push(k);
         }
         for (let t in b.tracks) {
             out.tracks.push(t);

@@ -36,6 +36,14 @@ validation because the compiler does that job — `spread: 1.08 kx` was a string
 mathjs evaluated at runtime; it is now `spread: 20.52`, and a typo fails to
 build.
 
+## Segmented flex variant
+
+`../v3-flex.md` is the plan for cutting the key boards into per-column strips
+that bend into a Dactyl key well, and for moving from direct wiring to a diode
+matrix. `well.baml`, `config_dactyl.baml`, `flex.baml` and `matrix.baml` are the
+work already landed; everything is behind `features_matrix()` and a second
+layout, so the boards `baml run build` emits are unchanged.
+
 ## Relationship to ergogen
 
 The placement engine is a port of ergogen's `render_zone`, and

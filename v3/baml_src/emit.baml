@@ -297,6 +297,23 @@ function embed_footprint(
     out.join("\n")
 }
 
+/// Where interior-cut UUIDs start, clear of the outlines (90000), tracks
+/// (200000), vias (250000) and zones (300000).
+function CUT_UUID_BASE() -> int {
+    1000000
+}
+
+/// UUIDs reserved per interior contour. A hinge slot is a 10-vertex stadium;
+/// this is three orders of magnitude of headroom.
+function CUT_UUID_STRIDE() -> int {
+    1000
+}
+
+/// UUIDs reserved per board's worth of interior contours.
+function CUT_UUID_BOARD_STRIDE() -> int {
+    1000000
+}
+
 function edge_cuts(outline: Vec2[], uuid_base: int) -> string {
     let out: string[] = [];
     let n = outline.length();
@@ -513,9 +530,20 @@ function emit_panel(
     }
     // A UUID block per board: the outlines are separate polygons, not one
     // ring, so they cannot share a numbering.
+    //
+    // Interior cuts are numbered from a different, far sparser range. A rigid
+    // board has none, so its file is unchanged by their existence; a flex
+    // board has hundreds of hinge slots, which is more than the 1000 of
+    // headroom the outlines were given.
     let i = 0;
     for (let b in bs) {
         out.push(edge_cuts(b.outline, 90000 + i * 1000));
+        let base = CUT_UUID_BASE() + i * CUT_UUID_BOARD_STRIDE();
+        let j = 0;
+        for (let poly in b.cuts) {
+            out.push(edge_cuts(poly, base + j * CUT_UUID_STRIDE()));
+            j = j + 1;
+        }
         i = i + 1;
     }
     out.push(emit_tracks(all, names, 200000));

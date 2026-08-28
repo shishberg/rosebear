@@ -66,7 +66,7 @@ function emitted_key_centre(c: Component) -> Vec2 {
 
 test "every emitted switch centre lands on its key, at its key's angle" {
     for (let k in all_keys()) {
-        let c = switch_component(k, 1);
+        let c = switch_component(k, 1, features_base());
         let got = emitted_key_centre(c);
         let want = to_kicad(k.pos());
         assert.approx_equal(got.x, want.x, EPS_MM());
@@ -90,7 +90,7 @@ test "placement agrees with ergogen's own board for the pinky column" {
     assert.equal(keys.length(), 3);
     let i = 0;
     for (let k in keys) {
-        let c = switch_component(k, 1);
+        let c = switch_component(k, 1, features_base());
         let got = emitted_key_centre(c);
         let w = vec_at(want, i);
         assert.approx_equal(got.x, w.x, 0.0001);

@@ -13,3 +13,4 @@ output_v3/
 
 # Vendor datasheets and 3D models: 63MB of binaries, fetched not authored.
 v3/datasheets/
+output_v3_flex/

@@ -87,13 +87,23 @@ function ribbon_signals(
 ) -> Signal[] {
     let sigs: Signal[] = [];
 
-    // One GPIO per key on the far board...
-    for (let k in local_keys) {
-        sigs.push(Signal { name: key_net(k), kind: SignalKind.Key });
-    }
-    // ...plus every key reached through it.
-    for (let k in passthrough_keys) {
-        sigs.push(Signal { name: key_net(k), kind: SignalKind.Key });
+    if (f.matrix) {
+        // Matrix: the lines, not the keys. `matrix_signals` takes the union of
+        // what the far board holds and what it passes on, and returns each
+        // distinct column and row line once -- so the pod link carries 6+3 and
+        // the thumb hop 1+3, with the row lines shared rather than repeated.
+        for (let s in matrix_signals(local_keys.concat(passthrough_keys))) {
+            sigs.push(s);
+        }
+    } else {
+        // One GPIO per key on the far board...
+        for (let k in local_keys) {
+            sigs.push(Signal { name: key_net(k), kind: SignalKind.Key });
+        }
+        // ...plus every key reached through it.
+        for (let k in passthrough_keys) {
+            sigs.push(Signal { name: key_net(k), kind: SignalKind.Key });
+        }
     }
 
     // Ground conductor per ribbon (v2-p4-pod.md, defence #2 against pickup).
@@ -236,11 +246,25 @@ function reverse_rows(sigs: Signal[]) -> Signal[] {
 /// on the inboard edge, so its contacts have to run in the order the fan band's
 /// rows do, which is the whole key order backwards on the left hand.
 function link_pinout(sigs: Signal[], reversed: bool) -> Signal[] {
-    if (reversed) {
+    // `mirror_pinout` sorts by the COLUMN embedded in a per-key net name. A
+    // matrix has no such names -- a row line belongs to every column -- so the
+    // reordering has nothing to sort by and the order stays as `matrix_signals`
+    // built it. Which order the contacts actually want is a routing question,
+    // and belongs with the router that will read it; see the note in
+    // `matrix.baml`.
+    if (reversed && !is_matrix_pinout(sigs)) {
         mirror_pinout(sigs)
     } else {
         sigs
     }
+}
+
+/// Whether a pinout is made of matrix lines rather than per-key nets.
+function is_matrix_pinout(sigs: Signal[]) -> bool {
+    sigs.find((s) -> {
+        s.kind == SignalKind.Key && (s.name.starts_with("COL_") || s.name.starts_with("ROW_"))
+    })
+        != null
 }
 
 /// The pod link's contact order, fixed by the fan band above the keys.
@@ -259,6 +283,9 @@ function link_pinout(sigs: Signal[], reversed: bool) -> Signal[] {
 /// contact `ways` on the left hand and contact 1 on the right, so the right
 /// hand carries its tail in front, reversed.
 function band_pinout(sigs: Signal[], mirrored: bool) -> Signal[] {
+    if (is_matrix_pinout(sigs)) {
+        return sigs;
+    }
     let rows = reverse_rows(sigs);
     if (!mirrored) {
         return rows;

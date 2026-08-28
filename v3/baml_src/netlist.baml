@@ -25,6 +25,13 @@ class Board {
     components: Component[],
     /// Edge.Cuts polygon, already in KiCad coordinates.
     outline: Vec2[],
+    /// Interior Edge.Cuts contours: holes and slots cut out of `outline`.
+    ///
+    /// Each is its own closed polygon. KiCad wants one contour per region and
+    /// unites nothing, so these must not touch each other or the outline --
+    /// see `hinge_slots`, which pulls its end caps in for exactly that reason.
+    /// Empty on a rigid board.
+    cuts: Vec2[][],
     /// Copper. Empty until `route_board` has run.
     tracks: Track[],
     /// Layer changes, used only by the pass-through nets.
@@ -348,13 +355,14 @@ function link_spot(
     id: string,
     ways: int,
     inboard: float,
+    f: Features,
 ) -> LinkSpot throws baml.errors.InvalidArgument {
     let hand = if (id.ends_with("_r")) {
         "r"
     } else {
         "l"
     };
-    let mods = partition_modules(all_keys());
+    let mods = partition_modules(layout_keys(f));
     let fingers = find_module(mods, `finger_${hand}`).keys;
     let thumbs = find_module(mods, `thumb_${hand}`).keys;
     let hw = ((ways * 1.0) + 6.0) / 2.0;
@@ -473,10 +481,19 @@ function local_to_board(v: Vec2, k: PlacedKey) -> Vec2 {
     rotate_about(v, 0.0 - k.r, Vec2 { x: 0.0, y: 0.0 })
 }
 
-function switch_component(k: PlacedKey, index: int) -> Component {
+function switch_component(k: PlacedKey, index: int, f: Features) -> Component {
     let c = to_kicad(k.pos());
     // Place the origin so the *key centre* lands on the key position.
     let off = local_to_board(SWITCH_CENTRE_IN_FOOTPRINT(), k);
+    // Direct-wired: one side to its own GPIO net, the other to ground.
+    // Matrix (COL2ROW): one side to the column line, the other to the diode
+    // that joins it to the row line -- so the second terminal stops being
+    // ground and the pour no longer reaches it.
+    let pads = if (f.matrix) {
+        [Pad { pad: "1", net: col_net(k) }, Pad { pad: "2", net: switch_diode_net(k) }]
+    } else {
+        [Pad { pad: "1", net: key_net(k) }, Pad { pad: "2", net: "GND" }]
+    };
     Component {
         ref: `SW${index}`,
         footprint: switch_footprint(k.width),
@@ -486,8 +503,70 @@ function switch_component(k: PlacedKey, index: int) -> Component {
         // rotates every splayed key the wrong way.
         r: k.r,
         layer: "F.Cu",
-        // Direct-wired: one side to its own GPIO net, the other to ground.
-        pads: [Pad { pad: "1", net: key_net(k) }, Pad { pad: "2", net: "GND" }],
+        pads: pads,
+    }
+}
+
+/// Where a key's diode sits, in the key's own frame.
+///
+/// Centred in the band between the switch keep-out and the first hinge cut --
+/// on Toto, 7.5mm to 10.01mm from the key centre, so 8.76mm. Derived rather
+/// than chosen: a SOD-123 lying across the strip is only 3mm wide including its
+/// pads, and putting it a fixed 9mm out left it 0.41mm from the hinge slot
+/// where the rule wants 0.5. `a diode clears both the switch and its hinges`
+/// guards the band from either side.
+function DIODE_REACH() -> float {
+    let p = flex_defaults();
+    (p.switch_clear + nearest_hinge_cut(ROSEBEAR_WELL(), p)) / 2.0
+}
+
+/// A key's diode offset, in the key's own frame.
+///
+/// Always toward the MIDDLE of its column. The band is only 3mm wide and sits
+/// 9mm out, which is further than the strip extends past its outermost key --
+/// so putting every diode on the same side drops the top row's diodes off the
+/// end of the board. The paper proof showed exactly that.
+function diode_offset(k: PlacedKey) -> Vec2 {
+    let outward = matrix_row(k) == "top";
+    Vec2 {
+        x: 0.0,
+        y: if (outward) {
+            DIODE_REACH()
+        } else {
+            0.0 - DIODE_REACH()
+        },
+    }
+}
+
+/// Kept for the geometry tests, which check the band rather than a key.
+function DIODE_OFFSET() -> Vec2 {
+    Vec2 { x: 0.0, y: 0.0 - DIODE_REACH() }
+}
+
+/// One key's matrix diode.
+///
+/// Turned across the column so its long axis runs the way the strip is WIDE.
+/// Along the column it would straddle a hinge row, and a rigid 4.2mm part
+/// bridging a fold is a part that shears off -- which is exactly what the extra
+/// 90 degrees this used to store produced: every diode's pads reached 10.86mm
+/// out from its key, past the hinge cut at 10.01.
+///
+/// Storing `-r` rather than `r` for the same reason as the LED: a back-side
+/// part is mirrored, so KiCad applies its negated angle to already-flipped
+/// coordinates, and only the negated angle keeps the part's axis lined up with
+/// the key's whatever the key's angle.
+function diode_component(k: PlacedKey, index: int) -> Component {
+    let centre = to_kicad(k.pos());
+    let off = local_to_board(diode_offset(k), k);
+    Component {
+        ref: `D${index}`,
+        footprint: DIODE_FOOTPRINT(),
+        x: centre.x + off.x,
+        y: centre.y + off.y,
+        r: 0.0 - k.r,
+        layer: "B.Cu",
+        // SOD-123: pad 1 is the cathode, and it faces the row line.
+        pads: [Pad { pad: "1", net: row_net(k) }, Pad { pad: "2", net: switch_diode_net(k) }],
     }
 }
 
@@ -570,7 +649,10 @@ function build_board(
     let ordered = led_chain(m);
     let i = 1;
     for (let k in ordered) {
-        comps.push(switch_component(k, i));
+        comps.push(switch_component(k, i, f));
+        if (f.matrix) {
+            comps.push(diode_component(k, i));
+        }
         i = i + 1;
     }
 
@@ -693,7 +775,7 @@ function build_board(
             if (r.from_module == "pod") {
                 a
             } else {
-                let spot = link_spot(m.id, r.signals.length(), inboard);
+                let spot = link_spot(m.id, r.signals.length(), inboard, f);
                 let t = spot.finger_y - LINK_BODY_DEPTH();
                 if (t < a) {
                     t
@@ -718,7 +800,7 @@ function build_board(
             };
             Vec2 { x: key_edge + inboard * bus_reach(ways), y: y }
         } else {
-            let spot = link_spot(m.id, ways, inboard);
+            let spot = link_spot(m.id, ways, inboard, f);
             if (m.id.starts_with("thumb")) {
                 Vec2 { x: spot.x, y: spot.thumb_y }
             } else {
@@ -769,7 +851,7 @@ function build_board(
         },
     );
 
-    Board { id: m.id, components: comps, outline: hull, tracks: [], vias: [], zones: [] }
+    Board { id: m.id, components: comps, outline: hull, cuts: [], tracks: [], vias: [], zones: [] }
 }
 
 /// The LED data conductor on the first of `rs` that has one.
@@ -788,7 +870,10 @@ function ribbon_led_data(rs: Ribbon[]) -> string {
 }
 
 function build_boards(f: Features) -> Board[] throws baml.errors.InvalidArgument {
-    let mods = partition_modules(all_keys());
+    if (f.flex) {
+        return build_flex_boards(f);
+    }
+    let mods = partition_modules(layout_keys(f));
     let ribbons = build_ribbons(mods, f);
     // Thumb boards first: each finger board's outline is then clipped against
     // its thumb sibling grown by the link gap. The finger hull is convex and
@@ -815,6 +900,7 @@ function build_boards(f: Features) -> Board[] throws baml.errors.InvalidArgument
                     id: b.id,
                     components: b.components,
                     outline: outline,
+                    cuts: b.cuts,
                     tracks: b.tracks,
                     vias: b.vias,
                     zones: board_zones(outline, f),

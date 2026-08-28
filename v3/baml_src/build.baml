@@ -47,8 +47,16 @@ function edge_clearance(f: Features) -> string {
     if (f.per_key_leds) {
         "0.2"
     } else {
-        "0.5"
+        `${BOARD_EDGE_CLEAR()}`
     }
+}
+
+/// The same number, for the geometry that has to respect it.
+///
+/// `flex.baml` sizes a column strip so the switch socket's pads clear the strip
+/// edge by this much, so the placement and the rule DRC checks cannot drift.
+function BOARD_EDGE_CLEAR() -> float {
+    0.5
 }
 
 /// A project file per board, carrying the design rules DRC checks against.
@@ -129,6 +137,31 @@ function drc(path: string) -> string throws baml.errors.Io | baml.errors.Timeout
     } else {
         `FAILED (exit ${r.exit_code})\n${out}`
     }
+}
+
+/// The segmented variant, written beside the rigid boards.
+///
+///   baml run flex
+///
+/// Its own directory: it is a different board from the same source, not a
+/// revision of the one in `../output_v3`, and mixing the two would make it
+/// impossible to tell which `finger_l.kicad_pcb` a fab file came from.
+function FLEX_OUT_DIR() -> string {
+    "../output_v3_flex"
+}
+
+function flex(
+) -> string throws baml.errors.InvalidArgument | baml.errors.Io | baml.errors.ParseError | baml.errors.Timeout {
+    let f = features_flex();
+    let paths = write_boards(f, FLEX_OUT_DIR());
+    write_lib_table(FLEX_OUT_DIR(), "../v3/");
+    write_panel(f, FLEX_OUT_DIR());
+    let lines: string[] = [];
+    for (let p in paths) {
+        lines.push(`--- ${p}`);
+        lines.push(drc(p));
+    }
+    lines.join("\n")
 }
 
 function build(

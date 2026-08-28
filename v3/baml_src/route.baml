@@ -1516,6 +1516,7 @@ function route_board(b: Board, m: Module, f: Features) -> Board {
         id: b.id,
         components: b.components,
         outline: outline,
+        cuts: b.cuts,
         tracks: tracks,
         vias: vias,
         zones: board_zones(outline, f),
