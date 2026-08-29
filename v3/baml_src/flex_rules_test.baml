@@ -6,7 +6,7 @@
 // and ruins a board to break, and none of them is visible in a DRC report --
 // KiCad has no idea which parts of this outline fold.
 //
-// All five run over the routed boards themselves, not over the functions that
+// Every one runs over the routed boards themselves, not over the functions that
 // build them, so a future router that lays copper some other way still answers
 // to them.
 
@@ -85,8 +85,8 @@ function in_frame_poly(c: FlexCut, ps: Vec2[]) -> Vec2[] {
 /// The band of x a strip occupies. Everything outside every band is a neck.
 function strip_band(s: Strip) -> Box {
     Box {
-        min: Vec2 { x: s.cx - s.half_w, y: 0.0 - 1000000.0 },
-        max: Vec2 { x: s.cx + s.half_w, y: 1000000.0 },
+        min: Vec2 { x: strip_lo(s), y: 0.0 - 1000000.0 },
+        max: Vec2 { x: strip_hi(s), y: 1000000.0 },
     }
 }
 
@@ -116,6 +116,46 @@ test "no copper plane crosses a hinge row, or reaches into a neck" {
             // And inside one strip's width, so none of it is in a neck.
             assert.is_true(on_a_strip(c.strips, zb.min) && on_a_strip(c.strips, zb.max));
         }
+    }
+}
+
+/// A connector's body, in board coordinates: the courtyard it needs, corners
+/// mapped through its own rotation.
+function link_body_poly(c: Component) -> Vec2[] {
+    let h = ffc_body_half(link_ways(c));
+    [
+        comp_to_global(c, Vec2 { x: 0.0 - h, y: 0.0 - FFC_BODY_FRONT() }),
+        comp_to_global(c, Vec2 { x: h, y: 0.0 - FFC_BODY_FRONT() }),
+        comp_to_global(c, Vec2 { x: h, y: FFC_BODY_BACK() }),
+        comp_to_global(c, Vec2 { x: 0.0 - h, y: FFC_BODY_BACK() }),
+    ]
+}
+
+test "a connector stands clear of everything that folds" {
+    // A hinge row through a connector's footprint fails twice over: the part is
+    // rigid, so the fold stops being a fold, and the slot runs out from under
+    // pads that have to be soldered flat.
+    //
+    // The pod link is the one this is about. It stands halfway up the inboard
+    // strip rather than off the end of a tail, so unlike every other part on
+    // these boards it has a hinge row on BOTH sides of it, and where it sits is
+    // the one stretch of that edge with room between them.
+    for (let c in flex_cut_boards()) {
+        let b = c.board;
+        let n = 0;
+        for (let comp in b.components) {
+            if (is_connector(comp)) {
+                n = n + 1;
+                let cb = poly_box(in_frame_poly(c, link_body_poly(comp)));
+                for (let cut in b.cuts) {
+                    assert.is_true(
+                        !boxes_overlap(cb, box_grow(poly_box(in_frame_poly(c, cut)), FLEX_EDGE_CLEAR())),
+                    );
+                }
+                assert.is_true(on_a_strip(c.strips, cb.min) && on_a_strip(c.strips, cb.max));
+            }
+        }
+        assert.is_true(n > 0);
     }
 }
 
@@ -273,7 +313,7 @@ test "no neck carries more conductors than it was cut for" {
             let a = strip_at(c.strips, i - 1);
             let b = strip_at(c.strips, i);
             // Midway across the gap, where the board is only the neck.
-            let gap = (a.cx + a.half_w + (b.cx - b.half_w)) / 2.0;
+            let gap = (strip_hi(a) + strip_lo(b)) / 2.0;
             let nets: string[] = [];
             for (let t in c.board.tracks) {
                 let p = in_frame(c, t.start);

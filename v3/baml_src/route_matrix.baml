@@ -26,6 +26,12 @@
 // and each group is ordered so that the lane a tap has to reach is the
 // northernmost one present where it drops. That is the whole routing argument:
 // no search, no rip-up, and no crossing anywhere.
+//
+// The bus ends where the shelf begins. The pod link stands halfway up the
+// inboard column rather than off the end of the tail, so the last stretch of
+// every lane is a climb north out of the bus and across a hinge row -- which
+// is a second, smaller planarity problem with its own layer split. See "the
+// shelf" below.
 
 // ------------------------------------------------------------------ metrics
 
@@ -105,8 +111,8 @@ function inner_bus_y() -> float {
 }
 
 /// The row lines' bus lanes, south of the bottom key. `j` counts from
-/// `ROW_TOP`, which runs northernmost so that the pod's contact order and the
-/// bus order come out consistent -- see `conn_lane_u`.
+/// `ROW_TOP`, which runs northernmost -- the order the climbs off the bus are
+/// ranked by, see `shelf_nets`.
 function bus_b_y(j: int) -> float {
     inner_bus_y()
         + FLEX_VIA_PAD() / 2.0
@@ -168,6 +174,140 @@ function neck_row_pitch() -> float {
 
 function neck_offset_b(j: int) -> float {
     ((j * 1.0) - ((MATRIX_ROWS().length() - 1) * 1.0) / 2.0) * neck_row_pitch()
+}
+
+// ----------------------------------------------------------------- the shelf
+//
+// The pod link stands beside the inboard column's home key, halfway up the
+// board, on a shelf of ligament hung off the strip's inboard edge. So every
+// conductor it takes has to climb north out of the tail bus, past the bottom
+// key and across a hinge row, and the shelf is the only place a trace can do
+// that: it is a band of material wide enough for all ten, with a slot either
+// side of it so the fold still happens.
+//
+// A climb crosses every bus lane north of where it starts, on whatever layer
+// the bus is running on. So on this one strip the bus is put entirely on the
+// FRONT -- the row lines surface for it -- and the climbs go up the BACK.
+//
+// That leaves one thing to arrange. The via at the foot of a climb has to be
+// clear of every bus lane, and the column lanes are pitched too tight to fit
+// one between them, so a lane cannot simply turn where it ends. Each runs
+// inboard to its own depth on the front, drops south to a via row below the
+// whole bus, and only turns north on the far side of it.
+//
+// The depths are then forced: a lane that turns north at `u` is cut by any bus
+// lane south of it that reaches past `u`, so they run in bus order -- the
+// southernmost lane shallowest, the northernmost deepest. Ground and the
+// cluster's column line touch the bus at neither end (one starts in the tail
+// pour, the other at the thumb link), so they take the two depths left over.
+//
+// Nothing constrains the connector's pinout any more: each lane carries its
+// own via and steps in to its contact on the front, and two stubs at different
+// contacts are at different heights and cannot meet.
+
+/// The shelf's climb lanes, shallowest first.
+function shelf_nets(hand: string) -> string[] {
+    let out: string[] = [];
+    let r = 0;
+    while (r < COLUMN_ORDER().length() - 1) {
+        out.push(flex_col_net(hand, COLUMN_ORDER().at(r) ?? ""));
+        r = r + 1;
+    }
+    for (let rn in MATRIX_ROWS()) {
+        out.push(flex_row_net(hand, rn));
+    }
+    out.push(flex_col_net(hand, inner_column()));
+    out.push("GND");
+    out.push(flex_col_net(hand, "thumb"));
+    out
+}
+
+/// A net's climb lane, or -1 if it has none.
+function shelf_rank(hand: string, net: string) -> int {
+    let ns = shelf_nets(hand);
+    let r = index_of_str(ns, net);
+    if ((ns.at(r) ?? "") != net) {
+        0 - 1
+    } else {
+        r
+    }
+}
+
+/// How deep a climb runs, as an inboard offset from the strip centre.
+///
+/// The band `shelf_band_w` sizes, laid out from its outboard edge. Rank -1 --
+/// a net with no climb -- stops at the strip edge, which is what a bus lane on
+/// every other strip does anyway.
+function shelf_lane_u(rank: int) -> float {
+    if (rank < 0) {
+        return strip_half_w();
+    }
+    strip_half_w()
+        + flex_defaults().slot_w
+        + flex_lane_clear()
+        + FLEX_TRACE_W() / 2.0
+        + (rank * 1.0) * flex_via_pitch()
+}
+
+function shelf_u(hand: string, net: string) -> float {
+    shelf_lane_u(shelf_rank(hand, net))
+}
+
+/// Where a climb turns north: south of every bus lane, so the via at the foot
+/// of one is clear of all of them.
+///
+/// Every other lane a via further south again. `flex_via_pitch` buys a via
+/// room beside a TRACE, which is a smaller thing than room beside another via,
+/// so a straight row of ten would short end to end.
+function shelf_via_y(s: Strip, rank: int) -> float {
+    let step = if (rank - (rank / 2) * 2 == 0) {
+        0.0
+    } else {
+        flex_via_gap()
+    };
+    strip_key_y(s, 0) + bus_f_y(0) + flex_via_pitch() + step
+}
+
+/// A line's rank among those that surface on the inboard strip, from the
+/// south: the three rows, then the inboard column, whose lane is north of all
+/// of them.
+function bus_surface_rank(hand: string, net: string) -> int {
+    for (let rn in MATRIX_ROWS()) {
+        if (flex_row_net(hand, rn) == net) {
+            return index_of_str(MATRIX_ROWS(), rn);
+        }
+    }
+    MATRIX_ROWS().length()
+}
+
+/// Where a line surfaces on the inboard strip.
+///
+/// Inboard of every row tap's drop -- on the right hand those land INSIDE the
+/// strip, because the socket does not mirror -- and outboard of the shelf, so
+/// the front run that carries it the rest of the way crosses nothing. The
+/// ranks step deeper going north, far enough apart for a row of vias, and that
+/// way round so that a line surfacing north of another never runs out over its
+/// via.
+function bus_surface_u(rank: int) -> float {
+    tap_via_x(MATRIX_ROWS().length() - 1) + 1.0 + (rank * 1.0) * flex_via_gap()
+}
+
+/// KiCad y of a net's bus lane on this strip, or -- for the two nets that
+/// never reach the bus at all -- the foot of its own climb, so that the run
+/// down to it comes out empty.
+function bus_lane_y(s: Strip, hand: string, net: string) -> float {
+    let kb = strip_key_y(s, 0);
+    for (let cname in COLUMN_ORDER()) {
+        if (flex_col_net(hand, cname) == net) {
+            return kb + col_lane_y(cname);
+        }
+    }
+    for (let rn in MATRIX_ROWS()) {
+        if (flex_row_net(hand, rn) == net) {
+            return kb + bus_b_y(row_rank(rn));
+        }
+    }
+    shelf_via_y(s, shelf_rank(hand, net))
 }
 
 // ------------------------------------------------------------------ indices
@@ -249,24 +389,6 @@ function strip_key_y(s: Strip, i: int) -> float {
 /// KiCad y of the neck's centreline where it meets this strip.
 function strip_band_y(s: Strip) -> float {
     strip_key_y(s, 0) + band_offset()
-}
-
-/// Lane depth for contact `i` of a connector, as an inboard offset.
-///
-/// The contacts sit at 0.91; the lanes stack behind them, pitched so a via can
-/// sit on one while its neighbours run past. Depth goes by the contact's
-/// POSITION, not its number: a lane running to a southern contact has to sit
-/// inboard of every lane above it, or it cuts through their stubs on the way
-/// in. The two hands turn the connector round, so contact 1 is the north end on
-/// one board and the south end on the other.
-function conn_lane_u(c: Component, i: int) -> float {
-    let ways = link_ways(c);
-    let rank = if (contact_at(c, 1).y > contact_at(c, ways).y) {
-        ways - i
-    } else {
-        i - 1
-    };
-    2.0 + (rank * 1.0) * flex_via_pitch()
 }
 
 /// Which contact of `c` carries `net`, 1-based, or 0 if none does.
@@ -468,8 +590,8 @@ function route_flex_key(b: Board, s: Strip, k: PlacedKey, w: Well, p: FlexParams
 // is not free. A column's line arrives from the north down its own strip, so it
 // has to land on the NORTHERNMOST lane present or cross the ones already
 // there -- which puts the outboard columns south and the inboard ones north.
-// Everything else follows from that, including which way round the connector's
-// contacts have to run; see `band_pinout`.
+// Everything else follows from that, including the order of the climbs onto
+// the shelf; see `shelf_nets`.
 
 function inner_column() -> string {
     COLUMN_ORDER().at(COLUMN_ORDER().length() - 1) ?? "inner"
@@ -532,15 +654,10 @@ function route_col_drop(b: Board, s: Strip) -> Copper {
 }
 
 /// Where a bus lane leaves a strip: the inboard edge, or -- on the strip the
-/// connectors stand on -- the lane behind the contact that takes it.
-function lane_exit_u(s: Strip, pc: Component?, net: string) -> float {
+/// pod link stands on -- the depth on the shelf at which its climb turns north.
+function lane_exit_u(s: Strip, hand: string, net: string) -> float {
     if (s.column == inner_column()) {
-        if let c: Component = pc {
-            let i = contact_of(c, net);
-            if (i > 0) {
-                return conn_lane_u(c, i);
-            }
-        }
+        return shelf_u(hand, net);
     }
     s.half_w
 }
@@ -548,9 +665,9 @@ function lane_exit_u(s: Strip, pc: Component?, net: string) -> float {
 /// One strip's share of the bus: every lane that passes through or starts here.
 function route_flex_bus(b: Board, s: Strip, dir: float) -> Copper {
     let hand = board_hand(b);
-    let pc = pod_link(b);
     let kb = strip_key_y(s, 0);
     let rank = col_rank(s.column);
+    let inner = s.column == inner_column();
     let out = no_copper();
 
     // Column lines, on the front. One lane per column at or outboard of here;
@@ -564,17 +681,21 @@ function route_flex_bus(b: Board, s: Strip, dir: float) -> Copper {
         } else {
             0.0 - s.half_w
         };
-        let u1 = lane_exit_u(s, pc, net);
+        let u1 = lane_exit_u(s, hand, net);
         let y = kb + col_lane_y(cname);
         if (cname == inner_column() && u0 < 0.0) {
             // The inboard column's drop lands on the OUTBOARD side of this
             // hand's strip -- the socket does not mirror, so its pad 1 is east
             // on both boards while the connectors are east on one and west on
             // the other. From there the line has to cross the row taps on their
-            // way down to the bus, so it goes under them on the back.
+            // way down to the bus, so it goes under them on the back -- and
+            // comes up again before the shelf, whose climbs are on the back
+            // too.
+            let us = bus_surface_u(bus_surface_rank(hand, net));
             out = add_copper(out, via_copper(at_u(s, dir, u0, y), net));
-            out = add_copper(out, lane_run(s, dir, u0, u1, y, "B.Cu", net));
-            out = add_copper(out, via_copper(at_u(s, dir, u1, y), net));
+            out = add_copper(out, lane_run(s, dir, u0, us, y, "B.Cu", net));
+            out = add_copper(out, via_copper(at_u(s, dir, us, y), net));
+            out = add_copper(out, lane_run(s, dir, us, u1, y, "F.Cu", net));
         } else {
             out = add_copper(out, lane_run(s, dir, u0, u1, y, "F.Cu", net));
         }
@@ -584,6 +705,9 @@ function route_flex_bus(b: Board, s: Strip, dir: float) -> Copper {
     // Row lines, on the back. Every strip carries all three, and each jogs from
     // its lane out to the neck band at the strip edge -- the band is where the
     // necks are, and it is one band for the rows and the columns both.
+    //
+    // On the inboard strip the line surfaces instead of jogging: what it has to
+    // reach from here is a climb up the shelf, and those are on the back.
     for (let rn in MATRIX_ROWS()) {
         let ri = index_of_str(MATRIX_ROWS(), rn);
         let rj = row_rank(rn);
@@ -599,14 +723,18 @@ function route_flex_bus(b: Board, s: Strip, dir: float) -> Copper {
             pts.push(at_u(s, dir, 0.0 - s.half_w + bus_flat_u(), by));
             pts.push(at_u(s, dir, 0.0 - bus_jog_u(), y));
         }
-        if (s.column == inner_column()) {
-            pts.push(at_u(s, dir, lane_exit_u(s, pc, net), y));
+        if (inner) {
+            let us = bus_surface_u(bus_surface_rank(hand, net));
+            pts.push(at_u(s, dir, us, y));
+            out = add_copper(out, run_copper(pts, "B.Cu", net));
+            out = add_copper(out, via_copper(at_u(s, dir, us, y), net));
+            out = add_copper(out, lane_run(s, dir, us, lane_exit_u(s, hand, net), y, "F.Cu", net));
         } else {
             pts.push(at_u(s, dir, bus_jog_u(), y));
             pts.push(at_u(s, dir, s.half_w - bus_flat_u(), by));
             pts.push(at_u(s, dir, s.half_w, by));
+            out = add_copper(out, run_copper(pts, "B.Cu", net));
         }
-        out = add_copper(out, run_copper(pts, "B.Cu", net));
     }
     out
 }
@@ -707,178 +835,148 @@ function ffc_body_half(ways: int) -> float {
     (ways * 1.0) / 2.0 + 3.8
 }
 
-/// KiCad y of the clear line just north of a connector's body.
-function link_north_y(c: Component) -> float {
-    c.y - ffc_body_half(link_ways(c)) - 1.0
-}
-
-function pad_net_at(c: Component, i: int) -> string {
-    (c.pads.at(i - 1) ?? Pad { pad: "", net: "" }).net
-}
-
-/// The bus into the pod link's contacts.
+/// The climb up the shelf into the pod link.
 ///
-/// Each lane runs inboard to the depth of the contact that takes it, then
-/// straight south and in. The depths are ordered so that a lane which has to
-/// reach a southern contact sits inboard of every lane above it -- see
-/// `conn_lane_u`.
+/// Each lane leaves its bus lane on the front, runs inboard to its own depth,
+/// drops to the via row below the bus and turns north on the back. It crosses
+/// the hinge row between the bottom key and the home key inside the shelf's
+/// ligament, comes up level with the contact that takes it, and steps in.
+///
+/// Ground and the cluster's column line have no bus lane to leave: they start
+/// at the via row itself, where the tail pour and `route_thumb_fan` meet them.
 function route_pod_fan(b: Board, s: Strip, dir: float) -> Copper {
     let out = no_copper();
     let pc = pod_link(b);
     if let c: Component = pc {
         let hand = board_hand(b);
-        let kb = strip_key_y(s, 0);
-
-        // Every column arrives on a front lane: straight down and in.
-        let r = 0;
-        while (r < COLUMN_ORDER().length()) {
-            let net = flex_col_net(hand, COLUMN_ORDER().at(r) ?? "");
+        let rank = 0;
+        for (let net in shelf_nets(hand)) {
             let i = contact_of(c, net);
             if (i > 0) {
-                let u = conn_lane_u(c, i);
+                let u = shelf_lane_u(rank);
                 let q = contact_at(c, i);
+                let by = bus_lane_y(s, hand, net);
+                let foot = at_u(s, dir, u, shelf_via_y(s, rank));
+                let head = at_u(s, dir, u, q.y);
+                // Ground and the cluster's column line reach the foot of their
+                // climb along the back, from the thumb link; there is nothing
+                // on the front to turn over, and a via there would be dangling.
+                if ((by - foot.y).abs() > 0.000001) {
+                    out = add_copper(out, run_copper([at_u(s, dir, u, by), foot], "F.Cu", net));
+                    out = add_copper(out, via_copper(foot, net));
+                }
                 out
-                    = add_copper(
-                        out,
-                        run_copper(
-                            [
-                                at_u(s, dir, u, kb + col_lane_y(COLUMN_ORDER().at(r) ?? "")),
-                                at_u(s, dir, u, q.y),
-                                q,
-                            ],
-                            "F.Cu",
-                            net,
-                        ),
-                    );
+                    = add_copper(out, run_copper([foot, at_u(s, dir, u, climb_top(c, net, q))], "B.Cu", net));
+                out = add_copper(out, via_copper(head, net));
+                out = add_copper(out, run_copper([head, q], "F.Cu", net));
             }
-            r = r + 1;
+            rank = rank + 1;
         }
-
-        // Rows surface where their back lane ends and run down the front. The
-        // run carries on past the contact to the via that feeds the thumb link.
-        for (let rn in MATRIX_ROWS()) {
-            let net = flex_row_net(hand, rn);
-            let i = contact_of(c, net);
-            if (i > 0) {
-                let u = conn_lane_u(c, i);
-                let y = kb + bus_b_y(row_rank(rn));
-                let q = contact_at(c, i);
-                out = add_copper(out, via_copper(at_u(s, dir, u, y), net));
-                out
-                    = add_copper(
-                        out,
-                        run_copper(
-                            [
-                                at_u(s, dir, u, y),
-                                at_u(s, dir, u, link_north_y(c)),
-                                at_u(s, dir, u, q.y),
-                                q,
-                            ],
-                            "F.Cu",
-                            net,
-                        ),
-                    );
-            }
-        }
-
-        // Ground: the contact row is solid, so the pour cannot reach in from
-        // the side. It gets a lane of its own back up into the tail.
-        let gi = contact_of(c, "GND");
-        if (gi > 0) {
-            let u = conn_lane_u(c, gi);
-            let q = contact_at(c, gi);
-            out
-                = add_copper(
-                    out,
-                    run_copper([q, at_u(s, dir, u, q.y), at_u(s, dir, u, link_north_y(c))], "F.Cu", "GND"),
-                );
-            out = add_copper(out, via_copper(at_u(s, dir, u, link_north_y(c)), "GND"));
-        }
+        out = add_copper(out, route_link_pegs(c, s, dir, shelf_u(hand, "GND")));
     }
     out
 }
 
-/// The nets the thumb link takes off the pod link, north contact first.
+/// How far north a climb runs: to the contact that takes it, or -- for ground
+/// -- past that to the mounting peg beyond, which the same lane has to reach.
+function climb_top(c: Component, net: string, q: Vec2) -> float {
+    if (net != "GND") {
+        return q.y;
+    }
+    let ways = link_ways(c);
+    let a = comp_to_global(c, ffc_mp_local(1.0, ways)).y;
+    let z = comp_to_global(c, ffc_mp_local(0.0 - 1.0, ways)).y;
+    let n = if (a < z) {
+        a
+    } else {
+        z
+    };
+    if (n < q.y) {
+        n
+    } else {
+        q.y
+    }
+}
+
+/// A horizontal FFC's mounting peg, in footprint coordinates.
 ///
-/// North first is shallowest lane first, and the fan peels off in that order.
-/// Contact NUMBER would do on one hand and be backwards on the other.
-function thumb_fan_nets(p: Component, t: Component) -> string[] {
-    let ways = link_ways(p);
-    let north_first = contact_at(p, 1).y < contact_at(p, ways).y;
-    let out: string[] = [];
-    let k = 0;
-    while (k < ways) {
-        let i = if (north_first) {
-            k + 1
-        } else {
-            ways - k
-        };
-        let n = pad_net_at(p, i);
-        if (n != "GND" && contact_of(t, n) > 0) {
-            out.push(n);
-        }
-        k = k + 1;
+/// Both Molex 200528 parts put it 2.3mm out past the end contact and 1.79
+/// behind the row -- an SMD pad on the front, tied to ground.
+function ffc_mp_local(sign: float, ways: int) -> Vec2 {
+    Vec2 { x: sign * ((ways * 1.0) / 2.0 + 2.3), y: 1.79 }
+}
+
+/// Ground onto a connector's two mounting pegs.
+///
+/// The pegs sit wide of the contacts, past either end of the fan, so nothing
+/// the fan does reaches them. On the tail the pour picks them up; on the shelf
+/// there is no pour, and the only ground within reach is the climb running up
+/// the back a fraction of a millimetre away. So: a via under each peg and a
+/// stub across to the lane. That the lane is the deepest but one is what keeps
+/// the stub clear of everything else -- only the cluster's column line runs
+/// inboard of it, and the pegs fall short of that.
+function route_link_pegs(c: Component, s: Strip, dir: float, u: float) -> Copper {
+    let out = no_copper();
+    let ways = link_ways(c);
+    for (let sign in [0.0 - 1.0, 1.0]) {
+        let mp = comp_to_global(c, ffc_mp_local(sign, ways));
+        out = add_copper(out, via_copper(mp, "GND"));
+        out = add_copper(out, run_copper([mp, at_u(s, dir, u, mp.y)], "B.Cu", "GND"));
     }
     out
 }
 
-/// The run on from the pod link down to the thumb link.
+/// The thumb link's five nets, off the foot of the shelf.
 ///
-/// On the back, because the front south of the pod link is full of that
-/// connector's own contact stubs. The lanes come down in pod-contact order and
-/// peel off one at a time -- the shallowest lane first, to the furthest
-/// contact -- so no run ever has to cross one that has already turned.
+/// The link sits at the end of the tail, south of everything; its nets are
+/// already on the shelf, or on their way onto it. Each runs north off its
+/// contact on the front, past the body, and turns onto the back to reach its
+/// climb -- so the deepest lane peels first and the runs behind it stop short.
+/// That is the same rule as the shelf itself, read from the other end.
 function route_thumb_fan(b: Board, s: Strip, dir: float) -> Copper {
     let out = no_copper();
-    let pc = pod_link(b);
     let tc = thumb_link(b);
-    if let p: Component = pc {
-        if let t: Component = tc {
-            let nets = thumb_fan_nets(p, t);
-            let vy = t.y - FFC_BODY_BACK() - 1.0;
-            let y0 = vy - 1.0 - ((nets.length() - 1) * 1.0) * flex_lane_pitch();
-            let idx = 0;
-            for (let net in nets) {
-                let pi = contact_of(p, net);
-                let ti = contact_of(t, net);
-                let u = conn_lane_u(p, pi);
-                let q = contact_at(t, ti);
-                let cu = dir * (q.x - s.cx);
-                let ty = y0 + (idx * 1.0) * flex_lane_pitch();
-                // One via per lane, stepped north as the lanes get deeper: a
-                // row of them across the lane pitch would have their pads
-                // touching.
-                let top = at_u(s, dir, u, link_north_y(p) - (idx * 1.0) * flex_via_gap());
-                if (!net.starts_with("ROW_")) {
-                    // A column line for the cluster: nothing brought it here
-                    // but the pod link itself, so it starts at that contact. A
-                    // row line is already on this lane, on its way south to its
-                    // own contact.
-                    let pq = contact_at(p, pi);
-                    out = add_copper(out, run_copper([pq, at_u(s, dir, u, pq.y), top], "F.Cu", net));
-                }
-                out = add_copper(out, via_copper(top, net));
+    if let t: Component = tc {
+        let hand = board_hand(b);
+        let ns = shelf_nets(hand);
+        // The peels stack SOUTH of the shelf's via rows, not north of the
+        // connector body. North of the via rows every lane is already climbing,
+        // and a run out to a deep one would cut every climb shallower than it.
+        // South there is nothing but the connector, whose own copper is all on
+        // the front -- so the peels lie under it, and only the verticals off
+        // its contacts have anything to dodge.
+        let taken = 0;
+        for (let net in ns) {
+            if (contact_of(t, net) > 0) {
+                taken = taken + 1;
+            }
+        }
+        let y0 = shelf_via_y(s, 1) + flex_via_gap() + ((taken - 1) * 1.0) * flex_via_pitch();
+        let idx = 0;
+        let k = ns.length() - 1;
+        while (k >= 0) {
+            let net = ns.at(k) ?? "";
+            let i = contact_of(t, net);
+            if (i > 0) {
+                let u = shelf_lane_u(k);
+                let q = contact_at(t, i);
+                // One via per peel, stepped north as the lanes get shallower:
+                // a row of them at one height would have their pads touching.
+                let pv = Vec2 { x: q.x, y: y0 - (idx * 1.0) * flex_via_pitch() };
+                out = add_copper(out, run_copper([q, pv], "F.Cu", net));
+                out = add_copper(out, via_copper(pv, net));
                 out
                     = add_copper(
                         out,
                         run_copper(
-                            [top, at_u(s, dir, u, ty), at_u(s, dir, cu, ty), at_u(s, dir, cu, vy)],
+                            [pv, at_u(s, dir, u, pv.y), at_u(s, dir, u, shelf_via_y(s, k))],
                             "B.Cu",
                             net,
                         ),
                     );
-                out = add_copper(out, via_copper(at_u(s, dir, cu, vy), net));
-                out = add_copper(out, run_copper([at_u(s, dir, cu, vy), q], "F.Cu", net));
                 idx = idx + 1;
             }
-            // Ground, as at the pod link: in from its contact and back north.
-            let gi = contact_of(t, "GND");
-            if (gi > 0) {
-                let q = contact_at(t, gi);
-                let cu = dir * (q.x - s.cx);
-                out = add_copper(out, run_copper([q, at_u(s, dir, cu, vy)], "F.Cu", "GND"));
-                out = add_copper(out, via_copper(at_u(s, dir, cu, vy), "GND"));
-            }
+            k = k - 1;
         }
     }
     out

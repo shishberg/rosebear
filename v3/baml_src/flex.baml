@@ -161,6 +161,48 @@ function traces_per_ligament(w: float) -> int {
     i * FLEX_LAYERS()
 }
 
+/// Conductors the inboard strip's shelf has to carry past its keys.
+///
+/// Everything on the pod link that anything else on the board also touches:
+/// one line per column including the cluster's, one per row, and ground. The
+/// spare is on the connector and on nothing else, so nothing routes it.
+function shelf_traces() -> int {
+    COLUMN_ORDER().length() + 1 + MATRIX_ROWS().length() + 1
+}
+
+/// Width of the shelf's lane band.
+///
+/// One lane per conductor on ONE layer, not two: the shelf's front is the pod
+/// link's own contact row and the stubs that reach it, so the climb has only
+/// the back to run on. And pitched for a via rather than a trace, because every
+/// lane ends -- or is tapped -- at a via while its neighbours run past it.
+///
+/// That pitch is what makes the fan orderless. With the lanes a trace-pitch
+/// apart, a via would have to sit in a column clear of them all, which forces
+/// the lane order at the connector; at via pitch each lane carries its own via
+/// and the only order left to satisfy is the bus's.
+function shelf_band_w() -> float {
+    ((shelf_traces() - 1) * 1.0) * flex_via_pitch() + FLEX_TRACE_W() + 2.0 * flex_lane_clear()
+}
+
+/// Width of the plain ligament a shelf keeps at the board edge.
+///
+/// It carries nothing. It is there because material at the extreme edge is what
+/// stops a fold turning into a twist, and the lane band alone would leave the
+/// shelf hinged about a line 2mm inboard of its own edge.
+function shelf_edge_w(p: FlexParams) -> float {
+    p.ligament_w
+}
+
+/// How far a shelf reaches past the strip it hangs off.
+///
+/// Four bands: a slot, the lane band, a slot, the edge ligament. The slots are
+/// what keep the shelf from splinting the hinge rows it crosses -- a continuous
+/// rail down the edge of a folding column is a rail that stops it folding.
+function shelf_depth(p: FlexParams) -> float {
+    2.0 * p.slot_w + shelf_band_w() + shelf_edge_w(p)
+}
+
 /// Ligaments needed to get `n` traces across a hinge row.
 function ligaments_for(n: int, lig_w: float) -> int {
     let per = traces_per_ligament(lig_w);
@@ -234,6 +276,15 @@ class Strip {
     cx: float,
     /// Half the strip width.
     half_w: float,
+    /// Extra width on the west and east sides, beyond `half_w`.
+    ///
+    /// A shelf, and only ever on the OUTER edge of an end strip, where there is
+    /// no neighbour and no neck: the inboard column carries one so the pod link
+    /// has somewhere to stand beside its home key. Everything else is zero, and
+    /// a strip with two zeroes is the plain rectangle the rest of this file
+    /// assumes.
+    ext_w: float,
+    ext_e: float,
     /// Extent along the column, low to high.
     y0: float,
     y1: float,
@@ -256,6 +307,15 @@ class Strip {
 /// Strip width for a given column pitch: the pitch less the gap the necks need.
 function strip_width(w: Well, p: FlexParams) -> float {
     developed_col_pitch(w) - p.gap
+}
+
+/// The strip's west and east edges, shelves included.
+function strip_lo(s: Strip) -> float {
+    s.cx - s.half_w - s.ext_w
+}
+
+function strip_hi(s: Strip) -> float {
+    s.cx + s.half_w + s.ext_e
 }
 
 /// The column east of `c` in `COLUMN_ORDER`, or `c` itself at the end.
@@ -311,6 +371,8 @@ function strips_of(keys: PlacedKey[], w: Well, p: FlexParams) -> Strip[] {
                     column: cname,
                     cx: cx,
                     half_w: half_w,
+                    ext_w: 0.0,
+                    ext_e: 0.0,
                     y0: lo - p.end_margin,
                     y1: hi + p.end_margin,
                     key_ys: ys,
@@ -432,6 +494,19 @@ function nearest_hinge_cut(w: Well, p: FlexParams) -> float {
 function stadium(x0: float, x1: float, y: float, w: float, segs: int) -> Vec2[] {
     let r = w / 2.0;
     let out: Vec2[] = [];
+    // A slot no longer than it is wide is a circle. Emitting it as two caps
+    // with nothing between them leaves a zero-length segment at each join,
+    // which KiCad reads as a malformed board outline.
+    if ((x1 - x0).abs() < 0.000001) {
+        let n = 4 * segs;
+        let k = 0;
+        while (k < n) {
+            let a = deg_to_rad(360.0 * (k * 1.0) / (n * 1.0));
+            out.push(Vec2 { x: x0 + r * a.cos(), y: y + r * a.sin() });
+            k = k + 1;
+        }
+        return out;
+    }
     // Right cap, from the bottom round to the top.
     let i = 0;
     while (i <= segs) {
@@ -467,7 +542,50 @@ function hinge_ligament_w(s: Strip) -> float {
     s.half_w - SWITCH_HOLE_SPAN()
 }
 
-/// The slot making up one hinge row: everything between the two ligaments.
+/// A stadium between two offsets out from `x0`, whichever way `sign` points.
+function shelf_gap(
+    x0: float,
+    sign: float,
+    u0: float,
+    u1: float,
+    y: float,
+    p: FlexParams,
+) -> Vec2[][] {
+    let a = x0 + sign * (u0 + p.slot_w / 2.0);
+    let b = x0 + sign * (u1 - p.slot_w / 2.0);
+    if (u1 - u0 < p.slot_w) {
+        return [];
+    }
+    if (a < b) {
+        [stadium(a, b, y, p.slot_w, 8)]
+    } else {
+        [stadium(b, a, y, p.slot_w, 8)]
+    }
+}
+
+/// A shelf's two hinge slots, or nothing if there is no shelf here.
+///
+/// One each side of the lane band, so what is left at a hinge row is the band
+/// itself -- which is where the traces are, and a ligament that is not in a
+/// lane is a ligament no trace can cross -- and the plain strip of material at
+/// the board edge. Uncut, the shelf would be a rail splinting every hinge row
+/// it crosses.
+function shelf_slots(ext: float, x0: float, sign: float, y: float, p: FlexParams) -> Vec2[][] {
+    if (ext < shelf_depth(p) - 0.000001) {
+        return [];
+    }
+    let out: Vec2[][] = [];
+    for (let poly in shelf_gap(x0, sign, 0.0, p.slot_w, y, p)) {
+        out.push(poly);
+    }
+    let b0 = p.slot_w + shelf_band_w();
+    for (let poly in shelf_gap(x0, sign, b0, b0 + p.slot_w, y, p)) {
+        out.push(poly);
+    }
+    out
+}
+
+/// The slots making up one hinge row: everything between the ligaments.
 function hinge_slots(s: Strip, y: float, p: FlexParams) -> Vec2[][] {
     let x = SWITCH_HOLE_SPAN();
     let out: Vec2[][] = [];
@@ -477,6 +595,12 @@ function hinge_slots(s: Strip, y: float, p: FlexParams) -> Vec2[][] {
     // The end caps are round -- a square internal corner in a part that bends
     // is where a crack starts -- so pull the centreline in by their radius.
     out.push(stadium(s.cx - x + p.slot_w / 2.0, s.cx + x - p.slot_w / 2.0, y, p.slot_w, 8));
+    for (let poly in shelf_slots(s.ext_e, s.cx + s.half_w, 1.0, y, p)) {
+        out.push(poly);
+    }
+    for (let poly in shelf_slots(s.ext_w, s.cx - s.half_w, 0.0 - 1.0, y, p)) {
+        out.push(poly);
+    }
     out
 }
 
@@ -804,6 +928,8 @@ function strip_at(ss: Strip[], i: int) -> Strip {
             column: "",
             cx: 0.0,
             half_w: 0.0,
+            ext_w: 0.0,
+            ext_e: 0.0,
             y0: 0.0,
             y1: 0.0,
             key_ys: [],
@@ -835,8 +961,10 @@ function flex_ring(ss: Strip[], p: FlexParams, neck_traces: int, samples: int) -
     let i = 0;
     while (i < n) {
         let s = strip_at(ss, i);
-        let xl = s.cx - s.half_w;
-        let xr = s.cx + s.half_w;
+        // Shelves only ever sit on an end strip's OUTER edge, so the edges a
+        // neck attaches to are the plain ones either way.
+        let xl = strip_lo(s);
+        let xr = strip_hi(s);
         if (i == 0) {
             out.push(Vec2 { x: xl, y: s.y0 });
         }
@@ -844,7 +972,7 @@ function flex_ring(ss: Strip[], p: FlexParams, neck_traces: int, samples: int) -
         out.push(Vec2 { x: xr, y: s.y1 });
         if (i + 1 < n) {
             let t = strip_at(ss, i + 1);
-            out.push(Vec2 { x: xr, y: strip_neck_y(s) + half });
+            out.push(Vec2 { x: s.cx + s.half_w, y: strip_neck_y(s) + half });
             // The neck's upper edge starts exactly where that point sits.
             let up = strip_neck(s, t, p, neck_traces, samples).upper;
             for (let q in up.slice(1, up.length())) {
@@ -922,6 +1050,8 @@ test "four hinge rows per column, none of them through a switch" {
             column: "",
             cx: 0.0,
             half_w: 0.0,
+            ext_w: 0.0,
+            ext_e: 0.0,
             y0: 0.0,
             y1: 0.0,
             key_ys: [],
@@ -1089,6 +1219,8 @@ test "the outline is one closed ring covering every strip" {
             column: "",
             cx: 0.0,
             half_w: 0.0,
+            ext_w: 0.0,
+            ext_e: 0.0,
             y0: 0.0,
             y1: 0.0,
             key_ys: [],
@@ -1100,6 +1232,8 @@ test "the outline is one closed ring covering every strip" {
             column: "",
             cx: 0.0,
             half_w: 0.0,
+            ext_w: 0.0,
+            ext_e: 0.0,
             y0: 0.0,
             y1: 0.0,
             key_ys: [],

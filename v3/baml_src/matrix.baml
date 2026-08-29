@@ -389,6 +389,8 @@ test "a diode clears both the switch and its hinge rows" {
             column: "",
             cx: 0.0,
             half_w: 0.0,
+            ext_w: 0.0,
+            ext_e: 0.0,
             y0: 0.0,
             y1: 0.0,
             key_ys: [],
