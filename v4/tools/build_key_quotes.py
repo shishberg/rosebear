@@ -129,14 +129,12 @@ def make_breakout():
         x=(i-12.5)*1.27;y=7 if i%2 else 12
         wire(b,'W'+str(i),n,(x,y))
         p.label(b,str(i),(x,y+1.6),.8)
-    # A leaded bulk capacitor is easy to fit after breaking out the power bus.
-    part(b,'Capacitor_THT:CP_Radial_D8.0mm_P3.50mm','C1',(-1.75,21),{'1':'+5V','2':'GND'},'470uF 10V',back=False)
     for i,x in enumerate([-15,15],1):
         f=part(b,'MountingHole:MountingHole_2.2mm_M2','H'+str(i),(x,22),{},'M2',back=False)
         f.SetAttributes(pcb.FP_EXCLUDE_FROM_POS_FILES|pcb.FP_EXCLUDE_FROM_BOM)
     p.outline(b,[(-18,-6),(18,-6),(18,27),(-18,27)])
     p.label(b,'24-WAY HAND / A',(0,16),.8)
-    p.track(b,[(8.5,FFC_PAD_Y),(10.5,FFC_PAD_Y),(10.5,-4.9),(16.3,-4.9),(16.3,17),(-1.75,17),(-1.75,21)],'F.Cu','+5V',.6,True)
+    p.track(b,[(8.5,FFC_PAD_Y),(10.5,FFC_PAD_Y),(10.5,-4.9),(16.3,-4.9),(16.3,10)],'F.Cu','+5V',.6,True)
     p.track(b,[(10.795,7),(16.3,7)],'F.Cu','+5V',.6,True)
     p.track(b,[(12.065,12),(12.065,10),(16.3,10)],'F.Cu','+5V',.6,True)
     return b

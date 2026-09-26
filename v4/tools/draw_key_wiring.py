@@ -62,7 +62,7 @@ for x in [210,410,610,810,1010,1210]:
     box(x-48,1000,96,32);text(x-30,1021,'key PCB','small')
     line([(x-18,990),(x-18,1000)],'#ce4141',3);dot(x-18,990,'#ce4141')
     line([(x+18,1032),(x+18,1042)],'#26384f',3);dot(x+18,1042,'#26384f')
-text(45,1090,'Target: 360 mA RGB per half. Custom tiles have local capacitors; test purchased boards before adding any.','small')
+text(45,1090,'About 300 mA RGB total (USB). Custom tiles have local capacitors; test purchased boards before adding any.','small')
 box(25,1140,1390,250)
 text(45,1178,'4  TWO RIBBONS TO THE POD','title')
 box(85,1220,235,74);text(105,1250,'LEFT BREAKOUT','label');text(105,1276,'18 keys: matrix + RGB','small')

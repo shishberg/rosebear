@@ -52,9 +52,9 @@ The ribbon exits toward the palm and the separately housed central pod.
 Main assembly concerns:
 
 - **Breakout:** 12 key-harness leads plus seven trackball leads on the right.
-  Leave it removable for soldering, keep leads clear of the bulk capacitor and
-  FFC latch, and provide a chassis loom clamp. The drawn fan-out needs final
-  dressing around these bodies, not wires stretched over them.
+  Leave it removable for soldering, keep leads clear of the FFC latch, and
+  provide a chassis loom clamp. The drawn fan-out needs final dressing around
+  the connector, not wires stretched over it.
 - **Thumb transition:** seven conductors (three rows, thumb column, LED data,
   5 V and ground). Leave a service loop and secure both ends to the chassis.
 - **Finger gaps:** row buses cross column/data/power wiring. Use insulated wire;
@@ -124,8 +124,7 @@ No separate finger or thumb PCBs are required with individual key tiles.
 
 For these small quantities, compare hand-fitting the common boards against
 factory assembly; their extra setup fees can matter more than key assembly.
-The breakout's bulk capacitor and the pod's module sockets are through-
-hole parts, unlike the key board's four underside SMD components.
+The pod's module sockets are through-hole parts, unlike the key board's four underside SMD components.
 
 ## Assembly files and limits
 
@@ -134,8 +133,8 @@ Each board folder has `bom.csv`, `positions.csv`, native KiCad files and a
 has unique component references and a BOM covering every tile in that panel.
 For the key boards, all four components are on the underside. The pod has
 components on both sides, so quote **Standard/double-sided** assembly for a
-fully assembled pod, or fit its few parts by hand. The breakout has a front
-SMD ribbon connector and front through-hole capacitor.
+fully assembled pod, or fit its few parts by hand. The breakout's only
+component is its front SMD ribbon connector.
 
 Wire holes, perforation holes, mounting holes and fiducials are not components
 to buy. Each key has a CPG151101S11-compatible MX hotswap socket, 1N4148W
@@ -251,7 +250,7 @@ The exact cap depends on the tile LED part, which is unidentified.
 The ribbon has three parallel 5 V conductors and five grounds. Connector
 contact ratings alone do not establish the cable rating; select cable length,
 conductor cross-section and current rating accordingly and check voltage at
-the farthest key. Each breakout provides a 470 uF/10 V bulk capacitor.
+the farthest key.
 
 ## Sources
 
