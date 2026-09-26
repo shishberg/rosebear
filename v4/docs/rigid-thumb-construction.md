@@ -1,5 +1,7 @@
 > Superseded by [flat thumb construction](flat-thumb-construction.md). Historical separate-tile design.
 
+> **Paused (2026-09-26).** The first prototype uses bought RGB key tiles for all 36 keys; see [design status](design-status.md). This document describes the paused thumb PCB design and is kept as reference.
+
 # Rigid thumb key PCBs
 
 Current design: three separate 17.8 × 19.5 mm, 1.6 mm FR4 tiles per hand. No flex bridges, stiffeners, LEDs or lighting support components. Each tile carries one MX hotswap socket, one SOD-123 diode, a ROW pad (W1) and COL pad (W2). The routing uses zero vias. One universal artwork serves all six positions.

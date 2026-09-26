@@ -1,5 +1,7 @@
 # Finger bending revision: prototype gate
 
+> **Paused (2026-09-26).** The first prototype uses bought RGB key tiles for all 36 keys; see [design status](design-status.md). This document describes the paused flex finger board design and is kept as reference.
+
 The current production-sized finger files still contain the legacy column-parallel bridges. They are not mechanically released. The revised construction candidate is a separate eight-conductor transverse serpentine coupon, so its bending mechanism can be checked before changing the entire finger board.
 
 ## What changed

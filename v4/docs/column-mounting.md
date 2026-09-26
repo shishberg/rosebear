@@ -1,5 +1,7 @@
 # Finger column mounting requirements
 
+> **Paused (2026-09-26).** The first prototype uses bought RGB key tiles for all 36 keys; see [design status](design-status.md). This document describes the paused flex finger board design and is kept as reference.
+
 Design direction recorded 2026-09-16. This is the mounting contract for the column redesign, not a claim that the current legacy finger files already implement it.
 
 ## Construction and bending

@@ -1,14 +1,19 @@
 # Individual key PCB quote options
 
-2026-09-16. Quote/prototype revision A. Files are in `output_v4/key-quotes/`.
-These are a new rigid-key architecture, not the LED-free `output_v4/seeded/`
-finger/thumb boards. Do not mix the old 11-way ribbons with this 24-way design.
+Quote/prototype revision A (2026-09-16), updated 2026-09-26. Files are in
+`output_v4/key-quotes/`. This is the current construction for the first
+prototype and replaces the paused LED-free `output_v4/seeded/` finger/thumb
+boards. Do not mix the old 11-way ribbons with this 24-way design.
 
-## Purchased-board option now preferred for the first prototype
+**Not ready to order.** The generated pod still has the separate J3 LED input
+and the unavailable Molex connector. [Design status](design-status.md) lists
+the decisions and open questions, and takes precedence over this document.
 
-The preferred first prototype is the 50-board AliExpress RGB pack (A$43.99 before
-any checkout tax, free shipping). The custom-key ZIPs are retained for price
-comparison/fallback. The pod and common breakout architecture still apply,
+## Purchased key tiles for all 36 keys
+
+The first prototype uses the 50-board AliExpress RGB pack (A$43.99 before
+any checkout tax, free shipping), bought, for all 36 keys. The custom-key ZIPs
+are retained as a fallback. The pod and common breakout architecture still apply,
 but connect purchased boards by their verified signal labels, not by the
 custom tile's W1-W8 physical pad positions.
 
@@ -19,9 +24,10 @@ row/column harness topology works in either direction. The RGB part and exact
 power demand remain unidentified. Test a short column at the intended supply
 and wiring length before assembling the full harness.
 
-Working plan: use the purchased boards and add a handwired ceramic capacitor
-per column if testing indicates it is useful. The user accepts that this is
-not equivalent to LED-local decoupling. Keep the custom-key files as a fallback.
+Open: whether the tiles need extra decoupling. Test a short column first and
+add one hand-wired ceramic capacitor per column (12 total) only if testing
+shows it helps; the value is not chosen. This is not equivalent to LED-local
+decoupling.
 
 ## Physical handwiring layout
 
@@ -55,7 +61,8 @@ Main assembly concerns:
   line crossings in the drawing are not electrical junctions. Power terminals
   typically take both incoming and outgoing wires; confirm the bought pads can
   accommodate the chosen wire before cutting the whole loom.
-- **Trackball:** its seven-wire loom follows the outer thumb edge, clear of the
+- **Trackball:** the pointing device is open (a Cirque TM040040 trackpad is
+  likely), so this loom is a placeholder. Its seven-wire loom follows the outer thumb edge, clear of the
   thumb key bodies, then returns to the breakout. Connector/pad locations on the
   bought trackball are still provisional.
 - **Access:** solder and test small subassemblies before closing the chassis.
@@ -195,8 +202,10 @@ the ribbon latch still need a fit prototype.
 
 ## Ribbon pinout
 
-Both breakout boards use the same Molex 2005280240, 24-way, 1 mm-pitch,
-bottom-contact connector. The pod has the same pin-number contract on each
+Both breakout boards use the same 24-way, 1 mm-pitch, bottom-contact FFC
+connector. The generated files use the Molex 2005280240, which has a minimum
+order of 9,000 and must be replaced; candidates are in
+[design status](design-status.md). The pod has the same pin-number contract on each
 hand connector. Specify a cable/installation giving pin 1 → pin 1 through
 pin 24 → pin 24; confirm contact-side orientation and continuity before power.
 Do not assume an arbitrary same-side/opposite-side cable is correct solely
@@ -211,7 +220,7 @@ from the connector names. This is a removable interconnect, not a hot-plug desig
 | 7, 8, 9, 10, 11, 12 | C0 pinky, C1 ring, C2 middle, C3 index, C4 inner, C5 thumbs |
 | 13 | GND |
 | 14 | 3V3 for trackball |
-| 15, 16, 17, 18, 19 | Trackball UP, DOWN, LEFT, RIGHT, BTN (right only) |
+| 15, 16, 17, 18, 19 | Trackball UP, DOWN, LEFT, RIGHT, BTN (right only); a Cirque trackpad would use these for SDA, SCL and data-ready |
 | 20 | GND |
 | 21, 22, 23 | +5 V LED power, connected in parallel |
 | 24 | GND |
@@ -228,15 +237,19 @@ buttons and trackball (see `output_v4/pinout.txt`). The RGB data lines use the
 from the LED 5 V rail, with 330-ohm output resistors, input pulldowns and local
 decoupling. Unused buffer inputs are grounded and unused outputs disabled.
 
-LED power enters J3: **pin 1 = regulated +5 V; pin 2 = GND**. It is not tied
-to the module's USB 5 V pin, avoiding an unreviewed backfeed connection. This
-quote design therefore requires a separate regulated LED supply or a later
-reviewed shared-power implementation. The controller continues to use USB.
+**Decided: LED power comes from the module's 5 V header pin (J_R pin 27),**
+which is fed from USB after the module's own power path (Q1/Q2 from USB1,
+D4 from USB2 on the module schematic), so drawing from it does not backfeed
+anything. The keyboard runs from one USB cable with no separate supply.
+The generated pod does not reflect this yet: it has a separate LED input J3
+(pin 1 = +5 V, pin 2 = GND), and `build_key_quotes.py` asserts that pin 27
+stays unconnected. Both need changing.
 
-Initial design budget is **360 mA LED load per half / 720 mA total**; the
-firmware must enforce a brightness/current limit. This is not unrestricted
-full-white operation at the older LED's approximately 60 mA/pixel maximum
-(1.08 A per half). Firmware is not changed by this quote-file generator.
+The whole keyboard must fit a laptop USB port; if it does not, cut features
+rather than add power. The module takes roughly 100–150 mA at 5 V, leaving
+about **300 mA for all 36 LEDs** on a 500 mA USB 2.0 port. Firmware must cap
+brightness to that. Full white is roughly 2.2 A, so the cap is always active.
+The exact cap depends on the tile LED part, which is unidentified.
 The ribbon has three parallel 5 V conductors and five grounds. Connector
 contact ratings alone do not establish the cable rating; select cable length,
 conductor cross-section and current rating accordingly and check voltage at
@@ -247,7 +260,7 @@ the farthest key. Each breakout provides a 470 uF/10 V bulk capacitor.
 - [JLC assembly capabilities](https://jlcpcb.com/capabilities/pcb-assembly-capabilities)
 - [JLC assembly charges](https://jlcpcb.com/help/article/pcb-assembly-price)
 - [JLC mouse-bite guidance](https://jlcpcb.com/blog/mouse-bite-panelization-guide)
-- [Molex connector](https://www.molex.com/en-us/products/part-detail/2005280240)
+- [Molex connector](https://www.molex.com/en-us/products/part-detail/2005280240) (to be replaced)
 - [SK6812MINI-E Rev.02 drawing and pinout](https://cdn-shop.adafruit.com/product-files/4960/4960_SK6812MINI-E_REV02_EN.pdf)
 - [TI SN74AHCT125](https://www.ti.com/product/SN74AHCT125)
 

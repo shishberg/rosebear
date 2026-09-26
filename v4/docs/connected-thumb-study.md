@@ -1,5 +1,7 @@
 # Connected thumb cluster: mechanical assessment
 
+> **Paused (2026-09-26).** The first prototype uses bought RGB key tiles for all 36 keys; see [design status](design-status.md). This document describes the paused thumb PCB design and is kept as reference.
+
 ## Recommendation
 
 Keep the finger PCB and thumb cluster separate. Replace the loose thumb tiles with **one connected circuit per thumb cluster**, using three supported key areas and localized bends outboard of the keys. Include the LED supply, ground and data chain in the circuit. The study identifies bend locations; it does not yet supply a connected, routed thumb PCB.

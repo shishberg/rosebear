@@ -1,5 +1,7 @@
 # Flat three-key thumb PCB
 
+> **Paused (2026-09-26).** The first prototype uses bought RGB key tiles for all 36 keys; see [design status](design-status.md). This document describes the paused flat thumb PCB design and is kept as reference.
+
 Current layout is defined by `v4/flat_thumb.json`. The whole cluster has one adjustable 3D pose; each key has an in-plane position and fan angle. All three switch normals remain parallel. The default outer keys fan by -10/+10 degrees around the middle key. Left and right boards preserve proper hotswap land patterns rather than mirroring a socket footprint.
 
 Each 1.6 mm FR4 board has three hotswap sockets, three SOD-123 diodes, and four 1 mm drilled wire pads in the home–far inter-key gap. No lighting or inter-key wires. Three vias connect the individual diode rows to front copper; the column bus is on the back. Routing remains deterministic and native DRC rejects unsupported placement changes.
@@ -11,7 +13,7 @@ Each 1.6 mm FR4 board has three hotswap sockets, three SOD-123 diodes, and four 
 | W2 | W3 / F | Far, top matrix row |
 | W1 | W4 / C | Shared thumb column |
 
-Current defaults shift the cluster 5 mm away from the example finger well and position the custom trackball 30 mm sideways from home, to clear conservative envelopes. These are editable prototype choices. The example chassis is not a required final shape. A proposed ICSH044A module would need its own envelope and mounting revision before replacing the custom carrier.
+Current defaults shift the cluster 5 mm away from the example finger well and position the custom trackball 30 mm sideways from home, to clear conservative envelopes. These are editable prototype choices. The example chassis is not a required final shape. The ICSH044A module is no longer planned; the pointing device is open (see [design status](design-status.md)).
 
 ## Outputs
 

@@ -1,5 +1,7 @@
 # Finger inter-column bridge review
 
+> **Paused (2026-09-26).** The first prototype uses bought RGB key tiles for all 36 keys; see [design status](design-status.md). This document describes the paused flex finger board design and is kept as reference.
+
 Status: mechanically unqualified. Electrical DRC and copper bend keepouts do not establish that the 0.6 mm FR4 bridges can take the chassis shape without damage.
 
 ## Imposed rotation

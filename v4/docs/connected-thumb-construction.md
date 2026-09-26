@@ -1,5 +1,7 @@
 > Superseded by [separate rigid thumb PCBs](rigid-thumb-construction.md). The flex construction below is historical and must not be manufactured for the current design.
 
+> **Paused (2026-09-26).** The first prototype uses bought RGB key tiles for all 36 keys; see [design status](design-status.md). This document describes the paused thumb PCB design and is kept as reference.
+
 # Connected thumb construction
 
 ## Selected construction
@@ -40,7 +42,7 @@ Three stiffeners avoid the supplier's four-or-more-piece surcharge trigger, alth
 
 ## Electrical interface
 
-RGB lighting, its capacitors and resistors, and the pod LED driver have been removed. No external LED supply or power bus is required. GPIO30/31 are unused.
+RGB lighting, its capacitors and resistors, and the pod LED driver have been removed. No external LED supply or power bus is required. GPIO30/31 were unused at the time; they now carry RGB data for the key tiles.
 
 | Thumb pad | Signal | Other end |
 |---|---|---|

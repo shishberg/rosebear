@@ -1,5 +1,7 @@
 # Reference PCB review and revised mechanical brief
 
+> **Paused (2026-09-26).** The first prototype uses bought RGB key tiles for all 36 keys; see [design status](design-status.md). This document describes the paused flex finger and flat thumb PCB design and is kept as reference.
+
 Reviewed 2026-09-16. This records the next design direction; the generated rigid single-key thumb boards remain the previous build, not an implementation of the proposed flat cluster.
 
 ## Design constraints clarified by Dave
