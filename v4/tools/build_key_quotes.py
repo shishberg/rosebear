@@ -83,7 +83,7 @@ def route(b,name):
     config=json.loads(json.dumps(CFG));config['router'].update(passes=8,timeout_seconds=120,track_width_mm=.25)
     b=run(path,ROOT,ROOT/'output_v4',config)
     if name in ['hand_breakout','pod_rgb']:
-        bounds=(-17.5,-3.5,17.5,26.5) if name=='hand_breakout' else (59.5,48.5,140.5,144.5)
+        bounds=(-17.5,-5.5,17.5,26.5) if name=='hand_breakout' else (59.5,48.5,140.5,144.5)
         for layer in [pcb.F_Cu,pcb.B_Cu]:
             z=pcb.ZONE(b);z.SetLayer(layer);z.SetNet(p.net(b,'GND'));z.SetLocalClearance(200000);z.SetMinThickness(200000)
             z.SetPadConnection(pcb.ZONE_CONNECTION_FULL)
@@ -103,7 +103,10 @@ def validate(b,name):
 
 RIBBON=['GND','RGB','GND','RT','RH','RB','C0','C1','C2','C3','C4','C5',
         'GND','3V3','UP','DOWN','LEFT','RIGHT','BTN','GND','+5V','+5V','+5V','GND']
-FFC='Connector_FFC-FPC:Molex_200528-0240_1x24-1MP_P1.00mm_Horizontal'
+# LCSC-stocked. Pins 1-24 sit toward the cable end at local y=FFC_PAD_Y.
+FFC='Connector_FFC-FPC:JUSHUO_AFA07-S24FCA-00_1x24-1MP_P1.0mm_Horizontal'
+FFC_PART='AFA07-S24FCA-00'
+FFC_PAD_Y=-3.375
 
 def ribbon_nets(hand=None):
     if hand is None:return {str(i):n for i,n in enumerate(RIBBON,1)}|{'MP':'GND'}
@@ -121,7 +124,7 @@ def ribbon_nets(hand=None):
 
 def make_breakout():
     b=pcb.BOARD()
-    part(b,FFC,'J1',(0,0),ribbon_nets(),'2005280240',back=False)
+    part(b,FFC,'J1',(0,0),ribbon_nets(),FFC_PART,back=False)
     for i,n in enumerate(RIBBON,1):
         x=(i-12.5)*1.27;y=7 if i%2 else 12
         wire(b,'W'+str(i),n,(x,y))
@@ -131,9 +134,9 @@ def make_breakout():
     for i,x in enumerate([-15,15],1):
         f=part(b,'MountingHole:MountingHole_2.2mm_M2','H'+str(i),(x,22),{},'M2',back=False)
         f.SetAttributes(pcb.FP_EXCLUDE_FROM_POS_FILES|pcb.FP_EXCLUDE_FROM_BOM)
-    p.outline(b,[(-18,-4),(18,-4),(18,27),(-18,27)])
+    p.outline(b,[(-18,-6),(18,-6),(18,27),(-18,27)])
     p.label(b,'24-WAY HAND / A',(0,16),.8)
-    p.track(b,[(8.5,-.91),(10.5,-.91),(10.5,-2.8),(16.3,-2.8),(16.3,17),(-1.75,17),(-1.75,21)],'F.Cu','+5V',.6,True)
+    p.track(b,[(8.5,FFC_PAD_Y),(10.5,FFC_PAD_Y),(10.5,-4.9),(16.3,-4.9),(16.3,17),(-1.75,17),(-1.75,21)],'F.Cu','+5V',.6,True)
     p.track(b,[(10.795,7),(16.3,7)],'F.Cu','+5V',.6,True)
     p.track(b,[(12.065,12),(12.065,10),(16.3,10)],'F.Cu','+5V',.6,True)
     return b
@@ -155,14 +158,18 @@ def make_pod():
     # Spare lines no longer needed. RGB gets the two previously reserved GPIOs.
     for h in ['L','R']:p.pad_of(fps['J_'+h],1).SetNet(None)
     for n,(h,pin,_) in pod_pins.group_pins(PINS,'rgb').items():p.pad_of(fps[h],pin).SetNet(p.net(b,n))
-    for h,x,a in [('L',66,90),('R',134,-90)]:
-        f=part(b,FFC,'J'+('1' if h=='L' else '2'),(x,100),ribbon_nets(h),'2005280240',a,False)
+    # Place each connector so its pad row lands at x=65.09 / 134.91.
+    for h,x,a in [('L',65.09-FFC_PAD_Y,90),('R',134.91+FFC_PAD_Y,-90)]:
+        f=part(b,FFC,'J'+('1' if h=='L' else '2'),(x,100),ribbon_nets(h),FFC_PART,a,False)
         points=[p.xy(p.pad_of(f,i).GetPosition()) for i in [21,22,23]]
         p.track(b,points,'F.Cu','+5V',.6,True)
         xx=62 if h=='L' else 138
         p.track(b,[(94,54),(72 if h=='L' else 128,54),(xx,64),(xx,points[-1][1]),points[-1]],'F.Cu','+5V',.8,True)
-    # Separate, regulated 5V LED input: deliberately not tied to module USB 5V.
-    part(b,'Connector_PinHeader_2.54mm:PinHeader_1x02_P2.54mm_Vertical','J3',(94,54),{'1':'+5V','2':'GND'},'REGULATED 5V INPUT',back=False)
+    # LED power comes from the module's USB 5V header pin (pod.json rgb group).
+    # The module's own power path sits upstream of that pin, so nothing backfeeds.
+    h,pin,_=pod_pins.group_pins(PINS,'rgb')['+5V']
+    fivev=p.xy(p.pad_of(fps[h],pin).GetPosition())
+    p.track(b,[fivev,(fivev[0],54),(94,54)],'F.Cu','+5V',.8,True)
     unets={'1':'GND','2':'RGB_L_3V3','3':'RGB_L_DRV','4':'GND','5':'RGB_R_3V3','6':'RGB_R_DRV','7':'GND',
            '8':'','9':'GND','10':'+5V','11':'','12':'GND','13':'+5V','14':'+5V'}
     part(b,'Package_SO:SOIC-14_3.9x8.7mm_P1.27mm','U1',(104,58),unets,'SN74AHCT125D')
@@ -177,7 +184,6 @@ def make_pod():
     via(b,(63.5,110.5),'RGB_L');p.track(b,[(63.5,110.5),(65.09,110.5)],'F.Cu','RGB_L',.25,True)
     p.outline(b,[(59,48),(141,48),(141,145),(59,145)])
     p.label(b,'ROSEBEAR POD / KEY A',(100,143),1)
-    p.label(b,'5V LED INPUT',(91,50),.8)
     return b
 
 def panel(key,nx,ny):
@@ -275,9 +281,8 @@ def audit_quote_set():
         for pin,n in ribbon_nets(h).items():
             if pin!='MP':assert p.pad_of(fps[j],pin).GetNetname()==n,(j,pin,n)
     for n,(h,pin,_) in pod_pins.group_pins(PINS,'rgb').items():assert p.pad_of(fps[h],pin).GetNetname()==n
-    assert p.pad_of(fps['J_R'],27).GetNetname()=='' # Never backfeed module USB 5V.
-    assert p.pad_of(fps['J3'],1).GetNetname()=='+5V' and p.pad_of(fps['J3'],2).GetNetname()=='GND'
-    report['common']={'ribbon_pinout_checked':True,'module_rgb_pins_match_pod_json':True,'separate_led_5v_checked':True}
+    assert 'J3' not in fps # LED power comes only from the module's USB 5V pin.
+    report['common']={'ribbon_pinout_checked':True,'module_rgb_pins_match_pod_json':True,'led_5v_from_module_usb':True}
     (OUT/'electrical-audit.json').write_text(json.dumps(report,indent=2)+'\n')
 
 if __name__=='__main__':

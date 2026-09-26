@@ -4,7 +4,7 @@ The active right-hand chassis editing loop runs entirely in **TypeScript + Three
 + Manifold WebAssembly**. No Python server or export/rebuild handoff is required.
 KiCad/PCB generation stays in the existing offline v4 pipeline.
 
-The trackball and `adapter` are placeholders. The pointing device is open (a Cirque TM040040 trackpad is likely), and the provisional 30 × 16 mm adapter with a 26 mm, 4 mm tall connector is smaller than the designed 36 × 31 mm breakout and its 29–32 mm connector with latch clearance. See [design status](../docs/design-status.md).
+The trackball and `adapter` are placeholders. The pointing device is open (a Cirque TM040040 trackpad is likely), and the provisional 30 × 16 mm adapter with a 26 mm, 4 mm tall connector is smaller than the designed 36 × 33 mm breakout and its 31 mm wide, 2.5 mm tall connector with latch clearance. See [design status](../docs/design-status.md).
 
 ## Run
 

@@ -3,7 +3,7 @@
 **The active editor is now [TypeScript + Manifold WASM](../editor/README.md).**
 This document describes the retained Python reference generator; its statements about browser editing refer to the earlier static viewer.
 
-The trackball and the FFC adapter here are placeholders. The pointing device is open (a Cirque TM040040 trackpad is likely), and the adapter box is smaller than the designed 36 × 31 mm breakout and its 29–32 mm connector. See [design status](design-status.md).
+The trackball and the FFC adapter here are placeholders. The pointing device is open (a Cirque TM040040 trackpad is likely), and the adapter box is smaller than the designed 36 × 33 mm breakout and its 31 mm connector. See [design status](design-status.md).
 
 ## Active design
 

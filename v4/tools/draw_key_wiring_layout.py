@@ -129,7 +129,7 @@ def make(view):
             p=xy(point(k,x,y,view));svg.append(f'<circle cx="{p[0]}" cy="{p[1]}" r="3" fill="#bf9340" stroke="#fff" stroke-width=".7"/>')
     svg.append(text(*xy((BX-17,BY+30)),'24-way ribbon → central pod',15))
     svg.append(text(*xy((78,-4)),'22 × 28 trackball',14))
-    svg.append(text(400,992,'36 × 31 breakout (proposed)',14))
+    svg.append(text(400,992,'36 × 33 breakout (proposed)',14))
     svg.append('<path d="M400,1008 H520 M400,1003 V1013 M520,1003 V1013" stroke="#213143"/>')
     svg.append(text(429,1034,'20 mm',14))
     # Labels below tiles avoid covering socket and wires.

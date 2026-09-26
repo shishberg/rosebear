@@ -5,9 +5,9 @@ Quote/prototype revision A (2026-09-16), updated 2026-09-26. Files are in
 prototype and replaces the paused LED-free `output_v4/seeded/` finger/thumb
 boards. Do not mix the old 11-way ribbons with this 24-way design.
 
-**Not ready to order.** The generated pod still has the separate J3 LED input
-and the unavailable Molex connector. [Design status](design-status.md) lists
-the decisions and open questions, and takes precedence over this document.
+**Not ready to order.** The pointing device, chassis fit and cable are still
+open. [Design status](design-status.md) lists the decisions and open
+questions, and takes precedence over this document.
 
 ## Purchased key tiles for all 36 keys
 
@@ -44,7 +44,7 @@ confirmed pinout. This is a harness planning study, not a cut-length list or
 chassis clearance validation. The tilted view changes the key projection to
 expose depth; accessory envelopes remain fixed for comparison.
 
-The 36 × 31 mm hand breakout is proposed in the palm-side space below the fingers;
+The 36 × 33 mm hand breakout is proposed in the palm-side space below the fingers;
 the 22 × 28 mm purchased trackball breakout is proposed beside the thumbs. Neither
 accessory mount has been incorporated into or checked against the chassis here.
 The ribbon exits toward the palm and the separately housed central pod.
@@ -124,7 +124,7 @@ No separate finger or thumb PCBs are required with individual key tiles.
 
 For these small quantities, compare hand-fitting the common boards against
 factory assembly; their extra setup fees can matter more than key assembly.
-The breakout's bulk capacitor and the pod's sockets/input header are through-
+The breakout's bulk capacitor and the pod's module sockets are through-
 hole parts, unlike the key board's four underside SMD components.
 
 ## Assembly files and limits
@@ -203,9 +203,8 @@ the ribbon latch still need a fit prototype.
 ## Ribbon pinout
 
 Both breakout boards use the same 24-way, 1 mm-pitch, bottom-contact FFC
-connector. The generated files use the Molex 2005280240, which has a minimum
-order of 9,000 and must be replaced; candidates are in
-[design status](design-status.md). The pod has the same pin-number contract on each
+connector, the JUSHUO AFA07-S24FCA-00 (LCSC-stocked; it replaced the Molex
+2005280240, whose minimum order is 9,000). The pod has the same pin-number contract on each
 hand connector. Specify a cable/installation giving pin 1 → pin 1 through
 pin 24 → pin 24; confirm contact-side orientation and continuity before power.
 Do not assume an arbitrary same-side/opposite-side cable is correct solely
@@ -241,9 +240,8 @@ decoupling. Unused buffer inputs are grounded and unused outputs disabled.
 which is fed from USB after the module's own power path (Q1/Q2 from USB1,
 D4 from USB2 on the module schematic), so drawing from it does not backfeed
 anything. The keyboard runs from one USB cable with no separate supply.
-The generated pod does not reflect this yet: it has a separate LED input J3
-(pin 1 = +5 V, pin 2 = GND), and `build_key_quotes.py` asserts that pin 27
-stays unconnected. Both need changing.
+The pin is the `+5V` entry in the `rgb` group of [`pod.json`](../pod.json);
+there is no separate LED power input.
 
 The whole keyboard must fit a laptop USB port; if it does not, cut features
 rather than add power. The module takes roughly 100–150 mA at 5 V, leaving
@@ -260,7 +258,7 @@ the farthest key. Each breakout provides a 470 uF/10 V bulk capacitor.
 - [JLC assembly capabilities](https://jlcpcb.com/capabilities/pcb-assembly-capabilities)
 - [JLC assembly charges](https://jlcpcb.com/help/article/pcb-assembly-price)
 - [JLC mouse-bite guidance](https://jlcpcb.com/blog/mouse-bite-panelization-guide)
-- [Molex connector](https://www.molex.com/en-us/products/part-detail/2005280240) (to be replaced)
+- [JUSHUO AFA07-S24FCA-00 datasheet](https://www.lcsc.com/datasheet/lcsc_datasheet_2304140030_JUSHUO-AFA07-S04FCA-00_C262710.pdf)
 - [SK6812MINI-E Rev.02 drawing and pinout](https://cdn-shop.adafruit.com/product-files/4960/4960_SK6812MINI-E_REV02_EN.pdf)
 - [TI SN74AHCT125](https://www.ti.com/product/SN74AHCT125)
 

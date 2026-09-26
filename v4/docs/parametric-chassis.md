@@ -224,7 +224,7 @@ The current topology is five columns × three rows plus three thumbs. Key names 
 
 ## What is measured, what is provisional
 
-The AliExpress 1U RGB PCB drawing has no usable dimensioned datasheet. Its **19×19×1.6 mm board**, socket/LED/diode sizes and positions are provisional. The **30×16 mm FFC adapter** is a placeholder; the designed hand breakout is 36 × 31 mm with a 29–32 mm wide connector (see [design status](design-status.md)). The trackball board starts at the discussed **22×28 mm envelope**, but housing dimensions, ball height, rear components, connector and fixings require measurement. All are explicit config fields, with provisional flags.
+The AliExpress 1U RGB PCB drawing has no usable dimensioned datasheet. Its **19×19×1.6 mm board**, socket/LED/diode sizes and positions are provisional. The **30×16 mm FFC adapter** is a placeholder; the designed hand breakout is 36 × 33 mm with a 31 mm wide connector (see [design status](design-status.md)). The trackball board starts at the discussed **22×28 mm envelope**, but housing dimensions, ball height, rear components, connector and fixings require measurement. All are explicit config fields, with provisional flags.
 
 The small fit coupon uses the same switch-seat and PCB-guide code as the shell. **Print it first**, with a real switch and populated key PCB. Check clip engagement/release, socket seating, actual solder-pad access, board removal, the retaining-tie path and print shrinkage. Adjust the config from that result before a full print. Cable and trackball fit need their own physical checks when the actual parts are available.
 
