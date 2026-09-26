@@ -5,9 +5,12 @@ Quote/prototype revision A (2026-09-16), updated 2026-09-26. Files are in
 prototype and replaces the paused LED-free `output_v4/seeded/` finger/thumb
 boards. Do not mix the old 11-way ribbons with this 24-way design.
 
-**Not ready to order.** The pointing device, chassis fit and cable are still
-open. [Design status](design-status.md) lists the decisions and open
-questions, and takes precedence over this document.
+**The first prototype uses no custom PCBs:** a perfboard pod and generic
+24-way 1.0 mm FFC adapters at all four ribbon ends. The ribbon pinout, the
+handwiring and the pod circuit below still apply. The custom breakout and pod
+boards are kept for a later build once the pinout settles.
+[Design status](design-status.md) lists the decisions and open questions, and
+takes precedence over this document.
 
 ## Purchased key tiles for all 36 keys
 
