@@ -1,9 +1,11 @@
 """Cross-board electrical contract, independent of track connectivity DRC."""
 from .pcb import pad_of
+from . import pod_pins
+from .trackball import WIRES as TRACKBALL_WIRES
 
 
-def validate(boards):
-    errors=[]
+def validate(boards,spec=None):
+    errors=[]; spec=spec or pod_pins.load()
     for name,board in boards.items():
         refs={f.GetReference() for f in board.GetFootprints()}
         if name.startswith('finger_'):
@@ -46,13 +48,11 @@ def validate(boards):
             if pads(name,'W'+str(i)).get('1')!=row:errors.append(name+': row wire '+str(i))
         if pads(name,'W4').get('1')!=col:errors.append(name+': column wire')
     if 'pod' in boards:
-        if pads('pod','J_R').get('22') or pads('pod','J_R').get('23'):errors.append('pod: former lighting GPIOs must be unused')
+        # Built groups must sit on their pod.json pins; unbuilt groups' GPIOs stay free.
+        errors+=pod_pins.check(spec,boards['pod'],['trackball'] if 'trackball' in boards else [])
     if 'pod' in boards and 'trackball' in boards:
-        # These are physical module header pins, not GPIO numbers.
-        contract=[('TB_3V3',25),('GND',26),('TB_UP',17),('TB_DOWN',18),('TB_LEFT',19),('TB_RIGHT',20),('TB_BTN',21)]
-        header=pads('pod','J_R')
-        for i,(net,pin) in enumerate(contract,1):
-            if header.get(str(pin))!=net or pads('pod','WT'+str(i)).get('1')!=net or pads('trackball','W'+str(i)).get('1')!=net:
+        for i,net in enumerate(TRACKBALL_WIRES,1):
+            if pads('pod','WT'+str(i)).get('1')!=net or pads('trackball','W'+str(i)).get('1')!=net:
                 errors.append('trackball harness mismatch '+net)
         for i,direction in enumerate(['UP','DOWN','LEFT','RIGHT'],1):
             if pads('trackball','U'+str(i))!={'1':'TB_3V3','2':'TB_'+direction,'3':'GND'}:

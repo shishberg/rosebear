@@ -12,7 +12,7 @@ from rosebear.job_guard import guard_entry
 guard_entry(Path(__file__).resolve().parents[2],__file__)
 import pcbnew as pcb
 import wx
-from rosebear import mechanical, seed, routing, assembly, trackball, route_cache, validate, overview, thumb_geometry, thumb_pcb, thumb_router, thumb_finish, thumb_checks, thumb_artifacts, thumb_mechanical, finger_artifacts, rigid_thumb, flat_thumb
+from rosebear import mechanical, pod_pins, seed, routing, assembly, trackball, route_cache, validate, overview, thumb_geometry, thumb_pcb, thumb_router, thumb_finish, thumb_checks, thumb_artifacts, thumb_mechanical, finger_artifacts, rigid_thumb, flat_thumb
 from rosebear.pcb import load_board, finger, thumb, save, drc, metrics
 
 ROOT=Path(__file__).resolve().parents[2]
@@ -39,11 +39,7 @@ def main():
         seed.verify_cache(ROOT,out,chassis,config)
         data=json.loads((out/'geometry.json').read_text()); seedpath=out/'geometry/seed'
     else: data,seedpath=seed.generate(ROOT,out,chassis,config)
-    pinout=data['pinout']
-    if config['trackball']['enabled']:
-        pinout=pinout.replace('unused: IO32, IO26, IO27, IO28, IO29, ', 'unused: ')
-        pinout+='\nRight trackball, direct pod harness:\n'+''.join('  '+n+' -> J_R pin '+str(trackball.POD_PINS[n])+' / WT'+str(i)+' / trackball W'+str(i)+'\n' for i,n in enumerate(trackball.WIRES,1))
-    (out/'pinout.txt').write_text(pinout.replace('\\t','\t')+'\n')
+    pins=pod_pins.load()
     report={};thumb_geometries={}
     candidates=out/('optimized' if args.router=='freerouting' else args.mode)
     for s in data['fingers']:
@@ -79,8 +75,13 @@ def main():
                 flat_thumb.export_prototype(flat_spec,shape,out/'mechanical/flat-thumb',hand)
     if args.board in ('all','pod'):
         b=load_board(str(seedpath/'pod.kicad_pcb')); path=candidates/'pod.kicad_pcb'
-        if config['trackball']['enabled']:
-            mechanical.write_json(out/'trackball-pinout.json',trackball.extend_pod(b,ROOT))
+        active=['trackball'] if config['trackball']['enabled'] else []
+        if active:
+            mechanical.write_json(out/'trackball-pinout.json',trackball.extend_pod(b,ROOT,pins))
+        rows=pod_pins.pin_map(pins,b,active)
+        mechanical.write_json(out/'pod-pins.json',rows)
+        (out/'pinout.txt').write_text(pod_pins.render_text(pins,rows)+'\n')
+        mechanical.write_json(out/'firmware-pinout.json',{**pod_pins.firmware(pins,rows),**({'trackball':trackball.FIRMWARE} if active else {})})
         save(b,path,config,ROOT)
         if not args.place_only: report['pod']={**metrics(b),'drc':drc(path),'bend_errors':[]}
     if config['trackball']['enabled'] and args.board in ('all','trackball'):
@@ -97,7 +98,7 @@ def main():
     if any(v['drc']['violations'] or v['drc']['unconnected'] or v['bend_errors'] for v in report.values()): return 1
     if args.board=='all' and not args.place_only:
         boards={name:load_board(str(candidates/(name+'.kicad_pcb'))) for name in report}
-        errors=validate.validate(boards)
+        errors=validate.validate(boards,pins)
         mechanical.write_json(out/'electrical-contract.json',{'errors':errors})
         if errors:
             print('Electrical contract failed: '+str(errors),flush=True)

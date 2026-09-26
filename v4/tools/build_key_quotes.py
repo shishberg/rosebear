@@ -9,10 +9,11 @@ import wx
 wx.Log.SetLogLevel(wx.LOG_Error)
 app=wx.App(False)
 import pcbnew as pcb
-from rosebear import pcb as p
+from rosebear import pcb as p, pod_pins
 OUT=ROOT/'output_v4/key-quotes'
 OUT.mkdir(parents=True,exist_ok=True)
 CFG=json.loads((ROOT/'v4/config.json').read_text())
+PINS=pod_pins.load()
 CFG['pcb_thickness_mm']=1.6
 CFG['rules'].update(clearance_mm=.2,track_width_mm=.2,edge_clearance_mm=.2)
 
@@ -153,7 +154,7 @@ def make_pod():
     fps={f.GetReference():f for f in b.GetFootprints()}
     # Spare lines no longer needed. RGB gets the two previously reserved GPIOs.
     for h in ['L','R']:p.pad_of(fps['J_'+h],1).SetNet(None)
-    for pin,n in [(22,'RGB_L_3V3'),(23,'RGB_R_3V3'),(25,'3V3'),(26,'GND')]:p.pad_of(fps['J_R'],pin).SetNet(p.net(b,n))
+    for n,(h,pin,_) in pod_pins.group_pins(PINS,'rgb').items():p.pad_of(fps[h],pin).SetNet(p.net(b,n))
     for h,x,a in [('L',66,90),('R',134,-90)]:
         f=part(b,FFC,'J'+('1' if h=='L' else '2'),(x,100),ribbon_nets(h),'2005280240',a,False)
         points=[p.xy(p.pad_of(f,i).GetPosition()) for i in [21,22,23]]
@@ -273,10 +274,10 @@ def audit_quote_set():
     for h,j in [('L','J1'),('R','J2')]:
         for pin,n in ribbon_nets(h).items():
             if pin!='MP':assert p.pad_of(fps[j],pin).GetNetname()==n,(j,pin,n)
-    for pin,n in [(22,'RGB_L_3V3'),(23,'RGB_R_3V3'),(25,'3V3'),(26,'GND')]:assert p.pad_of(fps['J_R'],pin).GetNetname()==n
+    for n,(h,pin,_) in pod_pins.group_pins(PINS,'rgb').items():assert p.pad_of(fps[h],pin).GetNetname()==n
     assert p.pad_of(fps['J_R'],27).GetNetname()=='' # Never backfeed module USB 5V.
     assert p.pad_of(fps['J3'],1).GetNetname()=='+5V' and p.pad_of(fps['J3'],2).GetNetname()=='GND'
-    report['common']={'ribbon_pinout_checked':True,'module_rgb_gpio_30_31_checked':True,'separate_led_5v_checked':True}
+    report['common']={'ribbon_pinout_checked':True,'module_rgb_pins_match_pod_json':True,'separate_led_5v_checked':True}
     (OUT/'electrical-audit.json').write_text(json.dumps(report,indent=2)+'\n')
 
 if __name__=='__main__':

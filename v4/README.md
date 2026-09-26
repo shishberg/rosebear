@@ -46,7 +46,8 @@ Outputs:
 | `output_v4/assembly.scad` | Rigid-island preview and PCB seating relief subtraction modules |
 | `output_v4/trackball-carrier.scad` | Prototype two-piece carrier; select `part="base"` or `part="lid"` |
 | `output_v4/chassis-right.scad` | New thumb fit assembly preview with trackball; not a finished chassis |
-| `output_v4/wiring.md`, `pinout.txt`, `firmware-pinout.json` | Assembly and firmware connections |
+| `output_v4/wiring.md` | Assembly connections |
+| `output_v4/pod-pins.json`, `pinout.txt`, `firmware-pinout.json` | Pod pin map read back from the built pod: every header pin, its net and why (routed, fixed, reserved, unused) |
 
 The combined overview keeps each board’s nets separate and prefixes component references with the board name. It is a flat review layout, not a fabrication panel or a 3D assembly. Manufacture the individual files; use `wiring.md` for inter-board connections. A single-board build updates only that board; run the full build to refresh `all`.
 
@@ -102,6 +103,12 @@ Router candidates go to `output_v4/optimized`, preserving the baseline. The rout
 
 DRC refills and saves zones. Every unconnected item or unexpected violation fails the build. Only the two inherited pod `SW_SPST_SKQG_WithoutStem` library-mismatch warnings for SW1/SW2 are accepted and retained in reports. No schematic parity check is available: the independent electrical contract checks supplement board connectivity DRC.
 
+## Pod pin map
+
+[`pod.json`](pod.json) is the only hand-edited pin map. It holds the WT9932P4-TINY header order, what each costly pin gives up (SD domain, UART0, JTAG, strapping), and the hand-chosen `fixed` groups (`trackball`, `rgb`). The seed assigns matrix and button pins from what remains and never takes a fixed group's GPIO, whether or not that group is built. `rosebear/pod_pins.py` stages these into the legacy seed, checks the built pod against them, and writes the generated maps listed above.
+
+To move or add a hand-chosen pin, edit `pod.json` and rebuild. Don't edit pin numbers anywhere else.
+
 ## Trackball parts and firmware
 
 | Part | Quantity | Notes |
@@ -114,7 +121,7 @@ DRC refills and saves zones. Every unconnected item or unexpected violation fail
 | Flexible insulated wire | 7 conductors | Direct trackball-to-pod harness |
 | M2 bolts/nuts | 4 sets | Carrier through-fasteners; length depends on the fitted housing height |
 
-The DRV5033 has **pin 1 supply, pin 2 output, pin 3 ground**; it is not pin-compatible with the A1104 assumption in the old branch. See the [TI datasheet](https://www.ti.com/lit/ds/symlink/drv5033.pdf). Direction inputs use GPIO32/26/27/28 and click uses GPIO29. These are four independent direction pulse inputs, **not quadrature pairs**. Debounce click and calibrate direction mapping in the actual mounted orientation. This repository emits the pin map; it does not implement or flash the separate firmware repository.
+The DRV5033 has **pin 1 supply, pin 2 output, pin 3 ground**; it is not pin-compatible with the A1104 assumption in the old branch. See the [TI datasheet](https://www.ti.com/lit/ds/symlink/drv5033.pdf). The trackball's pod pins are the `trackball` group in [`pod.json`](pod.json). These are four independent direction pulse inputs, **not quadrature pairs**. Debounce click and calibrate direction mapping in the actual mounted orientation. This repository emits the pin map; it does not implement or flash the separate firmware repository.
 
 The old `.claude/worktrees/trackball` work remains separate. The trackball added here belongs to **v4**, alongside the connected thumb-cluster design.
 

@@ -8,11 +8,19 @@ import json
 import xml.etree.ElementTree as ET
 import pcbnew as pcb
 from .pcb import footprint,wirepad,outline,label,net,pad_of,xy,track,vec
+from . import pod_pins
 
 SIGNALS=['TB_UP','TB_DOWN','TB_LEFT','TB_RIGHT','TB_BTN']
 WIRES=['TB_3V3','GND']+SIGNALS
-POD_PINS={'TB_3V3':25,'GND':26,'TB_UP':17,'TB_DOWN':18,'TB_LEFT':19,'TB_RIGHT':20,'TB_BTN':21}
-GPIO={'TB_UP':32,'TB_DOWN':26,'TB_LEFT':27,'TB_RIGHT':28,'TB_BTN':29}
+FIRMWARE={'supply_v':3.3,'active_low':True,'motion':'four independent direction pulse inputs, not quadrature',
+          'click':'debounced active-low switch','rotation':'calibrate direction mapping after mounting'}
+
+
+def harness(spec):
+    """Wire order W1..W7 with each wire's pod header pin and GPIO, from pod.json."""
+    pins=pod_pins.group_pins(spec,'trackball')
+    return [{'net':n,'pod_pad':'WT'+str(i)+'/1','trackball_pad':'W'+str(i)+'/1','header':pins[n][0],
+             'module_header_pin':pins[n][1],'gpio':pod_pins.gpio(pins[n][2])} for i,n in enumerate(WIRES,1)]
 
 
 def sensor_positions(root):
@@ -54,16 +62,14 @@ def make(root,config):
     return b
 
 
-def extend_pod(board,root):
-    socket=next(f for f in board.GetFootprints() if f.GetReference()=='J_R')
-    assignments=[]
-    for i,name in enumerate(WIRES,1):
-        p=pad_of(socket,POD_PINS[name])
+def extend_pod(board,root,spec):
+    wires=harness(spec)
+    for i,w in enumerate(wires,1):
+        socket=next(f for f in board.GetFootprints() if f.GetReference()==w['header'])
+        name=w['net']; p=pad_of(socket,w['module_header_pin'])
         if p.GetNetname() not in ('',name): raise ValueError('Trackball GPIO already assigned: '+p.GetNetname())
         p.SetNet(net(board,name)); x,y=xy(p.GetPosition())
         end=x-5-(i%2)*3.5
         wirepad(board,root,'WT'+str(i),name,(end,y))
         track(board,[(x,y),(end,y)],'F.Cu',name,0.25)
-        assignments.append({'net':name,'pod_pad':'WT'+str(i)+'/1','module_header_pin':POD_PINS[name],
-                            'gpio':GPIO.get(name),'trackball_pad':'W'+str(i)+'/1'})
-    return assignments
+    return wires

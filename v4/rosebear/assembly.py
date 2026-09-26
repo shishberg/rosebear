@@ -134,7 +134,6 @@ def build(chassis,config,geometry,boards,out,thumb_geometries=None):
     result['required_chassis_changes']={'pcb_relief_depth_mm':max(0,z)+0.3,
                                         'wire_channels':'route wires within the case with a service loop and strain relief'}
     write_json(out/'assembly.json',result)
-    if 'firmware' in result: write_json(out/'firmware-pinout.json',result['firmware'])
     scad=['// Generated nominal PCB seating and clearance tool. Units: mm.',
           '// mode="boards" previews rigid islands. mode="relief" is a subtraction tool.',
           'mode="boards";', 'module geometry(mode="boards") {']
@@ -163,8 +162,6 @@ def build(chassis,config,geometry,boards,out,thumb_geometries=None):
         for w in result['trackball_wiring']:
             lines.append('| {pod_pad} | {trackball_pad} | {net} | {module_header_pin} | {gpio} |'.format(**w))
         lines += ['', 'Use seven flexible wires. Measure the pod-to-module path in the assembled case; pod placement is not modeled.', 'Four direction pulse inputs plus a click switch, all active low. Calibrate direction mapping in firmware.']
-    result.setdefault('firmware',{})['lighting']={'enabled':False,'freed_gpios':[30,31]}
-    write_json(out/'firmware-pinout.json',result['firmware'])
     write_json(out/'assembly.json',result)
     (out/'wiring.md').write_text('\n'.join(lines)+'\n')
     return result

@@ -1,7 +1,8 @@
 """Parametric prototype carrier: native trackball housing retained above its PCB."""
 import json
 from .assembly import world, box_corners, boxes_intersect, board_frame
-from .trackball import WIRES, POD_PINS, GPIO
+from . import pod_pins
+from .trackball import harness
 
 
 def carrier_cap_hits(chassis,frame,bounds):
@@ -35,11 +36,7 @@ def integrate(result,solids,config,out,chassis):
     solids.append(body)
     result['modules']['trackball']={'frame':frame,'bounds':bounds,'carrier_bounds':envelope,
                                    'fit_status':'prototype: verify ball height, retention and magnetic switching with actual parts'}
-    result['trackball_wiring']=[{'net':n,'pod_pad':'WT'+str(i)+'/1','trackball_pad':'W'+str(i)+'/1',
-                               'module_header_pin':POD_PINS[n],'gpio':GPIO.get(n)} for i,n in enumerate(WIRES,1)]
-    result['firmware']={'trackball':{'supply_v':3.3,'inputs':GPIO,'active_low':True,
-                                    'motion':'four independent direction pulse inputs, not quadrature',
-                                    'click':'debounced active-low switch','rotation':'calibrate direction mapping after mounting'}}
+    result['trackball_wiring']=harness(pod_pins.load())
     m=[[frame['axes'][j][i] for j in range(3)]+[frame['origin'][i]] for i in range(3)]+[[0,0,0,1]]
     # Board plane is z=0. Its underside is supported on a ledge at -0.6;
     # 3 mm component space is left below, with an open cable exit.

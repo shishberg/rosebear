@@ -6,6 +6,7 @@ import shutil
 import subprocess
 from pathlib import Path
 from .mechanical import well, write_json
+from . import pod_pins
 
 
 def baml_literal(value):
@@ -18,7 +19,7 @@ def baml_literal(value):
 
 
 def cache_key(root,chassis,config):
-    paths=sorted((root/'v3/baml_src').rglob('*.baml'))+sorted((root/'v3/footprints').rglob('*.kicad_mod'))+[root/'v4/tools/seed.baml',root/'v3/baml.toml',root/'v4/rosebear/mechanical.py',Path(__file__)]
+    paths=sorted((root/'v3/baml_src').rglob('*.baml'))+sorted((root/'v3/footprints').rglob('*.kicad_mod'))+[root/'v4/tools/seed.baml',root/'v3/baml.toml',root/'v4/rosebear/mechanical.py',root/'v4/rosebear/pod_pins.py',pod_pins.PATH,Path(__file__)]
     digest=hashlib.sha256(json.dumps({'chassis':chassis,'config':config},sort_keys=True).encode())
     for p in [p for p in paths if p.is_file()]: digest.update(str(p.relative_to(root)).encode()); digest.update(p.read_bytes())
     return digest.hexdigest()
@@ -53,6 +54,8 @@ def generate(root, out, chassis, config):
     p.write_text(text)
     p = stage / 'baml_src/netlist.baml'
     p.write_text(replace_once(r'function DIODE_REACH\(\) -> float \{[^}]*\}', 'function DIODE_REACH() -> float { 8.2 }', p.read_text()))
+    p = stage / 'baml_src/pod.baml'
+    p.write_text(pod_pins.stage_seed(pod_pins.load(), p.read_text(), replace_once))
     p = stage / 'baml_src/route_matrix.baml'
     p.write_text(replace_once(r'function swd_turn\([^}]*?\n\}', 'function swd_turn(s: Strip, k: PlacedKey, w: Well, p: FlexParams) -> float { -0.85 }', p.read_text()))
     result = subprocess.run(["baml", "run", "--output-format", "json", "seed_export"], cwd=stage, capture_output=True, text=True)
@@ -61,5 +64,4 @@ def generate(root, out, chassis, config):
     data = json.loads(result.stdout)
     write_json(out / "geometry.json", data)
     (out/"geometry.sha256").write_text(cache_key(root,chassis,config)+"\n")
-    (out / "pinout.txt").write_text(data["pinout"] + "\n")
     return data, stage / "seed"

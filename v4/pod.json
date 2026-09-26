@@ -1,0 +1,34 @@
+{
+  "module": "WT9932P4-TINY",
+  "source": "v3/datasheets/WT9932P4-TINY/WT9932P4-TINY_pinout_V1.3.1.png, cross-checked against J6/J7 in WT9932P4-TINY_SCH_V1.3.pdf",
+  "headers": {
+    "_comment": "Silkscreen names in socket order. Pin 1 is the end away from the USB connectors; mounted USB-up, the datasheet's right row becomes J_L.",
+    "J_L": ["IO15", "IO14", "IO13", "IO12", "IO11", "IO10", "IO9", "IO6", "IO5", "IO4", "IO3", "IO2", "IO54", "IO53", "IO52", "IO50", "IO49", "IO48", "IO47", "IO46", "IO45", "IO44", "IO43", "IO40", "IO41", "IO42", "GND"],
+    "J_R": ["IO16", "IO17", "IO18", "IO19", "IO20", "IO21", "IO22", "IO23", "GND", "IO39", "IO38", "IO37", "IO36", "GND", "IO34", "IO33", "IO32", "IO26", "IO27", "IO28", "IO29", "IO30", "IO31", "VO4", "3V3", "GND", "5V"]
+  },
+  "concessions": {
+    "_comment": "What spending a pin gives up, cheapest first. The seed spends free pins first, then these in cost order.",
+    "sd_domain": {"cost": 1, "note": "needs LDO_VO4 enabled (SD-card domain)", "pins": ["IO39", "IO40", "IO43", "IO44", "IO45", "IO46", "IO47", "IO48"]},
+    "uart0": {"cost": 2, "note": "costs the UART0 console", "pins": ["IO37", "IO38"]},
+    "jtag": {"cost": 3, "note": "costs hardware JTAG", "pins": ["IO2", "IO3", "IO4"]},
+    "strap": {"cost": 4, "note": "STRAPPING PIN -- a key held at boot changes boot mode", "pins": ["IO36"]}
+  },
+  "fixed": {
+    "_comment": "Hand-chosen assignments, net -> pin. A pin is its silkscreen name, or HEADER:number where the name repeats (GND). GPIOs listed here are reserved: the seed never assigns them, whether or not the group is built.",
+    "trackball": {
+      "TB_3V3": "3V3",
+      "GND": "J_R:26",
+      "TB_UP": "IO32",
+      "TB_DOWN": "IO26",
+      "TB_LEFT": "IO27",
+      "TB_RIGHT": "IO28",
+      "TB_BTN": "IO29"
+    },
+    "rgb": {
+      "RGB_L_3V3": "IO30",
+      "RGB_R_3V3": "IO31",
+      "3V3": "3V3",
+      "GND": "J_R:26"
+    }
+  }
+}

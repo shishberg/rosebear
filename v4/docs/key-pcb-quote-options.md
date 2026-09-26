@@ -222,17 +222,11 @@ ground to convenient labelled pads. Mounting tabs of the connector are grounded.
 
 ## Pod and power
 
-The pod retains the existing WT9932P4-TINY header assignments for matrix and
-buttons, and GPIO32/26/27/28/29 for the right trackball. GPIO30 and GPIO31 now
-drive left/right RGB via an SN74AHCT125D powered from the LED 5 V rail, with
-330-ohm output resistors, input pulldowns and local decoupling. Unused buffer
-inputs are grounded and unused outputs disabled.
-
-| Function | Left GPIO | Right GPIO |
-|---|---|---|
-| RT, RH, RB | 13, 12, 11 | 18, 19, 20 |
-| C0–C5 | 54, 5, 6, 9, 14, 10 | 33, 34, 23, 22, 17, 21 |
-| RGB | 30 | 31 |
+The pod keeps the main build's WT9932P4-TINY header assignments for matrix,
+buttons and trackball (see `output_v4/pinout.txt`). The RGB data lines use the
+`rgb` group in [`pod.json`](../pod.json), driven via an SN74AHCT125D powered
+from the LED 5 V rail, with 330-ohm output resistors, input pulldowns and local
+decoupling. Unused buffer inputs are grounded and unused outputs disabled.
 
 LED power enters J3: **pin 1 = regulated +5 V; pin 2 = GND**. It is not tied
 to the module's USB 5 V pin, avoiding an unreviewed backfeed connection. This
