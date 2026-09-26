@@ -6,7 +6,7 @@ prototype and replaces the paused LED-free `output_v4/seeded/` finger/thumb
 boards. Do not mix the old 11-way ribbons with this 24-way design.
 
 **The first prototype uses no custom PCBs:** a perfboard pod and generic
-24-way 1.0 mm FFC adapters at all four ribbon ends. The ribbon pinout, the
+24-way 0.5 mm FFC adapters at all four ribbon ends. The ribbon pinout, the
 handwiring and the pod circuit below still apply. The custom breakout and pod
 boards are kept for a later build once the pinout settles.
 [Design status](design-status.md) lists the decisions and open questions, and
