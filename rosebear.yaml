@@ -9,28 +9,28 @@ points:
       anchor:
         shift: [50, -100]
       key:
-        padding: ky
-        spread: kx
+        padding: ky+2
+        spread: kx+2
       columns:
         pinky:
           key:
-            splay: 20
+            splay: 10
           rows:
             top.net: P4
             home.net: P9
             bottom.net: P15
         ring:
           key:
-            splay: -10
+            splay: -5
             spread: 1.08 kx
-            stagger: 0.8 ky
+            stagger: 0.5 ky
           rows:
             top.net: P3
             home.net: P8
             bottom.net: P18
         middle:
           key:
-            splay: -10
+            splay: -5
             spread: 1.08 kx
             stagger: 5
           rows:
@@ -46,7 +46,7 @@ points:
             bottom.net: P20
         inner:
           key:
-            stagger: 0
+            stagger: -0.2 ky
           rows:
             top.net: P1
             home.net: P5
@@ -58,7 +58,7 @@ points:
     thumb:
       anchor:
         ref: matrix_inner_bottom
-        shift: [-0.1 kx, -1.7 ky]
+        shift: [-0.5 kx, -1.7 ky]
       columns:
         near:
           key:
@@ -66,17 +66,17 @@ points:
             net: P14
         home:
           key:
-            spread: 1.13 kx
+            spread: 1.16 kx
             splay: -15
-            stagger: -0.15 kx
+            rotate: 90
+            width: 1.5 kx
+            stagger: -0.1 kx
             net: P16
         far:
           key:
-            spread: 1.2 kx
+            spread: 1.15 kx
             splay: -15
-            stagger: 0.09 kx
-            rotate: 90
-            width: 1.5 kx
+            stagger: -0.15 kx
             net: P10
       rows:
         thumb:
@@ -130,8 +130,8 @@ pcbs:
       main:
         outline: board
     footprints:
-      choc:
-        what: choc
+      mx:
+        what: mx
         where: true
         params:
           keycaps: true
@@ -139,8 +139,8 @@ pcbs:
           hotswap: false
           from: "{{net}}"
           to: GND
-      choc_hotswap:
-        what: choc
+      mx_hotswap:
+        what: mx
         where: true
         params:
           keycaps: true
@@ -151,7 +151,7 @@ pcbs:
         adjust:
           rotate: 180
       mcu:
-        what: promicro_pretty
+        what: promicro # _pretty
         where:
           ref: matrix_inner_top
           shift: [22, -25]
