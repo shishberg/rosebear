@@ -1,5 +1,9 @@
 # Rosebear
 
+## Current chassis-based design
+
+The active chassis tool is the [TypeScript browser editor](v4/editor/README.md): run `make v4-editor` and open http://127.0.0.1:5177. Drag the 38 shape controls, with live surfaces and automatic cutout/clearance rebuilds in Manifold WASM. KiCad generation remains offline. The previous [Python foundation](v4/docs/chassis-foundation.md) and its exported previews are retained as references. The description below covers the original flat Choc keyboard.
+
 Rosebear is a 5x3+3 wireless split keyboard designed with [Ergogen](https://ergogen.xyz/). ZMK firmware is at https://github.com/shishberg/rosebear-zmk.
 
 Thanks to [Ben Vallack](https://www.youtube.com/watch?v=M_VuXVErD6E) and [FlatFootFox](https://flatfootfox.com/ergogen-part5-kicad-firmware-assembly/) for the tutorials that made this even vaguely possible.

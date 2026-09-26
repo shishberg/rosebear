@@ -1,0 +1,21 @@
+{
+  "schema": 1,
+  "subdivisions": 4,
+  "shoulder_width_mm": 5,
+  "wall_lower_ring_z_mm": 7,
+  "base_z_mm": 2.2,
+  "mount_weight": 20,
+  "fairing_weight": 1.5,
+  "mount_warning_mm": 1.0,
+  "overrides": {},
+  "arrangements": [
+    "ffc_below"
+  ],
+  "normal_warning_deg": 8,
+  "normal_weight": 60,
+  "preview_thickness_mm": 2,
+  "topology": "feature_cage",
+  "roof_clearance_mm": 5,
+  "ball_control_ring": true,
+  "thumb_join_row": true
+}

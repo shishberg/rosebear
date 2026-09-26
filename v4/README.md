@@ -1,0 +1,139 @@
+# Chassis-based Rosebear pipeline
+
+## Active browser chassis editor
+
+Run `make v4-editor` and open **http://127.0.0.1:5177**. The [editor guide](editor/README.md) covers viewport-plane dragging, autosave, project files, browser-only cutouts and explicit clearance acceptance tests. The inner-trackball / FFC-underneath right hand is primary. Other arrangements remain paused.
+
+KiCad/PCB generation stays offline. The Python chassis generator is retained as a numerical reference; editing no longer requires export/rebuild handoffs.
+
+`output_v4/chassis/` retains the previous patched-shell outputs as frozen references.
+The [old parameter guide](docs/parametric-chassis.md) describes that earlier implementation.
+
+## Flat rigid thumb clusters
+
+Each hand now has one 1.6 mm rigid three-key thumb PCB, with fanned outer keys and four wire pads between the home and far keys. All thumb switches share one plane. `flat_thumb.json` controls spacing, fan angles and the whole cluster pose; both PCB and switch-seat geometry use it. The imported chassis remains an adjustable example.
+
+There are no thumb flex bridges, inter-key wires or LEDs. See [flat thumb construction](docs/flat-thumb-construction.md) for wiring and printable fit parts. The small custom trackball remains beside the right thumbs pending a proposed preassembled module revision.
+
+Finger bending is still an explicit prototype gate. A routed transverse coupon, printable combined-motion jig and beam-mode screen are now available: [finger bending revision](docs/finger-bend-coupon.md). The full finger files still use the legacy bridges and are not mechanically released.
+
+## Build
+
+Prerequisites: BAML CLI (`baml`), KiCad 10 with its matching `pcbnew` Python and wxPython. `v4/run` defaults to the macOS KiCad installation; override `KICAD_PYTHON`, `KICAD_ROOT` and `KICAD_CLI` for another installation. Install the isolated geometry dependencies once with `python3 v4/tools/setup_geometry.py`. Ordinary cached builds then need no Java or network access.
+
+```sh
+make v4
+make v4-test
+# Fast rebuild: rejects stale geometry instead of silently reusing it.
+v4/run --reuse-geometry
+# Export a changed neighboring chassis configuration first:
+python3 v4/tools/export_chassis.py ../dactyl-keyboard
+```
+
+Supported mechanical configuration: standard five-column, three-row MINIDOX. Change `config.json` and export the chassis again when altering its geometry. The export includes source hashes and the upstream placement functions used to calculate key frames. It does not import the adjacent project's CAD runtime or modify that project.
+
+Outputs:
+
+| Artifact | Purpose |
+|---|---|
+| `output_v4/seeded/all.kicad_pcb` | Combined labeled overview, grouped by board; rebuilt after a successful full build |
+| `output_v4/seeded/*.kicad_pcb` (excluding `all`) | Six native routed boards: two fingers, two flat thumbs, pod, trackball |
+| `output_v4/seeded/report-all.json` | Metrics, DRC results, explicitly accepted legacy warnings, bend checks |
+| `output_v4/electrical-contract.json` | Cross-board wire assignments, diode polarity and sensor pinout checks |
+| `output_v4/assembly.json` | Individual key frames, nominal collision checks, wiring graph |
+| `output_v4/mechanical/flat-thumb/` | Watertight switch-plate and PCB alignment spacer STL files |
+| `output_v4/fabrication/thumb_l/`, `thumb_r/` | Flat cluster layout, BOM and Gerber/drill files |
+| `output_v4/assembly.scad` | Rigid-island preview and PCB seating relief subtraction modules |
+| `output_v4/trackball-carrier.scad` | Prototype two-piece carrier; select `part="base"` or `part="lid"` |
+| `output_v4/chassis-right.scad` | New thumb fit assembly preview with trackball; not a finished chassis |
+| `output_v4/wiring.md`, `pinout.txt`, `firmware-pinout.json` | Assembly and firmware connections |
+
+The combined overview keeps each board’s nets separate and prefixes component references with the board name. It is a flat review layout, not a fabrication panel or a 3D assembly. Manufacture the individual files; use `wiring.md` for inter-board connections. A single-board build updates only that board; run the full build to refresh `all`.
+
+Open `chassis-right.scad` in OpenSCAD to review the new thumb fit assembly. The STL fit parts are already rendered under `mechanical/flat-thumb/`; they do not require OpenSCAD.
+
+## Routing policy
+
+**Finger inter-column bridges remain mechanically unqualified.** The chassis requires predominantly Y-axis rotation, involving twisting of the long bridge legs that the existing scalar length formulas do not evaluate. See [finger bridge review](docs/finger-bridge-review.md) for the measured rotations, the short index bridge explanation and the missing validation.
+
+Use the deterministic template build as the accepted baseline. Copper and placement are reproducible; native KiCad UUIDs and serialization order can differ between builds, so compare geometry and reports rather than raw file hashes. The finger topology still uses selected legacy BAML routing primitives; v4 stages and modifies a copy, with guarded overrides. This is a migration to a replaceable router interface, not a claim that all legacy routing has been discarded.
+
+Finger boards use the matrix-only seed routing, checked against the native footprints and protected bend regions. Flat thumb clusters use deterministic routing with three vias each. The trackball replays its validated route snapshot; the pod uses the matrix seed plus its seven direct trackball connections. Freerouting is optional regeneration tooling.
+
+```sh
+# Optional, networked tool installation. Pinned hashes are checked.
+# This bundled runtime is macOS Apple Silicon; other platforms may set
+# FREEROUTING_JAVA to their Java 25 executable.
+python3 v4/tools/setup_router.py
+v4/run --reuse-geometry --router freerouting --board trackball
+make v4-benchmark  # experimental finger candidate; failure is not an accepted build
+```
+
+### Worker limits and cleanup
+
+Both `v4/run` and direct `v4/tools/build_thumbs.py` invocations use a
+supervisor that starts before the native KiCad libraries load. Only one build
+or routing worker can run per checkout. Workers run at reduced CPU priority;
+this is not a hard CPU-percentage cap.
+
+Default limits, optionally overridden in `config.json` under `router`:
+
+| Setting | Default |
+|---|---:|
+| `job_timeout_seconds` | 900 seconds for the entire invocation |
+| `completion_timeout_seconds` | 300 seconds per local completion stage |
+| `no_progress_seconds` | 120 seconds without a better connectivity/cleanup result |
+| `no_progress_iterations` | 25 iterations without a better result |
+
+Individual native DRC calls also have a 60-second timeout. Existing Freerouting
+calls retain their configured timeout. Rip-up cycles do not reset the best
+result used by the progress checks. A timeout, worker failure, or supervisor
+interrupt terminates its process group, including remaining child processes;
+children that ignore termination are killed after a two-second grace period.
+The supervisor never restarts failed jobs automatically.
+
+`output_v4/native-job-status.json` records the latest supervised job's outcome.
+Saved routing checkpoints remain available for inspection; a stopped job does
+not make them accepted boards. The overall deadline is enforced from another
+process, so a blocked native call cannot bypass it. Keep jobs stopped while
+investigating a crash; the safeguards do not fix KiCad's native binding bugs.
+
+Router candidates go to `output_v4/optimized`, preserving the baseline. The router runs locally, with analytics and its API server disabled. `routes/*.json` contain reviewable copper from validated runs, guarded by fingerprints of pad placement, footprint cutouts and routing rules. A changed placement requires rerouting, DRC review and explicit recapture using `rosebear.route_cache.capture`; builds never silently rewrite that source artifact. `--mode fresh` is an experimental finger routing input, not a manufacturing output.
+
+DRC refills and saves zones. Every unconnected item or unexpected violation fails the build. Only the two inherited pod `SW_SPST_SKQG_WithoutStem` library-mismatch warnings for SW1/SW2 are accepted and retained in reports. No schematic parity check is available: the independent electrical contract checks supplement board connectivity DRC.
+
+## Trackball parts and firmware
+
+| Part | Quantity | Notes |
+|---|---:|---|
+| Small BlackBerry-style trackball assembly | 1 | Nominal 5.5 mm ball; verify your actual assembly |
+| DRV5033FAQDBZR | 4 | SOT-23 Hall switches; 3.3 V supply |
+| SparkFun COM-00097 tactile switch | 1 | Center click; reference pad geometry |
+| 100 nF 0603 capacitor | 4 | One per Hall sensor |
+| 10 kΩ 0603 resistor | 5 | Pullups for four motion outputs and click |
+| Flexible insulated wire | 7 conductors | Direct trackball-to-pod harness |
+| M2 bolts/nuts | 4 sets | Carrier through-fasteners; length depends on the fitted housing height |
+
+The DRV5033 has **pin 1 supply, pin 2 output, pin 3 ground**; it is not pin-compatible with the A1104 assumption in the old branch. See the [TI datasheet](https://www.ti.com/lit/ds/symlink/drv5033.pdf). Direction inputs use GPIO32/26/27/28 and click uses GPIO29. These are four independent direction pulse inputs, **not quadrature pairs**. Debounce click and calibrate direction mapping in the actual mounted orientation. This repository emits the pin map; it does not implement or flash the separate firmware repository.
+
+The old `.claude/worktrees/trackball` work remains separate. The trackball added here belongs to **v4**, alongside the connected thumb-cluster design.
+
+## Mechanical verification boundary
+
+The thumb switch frames are coplanar by construction. Conservative checks cover board bounds and the custom trackball against keycap envelopes. They do not establish fit in the old case. The generated plate and alignment spacer are physical fit coupons; final retention and a new complete chassis remain to be designed after the fit trial.
+
+Finger bridges remain unqualified; the [transverse coupon and beam screen](docs/finger-bend-coupon.md) are a construction experiment, not a released replacement. The trackball carrier likewise requires actual-part retention and sensor tests.
+
+## Source map and attribution
+
+- `rosebear/mechanical.py`: chassis transform export and developed well parameters.
+- `rosebear/seed.py`, `tools/seed.baml`: isolated legacy geometry/templates adapter with cache invalidation.
+- `rosebear/pcb.py`: native footprint placement, solder pads, local routing, DRC.
+- `rosebear/routing.py`, `route_cache.py`: optional autorouter and deterministic copper replay.
+- `rosebear/assembly.py`, `mount.py`: transformed assembly, harness and prototype carrier.
+- `rosebear/validate.py`, `thumb_checks.py`: electrical contracts and protected-flex checks.
+- `thumb_geometry.py`, `thumb_mechanical.py`: finite-radius pattern and folded clearance model.
+- `flat_thumb.py`, `flat_thumb.json`: current shared thumb layout, routing and printable fit geometry.
+- `thumb_artifacts.py`, `finger_artifacts.py`: manufacturing review exports.
+
+Trackball package geometry and sensor placement derive from [SparkFun's Blackberry Trackballer Breakout](https://github.com/sparkfun/Blackberry_Trackballer_Breakout), licensed CC BY-SA 4.0. The reference files and attribution are in `reference/`. Derived trackball hardware, footprint files, routing artifact and generated trackball hardware are distributed under the same license. See [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/).

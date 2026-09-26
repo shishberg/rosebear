@@ -1,0 +1,6 @@
+#!/bin/sh
+set -eu
+ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+# KiCad's own Python has pcbnew and matching native libraries.
+PYTHON=${KICAD_PYTHON:-/Applications/KiCad/KiCad.app/Contents/Frameworks/Python.framework/Versions/Current/bin/python3}
+exec "$PYTHON" "$ROOT/v4/tools/build.py" "$@"

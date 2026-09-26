@@ -1,0 +1,288 @@
+(footprint "Key_Socket_MX"
+	(version 20260206)
+	(generator "pcbnew")
+	(generator_version "10.0")
+	(layer "F.Cu")
+	(descr "Cherry MX keyswitch, 1.00u keycap, Kailh CPG151101S11 hotswap socket on the back. Copper from ergogen mx.js; outlines from KiCad SW_Cherry_MX_1.00u_PCB.")
+	(tags "Cherry MX keyswitch 1.00u PCB")
+	(property "Reference" "SW1"
+		(at 0 -7.874 0)
+		(layer "F.Fab")
+		(uuid "5da3a137-90cb-4b3e-9c61-6db49f24ccdd")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "Value" "CPG151101S11"
+		(at 0 7.874 0)
+		(layer "F.Fab")
+		(uuid "1bd13c2b-125a-498c-8560-c398cc08a63b")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "Datasheet" ""
+		(at 2.54 -5.08 0)
+		(unlocked yes)
+		(layer "F.Fab")
+		(hide yes)
+		(uuid "07d69258-2cdc-4a09-8980-064f4fe3c9d6")
+		(effects
+			(font
+				(size 1.27 1.27)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "Description" ""
+		(at 2.54 -5.08 0)
+		(unlocked yes)
+		(layer "F.Fab")
+		(hide yes)
+		(uuid "9d43598d-9ec0-486e-84ed-463507f5a1d0")
+		(effects
+			(font
+				(size 1.27 1.27)
+				(thickness 0.15)
+			)
+		)
+	)
+	(attr through_hole)
+	(duplicate_pad_numbers_are_jumpers no)
+	(fp_line
+		(start -9.525 -9.525)
+		(end 9.525 -9.525)
+		(stroke
+			(width 0.15)
+			(type solid)
+		)
+		(layer "Dwgs.User")
+		(uuid "ec8670cb-2865-49f0-84cb-d50f7e866a88")
+	)
+	(fp_line
+		(start -9.525 9.525)
+		(end -9.525 -9.525)
+		(stroke
+			(width 0.15)
+			(type solid)
+		)
+		(layer "Dwgs.User")
+		(uuid "099569d7-3b86-4299-81b4-9784376f69db")
+	)
+	(fp_line
+		(start 9.525 -9.525)
+		(end 9.525 9.525)
+		(stroke
+			(width 0.15)
+			(type solid)
+		)
+		(layer "Dwgs.User")
+		(uuid "298c0ce2-700a-4da8-b7a1-1c1ff2e5327e")
+	)
+	(fp_line
+		(start 9.525 9.525)
+		(end -9.525 9.525)
+		(stroke
+			(width 0.15)
+			(type solid)
+		)
+		(layer "Dwgs.User")
+		(uuid "68e90541-375a-4ec2-9b81-58938fcf2ad9")
+	)
+	(fp_line
+		(start -6.6 -6.6)
+		(end 6.6 -6.6)
+		(stroke
+			(width 0.05)
+			(type solid)
+		)
+		(layer "F.CrtYd")
+		(uuid "b8701954-35ab-427c-bdee-00c18692a4ed")
+	)
+	(fp_line
+		(start -6.6 6.6)
+		(end -6.6 -6.6)
+		(stroke
+			(width 0.05)
+			(type solid)
+		)
+		(layer "F.CrtYd")
+		(uuid "ab099d13-d310-4442-81b9-9a944b8fe553")
+	)
+	(fp_line
+		(start 6.6 -6.6)
+		(end 6.6 6.6)
+		(stroke
+			(width 0.05)
+			(type solid)
+		)
+		(layer "F.CrtYd")
+		(uuid "736c449f-c3cf-44bf-af7f-10def852772e")
+	)
+	(fp_line
+		(start 6.6 6.6)
+		(end -6.6 6.6)
+		(stroke
+			(width 0.05)
+			(type solid)
+		)
+		(layer "F.CrtYd")
+		(uuid "e9b5bafc-1bac-45a6-bd83-17dfd0a327cc")
+	)
+	(fp_line
+		(start -6.985 -6.985)
+		(end 6.985 -6.985)
+		(stroke
+			(width 0.12)
+			(type solid)
+		)
+		(layer "F.Fab")
+		(uuid "29df7074-41df-498a-8b4b-512100dbdd3a")
+	)
+	(fp_line
+		(start -6.985 6.985)
+		(end -6.985 -6.985)
+		(stroke
+			(width 0.12)
+			(type solid)
+		)
+		(layer "F.Fab")
+		(uuid "17ddcac0-f38c-4bf1-828c-6316ff888f9c")
+	)
+	(fp_line
+		(start -6.35 -6.35)
+		(end 6.35 -6.35)
+		(stroke
+			(width 0.1)
+			(type solid)
+		)
+		(layer "F.Fab")
+		(uuid "632b85a2-11a4-43f5-9acc-9b5a9ab2148f")
+	)
+	(fp_line
+		(start -6.35 6.35)
+		(end -6.35 -6.35)
+		(stroke
+			(width 0.1)
+			(type solid)
+		)
+		(layer "F.Fab")
+		(uuid "f63773cf-adfd-4372-9664-95ec132c1d00")
+	)
+	(fp_line
+		(start 6.35 -6.35)
+		(end 6.35 6.35)
+		(stroke
+			(width 0.1)
+			(type solid)
+		)
+		(layer "F.Fab")
+		(uuid "f974e1f9-79bc-4924-88f9-f270c0497e7b")
+	)
+	(fp_line
+		(start 6.35 6.35)
+		(end -6.35 6.35)
+		(stroke
+			(width 0.1)
+			(type solid)
+		)
+		(layer "F.Fab")
+		(uuid "2ed8abba-ebeb-4c4b-81b1-d2e3c70f8b71")
+	)
+	(fp_line
+		(start 6.985 -6.985)
+		(end 6.985 6.985)
+		(stroke
+			(width 0.12)
+			(type solid)
+		)
+		(layer "F.Fab")
+		(uuid "68d488f0-e024-4365-be94-4cc0fbb9eb72")
+	)
+	(fp_line
+		(start 6.985 6.985)
+		(end -6.985 6.985)
+		(stroke
+			(width 0.12)
+			(type solid)
+		)
+		(layer "F.Fab")
+		(uuid "18d02917-c532-4165-a93d-4bdb41f1e05c")
+	)
+	(fp_text user "${REFERENCE}"
+		(at 0 -7.874 0)
+		(layer "F.Fab")
+		(uuid "80c600a7-dc00-423d-a5f6-f9f012d5090b")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+		)
+	)
+	(pad "" np_thru_hole circle
+		(at -5.08 0)
+		(size 1.7 1.7)
+		(drill 1.7)
+		(layers "*.Cu" "*.Mask")
+		(uuid "b208a9e3-89b7-48d4-ad26-d0e4cfd23eb0")
+	)
+	(pad "" np_thru_hole circle
+		(at -3.81 -2.54)
+		(size 3 3)
+		(drill 3)
+		(layers "*.Cu" "*.Mask")
+		(uuid "f6142a1c-ab2b-4422-89c7-d351c89113d4")
+	)
+	(pad "" np_thru_hole circle
+		(at 0 0)
+		(size 4 4)
+		(drill 4)
+		(layers "*.Cu" "*.Mask")
+		(uuid "6d7e9f8e-7842-405c-9094-a7faebcea807")
+	)
+	(pad "" np_thru_hole circle
+		(at 2.54 -5.08)
+		(size 3 3)
+		(drill 3)
+		(layers "*.Cu" "*.Mask")
+		(uuid "c96676d8-2124-4cc0-aa39-9d5d518cf63b")
+	)
+	(pad "" np_thru_hole circle
+		(at 5.08 0)
+		(size 1.7 1.7)
+		(drill 1.7)
+		(layers "*.Cu" "*.Mask")
+		(uuid "6b5628c4-45ca-4b7f-8b07-8f82c0c18983")
+	)
+	(pad "1" smd rect
+		(at 5.842 -5.08)
+		(size 2.55 2.5)
+		(layers "B.Cu" "B.Mask" "B.Paste")
+		(uuid "076fa1db-9958-4f21-ae80-08dc734a5d48")
+	)
+	(pad "2" smd rect
+		(at -7.085 -2.54)
+		(size 2.55 2.5)
+		(layers "B.Cu" "B.Mask" "B.Paste")
+		(uuid "bd314600-39f8-4695-84ec-8d10b184bb5d")
+	)
+	(embedded_fonts no)
+	(model "${KICAD10_3DMODEL_DIR}/Button_Switch_Keyboard.3dshapes/SW_Cherry_MX_1.00u_PCB.step"
+		(offset
+			(xyz 0 0 0)
+		)
+		(scale
+			(xyz 1 1 1)
+		)
+		(rotate
+			(xyz 0 0 0)
+		)
+	)
+)

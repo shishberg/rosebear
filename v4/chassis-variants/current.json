@@ -1,0 +1,535 @@
+{
+  "schema": 1,
+  "units": "mm and degrees",
+  "description": "Individual RGB 1U tiles; dimensions marked provisional must be measured before a full print.",
+  "geometry": {
+    "row_pitch_mm": 24.5,
+    "column_pitch_mm": 23,
+    "tent_deg": 10,
+    "columns": [
+      {
+        "name": "inner",
+        "offset_mm": [
+          0,
+          0,
+          0
+        ],
+        "rotation_deg": [
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "name": "index",
+        "offset_mm": [
+          0,
+          0,
+          0
+        ],
+        "rotation_deg": [
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "name": "middle",
+        "offset_mm": [
+          0,
+          3,
+          0
+        ],
+        "rotation_deg": [
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "name": "ring",
+        "offset_mm": [
+          0,
+          0,
+          0
+        ],
+        "rotation_deg": [
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "name": "pinky",
+        "offset_mm": [
+          0,
+          -6,
+          0
+        ],
+        "rotation_deg": [
+          0,
+          0,
+          0
+        ]
+      }
+    ],
+    "key_overrides": {},
+    "thumb": {
+      "position_mm": [
+        -45,
+        -55,
+        0
+      ],
+      "rotation_deg": [
+        5,
+        -24,
+        15
+      ],
+      "keys": [
+        {
+          "name": "far"
+        },
+        {
+          "name": "home",
+          "rotation_deg": [
+            0,
+            0,
+            -90
+          ]
+        },
+        {
+          "name": "near"
+        }
+      ],
+      "arc": {
+        "radius_mm": 130,
+        "step_deg": 10
+      }
+    }
+  },
+  "switch": {
+    "cutout_mm": [
+      14,
+      14
+    ],
+    "cutout_clearance_mm": 0.15,
+    "clip_land_thickness_mm": 1.5,
+    "clip_width_mm": 5,
+    "clip_relief_depth_mm": 1.2,
+    "body_mm": [
+      14,
+      14,
+      5
+    ],
+    "body_below_plate_mm": 5,
+    "keycap_mm": [
+      18,
+      18,
+      9
+    ],
+    "keycap_bottom_above_plate_mm": 4,
+    "travel_mm": 4,
+    "keycap_overrides_mm": {
+      "thumb_home": [
+        27.525,
+        18,
+        9
+      ]
+    },
+    "keycap_clearance_mm": 0.3,
+    "keycap_clearance_overrides_mm": {
+      "thumb_home": 2.5
+    }
+  },
+  "tile": {
+    "provisional": true,
+    "size_mm": [
+      19,
+      19,
+      1.6
+    ],
+    "plate_top_to_pcb_top_mm": 5,
+    "clearance_mm": 0.35,
+    "component_clearance_mm": 0.3,
+    "components": [
+      {
+        "name": "hotswap socket",
+        "size_mm": [
+          16,
+          6,
+          2.5
+        ],
+        "center_mm": [
+          0,
+          4,
+          -2.85
+        ]
+      },
+      {
+        "name": "RGB LED",
+        "size_mm": [
+          3.5,
+          3.5,
+          1.6
+        ],
+        "center_mm": [
+          0,
+          -4.5,
+          -2.4
+        ]
+      },
+      {
+        "name": "diode",
+        "size_mm": [
+          3.6,
+          1.8,
+          1.3
+        ],
+        "center_mm": [
+          -5,
+          -4.5,
+          -2.25
+        ]
+      }
+    ],
+    "support_width_mm": 1.6,
+    "support_corner_length_mm": 2.6,
+    "retaining_tie_width_mm": 2.5,
+    "retaining_tie_thickness_mm": 1,
+    "retaining_tie_y_mm": 0
+  },
+  "shell": {
+    "seat_outer_mm": [
+      21.2,
+      21.2
+    ],
+    "deck_thickness_mm": 3,
+    "wall_mm": 2,
+    "bottom_clearance_mm": 3,
+    "base_thickness_mm": 2,
+    "base_gap_mm": 0.2,
+    "fastener_pilot_mm": 1.7,
+    "fastener_clearance_mm": 2.3,
+    "boss_diameter_mm": 6,
+    "boss_height_mm": 6,
+    "feet_diameter_mm": 8,
+    "feet_recess_mm": 0.6,
+    "fasteners_xy_mm": [
+      [
+        -44,
+        27
+      ],
+      [
+        44,
+        19
+      ],
+      [
+        44,
+        -36
+      ],
+      [
+        -84,
+        -40
+      ]
+    ],
+    "extra_links": [
+      [
+        "matrix_inner_bottom",
+        "thumb_near"
+      ],
+      [
+        "matrix_index_bottom",
+        "thumb_near"
+      ],
+      [
+        "matrix_inner_bottom",
+        "thumb_home"
+      ]
+    ],
+    "rim_radius_mm": 7
+  },
+  "wiring": {
+    "channel_width_mm": 4,
+    "channel_depth_mm": 1
+  },
+  "adapter": {
+    "provisional": true,
+    "position_mm": [
+      -73,
+      -19,
+      -9
+    ],
+    "rotation_deg": [
+      0,
+      0,
+      -90
+    ],
+    "board_mm": [
+      30,
+      16,
+      1.6
+    ],
+    "component_height_mm": 4,
+    "solder_clearance_mm": 4,
+    "clearance_mm": 0.5,
+    "retaining_tie_width_mm": 2.5
+  },
+  "ribbon": {
+    "opening_mm": [
+      28,
+      4
+    ],
+    "height_above_base_mm": null,
+    "edge_radius_mm": 1,
+    "bend_space_mm": 8,
+    "exit_side": "inner",
+    "exit_y_mm": -19
+  },
+  "trackball": {
+    "enabled_right": true,
+    "enabled_left": false,
+    "provisional": true,
+    "position_mm": [
+      5,
+      -54,
+      13
+    ],
+    "rotation_deg": [
+      0,
+      0,
+      90
+    ],
+    "board_mm": [
+      22,
+      28,
+      1.6
+    ],
+    "housing_mm": [
+      10.7,
+      9.3,
+      4.5
+    ],
+    "ball_diameter_mm": 5.5,
+    "ball_center_above_board_mm": 3.25,
+    "board_top_below_deck_mm": 4,
+    "rear_component_depth_mm": 2,
+    "clearance_mm": 0.4,
+    "carrier_wall_mm": 2,
+    "mount_holes_xy_mm": [],
+    "mount_hole_mm": 2.2,
+    "opening_mm": [
+      11.5,
+      10.1
+    ],
+    "opening_radius_mm": 1,
+    "rail_top_below_deck_mm": 2.5,
+    "rail_end_allowance_mm": 0.5
+  },
+  "surface": {
+    "type": "blended_paraboloid",
+    "radii_mm": [
+      250,
+      78
+    ],
+    "origin_mm": [
+      0,
+      0,
+      0
+    ],
+    "cross_coefficient_per_mm": 0,
+    "tilt_deg": [
+      0,
+      0
+    ],
+    "palm_blend_y_mm": [
+      -43,
+      -35
+    ],
+    "thumb_blend_x_mm": [
+      -16,
+      -5
+    ],
+    "adapter_blend_x_mm": [
+      -68,
+      -57
+    ],
+    "mesh_pitch_mm": 2.5,
+    "adapter_blend_y_mm": [
+      -50,
+      -34
+    ],
+    "outer_palm_shift_mm": 12,
+    "outer_palm_blend_x_mm": [
+      10,
+      30
+    ],
+    "shoulder_samples": 21,
+    "perimeter_samples": 900,
+    "perimeter_smoothing_mm": 2.5,
+    "outline_controls": [
+      {
+        "anchor": "matrix_inner_top",
+        "offset_mm": [
+          -16.9791,
+          13.0828,
+          0.0
+        ]
+      },
+      {
+        "anchor": "matrix_inner_top",
+        "offset_mm": [
+          -4.8913,
+          15.1761,
+          0.0
+        ]
+      },
+      {
+        "anchor": "matrix_index_top",
+        "offset_mm": [
+          -2.5264,
+          18.8599,
+          0.0
+        ]
+      },
+      {
+        "anchor": "matrix_middle_top",
+        "offset_mm": [
+          0.0,
+          15.1627,
+          0.0
+        ]
+      },
+      {
+        "anchor": "matrix_ring_top",
+        "offset_mm": [
+          2.4688,
+          16.7644,
+          0.0
+        ]
+      },
+      {
+        "anchor": "matrix_pinky_top",
+        "offset_mm": [
+          4.7754,
+          16.9429,
+          0.0
+        ]
+      },
+      {
+        "anchor": "matrix_pinky_top",
+        "offset_mm": [
+          15.7883,
+          12.8356,
+          -0.0
+        ]
+      },
+      {
+        "anchor": "matrix_pinky_bottom",
+        "offset_mm": [
+          16.3486,
+          -16.6067,
+          0.0
+        ]
+      },
+      {
+        "anchor": "matrix_ring_bottom",
+        "offset_mm": [
+          3.545,
+          -19.3838,
+          0.0
+        ]
+      },
+      {
+        "anchor": "trackball",
+        "offset_mm": [
+          -15.5,
+          -19.5,
+          0.0
+        ]
+      },
+      {
+        "anchor": "trackball",
+        "offset_mm": [
+          -16.0,
+          15.0,
+          0.0
+        ]
+      },
+      {
+        "anchor": "thumb_near",
+        "pcb_edge": [
+          0,
+          -1
+        ]
+      },
+      {
+        "anchor": "thumb_near",
+        "pcb_edge": [
+          -1.0,
+          -1.0
+        ]
+      },
+      {
+        "anchor": "thumb_home",
+        "pcb_edge": [
+          1.0,
+          0.0
+        ]
+      },
+      {
+        "anchor": "thumb_far",
+        "pcb_edge": [
+          1.0,
+          -1.0
+        ]
+      },
+      {
+        "anchor": "thumb_far",
+        "pcb_edge": [
+          -1.0,
+          -1.0
+        ]
+      },
+      {
+        "anchor": "thumb_far",
+        "pcb_edge": [
+          -1.0,
+          0.0
+        ]
+      },
+      {
+        "anchor": "thumb_far",
+        "pcb_edge": [
+          -1.0,
+          1.0
+        ]
+      },
+      {
+        "anchor": "adapter",
+        "offset_mm": [
+          16.0,
+          -12.0,
+          0.0
+        ]
+      },
+      {
+        "anchor": "adapter",
+        "offset_mm": [
+          -23.0,
+          -12.0,
+          0.0
+        ]
+      },
+      {
+        "anchor": "matrix_inner_home",
+        "offset_mm": [
+          -17.2854,
+          10.0,
+          0.0
+        ]
+      }
+    ],
+    "boolean_tolerance_mm": 0.001,
+    "thumb_wall_gap_mm": 2
+  }
+}

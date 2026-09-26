@@ -1,0 +1,1074 @@
+{
+  "cap_top_height": 17.799999999999997,
+  "column_radius": 252.7874510264769,
+  "config": {
+    "ENGINE": "cadquery",
+    "alpha": 0.26179916666666664,
+    "ball_diameter": 34.0,
+    "ball_gap": 1.0,
+    "ball_side": "both",
+    "ball_wall_thickness": 3,
+    "base_offset": 3.0,
+    "base_rim_thickness": 5.0,
+    "base_thickness": 3.0,
+    "beta": 0.08726638888888888,
+    "carbonfet_separable_thumb_screw_xy_locations": [
+      [
+        -48,
+        -37
+      ],
+      [
+        -52,
+        10
+      ],
+      [
+        12,
+        -35
+      ]
+    ],
+    "carbonfet_thumb_screw_xy_locations": [
+      [
+        -48,
+        -37
+      ]
+    ],
+    "centercol": 3,
+    "centerrow_offset": 1.5,
+    "clip_thickness": 1.1,
+    "clip_undercut": 1.0,
+    "column_offsets": [
+      [
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        2.82,
+        -4.5
+      ],
+      [
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        -6,
+        5
+      ],
+      [
+        0,
+        -6,
+        5
+      ],
+      [
+        0,
+        -6,
+        5
+      ]
+    ],
+    "column_style": "standard",
+    "column_style_gt5": "orthographic",
+    "config_name": "DM",
+    "controller_mount_type": "USB_WALL",
+    "default_1U_cluster": true,
+    "default_separable_thumb_screw_xy_locations": [
+      [
+        -21,
+        -58
+      ]
+    ],
+    "default_thumb_screw_xy_locations": [
+      [
+        -21,
+        -58
+      ]
+    ],
+    "external_holder_height": 12.5,
+    "external_holder_width": 28.75,
+    "external_holder_xoffset": -5.0,
+    "external_holder_yoffset": -4.5,
+    "extra_height": 1.0,
+    "extra_width": 2.5,
+    "finger_trackball_in_wall": false,
+    "first_1_5U_row": 0,
+    "fixed_angles": [
+      0.17453277777777776,
+      0.17453277777777776,
+      0,
+      0,
+      0,
+      -0.26179916666666664,
+      -0.26179916666666664
+    ],
+    "fixed_tenting": 0.0,
+    "fixed_x": [
+      -41.5,
+      -22.5,
+      0,
+      20.3,
+      41.4,
+      65.5,
+      89.6
+    ],
+    "fixed_z": [
+      12.1,
+      8.3,
+      0,
+      5,
+      10.7,
+      14.5,
+      17.5
+    ],
+    "hole_keyswitch_height": 14.0,
+    "hole_keyswitch_width": 14.0,
+    "keyboard_z_offset": 11,
+    "last_1_5U_row": 5,
+    "left_wall_lower_x_offset": 0,
+    "left_wall_lower_y_offset": 0,
+    "left_wall_lower_z_offset": 0,
+    "left_wall_x_offset": 12,
+    "left_wall_z_offset": 3,
+    "mini_index_key": true,
+    "mini_separable_thumb_screw_xy_locations": [
+      [
+        -29,
+        -52
+      ],
+      [
+        -62,
+        10
+      ],
+      [
+        12,
+        -25
+      ]
+    ],
+    "mini_thumb_screw_xy_locations": [
+      [
+        -29,
+        -52
+      ]
+    ],
+    "minidox_Usize": 1.6,
+    "minidox_separable_thumb_screw_xy_locations": [
+      [
+        -37,
+        -34
+      ],
+      [
+        -62,
+        12
+      ],
+      [
+        10,
+        -25
+      ]
+    ],
+    "minidox_thumb_screw_xy_locations": [
+      [
+        -37,
+        -34
+      ]
+    ],
+    "ncols": 5,
+    "notch_width": 6.0,
+    "nrows": 3,
+    "nub_keyswitch_height": 14.4,
+    "nub_keyswitch_width": 14.4,
+    "oled_center_row": 1.25,
+    "oled_configurations": {
+      "CLIP": {
+        "oled_clip_extension": 5.0,
+        "oled_clip_overhang": 1.0,
+        "oled_clip_thickness": 1.5,
+        "oled_clip_undercut": 0.5,
+        "oled_clip_undercut_thickness": 2.5,
+        "oled_clip_width": 6.0,
+        "oled_clip_width_clearance": 0.5,
+        "oled_clip_y_gap": 0.2,
+        "oled_clip_z_gap": 0.2,
+        "oled_left_wall_lower_y_offset": 12.0,
+        "oled_left_wall_lower_z_offset": 5.0,
+        "oled_left_wall_x_offset_override": 24.0,
+        "oled_left_wall_z_offset_override": 0.0,
+        "oled_mount_bezel_chamfer": 2.0,
+        "oled_mount_bezel_thickness": 3.5,
+        "oled_mount_connector_hole": 6.0,
+        "oled_mount_cut_depth": 20.0,
+        "oled_mount_depth": 7.0,
+        "oled_mount_height": 39.0,
+        "oled_mount_location_xyz": [
+          -78.0,
+          20.0,
+          42.0
+        ],
+        "oled_mount_rim": 2.0,
+        "oled_mount_rotation_xyz": [
+          12.0,
+          0.0,
+          -6.0
+        ],
+        "oled_mount_width": 12.5,
+        "oled_screen_length": 24.5,
+        "oled_screen_start_from_conn_end": 6.5,
+        "oled_screen_width": 10.5,
+        "oled_thickness": 4.2
+      },
+      "SLIDING": {
+        "oled_edge_chamfer": 2.0,
+        "oled_edge_overlap_clearance": 2.5,
+        "oled_edge_overlap_connector": 5.5,
+        "oled_edge_overlap_end": 6.5,
+        "oled_edge_overlap_thickness": 2.5,
+        "oled_left_wall_lower_y_offset": 12.0,
+        "oled_left_wall_lower_z_offset": 5.0,
+        "oled_left_wall_x_offset_override": 24.0,
+        "oled_left_wall_z_offset_override": 0.0,
+        "oled_mount_cut_depth": 20.0,
+        "oled_mount_depth": 8.0,
+        "oled_mount_height": 25.0,
+        "oled_mount_location_xyz": [
+          -78.0,
+          10.0,
+          41.0
+        ],
+        "oled_mount_rim": 2.5,
+        "oled_mount_rotation_xyz": [
+          6.0,
+          0.0,
+          -3.0
+        ],
+        "oled_mount_width": 12.5,
+        "oled_thickness": 4.2
+      },
+      "UNDERCUT": {
+        "oled_left_wall_lower_y_offset": 12.0,
+        "oled_left_wall_lower_z_offset": 5.0,
+        "oled_left_wall_x_offset_override": 28.0,
+        "oled_left_wall_z_offset_override": 0.0,
+        "oled_mount_cut_depth": 20.0,
+        "oled_mount_depth": 6.0,
+        "oled_mount_height": 35.0,
+        "oled_mount_location_xyz": [
+          -80.0,
+          20.0,
+          45.0
+        ],
+        "oled_mount_rim": 3.0,
+        "oled_mount_rotation_xyz": [
+          13.0,
+          0.0,
+          -6.0
+        ],
+        "oled_mount_undercut": 1.0,
+        "oled_mount_undercut_thickness": 2.0,
+        "oled_mount_width": 15.0
+      }
+    },
+    "oled_mount_type": "NONE",
+    "oled_rotation_offset": [
+      0,
+      0,
+      0
+    ],
+    "oled_translation_offset": [
+      0,
+      0,
+      4
+    ],
+    "orbyl_separable_thumb_screw_xy_locations": [
+      [
+        -53,
+        -68
+      ],
+      [
+        -66,
+        8
+      ],
+      [
+        10,
+        -40
+      ]
+    ],
+    "orbyl_thumb_screw_xy_locations": [
+      [
+        -53,
+        -68
+      ]
+    ],
+    "other_thumb": "DEFAULT",
+    "pcb_height": 18.0,
+    "pcb_holder_offset": [
+      8.9,
+      0,
+      0
+    ],
+    "pcb_holder_size": [
+      34.6,
+      7,
+      4
+    ],
+    "pcb_hole_diameter": 2,
+    "pcb_hole_pattern_height": 14.3,
+    "pcb_hole_pattern_width": 14.3,
+    "pcb_mount_ref_offset": [
+      0,
+      -5,
+      0
+    ],
+    "pcb_screw_hole_size": [
+      0.5,
+      10
+    ],
+    "pcb_screw_x_offsets": [
+      -5.5,
+      7.75,
+      22
+    ],
+    "pcb_screw_y_offset": -2,
+    "pcb_thickness": 1.5,
+    "pcb_usb_hole_offset": [
+      15,
+      0,
+      4.5
+    ],
+    "pcb_usb_hole_size": [
+      7.5,
+      10.0,
+      4
+    ],
+    "pcb_width": 18.0,
+    "pinky_1_5U": false,
+    "plate_file": null,
+    "plate_holes": true,
+    "plate_holes_depth": 20.0,
+    "plate_holes_diameter": 1.6,
+    "plate_holes_height": 14.3,
+    "plate_holes_width": 14.3,
+    "plate_holes_xy_offset": [
+      0.0,
+      0.0
+    ],
+    "plate_offset": 0.0,
+    "plate_pcb_clear": false,
+    "plate_pcb_offset": [
+      0,
+      0,
+      0
+    ],
+    "plate_pcb_size": [
+      18.5,
+      18.5,
+      5
+    ],
+    "plate_rim": 2.0,
+    "plate_style": "NOTCH",
+    "plate_thickness": 5.1,
+    "post_adj": 0,
+    "post_size": 0.1,
+    "reduced_inner_cols": 0,
+    "reduced_outer_cols": 0,
+    "sa_double_length": 37.5,
+    "sa_length": 18.5,
+    "sa_profile_key_height": 12.7,
+    "save_dir": ".",
+    "screw_cbore_depth": 2.5,
+    "screw_cbore_diameter": 6.0,
+    "screw_hole_diameter": 3,
+    "screw_insert_bottom_radius": 1.25,
+    "screw_insert_height": 3.8,
+    "screw_insert_outer_radius": 4.25,
+    "screw_insert_top_radius": 1.25,
+    "screws_offset": "INSIDE",
+    "separable_thumb": false,
+    "show_caps": false,
+    "show_pcbs": false,
+    "skeletal": false,
+    "symmetry": "symmetric",
+    "tb_sensor_rotation_offset": [
+      0,
+      0,
+      0
+    ],
+    "tb_sensor_translation_offset": [
+      0,
+      0,
+      0
+    ],
+    "tb_socket_rotation_offset": [
+      0,
+      0,
+      0
+    ],
+    "tb_socket_translation_offset": [
+      0,
+      0,
+      2.0
+    ],
+    "tbcj_inner_diameter": 42,
+    "tbcj_outer_diameter": 53,
+    "tbcj_separable_thumb_screw_xy_locations": [
+      [
+        -40,
+        -75
+      ],
+      [
+        -63,
+        10
+      ],
+      [
+        15,
+        -40
+      ]
+    ],
+    "tbcj_thickness": 2,
+    "tbcj_thumb_screw_xy_locations": [
+      [
+        -40,
+        -75
+      ]
+    ],
+    "tbiw_ball_center_column": 0.2,
+    "tbiw_ball_center_row": 0.2,
+    "tbiw_left_wall_lower_x_offset": 0.0,
+    "tbiw_left_wall_lower_y_offset": 0.0,
+    "tbiw_left_wall_lower_z_offset": 0.0,
+    "tbiw_left_wall_x_offset_override": 50.0,
+    "tbiw_left_wall_z_offset_override": 0.0,
+    "tbiw_oled_center_row": 0.75,
+    "tbiw_oled_rotation_offset": [
+      0,
+      0,
+      0
+    ],
+    "tbiw_oled_translation_offset": [
+      -3.5,
+      0,
+      1.5
+    ],
+    "tbiw_rotation_offset": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "tbiw_top_wall_extension_cols": 4,
+    "tbiw_top_wall_y_offset_override": 50.0,
+    "tbiw_top_wall_z_offset_override": 0.0,
+    "tbiw_translational_offset": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "tbjs_Uheight": 1.2,
+    "tbjs_Uwidth": 1.2,
+    "tbjs_key_diameter": 70,
+    "tbjs_key_rotation_offsets": [
+      [
+        0.0,
+        0.0,
+        0.0
+      ],
+      [
+        0.0,
+        0.0,
+        0.0
+      ],
+      [
+        0.0,
+        0.0,
+        0.0
+      ],
+      [
+        0.0,
+        0.0,
+        0.0
+      ]
+    ],
+    "tbjs_key_translation_offsets": [
+      [
+        0.0,
+        0.0,
+        -8.0
+      ],
+      [
+        0.0,
+        0.0,
+        -8.0
+      ],
+      [
+        0.0,
+        0.0,
+        -8.0
+      ],
+      [
+        0.0,
+        0.0,
+        -8.0
+      ]
+    ],
+    "tbjs_rotation_offset": [
+      0,
+      -8,
+      0
+    ],
+    "tbjs_translation_offset": [
+      0,
+      0,
+      2
+    ],
+    "tenting_angle": 0.26179916666666664,
+    "thumb_offsets": [
+      6,
+      0,
+      -5
+    ],
+    "thumb_plate_bl_rotation": 0.0,
+    "thumb_plate_br_rotation": 0.0,
+    "thumb_plate_ml_rotation": 0.0,
+    "thumb_plate_mr_rotation": 0.0,
+    "thumb_plate_tl_rotation": 0.0,
+    "thumb_plate_tr_rotation": 0.0,
+    "thumb_style": "MINIDOX",
+    "trackball_hole_diameter": 36.5,
+    "trackball_hole_height": 40,
+    "trackball_in_wall": false,
+    "trackball_modular": false,
+    "trackball_modular_ball_height": 3.0,
+    "trackball_modular_clearance": 0.5,
+    "trackball_modular_lip_width": 3.0,
+    "trackball_modular_ring_height": 10.0,
+    "trackball_plate_thickness": 2,
+    "trackball_plate_width": 2,
+    "trrs_hole_size": [
+      3,
+      20
+    ],
+    "trrs_offset": [
+      0,
+      0,
+      1.5
+    ],
+    "undercut_keyswitch_height": 14.0,
+    "undercut_keyswitch_width": 14.0,
+    "undercut_transition": 0.2,
+    "wall_base_back_thickness": 4.5,
+    "wall_base_x_thickness": 4.5,
+    "wall_base_y_thickness": 4.5,
+    "wall_thickness": 4.5,
+    "wall_thinner_size": [
+      34,
+      7,
+      10
+    ],
+    "wall_x_offset": 5,
+    "wall_y_offset": 6,
+    "wall_z_offset": 15,
+    "web_thickness": 5.1,
+    "wire_post_diameter": 2.6,
+    "wire_post_height": 7,
+    "wire_post_overhang": 3.5
+  },
+  "generator_sha256": "ad73bf42efc18240548ef52130b1e0286c28e4d03b778279e9cc3a49ef78704b",
+  "keys": [
+    {
+      "axes": [
+        [
+          0.8660256249168441,
+          0.0,
+          -0.49999961698724604
+        ],
+        [
+          0.19134141638518543,
+          0.9238796594468397,
+          0.3314133932660184
+        ],
+        [
+          0.4619394758657478,
+          -0.3826831259154062,
+          0.800103459420427
+        ]
+      ],
+      "column": "inner",
+      "id": "matrix_inner_top",
+      "origin": [
+        -57.519897524704085,
+        34.664351428218744,
+        42.224918908684366
+      ],
+      "row": "top"
+    },
+    {
+      "axes": [
+        [
+          0.8660256249168441,
+          0.0,
+          -0.49999961698724604
+        ],
+        [
+          0.06526299130668889,
+          0.9914448758055947,
+          0.11303893225135653
+        ],
+        [
+          0.49572205816676984,
+          -0.13052608259971876,
+          0.8586166681401508
+        ]
+      ],
+      "column": "inner",
+      "id": "matrix_inner_home",
+      "origin": [
+        -60.58000450547215,
+        11.823364270274997,
+        36.92465272788128
+      ],
+      "row": "home"
+    },
+    {
+      "axes": [
+        [
+          0.8660256249168441,
+          0.0,
+          -0.49999961698724604
+        ],
+        [
+          -0.0652629913067102,
+          0.9914448758055947,
+          -0.11303893225135653
+        ],
+        [
+          0.49572205816676984,
+          0.13052608259971876,
+          0.8586166681401508
+        ]
+      ],
+      "column": "inner",
+      "id": "matrix_inner_bottom",
+      "origin": [
+        -60.58000450547215,
+        -11.823364270274997,
+        36.92465272788128
+      ],
+      "row": "bottom"
+    },
+    {
+      "axes": [
+        [
+          0.9063079427942924,
+          0.0,
+          -0.4226179277171944
+        ],
+        [
+          0.1617287496467057,
+          0.9238796594468397,
+          0.34682875659048307
+        ],
+        [
+          0.39044810713549793,
+          -0.3826831259154062,
+          0.8373194735427631
+        ]
+      ],
+      "column": "index",
+      "id": "matrix_index_top",
+      "origin": [
+        -38.492336839128555,
+        34.664351428218744,
+        32.31980756775779
+      ],
+      "row": "top"
+    },
+    {
+      "axes": [
+        [
+          0.9063079427942924,
+          0.0,
+          -0.4226179277171944
+        ],
+        [
+          0.055162662541341945,
+          0.9914448758055947,
+          0.11829682540193431
+        ],
+        [
+          0.4190023788587851,
+          -0.13052608259971876,
+          0.898554365785305
+        ]
+      ],
+      "column": "index",
+      "id": "matrix_index_home",
+      "origin": [
+        -41.07885096207448,
+        11.823364270274997,
+        26.773004793824736
+      ],
+      "row": "home"
+    },
+    {
+      "axes": [
+        [
+          0.9063079427942924,
+          0.0,
+          -0.4226179277171944
+        ],
+        [
+          -0.05516266254133484,
+          0.9914448758055947,
+          -0.11829682540196629
+        ],
+        [
+          0.4190023788587851,
+          0.13052608259971876,
+          0.898554365785305
+        ]
+      ],
+      "column": "index",
+      "id": "matrix_index_bottom",
+      "origin": [
+        -41.07885096207448,
+        -11.823364270274997,
+        26.773004793824736
+      ],
+      "row": "bottom"
+    },
+    {
+      "axes": [
+        [
+          0.9396927216282158,
+          0.0,
+          -0.3420198662635734
+        ],
+        [
+          0.13088523154691245,
+          0.9238796594468397,
+          0.35960454811264597
+        ],
+        [
+          0.3159851975676453,
+          -0.3826831259154062,
+          0.8681629916425777
+        ]
+      ],
+      "column": "middle",
+      "id": "matrix_middle_top",
+      "origin": [
+        -19.8385797774913,
+        37.484351428218744,
+        19.76408141346145
+      ],
+      "row": "top"
+    },
+    {
+      "axes": [
+        [
+          0.9396927216282194,
+          0.0,
+          -0.3420198662635734
+        ],
+        [
+          0.04464251331466684,
+          0.9914448758055947,
+          0.12265440980160491
+        ],
+        [
+          0.33909384383074226,
+          -0.13052608259971876,
+          0.931653533690131
+        ]
+      ],
+      "column": "middle",
+      "id": "matrix_middle_home",
+      "origin": [
+        -21.931816141592744,
+        14.643364270274997,
+        14.01295649349025
+      ],
+      "row": "home"
+    },
+    {
+      "axes": [
+        [
+          0.9396927216282194,
+          0.0,
+          -0.3420198662635734
+        ],
+        [
+          -0.04464251331465974,
+          0.9914448758055947,
+          -0.12265440980160314
+        ],
+        [
+          0.33909384383074226,
+          0.13052608259971876,
+          0.931653533690131
+        ]
+      ],
+      "column": "middle",
+      "id": "matrix_middle_bottom",
+      "origin": [
+        -21.931816141592744,
+        -9.003364270274997,
+        14.01295649349025
+      ],
+      "row": "bottom"
+    },
+    {
+      "axes": [
+        [
+          0.9659258835223428,
+          0.0,
+          -0.2588188315049358
+        ],
+        [
+          0.0990455994860826,
+          0.9238796594468397,
+          0.36964353650893145
+        ],
+        [
+          0.2391174539092189,
+          -0.3826831259154062,
+          0.8923992763195372
+        ]
+      ],
+      "column": "ring",
+      "id": "matrix_ring_top",
+      "origin": [
+        1.7845978313380217,
+        34.664351428218744,
+        17.66021566879049
+      ],
+      "row": "top"
+    },
+    {
+      "axes": [
+        [
+          0.9659258835223428,
+          0.0,
+          -0.25881883150493934
+        ],
+        [
+          0.03378260817937534,
+          0.9914448758055947,
+          0.12607852165784017
+        ],
+        [
+          0.2566046042575636,
+          -0.13052608259971876,
+          0.9576622676262208
+        ]
+      ],
+      "column": "ring",
+      "id": "matrix_ring_home",
+      "origin": [
+        0.20056999184733046,
+        11.823364270274997,
+        11.748538062152194
+      ],
+      "row": "home"
+    },
+    {
+      "axes": [
+        [
+          0.9659258835223428,
+          0.0,
+          -0.25881883150493934
+        ],
+        [
+          -0.03378260817937537,
+          0.9914448758055947,
+          -0.12607852165784017
+        ],
+        [
+          0.2566046042575636,
+          0.13052608259971876,
+          0.9576622676262208
+        ]
+      ],
+      "column": "ring",
+      "id": "matrix_ring_bottom",
+      "origin": [
+        0.20056999184733046,
+        -11.823364270274997,
+        11.748538062152194
+      ],
+      "row": "bottom"
+    },
+    {
+      "axes": [
+        [
+          0.9848077786117031,
+          0.0,
+          -0.17364803248493388
+        ],
+        [
+          0.06645217188039965,
+          0.9238796594468397,
+          0.37686931914493726
+        ],
+        [
+          0.16042988511581058,
+          -0.3826831259154062,
+          0.9098438751244018
+        ]
+      ],
+      "column": "pinky",
+      "id": "matrix_pinky_top",
+      "origin": [
+        24.021534698537188,
+        28.664351428218744,
+        17.846932686060477
+      ],
+      "row": "top"
+    },
+    {
+      "axes": [
+        [
+          0.9848077786116995,
+          0.0,
+          -0.17364803248493565
+        ],
+        [
+          0.022665597431409168,
+          0.9914448758055947,
+          0.12854310145591974
+        ],
+        [
+          0.17216245200092217,
+          -0.13052608259971876,
+          0.976382625758081
+        ]
+      ],
+      "column": "pinky",
+      "id": "matrix_pinky_home",
+      "origin": [
+        22.958770771625325,
+        5.823364270274997,
+        11.819693752953109
+      ],
+      "row": "home"
+    },
+    {
+      "axes": [
+        [
+          0.9848077786116995,
+          0.0,
+          -0.17364803248493565
+        ],
+        [
+          -0.022665597431409168,
+          0.9914448758055947,
+          -0.12854310145591974
+        ],
+        [
+          0.17216245200092217,
+          0.13052608259971876,
+          0.976382625758081
+        ]
+      ],
+      "column": "pinky",
+      "id": "matrix_pinky_bottom",
+      "origin": [
+        22.958770771625325,
+        -17.823364270274997,
+        11.819693752953109
+      ],
+      "row": "bottom"
+    },
+    {
+      "axes": [
+        [
+          0.23015283141246812,
+          -0.9446819479951927,
+          -0.23367860690452602
+        ],
+        [
+          0.9512512425641972,
+          0.16773125949652012,
+          0.25881904510251985
+        ],
+        [
+          -0.20530647265221091,
+          -0.28185500123242235,
+          0.9372337011478926
+        ]
+      ],
+      "column": "thumb",
+      "id": "thumb_near",
+      "origin": [
+        -41.42561551405379,
+        -35.18636815252535,
+        24.034114872987594
+      ],
+      "row": "bottom"
+    },
+    {
+      "axes": [
+        [
+          0.4776904960682202,
+          -0.8638643925522729,
+          -0.15984399033558105
+        ],
+        [
+          0.8342607166889735,
+          0.38902216108994025,
+          0.39073112848927494
+        ],
+        [
+          -0.27535585440605814,
+          -0.32000010853312943,
+          0.9065203163653308
+        ]
+      ],
+      "column": "thumb",
+      "id": "thumb_home",
+      "origin": [
+        -61.42561551405379,
+        -41.18636815252535,
+        17.034114872987594
+      ],
+      "row": "home"
+    },
+    {
+      "axes": [
+        [
+          0.6840428560253997,
+          -0.7242760234139354,
+          -0.08665802345032603
+        ],
+        [
+          0.6350796255926383,
+          0.5328950796029801,
+          0.5591929034707483
+        ],
+        [
+          -0.3588303781422866,
+          -0.4375466558466954,
+          0.8244960179889524
+        ]
+      ],
+      "column": "thumb",
+      "id": "thumb_far",
+      "origin": [
+        -79.42561551405379,
+        -51.18636815252535,
+        7.034114872987594
+      ],
+      "row": "top"
+    }
+  ],
+  "mount_height": 18.0,
+  "mount_width": 18.0,
+  "placement_source": "def column_offset(column: int) -> list:\n    return column_offsets[column]\n\ndef apply_key_geometry(\n        shape,\n        translate_fn,\n        rotate_x_fn,\n        rotate_y_fn,\n        column,\n        row,\n        column_style=column_style,\n):\n\n    debugprint('apply_key_geometry()')\n\n    column_angle = beta * (centercol - column)\n\n    if column_style == \"orthographic\":\n        column_z_delta = column_radius * (1 - np.cos(column_angle))\n        shape = translate_fn(shape, [0, 0, -row_radius])\n        shape = rotate_x_fn(shape, alpha * (centerrow - row))\n        shape = translate_fn(shape, [0, 0, row_radius])\n        shape = rotate_y_fn(shape, column_angle)\n        shape = translate_fn(\n            shape, [-(column - centercol) * column_x_delta, 0, column_z_delta]\n        )\n        shape = translate_fn(shape, column_offset(column))\n\n    elif column_style == \"fixed\":\n        shape = rotate_y_fn(shape, fixed_angles[column])\n        shape = translate_fn(shape, [fixed_x[column], 0, fixed_z[column]])\n        shape = translate_fn(shape, [0, 0, -(row_radius + fixed_z[column])])\n        shape = rotate_x_fn(shape, alpha * (centerrow - row))\n        shape = translate_fn(shape, [0, 0, row_radius + fixed_z[column]])\n        shape = rotate_y_fn(shape, fixed_tenting)\n        shape = translate_fn(shape, [0, column_offset(column)[1], 0])\n\n    else:\n        shape = translate_fn(shape, [0, 0, -row_radius])\n        shape = rotate_x_fn(shape, alpha * (centerrow - row))\n        shape = translate_fn(shape, [0, 0, row_radius])\n        shape = translate_fn(shape, [0, 0, -column_radius])\n        shape = rotate_y_fn(shape, column_angle)\n        shape = translate_fn(shape, [0, 0, column_radius])\n        shape = translate_fn(shape, column_offset(column))\n\n    shape = rotate_y_fn(shape, tenting_angle)\n    shape = translate_fn(shape, [0, 0, keyboard_z_offset])\n\n    return shape\n\ndef key_position(position, column, row):\n    debugprint('key_position()')\n    return apply_key_geometry(\n        position, add_translate, rotate_around_x, rotate_around_y, column, row\n    )\n\ndef thumborigin():\n    # debugprint('thumborigin()')\n\n    corner = cornerrow if reduced_inner_cols > 0 else lastrow\n    origin = key_position([mount_width / 2, -(mount_height / 2), 0], 1, corner)\n\n    for i in range(len(origin)):\n        origin[i] = origin[i] + thumb_offsets[i]\n\n    if thumb_style == 'MINIDOX':\n        origin[1] = origin[1] - .4*(minidox_Usize-1)*sa_length\n\n    return origin\n\ndef minidox_thumb_tl_place(shape):\n    shape = rotate(shape, [10, -23, 25])\n    shape = translate(shape, thumborigin())\n    shape = translate(shape, [-35, -16, -2])\n    return shape\n\ndef minidox_thumb_tr_place(shape):\n    shape = rotate(shape, [14, -15, 10])\n    shape = translate(shape, thumborigin())\n    shape = translate(shape, [-15, -10, 5])\n    return shape\n\ndef minidox_thumb_ml_place(shape):\n    shape = rotate(shape, [6, -34, 40])\n    shape = translate(shape, thumborigin())\n    shape = translate(shape, [-53, -26, -12])\n    return shape",
+  "row_radius": 90.582388092757,
+  "schema": 1,
+  "source": "dactyl-keyboard/src/run_config.json",
+  "source_sha256": "415f4409cc19134bcfd04bacc674067126ca547fdcd8f17b0e35930c18e67885"
+}

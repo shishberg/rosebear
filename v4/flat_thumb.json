@@ -1,0 +1,46 @@
+{
+  "schema": 1,
+  "description": "Flat three-key prototype; x/y are in the home switch frame, y points along the cluster. All switches share one normal.",
+  "keys": [
+    {
+      "name": "near",
+      "center_mm": [
+        3.25,
+        22.0
+      ],
+      "yaw_deg": -10.0,
+      "row": "BOTTOM"
+    },
+    {
+      "name": "home",
+      "center_mm": [
+        0.0,
+        0.0
+      ],
+      "yaw_deg": 0.0,
+      "row": "HOME"
+    },
+    {
+      "name": "far",
+      "center_mm": [
+        1.64,
+        -23.0
+      ],
+      "yaw_deg": 10.0,
+      "row": "TOP"
+    }
+  ],
+  "cluster_offset_mm": [
+    0,
+    -5,
+    0
+  ],
+  "cluster_rotation_deg": [
+    0.0,
+    0.0,
+    0.0
+  ],
+  "plate_thickness_mm": 1.5,
+  "switch_cutout_mm": 14.0,
+  "fit_clearance_mm": 0.25
+}

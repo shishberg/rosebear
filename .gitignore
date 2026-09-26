@@ -14,3 +14,14 @@ output_v3/
 # Vendor datasheets and 3D models: 63MB of binaries, fetched not authored.
 v3/datasheets/
 output_v3_flex/
+output_v4/
+__pycache__/
+
+# Local chassis editor build and browser test artifacts
+v4/editor/node_modules/
+v4/editor/dist/
+v4/editor/test-results/
+v4/editor/playwright-report/
+
+# Agent worktrees
+.claude/worktrees/
