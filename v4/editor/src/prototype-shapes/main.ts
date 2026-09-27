@@ -1,0 +1,79 @@
+// PROTOTYPE, throwaway: flip between chassis shapes (?variant=) and extra
+// thumb-key placements (?thumbs=). Open /prototype-shapes.html on the editor
+// dev server. Nothing here is saved or feeds the real editor.
+import * as T from 'three';
+import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
+import Module from 'manifold-3d';
+import wasmUrl from 'manifold-3d/manifold.wasm?url';
+import type {Manifold} from 'manifold-3d';
+import {clone,componentFrames,defaults,frame} from '../geometry';
+import {buildSolid,hardware} from '../solid';
+import {mountedFrames} from '../mounts';
+import {variants,cirquePad,type Kit} from './variants';
+
+const current={key:'current',name:'Current editor shell (reference)',blurb:'The subdivision-surface shell from the chassis editor defaults, with its own roof-projected key poses and the trackball placeholder. Included for comparison.'};
+const all=[current,...variants];
+// Extra thumb keys: horizontal, lower than the angled thumb plane. World mm.
+const extras:Record<string,{name:string;keys:[number,number,number,number][]}>={
+ none:{name:'3 thumb keys',keys:[]},
+ outer:{name:'+2 outer, under middle/ring',keys:[[-0.5,-53,24,25],[19.5,-46,21,35]]},
+ below:{name:'+2 tucked below, under index/middle',keys:[[-26,-76,24,15],[-5,-72,21,15]]},
+};
+const params=new URLSearchParams(location.search);
+let vi=Math.max(0,all.findIndex(v=>v.key===params.get('variant'))),ti=Math.max(0,Object.keys(extras).indexOf(params.get('thumbs')||'none'));
+
+document.body.style.cssText='margin:0;font:14px system-ui,sans-serif;background:#1b2226;color:#e8ecec;overflow:hidden';
+document.getElementById('app')!.innerHTML=`<div id="info" style="position:fixed;top:12px;left:12px;max-width:380px;background:#0009;padding:10px 14px;border-radius:8px;line-height:1.4">
+<div style="font-size:11px;letter-spacing:.08em;color:#f5b94a">PROTOTYPE · THROWAWAY · SAME KEY POSES IN EVERY SHAPE</div><h2 id="name" style="margin:6px 0 4px;font-size:18px"></h2><p id="blurb" style="margin:0 0 6px"></p><div id="stats" style="color:#9fb3b8;font-size:12px"></div>
+<label style="display:block;margin-top:6px;font-size:12px"><input id="caps" type="checkbox" checked> keycaps</label></div>
+<div id="bar" style="position:fixed;bottom:18px;left:50%;transform:translateX(-50%);display:flex;flex-direction:column;gap:6px;align-items:center"></div>`;
+const bar=document.getElementById('bar')!;
+function pill(id:string,onStep:(d:number)=>void){const el=document.createElement('div');el.style.cssText='display:flex;align-items:center;gap:10px;background:#fff;color:#111;border-radius:999px;padding:6px 10px;box-shadow:0 4px 16px #0008;font-weight:600';el.innerHTML=`<button data-d="-1">←</button><span id="${id}" style="min-width:300px;text-align:center"></span><button data-d="1">→</button>`;el.querySelectorAll('button').forEach(b=>{b.style.cssText='border:0;background:#eee;border-radius:999px;width:32px;height:28px;cursor:pointer';b.onclick=()=>onStep(Number(b.dataset.d))});bar.append(el)}
+pill('vlabel',d=>{vi=(vi+d+all.length)%all.length;show()});
+pill('tlabel',d=>{const n=Object.keys(extras).length;ti=(ti+d+n)%n;show()});
+addEventListener('keydown',e=>{if((e.target as HTMLElement).matches('input,textarea,[contenteditable]'))return;if(e.key==='ArrowLeft'||e.key==='ArrowRight'){const d=e.key==='ArrowLeft'?-1:1;if(e.shiftKey){const n=Object.keys(extras).length;ti=(ti+d+n)%n}else vi=(vi+d+all.length)%all.length;show()}});
+
+const scene=new T.Scene(),camera=new T.PerspectiveCamera(35,1,1,3000);camera.up.set(0,0,1);camera.position.set(-160,-260,230);
+const renderer=new T.WebGLRenderer({antialias:true});renderer.setPixelRatio(Math.min(devicePixelRatio,2));document.body.prepend(renderer.domElement);
+const controls=new OrbitControls(camera,renderer.domElement);controls.target.set(-10,-15,15);controls.update();
+scene.add(new T.HemisphereLight(0xdfeef0,0x39464b,1.6));const sun=new T.DirectionalLight(0xffffff,2.2);sun.position.set(-80,-120,200);scene.add(sun);const fill=new T.DirectionalLight(0xffffff,.6);fill.position.set(120,80,60);scene.add(fill);
+const grid=new T.GridHelper(400,40,0x3a4a50,0x2a353a);grid.rotation.x=Math.PI/2;scene.add(grid);
+const group=new T.Group();scene.add(group);
+function resize(){renderer.setSize(innerWidth,innerHeight);camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix()}addEventListener('resize',resize);resize();
+renderer.setAnimationLoop(()=>renderer.render(scene,camera));
+
+const toGeom=(m:Manifold)=>{const mesh=m.getMesh(),g=new T.BufferGeometry(),p=new Float32Array(mesh.numVert*3);for(let i=0;i<mesh.numVert;i++)for(let j=0;j<3;j++)p[i*3+j]=mesh.vertProperties[i*mesh.numProp+j];g.setAttribute('position',new T.BufferAttribute(p,3));g.setIndex(new T.BufferAttribute(mesh.triVerts,1));const n=g.toNonIndexed();n.computeVertexNormals();return n};
+const colors:Record<string,number>={pcb:0x268878,components:0x303b43,keycaps:0xd7d8bd,trackball:0x9560b7,ball:0xc35451,adapter:0xd1a443};
+const engine=Module({locateFile:()=>wasmUrl}).then(m=>{m.setup();return m});
+const cache=new Map<string,{geom:T.BufferGeometry;pad?:T.BufferGeometry;frames:Record<string,T.Matrix4>;project:typeof defaults;ms:number;vol:number}>();
+
+async function show(){
+ const v=all[vi],tk=Object.keys(extras)[ti],ex=extras[tk];
+ const url=new URL(location.href);url.searchParams.set('variant',v.key);url.searchParams.set('thumbs',tk);history.replaceState(null,'',url);
+ document.getElementById('vlabel')!.textContent=`${vi+1}/${all.length} · ${v.name}`;
+ document.getElementById('tlabel')!.textContent=v.key==='current'?'(extra thumbs not shown on reference)':`Shift+←/→ · ${ex.name}`;
+ document.getElementById('name')!.textContent=v.name;document.getElementById('blurb')!.textContent=v.blurb;document.getElementById('stats')!.textContent='Building…';
+ const key=v.key==='current'?'current':v.key+'|'+tk;
+ if(!cache.has(key)){
+  const wasm=await engine,t0=performance.now(),project=clone(defaults);let frames:Record<string,T.Matrix4>,m:Manifold,pad:Manifold|undefined;
+  if(v.key==='current'){frames=mountedFrames(project);const r=buildSolid(wasm,project);m=new wasm.Manifold(new wasm.Mesh({numProp:3,vertProperties:r.mesh.positions,triVerts:r.mesh.indices}))}
+  else{frames=componentFrames(project.config);ex.keys.forEach(([x,y,z,rz],i)=>{frames['thumb_x'+(i+1)]=frame([x,y,z],[0,0,rz])});const kit:Kit={wasm,cfg:project.config,frames};m=(v as typeof variants[number]).build(kit);pad=cirquePad(kit)}
+  cache.set(key,{geom:toGeom(m),pad:pad&&toGeom(pad),frames,project,ms:performance.now()-t0,vol:m.volume()/1000});
+ }
+ const c=cache.get(key)!;
+ if(all[vi]!==v||Object.keys(extras)[ti]!==tk)return;
+ group.clear();
+ group.add(new T.Mesh(c.geom,new T.MeshStandardMaterial({color:0x8f9ea4,roughness:.65,metalness:.05,flatShading:true})));
+ if(c.pad)group.add(new T.Mesh(c.pad,new T.MeshStandardMaterial({color:0x4a5358,roughness:.35})));
+ for(const part of hardware(c.project,c.frames)){
+  if(v.key!=='current'&&['trackball','ball','adapter'].includes(part.group))continue;
+  if(part.group==='switch')continue;
+  const mesh=part.sphere?new T.Mesh(new T.SphereGeometry(part.sphere,24,16),new T.MeshStandardMaterial({color:colors[part.group]})):new T.Mesh(new T.BoxGeometry(...part.size),new T.MeshStandardMaterial({color:colors[part.group]??0x888888,roughness:.8}));
+  mesh.position.set(...part.center);mesh.applyMatrix4(new T.Matrix4().fromArray(part.matrix));mesh.userData.caps=part.group==='keycaps';
+  mesh.visible=!mesh.userData.caps||(document.getElementById('caps') as HTMLInputElement).checked;group.add(mesh);
+ }
+ const nk=Object.keys(c.frames).filter(n=>n.startsWith('thumb_')||n.startsWith('matrix_')).length;
+ document.getElementById('stats')!.textContent=`${nk} keys · solid volume ≈ ${c.vol.toFixed(0)} cm³ (walls not hollowed in every shape) · built in ${c.ms.toFixed(0)} ms`;
+}
+document.getElementById('caps')!.onchange=()=>group.children.forEach(o=>{if(o.userData.caps)o.visible=(document.getElementById('caps') as HTMLInputElement).checked});
+show();
