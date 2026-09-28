@@ -10,7 +10,7 @@ import type {Manifold} from 'manifold-3d';
 import {clone,componentFrames,defaults,frame} from '../geometry';
 import {buildSolid,hardware} from '../solid';
 import {mountedFrames} from '../mounts';
-import {variants,cirquePad,skelOutside,type Kit} from './variants';
+import {variants,cirquePad,skelOutside,skelHighlight,skelHighlightInfo,type Kit} from './variants';
 
 const current={key:'current',name:'Current editor shell (reference)',blurb:'The subdivision-surface shell from the chassis editor defaults, with its own roof-projected key poses and the trackball placeholder. Included for comparison.'};
 const all=[current,...variants];
@@ -46,7 +46,7 @@ renderer.setAnimationLoop(()=>renderer.render(scene,camera));
 const toGeom=(m:Manifold)=>{const mesh=m.getMesh(),g=new T.BufferGeometry(),p=new Float32Array(mesh.numVert*3);for(let i=0;i<mesh.numVert;i++)for(let j=0;j<3;j++)p[i*3+j]=mesh.vertProperties[i*mesh.numProp+j];g.setAttribute('position',new T.BufferAttribute(p,3));g.setIndex(new T.BufferAttribute(mesh.triVerts,1));return toCreasedNormals(g,Math.PI/6)};
 const colors:Record<string,number>={pcb:0x268878,components:0x303b43,keycaps:0xd7d8bd,trackball:0x9560b7,ball:0xc35451,adapter:0xd1a443};
 const engine=Module({locateFile:()=>wasmUrl}).then(m=>{m.setup();return m});
-const cache=new Map<string,{outside:string[];pieces:string[];base:T.BufferGeometry;geom:T.BufferGeometry;pad?:T.BufferGeometry;frames:Record<string,T.Matrix4>;project:typeof defaults;ms:number;vol:number}>();
+const cache=new Map<string,{hl?:T.BufferGeometry;hlInfo:string[];outside:string[];pieces:string[];base:T.BufferGeometry;geom:T.BufferGeometry;pad?:T.BufferGeometry;frames:Record<string,T.Matrix4>;project:typeof defaults;ms:number;vol:number}>();
 
 async function show(){
  const v=all[vi],tk=Object.keys(extras)[ti],ex=extras[tk];
@@ -62,13 +62,15 @@ async function show(){
   const slab=wasm.Manifold.cube([2000,2000,3],true).translate([0,0,.5]);
   // Pieces above the base: more than one means something only touches the removable plate.
   const above=m.subtract(slab),pieces=above.decompose().filter(p=>p.volume()>50).sort((a,b)=>b.volume()-a.volume()).map(p=>{const b=p.boundingBox();return `${(p.volume()/1000).toFixed(1)} @ ${b.min.map((v,i)=>((v+b.max[i])/2).toFixed(0)).join(',')}`});
-  cache.set(key,{outside:v.key.startsWith('skel')?[...skelOutside]:[],pieces,base:toGeom(m.intersect(slab)),geom:toGeom(above),pad:pad&&toGeom(pad),frames,project,ms:performance.now()-t0,vol:m.volume()/1000});
+  cache.set(key,{hl:v.key.startsWith('skel')&&skelHighlight.length?toGeom(wasm.Manifold.union(skelHighlight)):undefined,hlInfo:v.key.startsWith('skel')?[...skelHighlightInfo]:[],outside:v.key.startsWith('skel')?[...skelOutside]:[],pieces,base:toGeom(m.intersect(slab)),geom:toGeom(above),pad:pad&&toGeom(pad),frames,project,ms:performance.now()-t0,vol:m.volume()/1000});
  }
  const c=cache.get(key)!;
  if(all[vi]!==v||Object.keys(extras)[ti]!==tk)return;
  group.clear();
  const shellMat=new T.MeshStandardMaterial({color:0x8f9ea4,roughness:.65,metalness:.05,side:T.DoubleSide});
  group.add(new T.Mesh(c.geom,shellMat));const plate=new T.Mesh(c.base,shellMat);plate.userData.plate=true;plate.visible=(document.getElementById('plate') as HTMLInputElement).checked;group.add(plate);
+ // Highlighted parts drawn over the shell in orange, slightly inflated by polygon offset so they win the depth test.
+ if(c.hl)group.add(new T.Mesh(c.hl,new T.MeshStandardMaterial({color:0xff7a1a,roughness:.5,polygonOffset:true,polygonOffsetFactor:-2,polygonOffsetUnits:-2})));
  if(c.pad)group.add(new T.Mesh(c.pad,new T.MeshStandardMaterial({color:0x4a5358,roughness:.35})));
  for(const part of hardware(c.project,c.frames)){
   if(v.key!=='current'&&['trackball','ball','adapter'].includes(part.group))continue;
@@ -81,7 +83,7 @@ async function show(){
  if(params.get('fit')==='1'){const box=new T.Box3();group.children.forEach(o=>{if(o.visible)box.expandByObject(o)});const ctr=box.getCenter(new T.Vector3()),r=box.getBoundingSphere(new T.Sphere()).radius,v=T.MathUtils.degToRad(camera.fov)/2,h=Math.atan(Math.tan(v)*camera.aspect),dir=camera.position.clone().sub(controls.target).normalize();
   controls.target.copy(ctr);camera.position.copy(ctr).addScaledVector(dir,r/Math.sin(Math.min(v,h))*.9);controls.update()}
  const nk=Object.keys(c.frames).filter(n=>n.startsWith('thumb_')||n.startsWith('matrix_')).length;
- document.getElementById('stats')!.textContent=`${nk} keys · solid volume ≈ ${c.vol.toFixed(0)} cm³ (walls not hollowed in every shape) · built in ${c.ms.toFixed(0)} ms · ${c.pieces.length===1?'one piece without the plate':`${c.pieces.length} loose pieces without the plate (cm³ @ x,y,z: ${c.pieces.join('; ')})`}${c.outside.length?` · outside the rim: ${c.outside.join('; ')}`:''}`;
+ document.getElementById('stats')!.textContent=`${nk} keys · solid volume ≈ ${c.vol.toFixed(0)} cm³ (walls not hollowed in every shape) · built in ${c.ms.toFixed(0)} ms · ${c.pieces.length===1?'one piece without the plate':`${c.pieces.length} loose pieces without the plate (cm³ @ x,y,z: ${c.pieces.join('; ')})`}${c.outside.length?` · outside the rim: ${c.outside.join('; ')}`:''}${c.hlInfo.length?` · ${c.hlInfo.length} parts in orange${params.get('hlinfo')==='1'?` (mm: ${c.hlInfo.join('; ')})`:''}`:''}`;
 }
 document.getElementById('caps')!.onchange=()=>group.children.forEach(o=>{if(o.userData.caps)o.visible=(document.getElementById('caps') as HTMLInputElement).checked});
 document.getElementById('plate')!.onchange=()=>{const on=(document.getElementById('plate') as HTMLInputElement).checked;grid.visible=on;group.children.forEach(o=>{if(o.userData.plate)o.visible=on})};

@@ -173,6 +173,9 @@ function hull2(ps:[number,number][]):[number,number][]{
 // Debug: ?only=a,b keeps just the named Skeletyl parts; ?nocut=1 skips recutting keys.
 const qp=typeof location==='undefined'?new URLSearchParams():new URLSearchParams(location.search),only=qp.get('only')?.split(',');
 export let skelOutside:string[]=[];
+// Parts drawn in a highlight colour: ?hl=a,b names Skeletyl part tags (default: bridge).
+const hl=(qp.get('hl')??'bridge').split(',');
+export let skelHighlight:Manifold[]=[],skelHighlightInfo:string[]=[];
 export const noCut=qp.get('nocut')==='1';
 // Bar across the slit between two keys' facing side skirts, around depth D/2.
 // Placed at the middle of a's skirt and the nearest point on b's.
@@ -189,7 +192,7 @@ function skeletyl(k:Kit,o:SkelOpts={rim:'tray',drop:'square'}){
  // Original: convex tray 3 mm past the caps with a 3.5 mm rim. Angled: the
  // tray hugs the columns, 1 mm past the end walls, with a 2 mm rim.
  const margin=o.drop==='angled'?1:3,rimW=o.drop==='angled'?2:3.5;
- capFloors=[];capDrops=[];const M=k.wasm.Manifold,CS=k.wasm.CrossSection,G=1.4,D=8,all:Manifold[]=[],tags:string[]=[];let tag='';
+ capFloors=[];capDrops=[];skelHighlight=[];skelHighlightInfo=[];const M=k.wasm.Manifold,CS=k.wasm.CrossSection,G=1.4,D=8,all:Manifold[]=[],tags:string[]=[];let tag='';
  // Plan points of a key: plate corners and skirt bottoms (tilted keys hang past their plate).
  const keyPts=(n:string)=>[...corners(k,n,G),...[[-1,-1],[1,-1],[1,1],[-1,1]].map(([x,y])=>at(k,n,x,y,-D,G))].map(p=>[p[0],p[1]] as [number,number]);
  // Plan outline of each column or thumb row with its rolled ends and end walls,
@@ -277,6 +280,7 @@ function skeletyl(k:Kit,o:SkelOpts={rim:'tray',drop:'square'}){
  // Check: anything outside the base outline, other than the Cirque housing, is a defect.
  const inTray=base.extrude(300).translate([0,0,-1]);
  skelOutside=all.flatMap((m,i)=>m.subtract(inTray).decompose().filter(p=>p.volume()>1).map(p=>{const b=p.boundingBox();return `${tags[i]} ${(p.volume()/1000).toFixed(2)}cm³ @ ${b.min.map((v,j)=>((v+b.max[j])/2).toFixed(0)).join(',')}`}));
+ all.forEach((m,i)=>{if(!hl.includes(tags[i]))return;skelHighlight.push(m);const b=m.boundingBox();skelHighlightInfo.push(`${tags[i]} ${m.volume().toFixed(0)}mm³ ${b.max.map((v,j)=>(v-b.min[j]).toFixed(1)).join('×')} @ ${b.min.map((v,j)=>((v+b.max[j])/2).toFixed(0)).join(',')}`)});
  tag='cirque';parts.push(cirque(k));
  return M.union(all);
 }
