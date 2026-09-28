@@ -150,12 +150,19 @@ function endCap(k:Kit,n:string,e:Edge,G:number,R=9,w=2.4){
  const pt=(x:number,th:number,r:number)=>{const a=sy*(hy+r*Math.sin(th)),z=-R+r*Math.cos(th);return point(k.frames[n],alongX?[a,x,z]:[x,a,z]) as Vec3};
  const ring=(th:number)=>[-hx,hx].flatMap(x=>[pt(x,th,R),pt(x,th,R-w)]);
  for(let i=0;i<steps;i++)parts.push(M.hull([...ring(i/steps*Math.PI/2),...ring((i+1)/steps*Math.PI/2)]));
- const last=ring(Math.PI/2);parts.push(M.hull([...last,...last.map(p=>down(p,1))]));
+ // Overlap the plate by 0.5 mm: a face-to-face touch does not join the solids.
+ const inset=(x:number,z:number)=>point(k.frames[n],alongX?[sy*(hy-.5),x,z]:[x,sy*(hy-.5),z]) as Vec3;
+ parts.push(M.hull([...ring(0),...[-hx,hx].flatMap(x=>[inset(x,0),inset(x,-w)])]));
+ // The drop to the tray is built later, once the tray outline is known.
+ const o=point(k.frames[n],[0,0,0]),a=point(k.frames[n],alongX?[sy,0,0]:[0,sy,0]),l=Math.hypot(a[0]-o[0],a[1]-o[1]);
+ capDrops.push({ring:ring(Math.PI/2),dir:[(a[0]-o[0])/l,(a[1]-o[1])/l]});
  // Every arc step, since on a tilted key the arc reaches farthest in plan partway round.
  capFloors.push(Array.from({length:steps+1},(_,i)=>ring(i/steps*Math.PI/2)).flat().map(p=>[p[0],p[1]] as [number,number]));
  return M.union(parts);
 }
-let capFloors:[number,number][][]=[];
+let capFloors:[number,number][][]=[],capDrops:Drop[]=[];
+// ring: the cap's last arc step, [outer,inner] at one side then the other. dir: plan direction the cap rolls.
+interface Drop {ring:Vec3[];dir:[number,number]}
 // Convex hull of loose 2D points (monotone chain). new CrossSection([pts]) treats
 // the points as an outline, and its fill rule drops parts of a self-crossing one.
 function hull2(ps:[number,number][]):[number,number][]{
@@ -167,10 +174,27 @@ function hull2(ps:[number,number][]):[number,number][]{
 const qp=typeof location==='undefined'?new URLSearchParams():new URLSearchParams(location.search),only=qp.get('only')?.split(',');
 export let skelOutside:string[]=[];
 export const noCut=qp.get('nocut')==='1';
-function skeletyl(k:Kit){
- capFloors=[];const M=k.wasm.Manifold,CS=k.wasm.CrossSection,G=1.4,D=8,all:Manifold[]=[],tags:string[]=[];let tag='';
- // Plan outline of each column or thumb row with its rolled ends, for the tray ledge.
- const outlines:CrossSection[]=[],outline=(names:string[],caps:number)=>outlines.push(new CS([hull2([...names.flatMap(n=>corners(k,n,G)).map(p=>[p[0],p[1]] as [number,number]),...capFloors.slice(-caps).flat()])]));
+// Bar across the slit between two keys' facing side skirts, around depth D/2.
+// Placed at the middle of a's skirt and the nearest point on b's.
+function bridge(k:Kit,a:string,b:string,G:number,D:number,len=5,h=2.4){
+ const ea=edgeFacing(k,a,toward(k,a,b)),eb=edgeFacing(k,b,toward(k,b,a)),z=-D/2;
+ const lerp=(e:Edge,t:number)=>[e[0][0]*(1-t)+e[1][0]*t,e[0][1]*(1-t)+e[1][1]*t];
+ const pa=at(k,a,...lerp(ea,.5) as [number,number],z,G),q0=at(k,b,...eb[0],z,G),q1=at(k,b,...eb[1],z,G),ex=q1[0]-q0[0],ey=q1[1]-q0[1],L=Math.hypot(ex,ey);
+ const tb=Math.min(1,Math.max(0,((pa[0]-q0[0])*ex+(pa[1]-q0[1])*ey)/L/L)),la=Math.hypot(...[0,1].map(i=>at(k,a,...ea[1],z,G)[i]-at(k,a,...ea[0],z,G)[i]) as [number,number]);
+ const bar=(n:string,e:Edge,t:number,l:number)=>[t-len/2/l,t+len/2/l].flatMap(u=>[z-h/2,z+h/2].flatMap(zz=>[G-1.2,G].map(g=>at(k,n,...lerp(e,Math.min(1,Math.max(0,u))) as [number,number],zz,g))));
+ return k.wasm.Manifold.hull([...bar(a,ea,.5,la),...bar(b,eb,tb,L)]);
+}
+interface SkelOpts {rim:'tray'|'bridged';drop:'square'|'angled'}
+function skeletyl(k:Kit,o:SkelOpts={rim:'tray',drop:'square'}){
+ // Original: convex tray 3 mm past the caps with a 3.5 mm rim. Angled: the
+ // tray hugs the columns, 1 mm past the end walls, with a 2 mm rim.
+ const margin=o.drop==='angled'?1:3,rimW=o.drop==='angled'?2:3.5;
+ capFloors=[];capDrops=[];const M=k.wasm.Manifold,CS=k.wasm.CrossSection,G=1.4,D=8,all:Manifold[]=[],tags:string[]=[];let tag='';
+ // Plan points of a key: plate corners and skirt bottoms (tilted keys hang past their plate).
+ const keyPts=(n:string)=>[...corners(k,n,G),...[[-1,-1],[1,-1],[1,1],[-1,1]].map(([x,y])=>at(k,n,x,y,-D,G))].map(p=>[p[0],p[1]] as [number,number]);
+ // Plan outline of each column or thumb row with its rolled ends and end walls,
+ // built once the end walls are known. Columns come first.
+ const specs:{names:string[];lo:number;hi:number}[]=[],outline=(names:string[],caps:number)=>specs.push({names,lo:capFloors.length-caps,hi:capFloors.length});
  const parts={push:(...ms:Manifold[])=>{if(!only||only.includes(tag))for(const m of ms){all.push(m);tags.push(tag)}}};
  const floorOf=(ps:Vec3[])=>[...ps,...ps.map(p=>down(p,1))];
  for(const c of COLS){
@@ -179,6 +203,8 @@ function skeletyl(k:Kit){
   tag='cap';parts.push(endCap(k,col[0],edgeFacing(k,col[0],[0,1]),G),endCap(k,col[2],edgeFacing(k,col[2],[0,-1]),G));
   outline(col,2);
  }
+ // Bridged: a bar between neighbouring columns' side skirts at each row, halfway down.
+ if(o.rim==='bridged')for(let c=0;c+1<COLS.length;c++)for(const r of ROWS){tag='bridge';parts.push(bridge(k,`matrix_${COLS[c]}_${r}`,`matrix_${COLS[c+1]}_${r}`,G,D))}
  // Outer side wall with a slot.
  const pinky=ROWS.map(r=>`matrix_pinky_${r}`),side=pinky.flatMap(n=>strip(k,n,edgeFacing(k,n,[1,0]),-D+1,-D,G-2,G));
  let wall=M.hull(floorOf(side));
@@ -195,7 +221,8 @@ function skeletyl(k:Kit){
   innerWall=innerWall.subtract(roundedWindow(k,[[p[0],p[1],p[2]-4],[q[0],q[1],q[2]-4],[q[0],q[1],11],[p[0],p[1],11]],3.5,'x'));}
  tag='inner';parts.push(innerWall);
  const base3=thumbs(k).filter(n=>!n.startsWith('thumb_x'));
- tag='support';parts.push(M.hull(floorOf([...strip(k,'matrix_inner_bottom',edgeFacing(k,'matrix_inner_bottom',[0,-1]),-D,-D,G-1.2,G),...base3.flatMap(n=>strip(k,n,edgeFacing(k,n,[0,1]),-D,-D,G-1.2,G))].filter(p=>p[0]<-30))));
+ const support=M.hull(floorOf([...strip(k,'matrix_inner_bottom',edgeFacing(k,'matrix_inner_bottom',[0,-1]),-D,-D,G-1.2,G),...base3.flatMap(n=>strip(k,n,edgeFacing(k,n,[0,1]),-D,-D,G-1.2,G))].filter(p=>p[0]<-30)));
+ tag='support';parts.push(support);
  // Thumb rows on a front gusset with a triangular window.
  for(const g of [thumbs(k).filter(n=>!n.startsWith('thumb_x')),thumbs(k).filter(n=>n.startsWith('thumb_x'))].filter(g=>g.length)){
   tag='tladder';parts.push(ladder(k,g,G,D,[[0,1],[0,-1]]));
@@ -210,22 +237,45 @@ function skeletyl(k:Kit){
    gusset=gusset.subtract(roundedWindow(k,quad,4,'y').intersect(M.hull(floorOf(front.map(p=>[p[0],p[1],p[2]-3] as Vec3)))));}
   tag='gusset';parts.push(gusset);
  }
- // Tray outline: convex outlines of the fingers, thumbs and the joins
- // between them (rolled ends included), rounded.
- const flat=(ps:Vec3[])=>ps.map(p=>[p[0],p[1]] as [number,number]);
+ // End walls from each rolled end down to the tray. Square: straight down from
+ // the arc. Angled: column end walls turn about the vertical axis to run along
+ // the line through the neighbouring column ends, pushed out just far enough to
+ // clear the arc on both sides. Where the wall stands out past the arc, its top
+ // drops at 45 degrees from the arc end instead of leaving a flat shelf. Column c's back and front ends are drops 2c and 2c+1.
+ const mid=(d:Drop)=>[(d.ring[0][0]+d.ring[2][0])/2,(d.ring[0][1]+d.ring[2][1])/2];
+ tag='drop';capDrops.forEach((d,i)=>{
+  if(o.drop==='square'){parts.push(M.hull([...d.ring,...d.ring.map(p=>down(p,1))]));return}
+  let nrm=d.dir;
+  if(i<COLS.length*2){const c=i>>1,e=i&1,a=mid(capDrops[Math.max(0,c-1)*2+e]),b=mid(capDrops[Math.min(COLS.length-1,c+1)*2+e]),l=Math.hypot(b[0]-a[0],b[1]-a[1]);
+   nrm=[(b[1]-a[1])/l,-(b[0]-a[0])/l];if(nrm[0]*d.dir[0]+nrm[1]*d.dir[1]<0)nrm=[-nrm[0],-nrm[1]]}
+  const dot=(p:number[],q:number[])=>p[0]*q[0]+p[1]*q[1],outer=[d.ring[0],d.ring[2]],reach=Math.max(...outer.map(p=>dot(p,nrm)));
+  const wall=outer.flatMap(p=>{const t=(reach-dot(p,nrm))/dot(d.dir,nrm),h:Vec3=[p[0]+d.dir[0]*t,p[1]+d.dir[1]*t,p[2]-t];return [h,[h[0]-nrm[0]*2.4,h[1]-nrm[1]*2.4,h[2]] as Vec3]});
+  parts.push(M.hull([...d.ring,...wall]),M.hull([...wall,...wall.map(p=>down(p,1))]));
+  capFloors[i].push(...wall.map(p=>[p[0],p[1]] as [number,number]));
+ });
+ const outlines=specs.map(sp=>new CS([hull2([...sp.names.flatMap(keyPts),...capFloors.slice(sp.lo,sp.hi).flat()])]));
+ // Tray outline. Original: convex outlines of the fingers, thumbs and the joins
+ // between them (rolled ends included), rounded. Angled: the fingers part is the
+ // column outlines closed across the slits, so the tray follows the column ends.
  const fingers=COLS.flatMap(c=>ROWS.map(r=>`matrix_${c}_${r}`)),xt=thumbs(k).filter(n=>n.startsWith('thumb_x'));
  const near=(names:string[])=>capFloors.filter(c=>names.some(n=>{const e=k.frames[n].elements;return c.some(p=>Math.hypot(p[0]-e[12],p[1]-e[13])<24)})).flat();
- const blob=(names:string[])=>new CS([hull2([...flat(names.flatMap(n=>corners(k,n,G))),...near(names)])]);
+ const blob=(names:string[])=>new CS([hull2([...names.flatMap(keyPts),...near(names)])]);
  const groups:string[][]=[fingers,base3,['matrix_inner_bottom','matrix_index_bottom',...base3],...(xt.length?[xt,[...xt,'matrix_middle_bottom','matrix_index_bottom']]:[])];
- const fp=CS.union(groups.map(blob)).offset(3,'Round',2,32).offset(8,'Round',2,32).offset(-8,'Round',2,32);
- tag='rim';parts.push(fp.extrude(7).subtract(fp.offset(-3.5,'Round').extrude(9).translate([0,0,2])));
- // Ledge: a 2 mm floor above the removable base, from the rim in to 2 mm
- // under the column walls, so the case is one piece without the base.
- // Islands boxed in by columns, touching no rim, are dropped.
- const band=fp.subtract(fp.offset(-3.5,'Round'));
- tag='ledge';parts.push(CS.union(fp.offset(-1).subtract(CS.union(outlines).offset(-2,'Round')).decompose().filter(c=>c.intersect(band).area()>1)).extrude(4));
- // Check: anything outside the rim outline, other than the Cirque housing, is a defect.
- const inTray=fp.extrude(300).translate([0,0,-1]);
+ const fp=o.drop==='angled'
+  ?CS.union([CS.union(outlines.slice(0,COLS.length)).offset(4,'Round',2,32).offset(-4,'Round',2,32),...groups.slice(1).map(blob)]).offset(margin,'Round',2,32).offset(3,'Round',2,32).offset(-3,'Round',2,32)
+  :CS.union(groups.map(blob)).offset(margin,'Round',2,32).offset(8,'Round',2,32).offset(-8,'Round',2,32);
+ // Base outline: the tray, or for bridged columns the key outlines closed across the slits.
+ const base=o.rim==='tray'||o.drop==='angled'?fp:CS.union([...outlines,support.project()]).offset(5,'Round',2,32).offset(-4,'Round',2,32);
+ if(o.rim==='tray'){
+  tag='rim';parts.push(fp.extrude(7).subtract(fp.offset(-rimW,'Round').extrude(9).translate([0,0,2])));
+  // Ledge: a 2 mm floor above the removable base, from the rim in to 2 mm
+  // under the column walls, so the case is one piece without the base.
+  // Islands boxed in by columns, touching no rim, are dropped.
+  const band=fp.subtract(fp.offset(-rimW,'Round'));
+  tag='ledge';parts.push(CS.union(fp.offset(-1).subtract(CS.union(outlines).offset(-2,'Round')).decompose().filter(c=>c.intersect(band).area()>1)).extrude(4));
+ }else{tag='base';parts.push(base.extrude(2))}
+ // Check: anything outside the base outline, other than the Cirque housing, is a defect.
+ const inTray=base.extrude(300).translate([0,0,-1]);
  skelOutside=all.flatMap((m,i)=>m.subtract(inTray).decompose().filter(p=>p.volume()>1).map(p=>{const b=p.boundingBox();return `${tags[i]} ${(p.volume()/1000).toFixed(2)}cm³ @ ${b.min.map((v,j)=>((v+b.max[j])/2).toFixed(0)).join(',')}`}));
  tag='cirque';parts.push(cirque(k));
  return M.union(all);
@@ -243,6 +293,15 @@ export const variants:Variant[]=[
  {key:'skeletyl',name:'Skeletyl construction',
   blurb:'The Skeletyl\'s construction on the Rosebear key poses: each column is its own curved ladder of switch frames with side skirts, with slits between columns. Column ends roll over in a quarter round and drop into a low rim tray on a flat base. A framed wall under the inner column, with a rounded opening under each key, supports the column and joins the thumb rows. The outer side wall has a slot, and the thumb row sits on a front wall with a rounded window. A 2 mm floor ledge runs from the rim in under the column walls, so the case is one piece without the bottom plate.',
   build:k=>noCut?skeletyl(k):cutKeys(k,skeletyl(k))},
+ {key:'skel-bridged',name:'Skeletyl, bridged columns',
+  blurb:'The Skeletyl construction without the shared tray: neighbouring columns are joined by a bar across the slit at each row, halfway down their side skirts, as the original Skeletyl does. Column ends drop square onto a flat base that follows the columns closely.',
+  build:k=>{const o:SkelOpts={rim:'bridged',drop:'square'};return noCut?skeletyl(k,o):cutKeys(k,skeletyl(k,o))}},
+ {key:'skel-angled',name:'Skeletyl, angled end walls',
+  blurb:'The Skeletyl tray, but each column end\'s vertical wall is turned about the vertical axis to run along the line through the neighbouring column ends, instead of square to the column. Where a wall stands out past the rolled end, its top slopes down at 45 degrees. The tray then follows the column ends instead of a convex outline: 1 mm past the end walls with a 2 mm rim, where the original is 3 mm past the rolled ends with a 3.5 mm rim.',
+  build:k=>{const o:SkelOpts={rim:'tray',drop:'angled'};return noCut?skeletyl(k,o):cutKeys(k,skeletyl(k,o))}},
+ {key:'skel-both',name:'Skeletyl, bridged and angled',
+  blurb:'Both changes: columns bridged halfway down their side skirts, no rim, and column end walls angled to follow the neighbouring column ends, standing on a flat base 1 mm past them.',
+  build:k=>{const o:SkelOpts={rim:'bridged',drop:'angled'};return noCut?skeletyl(k,o):cutKeys(k,skeletyl(k,o))}},
  {key:'soft-web',name:'Soft-edged webbed well',
   blurb:'The webbed well below, with every crease rounded: shallow folds become smooth curves, sharper edges keep a visible line with a small fillet. Flat faces stay flat.',
   build:k=>{const r=roof(k),base=footprint(k,3);return k.wasm.Manifold.union([soften(k,k.wasm.Manifold.union([web(k,r),plates(k),walls(k,r,1,3)]),40,.35,3),base.extrude(2).subtract(hexHoles(k,base,0,2)),cirque(k)])}},

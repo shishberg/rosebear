@@ -17,7 +17,7 @@ const p=await b.newPage({viewport:{width:900,height:650}}),errs=[];p.on('pageerr
 for(const base of process.argv.slice(2)){const files=[],tag=base.replace(/[^a-z0-9]+/gi,'_');let stats='';
  for(const [name,cam] of Object.entries(views)){
   const plate=name==='bottom'||name==='underIso'?'&plate=0':'';
-  await p.goto(`${url}/prototype-shapes.html?${base}&caps=0&cam=${cam}${plate}`);
+  await p.goto(`${url}/prototype-shapes.html?${base}&caps=0&fit=1&cam=${cam}${plate}`);
   await p.waitForFunction(()=>!document.getElementById('stats').textContent.includes('Building'),null,{timeout:120000});
   stats=await p.textContent('#stats');
   await p.addStyleTag({content:'body > *:not(canvas){display:none!important}'});await p.waitForTimeout(300);
@@ -25,6 +25,6 @@ for(const base of process.argv.slice(2)){const files=[],tag=base.replace(/[^a-z0
  }
  const sheet=join(out,`review_${tag}.png`);
  execFileSync('magick',['(',...files.slice(0,4),'-resize','600x','+append',')','(',...files.slice(4),'-resize','600x','+append',')','-append',sheet]);
- console.log(base,'|',stats.split('·').slice(-1)[0].trim(),'|',sheet);
+ console.log(base,'|',stats.split(' ms · ').slice(1).join(''),'|',sheet);
 }
 if(errs.length)console.log(errs.join('\n'));await b.close();

@@ -62,7 +62,7 @@ async function show(){
   const slab=wasm.Manifold.cube([2000,2000,3],true).translate([0,0,.5]);
   // Pieces above the base: more than one means something only touches the removable plate.
   const above=m.subtract(slab),pieces=above.decompose().filter(p=>p.volume()>50).sort((a,b)=>b.volume()-a.volume()).map(p=>{const b=p.boundingBox();return `${(p.volume()/1000).toFixed(1)} @ ${b.min.map((v,i)=>((v+b.max[i])/2).toFixed(0)).join(',')}`});
-  cache.set(key,{outside:v.key==='skeletyl'?[...skelOutside]:[],pieces,base:toGeom(m.intersect(slab)),geom:toGeom(above),pad:pad&&toGeom(pad),frames,project,ms:performance.now()-t0,vol:m.volume()/1000});
+  cache.set(key,{outside:v.key.startsWith('skel')?[...skelOutside]:[],pieces,base:toGeom(m.intersect(slab)),geom:toGeom(above),pad:pad&&toGeom(pad),frames,project,ms:performance.now()-t0,vol:m.volume()/1000});
  }
  const c=cache.get(key)!;
  if(all[vi]!==v||Object.keys(extras)[ti]!==tk)return;
@@ -77,6 +77,9 @@ async function show(){
   mesh.position.set(...part.center);mesh.applyMatrix4(new T.Matrix4().fromArray(part.matrix));mesh.userData.caps=part.group==='keycaps';
   mesh.visible=!mesh.userData.caps||(document.getElementById('caps') as HTMLInputElement).checked;group.add(mesh);
  }
+ // ?fit=1: aim at the model and back off along the cam direction until it fits.
+ if(params.get('fit')==='1'){const box=new T.Box3();group.children.forEach(o=>{if(o.visible)box.expandByObject(o)});const ctr=box.getCenter(new T.Vector3()),r=box.getBoundingSphere(new T.Sphere()).radius,v=T.MathUtils.degToRad(camera.fov)/2,h=Math.atan(Math.tan(v)*camera.aspect),dir=camera.position.clone().sub(controls.target).normalize();
+  controls.target.copy(ctr);camera.position.copy(ctr).addScaledVector(dir,r/Math.sin(Math.min(v,h))*.9);controls.update()}
  const nk=Object.keys(c.frames).filter(n=>n.startsWith('thumb_')||n.startsWith('matrix_')).length;
  document.getElementById('stats')!.textContent=`${nk} keys · solid volume ≈ ${c.vol.toFixed(0)} cm³ (walls not hollowed in every shape) · built in ${c.ms.toFixed(0)} ms · ${c.pieces.length===1?'one piece without the plate':`${c.pieces.length} loose pieces without the plate (cm³ @ x,y,z: ${c.pieces.join('; ')})`}${c.outside.length?` · outside the rim: ${c.outside.join('; ')}`:''}`;
 }
