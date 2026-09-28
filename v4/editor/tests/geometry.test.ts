@@ -35,11 +35,11 @@ test('thumb clusters fan on an arc and tilt into a well',()=>{
  assert(Math.abs(pos(f.thumb_x1).z-pos(f.thumb_x2).z)<.5);
  const none=clone(defaults);delete (none.config.geometry as {thumb_extra?:unknown}).thumb_extra;assert(!componentFrames(none.config).thumb_x1);
 });
-test('default chassis passes: one piece, flat seats, clear keycaps and hardware',async()=>{
+test('default chassis passes: one piece on one footprint, flat seats, clear keycaps and hardware',async()=>{
  const wasm=await Module();wasm.setup();const r=buildSolid(wasm,clone(defaults));
  console.log('WASM build',r.report.milliseconds.toFixed(0)+' ms','volume',r.report.volume.toFixed(0));
  assert.equal(r.report.seats.length,20);assert(r.report.seats.every(s=>s.passed));
- assert.equal(r.report.pieces.length,1);assert.deepEqual(r.report.hardware,[]);
+ assert.equal(r.report.pieces.length,1);assert.equal(r.report.footprint.length,1);assert.deepEqual(r.report.hardware,[]);
  assert(r.report.keycaps.every(k=>k.passed));assert(r.report.capGaps.every(g=>g.gap>1));
  assert(r.report.openings.every(o=>o.removed>0&&o.covered===9&&o.blocked===0));assert(r.report.passed);
  const mounted=new wasm.Manifold(new wasm.Mesh({numProp:3,vertProperties:r.mesh.positions,triVerts:r.mesh.indices}));
@@ -67,5 +67,5 @@ test('the checker reports keycap collisions and loose pieces',async()=>{
  try{assert.equal(solid.status(),'NoError');assert(Math.abs(solid.volume()-home.swept)<.01)}finally{solid.delete()}
  // An extra thumb row moved well away only touches the removable base plate.
  const apart=clone(defaults),x=(apart.config.geometry as {thumb_extra:{position_mm:number[]}}).thumb_extra;x.position_mm[1]-=40;
- const r2=buildSolid(wasm,apart);assert.equal(r2.report.pieces.length,2);assert.equal(r2.report.passed,false);assert(r2.highlights.some(h=>h.kind==='loose'));
+ const r2=buildSolid(wasm,apart);assert.equal(r2.report.pieces.length,2);assert.equal(r2.report.footprint.length,2);assert.equal(r2.report.passed,false);assert(r2.highlights.some(h=>h.kind==='loose'));
 });

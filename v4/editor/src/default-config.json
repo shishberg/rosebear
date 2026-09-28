@@ -172,8 +172,8 @@
     "cutout_clearance_mm": 0.15,
     "clip_land_thickness_mm": 1.5,
     "seat_outer_mm": [
-      16.6,
-      16.6
+      15.8,
+      15.8
     ],
     "clip_width_mm": 5,
     "clip_relief_depth_mm": 1.2,

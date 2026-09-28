@@ -3,15 +3,19 @@
 // Across the back and across the front of the columns runs one swept end: a
 // quarter round swept along a smooth curve through the column ends, then a wall
 // to the base. Round-bottomed slots part the columns down to half that wall's
-// height. The thumb rows use the same construction, running left to right, and
-// sit on front walls that follow their well. The whole case stands on a flat
-// base plate cut to its own footprint. Terms:
+// height. The thumb rows use the same construction, running left to right. The
+// outside edges without a swept end are walls, one segment under each key,
+// parted by U slots. Low ribs join the thumb rows and the fingers along the
+// base. The whole case stands on a flat base plate cut to its own footprint. Terms:
 //  plate      the square frame a switch clips into, T thick, the keycap plus
 //             0.75 + G mm per side;
 //  skirt      a thin wall hanging D below a plate edge;
 //  ladder     a row of plates joined edge to edge, with skirts;
 //  swept end  one quarter round swept along a curve through a row of keys' end
-//             edges, then a wall to the base.
+//             edges, then a wall to the base;
+//  wall       a slab from a key's plate edge that follows the plate's tilt down
+//             past the tile pocket, just outside it, then drops vertically to
+//             the base. The plate widens to meet it.
 import type {Manifold,ManifoldToplevel,Vec3} from 'manifold-3d';
 import {Matrix4} from 'three';
 import {point,ROWS,type Config} from './geometry';
@@ -27,9 +31,17 @@ export function buildChassis(wasm:ManifoldToplevel,cfg:Config,frames:Record<stri
  const g=cfg.geometry,COLS=g.columns.map(c=>c.name),names=Object.keys(frames).filter(isKey);
  const byX=(ns:string[])=>ns.sort((a,b)=>frames[a].elements[12]-frames[b].elements[12]);
  const base3=byX(g.thumb.keys.map(k=>'thumb_'+k.name)),xt=byX(((g as {thumb_extra?:{keys:{name:string}[]}}).thumb_extra?.keys??[]).map(k=>'thumb_'+k.name));
- const half=(n:string,grow=0)=>{const c=capSize(cfg,n);return [c[0]/2+.75+grow,c[1]/2+.75+grow]};
- // World point on a key plate: sx,sy in -1..1 across the plate, z along the normal.
- const at=(n:string,sx:number,sy:number,z=0,grow=0):Vec3=>{const [hx,hy]=half(n,grow);return point(frames[n],[sx*hx,sy*hy,z])};
+ // Tile pockets: the tile, its components and the switch body under every key,
+ // below the plate, in key coordinates.
+ const tl=cfg.tile,sw=cfg.switch,tz=tl.plate_top_to_pcb_top_mm+tl.size_mm[2]+Math.max(0,...tl.components.map(c=>c.size_mm[2]/2-c.center_mm[2]))+tl.component_clearance_mm,pk=[tl.size_mm[0]/2+tl.clearance_mm,tl.size_mm[1]/2+tl.clearance_mm],cw=sw.cutout_mm.map(x=>x+sw.cutout_clearance_mm);
+ // Walls, by key: the side (local axis a, sign s) and how far past the keycap
+ // outline its inner and outer faces are (g0, g1). The plate reaches g1 there.
+ const walled=new Map<string,{a:number;s:number;g0:number;g1:number}[]>();
+ const axisOf=(e:Edge)=>e[0][0]===e[1][0]?0:1;
+ const gr=(n:string,sx:number,sy:number):[number,number]=>{const g:[number,number]=[G,G];for(const w of walled.get(n)??[])if((w.a?sy:sx)===w.s)g[w.a]=w.g1;return g};
+ // World point on a key plate: sx,sy in -1..1 across the plate, z along the normal,
+ // grown past the keycap outline (+0.75 mm) by grow, or [x, y] grows.
+ const at=(n:string,sx:number,sy:number,z=0,grow:number|[number,number]=0):Vec3=>{const c=capSize(cfg,n),[gx,gy]=typeof grow==='number'?[grow,grow]:grow;return point(frames[n],[sx*(c[0]/2+.75+gx),sy*(c[1]/2+.75+gy),z])};
  const place=(m:Manifold,f:Matrix4)=>m.transform(f.elements as never);
  const down=(p:Vec3,z=0):Vec3=>[p[0],p[1],z];
  const floorOf=(ps:Vec3[])=>[...ps,...ps.map(p=>down(p,1))];
@@ -43,22 +55,25 @@ export function buildChassis(wasm:ManifoldToplevel,cfg:Config,frames:Record<stri
   const score=(e:Edge)=>{const sx=(e[0][0]+e[1][0])/2,sy=(e[0][1]+e[1][1])/2;return (m[0]*sx+m[4]*sy)*dir[0]+(m[1]*sx+m[5]*sy)*dir[1]};
   return edges.reduce((a,b)=>score(b)>score(a)?b:a);
  };
- // Solid strip along a plate edge: z0..z1 along the normal, grown g0..g1 outward.
- const strip=(n:string,e:Edge,z0:number,z1:number,g0:number,g1:number):Vec3[]=>e.flatMap(([sx,sy])=>[z0,z1].flatMap(z=>[g0,g1].map(q=>at(n,sx,sy,z,q))));
+ // Solid strip along a plate edge: z0..z1 along the normal, grown g0..g1 outward,
+ // running to the plate's corners. Its points are grouped by corner, four each.
+ const strip=(n:string,e:Edge,z0:number,z1:number,g0:number,g1:number):Vec3[]=>{const a=axisOf(e);return e.flatMap(([sx,sy])=>{const o=gr(n,sx,sy)[1-a];return [z0,z1].flatMap(z=>[g0,g1].map(q=>at(n,sx,sy,z,a?[o,q]:[q,o])))})};
+ // Register a wall on the side of key n facing dir, its inner face just outside
+ // the tile pocket.
+ const addWall=(n:string,dir:[number,number])=>{
+  const e=edgeFacing(n,dir),a=axisOf(e),g0=Math.max(G-W,pk[a]+.1-(capSize(cfg,n)[a]/2+.75));
+  walled.set(n,[...(walled.get(n)??[]),{a,s:e[0][a],g0,g1:g0+W}]);
+ };
+ const wallOn=(n:string,e:Edge)=>(walled.get(n)??[]).find(w=>w.a===axisOf(e)&&w.s===e[0][axisOf(e)]);
  const toward=(a:string,b:string):[number,number]=>{const p=frames[a].elements,q=frames[b].elements;return [q[12]-p[12],q[13]-p[13]]};
  const ladder=(ns:string[],sides:[number,number][])=>{
   const parts:Manifold[]=[];
-  for(const n of ns)parts.push(place(M.cube([half(n,G)[0]*2,half(n,G)[1]*2,T],true).translate([0,0,-T/2]),frames[n]));
+  for(const n of ns)parts.push(M.hull([-1,1].flatMap(sx=>[-1,1].flatMap(sy=>[0,-T].map(z=>at(n,sx,sy,z,gr(n,sx,sy)))))));
   for(let i=0;i+1<ns.length;i++){const a=ns[i],b=ns[i+1];parts.push(M.hull([...strip(a,edgeFacing(a,toward(a,b)),0,-T,0,G),...strip(b,edgeFacing(b,toward(b,a)),0,-T,0,G)]))}
   // One flat skirt per key, so no twisted faces between keys at different angles.
-  for(const d of sides)for(const n of ns)parts.push(M.hull(strip(n,edgeFacing(n,d),0,-D,G-1.2,G)));
+  // Walled sides have none.
+  for(const d of sides)for(const n of ns)if(!wallOn(n,edgeFacing(n,d)))parts.push(M.hull(strip(n,edgeFacing(n,d),0,-D,G-1.2,G)));
   return M.union(parts);
- };
- // Opening through a wall facing roughly along world x or y, with rounded corners of radius r.
- const roundedWindow=(quad:Vec3[],r:number,axis:'x'|'y')=>{
-  const c=[0,1,2].map(i=>quad.reduce((a,p)=>a+p[i],0)/quad.length);
-  return M.hull(quad.map(p=>{const d=[c[0]-p[0],c[1]-p[1],c[2]-p[2]],l=Math.hypot(...d)||1,q=p.map((v,i)=>v+d[i]/l*r*1.2);
-   return M.cylinder(60,r,r,32,true).rotate(axis==='x'?[0,90,0]:[90,0,0]).translate(q as Vec3)}));
  };
  const rollDir=(n:string,e:Edge):[number,number]=>{
   const alongX=e[0][0]===e[1][0],sy=alongX?e[0][0]:e[0][1],o=point(frames[n],[0,0,0]),a=point(frames[n],alongX?[sy,0,0]:[0,sy,0]),l=Math.hypot(a[0]-o[0],a[1]-o[1]);
@@ -73,7 +88,7 @@ export function buildChassis(wasm:ManifoldToplevel,cfg:Config,frames:Record<stri
   const edges=ends.map(n=>edgeFacing(n,facing));
   const ds=ends.map((n,i)=>rollDir(n,edges[i])),s=ds.reduce((a,d)=>[a[0]+d[0],a[1]+d[1]],[0,0]),l=Math.hypot(s[0],s[1]);
   const dm:[number,number]=[s[0]/l,s[1]/l],ax:[number,number]=[-dm[1],dm[0]];
-  const corners=ends.flatMap((n,c)=>edges[c].map(([sx,sy])=>{const p=at(n,sx,sy,0,G);return {a:p[0]*ax[0]+p[1]*ax[1],f:p[0]*dm[0]+p[1]*dm[1],z:p[2],c}}));
+  const corners=ends.flatMap((n,c)=>edges[c].map(([sx,sy])=>{const p=at(n,sx,sy,0,gr(n,sx,sy));return {a:p[0]*ax[0]+p[1]*ax[1],f:p[0]*dm[0]+p[1]*dm[1],z:p[2],c}}));
   // Normal equations for f+R = c0 + c1 a + c2 a^2.
   const S=(pa:number,pf=0)=>corners.reduce((t,q)=>t+q.a**pa*(pf?q.f+R:1),0),A=[[S(0),S(1),S(2)],[S(1),S(2),S(3)],[S(2),S(3),S(4)]],b=[S(0,1),S(1,1),S(2,1)];
   const det=(m:number[][])=>m[0][0]*(m[1][1]*m[2][2]-m[1][2]*m[2][1])-m[0][1]*(m[1][0]*m[2][2]-m[1][2]*m[2][0])+m[0][2]*(m[1][0]*m[2][1]-m[1][1]*m[2][0]);
@@ -86,6 +101,8 @@ export function buildChassis(wasm:ManifoldToplevel,cfg:Config,frames:Record<stri
  // Swept end: the quarter round's top follows the end keys' heights (linear
  // between corners). Each key's surface continues flat out to it. With slots,
  // round-bottomed slots part neighbouring keys down to half the wall height.
+ // Returns the swept end, a cap for each of its two open ends (points: the
+ // quarter round W thick, down to the base) and its footprint along the base.
  const sweptEnd=(cv:Curve,ends:string[],facing:[number,number],slots:boolean)=>{
   const cs=[...cv.corners].sort((x,y)=>x.a-y.a),a0=cs[0].a,a1=cs.at(-1)!.a;
   const zs=(a:number)=>{for(let i=0;i+1<cs.length;i++)if(a<=cs[i+1].a){const t=(a-cs[i].a)/((cs[i+1].a-cs[i].a)||1);return cs[i].z*(1-t)+cs[i+1].z*t}return cs.at(-1)!.z};
@@ -97,7 +114,7 @@ export function buildChassis(wasm:ManifoldToplevel,cfg:Config,frames:Record<stri
    sweep.push(M.hull([p,q].flatMap(a=>[prof(a,Math.PI/2,R),prof(a,Math.PI/2,R-W)]).flatMap(v=>[v,down(v,1)])))}
   // Flat continuation of each end key out to the swept end, 0.5 mm into it.
   ends.forEach((n,ci)=>{const ed=edgeFacing(n,facing),q=cv.corners.filter(x=>x.c===ci);
-   sweep.push(M.hull([...ed.flatMap(([sx,sy])=>[at(n,sx,sy,0,G),at(n,sx,sy,-W,G)]),...q.flatMap(x=>[P(cv,x.a,cv.F(x.a)-R+.5,x.z),P(cv,x.a,cv.F(x.a)-R+.5,x.z-W)])]))});
+   sweep.push(M.hull([...ed.flatMap(([sx,sy])=>[at(n,sx,sy,0,gr(n,sx,sy)),at(n,sx,sy,-W,gr(n,sx,sy))]),...q.flatMap(x=>[P(cv,x.a,cv.F(x.a)-R+.5,x.z),P(cv,x.a,cv.F(x.a)-R+.5,x.z-W)])]))});
   let end=M.union(sweep);
   if(slots)for(let ci=0;ci+1<ends.length;ci++){
    const side=(c:number,o:number)=>{const m=cv.corners.filter(x=>x.c===o).reduce((t,x)=>t+x.a/2,0);return cv.corners.filter(x=>x.c===c).sort((x,y)=>Math.abs(x.a-m)-Math.abs(y.a-m))[0]},l=side(ci,ci+1),r=side(ci+1,ci),am=(l.a+r.a)/2,hw=Math.max(1.5,Math.abs(r.a-l.a)/2);
@@ -106,75 +123,85 @@ export function buildChassis(wasm:ManifoldToplevel,cfg:Config,frames:Record<stri
    const cyl=(f:number)=>M.sphere(hw,16).translate(P(cv,am,f,zj+hw));
    end=end.subtract(M.hull([cyl(f0),cyl(f1),...[f0,f1].flatMap(f=>[-hw,hw].map(da=>P(cv,am+da,f,120)))]));
   }
-  return end;
+  const caps=[[a0,1],[a1,-1]].map(([a,s])=>floorOf([0,1,2,3,4,5,6].flatMap(j=>[0,W].map(da=>prof(a+s*da,j/6*Math.PI/2,R)))));
+  return {end,caps,foot:as.map(a=>P(cv,a,cv.F(a)-W/2,1))};
  };
+ // Walls: the inner and pinky columns' outer sides, the thumb rows' fronts, and
+ // the back of an extra thumb row close in front of the main one.
+ const corners=(ns:string[],d:[number,number])=>ns.flatMap(n=>edgeFacing(n,d).map(([sx,sy])=>at(n,sx,sy,0,G)));
+ const close=base3.length>0&&xt.length>0&&Math.min(...corners(base3,[0,-1]).flatMap(p=>corners(xt,[0,1]).map(q=>Math.hypot(p[0]-q[0],p[1]-q[1]))))<15;
+ for(const [c,d] of [[0,[-1,0]],[COLS.length-1,[1,0]]] as [number,[number,number]][])for(const r of ROWS)addWall(`matrix_${COLS[c]}_${r}`,d);
+ for(const n of [...base3,...xt])addWall(n,[0,-1]);
+ if(close)for(const n of xt)addWall(n,[0,1]);
  const parts:Manifold[]=[];
- // The outside columns' outer sides are the side walls, so they get no skirt there.
- for(const [i,c] of COLS.entries())parts.push(ladder(ROWS.map(r=>`matrix_${c}_${r}`),[[1,0],[-1,0]].filter((d,j)=>!(i===0&&j===1||i===COLS.length-1&&j===0)) as [number,number][]));
+ for(const c of COLS)parts.push(ladder(ROWS.map(r=>`matrix_${c}_${r}`),[[1,0],[-1,0]]));
  // Swept ends across the back (e=0, top row) and front (e=1, bottom row) of the columns.
- const ends=[0,1].map(e=>{const ns=COLS.map(c=>`matrix_${c}_${e?'bottom':'top'}`),f:[number,number]=[0,e?-1:1];return {ns,f,cv:curveThrough(ns,f)}});
- for(const {ns,f,cv} of ends)parts.push(sweptEnd(cv,ns,f,true));
- // Side walls: each outside column's side, from its plate edge to the base, one
- // piece per pair of neighbouring keys. At the back and front each wall closes
- // the open end of the swept end's quarter round.
- const sideWall=(c:number,dir:[number,number])=>{
-  const col=ROWS.map(r=>`matrix_${COLS[c]}_${r}`),top=(n:string)=>strip(n,edgeFacing(n,dir),0,-T,G-W,G);
-  const pieces=col.slice(1).map((n,i)=>M.hull(floorOf([...top(col[i]),...top(n)])));
-  ends.forEach(({cv},e)=>{const n=col[e?2:0],q=cv.corners.filter(x=>x.c===c),mean=cv.corners.reduce((t,x)=>t+x.a,0)/cv.corners.length;
-   const out=q.reduce((a,b)=>Math.abs(b.a-mean)>Math.abs(a.a-mean)?b:a),inward=Math.sign(mean-out.a);
-   const arc=[0,1,2,3,4,5,6].flatMap(j=>{const th=j/6*Math.PI/2;return [0,W].map(da=>P(cv,out.a+inward*da,cv.F(out.a)-R+R*Math.sin(th),out.z-R+R*Math.cos(th)))});
-   pieces.push(M.hull(floorOf([...top(n),...arc])))});
-  return {col,wall:M.union(pieces)};
+ const ends=[0,1].map(e=>{const ns=COLS.map(c=>`matrix_${c}_${e?'bottom':'top'}`),f:[number,number]=[0,e?-1:1];return sweptEnd(curveThrough(ns,f),ns,f,true)});
+ // Thumb rows: a ladder whose two ends (left, then right) roll over as swept ends.
+ const rowEnds=[base3,xt].map(row=>{if(!row.length)return [];parts.push(ladder(row,[[0,1],[0,-1]]));
+  return row.length>1?[[row[0],row[1]],[row.at(-1)!,row.at(-2)!]].map(([n,m])=>{const d=toward(m,n);return sweptEnd(curveThrough([n],d),[n],d,false)}):[]});
+ for(const s of [...ends,...rowEnds.flat()])parts.push(s.end);
+ // A run of walls along one side of a row of keys: one segment per key, joined
+ // at the base and at the plate, with a U slot between neighbours from half
+ // height up to just under the plates. An end segment takes in the cap that
+ // closes the quarter round of a swept end beside it. Each segment follows its
+ // plate's tilt down to the tile pocket's depth, then drops to the base.
+ const used=new Set<Vec3[]>();
+ const wallRun=(ns:string[],dir:[number,number],caps:Vec3[][])=>{
+  const segs=ns.map(n=>{const e=edgeFacing(n,dir),w=wallOn(n,e)!,side=strip(n,e,0,-tz,w.g0,w.g1);
+   return {side,under:strip(n,e,-T,-T,w.g0,w.g1),pts:[...side,...strip(n,e,-tz,-tz,w.g0,w.g1).map(p=>down(p,1))]}});
+  const pieces=segs.map(s=>M.hull(s.pts)),slots:Manifold[]=[];
+  for(const i of new Set([0,ns.length-1]))for(const cap of caps)if(!used.has(cap)&&Math.min(...segs[i].side.map(p=>Math.hypot(p[0]-cap[0][0],p[1]-cap[0][1])))<8){used.add(cap);pieces.push(M.hull([...segs[i].pts,...cap]))}
+  // The four points of each list nearest key j, for key i: its corner there.
+  const near=(i:number,j:number,ps:Vec3[])=>{const c=frames[ns[j]].elements,d=(k:number)=>Math.hypot(ps[k][0]-c[12],ps[k][1]-c[13]);return d(0)<d(4)?ps.slice(0,ps.length/2):ps.slice(ps.length/2)};
+  for(let i=0;i+1<ns.length;i++){
+   const joint=[...near(i,i+1,segs[i].pts.slice(0,8)),...near(i,i+1,segs[i].pts.slice(8)),...near(i+1,i,segs[i+1].pts.slice(0,8)),...near(i+1,i,segs[i+1].pts.slice(8))];
+   pieces.push(M.hull(joint));
+   // No slot where the two edges are offset (a 1.5u key beside 1u keys): the
+   // joint is then a diagonal wall. The slot's top follows both plates'
+   // undersides, 0.8 mm below them, reaching hw into each key.
+   const hw=3,side=(k:number,j:number)=>{const n=near(k,j,segs[k].under),f=segs[k].under.filter(p=>!n.includes(p)),l=Math.hypot(f[0][0]-n[0][0],f[0][1]-n[0][1])||1;
+    return n.flatMap((p,q)=>[p,p.map((v,r)=>v+(f[q][r]-v)*hw/l)]).map(p=>[p[0],p[1],p[2]-.8] as Vec3)};
+   const tops=[...side(i,i+1),...side(i+1,i)],zb=Math.min(...tops.map(p=>p[2]))/2;
+   const pa=near(i,i+1,segs[i].under)[1],pb=near(i+1,i,segs[i+1].under)[1];
+   if(zb<hw+2||Math.hypot(pa[0]-pb[0],pa[1]-pb[1])>4)continue;
+   const m=[0,1].map(k=>(pa[k]+pb[k])/2),l=Math.hypot(pb[0]-pa[0],pb[1]-pa[1])||1,tu=[(pb[0]-pa[0])/l,(pb[1]-pa[1])/l],nu=[-tu[1],tu[0]];
+   const across=Math.max(...joint.map(p=>Math.abs((p[0]-m[0])*nu[0]+(p[1]-m[1])*nu[1])))+1;
+   slots.push(M.hull([M.cylinder(2*across,hw,hw,32,true).rotate([90,0,0]).rotate([0,0,Math.atan2(tu[1],tu[0])*180/Math.PI]).translate([m[0],m[1],zb]),
+    ...tops.flatMap(p=>[-1,1].map(b=>[p[0]+nu[0]*b*across,p[1]+nu[1]*b*across,p[2]] as Vec3))]));
+  }
+  const run=M.union(pieces);return slots.length?run.subtract(M.union(slots)):run;
  };
- // Outer side wall under the pinky column, with a slot.
- const outer=sideWall(COLS.length-1,[1,0]),side=outer.col.flatMap(n=>strip(n,edgeFacing(n,[1,0]),-D+1,-D,G-2,G));
- const xs=side.map(p=>p[0]),ys=side.map(p=>p[1]),x=Math.max(...xs),y0=Math.min(...ys)+12,y1=Math.max(...ys)-12;
- parts.push(outer.wall.subtract(M.hull([y0,y1].map(y=>M.cylinder(20,4.5,4.5,32,true).rotate([0,90,0]).translate([x,y,10])))));
- // Inner wall under the inner column, with a rounded opening under each key.
- const inner=ROWS.map(r=>`matrix_${COLS[0]}_${r}`);
- let innerWall=sideWall(0,[-1,0]).wall;
- for(const n of inner){const e=edgeFacing(n,[-1,0]),[p,q]=[at(n,e[0][0],e[0][1]*.62,-D,G),at(n,e[1][0],e[1][1]*.62,-D,G)];
-  innerWall=innerWall.subtract(roundedWindow([[p[0],p[1],p[2]-4],[q[0],q[1],q[2]-4],[q[0],q[1],11],[p[0],p[1],11]],3.5,'x'))}
- parts.push(innerWall);
+ for(const c of [0,COLS.length-1])parts.push(wallRun(ROWS.map(r=>`matrix_${COLS[c]}_${r}`),[c?1:-1,0],ends.flatMap(s=>s.caps)));
+ [base3,xt].forEach((row,i)=>{if(row.length)parts.push(wallRun(row,[0,-1],rowEnds[i].flatMap(s=>s.caps)))});
+ if(close)parts.push(wallRun(xt,[0,1],rowEnds[1].flatMap(s=>s.caps)));
+ // Caps on swept ends with no wall beside them.
+ for(const cap of [...ends,...rowEnds.flat()].flatMap(s=>s.caps))if(!used.has(cap))parts.push(M.hull(cap));
  // Support joining the inner column to the thumb row, trimmed under the keycaps:
  // it rises from the thumb row to the inner column, into the travel of thumb
  // keycaps that overhang their plates.
- const ib=inner[2],support=M.hull(floorOf([...strip(ib,edgeFacing(ib,[0,-1]),-D,-D,G-1.2,G),...base3.flatMap(n=>strip(n,edgeFacing(n,[0,1]),-D,-D,G-1.2,G))].filter(p=>p[0]<-30)));
+ const inner=ROWS.map(r=>`matrix_${COLS[0]}_${r}`),ib=inner[2],support=M.hull(floorOf([...strip(ib,edgeFacing(ib,[0,-1]),-D,-D,G-1.2,G),...base3.flatMap(n=>strip(n,edgeFacing(n,[0,1]),-D,-D,G-1.2,G))].filter(p=>p[0]<-30)));
  parts.push(support.subtract(M.union([...base3,...inner].map(capSweep))));
- // Thumb rows: a ladder whose two ends roll over as swept ends, on a front wall
- // that follows the row's well, one piece per pair of neighbouring keys, with a
- // rounded window level with the lowest key's front edge, 4 mm below it.
- for(const row of [base3,xt].filter(r=>r.length)){
-  parts.push(ladder(row,[[0,1],[0,-1]]));
-  if(row.length>1)for(const [n,m] of [[row[0],row[1]],[row.at(-1)!,row.at(-2)!]]){const d=toward(m,n);parts.push(sweptEnd(curveThrough([n],d),[n],d,false))}
-  const front=row.flatMap(n=>strip(n,edgeFacing(n,[0,-1]),-T,-T,G-2,G));
-  let wall=row.length>1?M.union(row.slice(1).map((n,i)=>M.hull(floorOf([row[i],n].flatMap(q=>strip(q,edgeFacing(q,[0,-1]),-T,-T,G-2,G)))))):M.hull(floorOf(front));
-  if(row.length>1){
-   const topAt=(n:string)=>{const e=edgeFacing(n,[0,-1]);return at(n,(e[0][0]+e[1][0])/2,(e[0][1]+e[1][1])/2,-T,G-1)};
-   const ta=topAt(row[0]),tb=topAt(row.at(-1)!),zl=Math.min(...row.map(n=>topAt(n)[2]));
-   const quad:Vec3[]=[[ta[0],ta[1],zl-4],[tb[0],tb[1],zl-4],[tb[0],tb[1],10],[ta[0],ta[1],10]];
-   wall=wall.subtract(roundedWindow(quad,4,'y').intersect(M.hull(floorOf(front.map(p=>[p[0],p[1],p[2]-3] as Vec3)))));
-  }
-  parts.push(wall);
- }
- // A thumb row close in front of the main one gets a back wall too, following
- // its well, and a low web joins that wall to the main row's front wall across
- // the few millimetres between them, up to half height.
- if(xt.length){
-  const back=(n:string)=>strip(n,edgeFacing(n,[0,1]),-T,-T,G-2,G),a=base3.flatMap(n=>strip(n,edgeFacing(n,[0,-1]),-T,-T,G-2,G)),b=xt.flatMap(back);
+ // A low web joins the two thumb rows' facing walls across the few millimetres
+ // between them, up to half height.
+ if(close){
+  const foot=(ns:string[],d:[number,number])=>ns.flatMap(n=>{const e=edgeFacing(n,d),w=wallOn(n,e)!;return strip(n,e,-T,-T,w.g0,w.g1)}),a=foot(base3,[0,-1]),b=foot(xt,[0,1]);
   const d=(p:Vec3,ps:Vec3[])=>Math.min(...ps.map(q=>Math.hypot(p[0]-q[0],p[1]-q[1])));
-  if(Math.min(...a.map(p=>d(p,b)))<15){
-   parts.push(M.union(xt.length>1?xt.slice(1).map((n,i)=>M.hull(floorOf([...back(xt[i]),...back(n)]))):[M.hull(floorOf(b))]));
-   // Only the facing stretches of the two walls, so the web stays narrow.
-   const zj=1+(Math.min(...b.map(p=>p[2]))-1)/2,near=[...a.filter(p=>d(p,b)<15),...b.filter(p=>d(p,a)<15)];
-   parts.push(M.hull(near.flatMap(p=>[[p[0],p[1],1],[p[0],p[1],zj]] as Vec3[])));
-  }
+  const zj=1+(Math.min(...b.map(p=>p[2]))-1)/2,near=[...a.filter(p=>d(p,b)<15),...b.filter(p=>d(p,a)<15)];
+  parts.push(M.hull(near.flatMap(p=>[[p[0],p[1],1],[p[0],p[1],zj]] as Vec3[])));
  }
- // Tile pockets: the walls are hulls between keys at different heights, so their
- // tops can reach up under a tile. Clear the tile, its components and the switch
- // body under every key, below the plate.
- const tl=cfg.tile,sw=cfg.switch,tz=tl.plate_top_to_pcb_top_mm+tl.size_mm[2]+Math.max(0,...tl.components.map(c=>c.size_mm[2]/2-c.center_mm[2]))+tl.component_clearance_mm,tw=tl.size_mm[0]+2*tl.clearance_mm,th=tl.size_mm[1]+2*tl.clearance_mm,cw=sw.cutout_mm.map(x=>x+sw.cutout_clearance_mm);
- const pockets=M.union(names.flatMap(n=>[place(M.cube([tw,th,tz-T],true).translate([0,0,-(tz+T)/2]),frames[n]),place(M.cube([cw[0],cw[1],13-T],true).translate([0,0,-(13+T)/2]),frames[n])]));
+ // Ribs along the base, so the footprint is connected without the bottom plate:
+ // the main thumb row's right end to the fingers' front, and the thumb rows'
+ // ends to each other. Each runs between the closest points of two footprints.
+ // Ends are round and centred on the walls' mid-lines, clear of the footprints'
+ // ends, so they stay inside the walls.
+ const rib=(A:Vec3[],B:Vec3[],h=6)=>{let best:[Vec3,Vec3]=[A[1],B[1]],d=Infinity;for(const p of A.slice(1,-1))for(const q of B.slice(1,-1)){const x=Math.hypot(p[0]-q[0],p[1]-q[1]);if(x<d){d=x;best=[p,q]}}
+  return M.hull(best.map(p=>M.cylinder(h-1,W/2,W/2,24).translate([p[0],p[1],1])))};
+ const [mainEnds,extraEnds]=rowEnds;
+ if(mainEnds.length){parts.push(rib(mainEnds[1].foot,ends[1].foot));if(close&&extraEnds.length)for(const i of [0,1])parts.push(rib(mainEnds[i].foot,extraEnds[i].foot))}
+ // Tile pockets: clear the tile, its components and the switch body under every
+ // key, below the plate, from anything that reaches up under them.
+ const pockets=M.union(names.flatMap(n=>[place(M.cube([2*pk[0],2*pk[1],tz-T],true).translate([0,0,-(tz+T)/2]),frames[n]),place(M.cube([cw[0],cw[1],13-T],true).translate([0,0,-(13+T)/2]),frames[n])]));
  const walls=M.union(parts).subtract(pockets);
  // Base plate: the footprint of everything built, holes filled, so it is flush with the walls.
  const area=(p:[number,number][])=>p.reduce((t,q,i)=>{const r=p[(i+1)%p.length];return t+q[0]*r[1]-r[0]*q[1]},0);
@@ -182,8 +209,12 @@ export function buildChassis(wasm:ManifoldToplevel,cfg:Config,frames:Record<stri
  const base=plan.extrude(ch.base_thickness_mm);
  const pod=trackpadPod(wasm,cfg,frames,at);
  let body=walls.add(pod);
- // Room above each plate for the keycap, and the switch hole.
- for(const n of names){const [hx,hy]=half(n,-.25);body=body.subtract(place(M.cube([14,14,20],true),frames[n])).subtract(place(M.cube([hx*2,hy*2,60],true).translate([0,0,30]),frames[n]))}
+ // Room above each plate: the switch hole, the switch housing's rim up to the
+ // keycap's lowest point, and the keycap with its clearance above that.
+ const so=sw.seat_outer_mm??[16.6,16.6],low=Math.max(0,sw.keycap_bottom_above_plate_mm-sw.travel_mm);
+ for(const n of names){const c=capSize(cfg,n),m=(sw.keycap_clearance_overrides_mm as Record<string,number>)[n]??sw.keycap_clearance_mm;
+  body=body.subtract(place(M.cube([14,14,20],true),frames[n])).subtract(place(M.cube([c[0]+2*m+.2,c[1]+2*m+.2,60],true).translate([0,0,low+30]),frames[n]));
+  if(low>.1)body=body.subtract(place(M.cube([so[0],so[1],low],true).translate([0,0,low/2]),frames[n]))}
  return {body,base,pod};
 }
 // Cirque trackpad in a printed pod on the inner side, held by a bracket to the

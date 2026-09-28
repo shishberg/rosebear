@@ -20,7 +20,7 @@ export function hardware(project:Project,nodes=componentFrames(project.config)):
 }
 export interface Clearance {name:string;size:V3;margin:number;travel:number;atRest:number;swept:number;passed:boolean}
 export interface SeatCheck {name:string;missing:number;excess:number;clipBlocked:number;passed:boolean}
-export interface Report {seats:SeatCheck[];passed:boolean;keycaps:Clearance[];capGaps:{between:string;gap:number}[];pieces:number[];hardware:{name:string;group:string;volume:number}[];openings:{name:string;removed:number;covered:number;blocked:number}[];volume:number;triangles:number;milliseconds:number;notes:string[]}
+export interface Report {seats:SeatCheck[];passed:boolean;keycaps:Clearance[];capGaps:{between:string;gap:number}[];pieces:number[];footprint:number[];hardware:{name:string;group:string;volume:number}[];openings:{name:string;removed:number;covered:number;blocked:number}[];volume:number;triangles:number;milliseconds:number;notes:string[]}
 export interface Highlight {name:string;kind:'rest'|'travel'|'hardware'|'opening'|'seat'|'loose';mesh:MeshData}
 export interface BuildResult {mesh:MeshData;base:MeshData;trackpad:MeshData;report:Report;highlights:Highlight[]}
 function meshData(solid:Manifold):MeshData {
@@ -65,6 +65,10 @@ export function buildSolid(wasm:ManifoldToplevel,project:Project):BuildResult{
   // The base plate is a separate print, so every piece above it must hold together.
   const pieces=cut.decompose().map(keep).filter(p=>p.volume()>50).sort((a,b)=>b.volume()-a.volume());
   pieces.slice(1).forEach((p,i)=>highlights.push({name:`loose piece ${i+1}`,kind:'loose',mesh:meshData(p)}));
+  // Without the bottom plate the walls must also meet each other along the base:
+  // a section just above the plate must be one connected area.
+  const section=cut.slice(1.5),footprint=section.decompose().map(c=>{const a=c.area();return {a,c}}).filter(x=>x.a>1).sort((x,y)=>y.a-x.a);
+  footprint.slice(1).forEach((x,i)=>highlights.push({name:`separate footprint ${i+1}`,kind:'loose',mesh:meshData(keep(x.c.extrude(3)))}));
   const result=keep(cut.add(chassis.base));
   const seats:SeatCheck[]=[];
   for(const [name,m] of Object.entries(nodes))if(isKey(name)){
@@ -97,7 +101,7 @@ export function buildSolid(wasm:ManifoldToplevel,project:Project):BuildResult{
   for(let i=0;i<unions.length;i++)for(let j=i+1;j<unions.length;j++){const gap=unions[i][1].minGap(unions[j][1],40);if(gap<40)capGaps.push({between:`${unions[i][0]} – ${unions[j][0]}`,gap})}
   // The chassis and its bottom plate are separate prints, sent separately.
   const mesh=meshData(cut);
-  const passed=seats.every(s=>s.passed)&&keycaps.every(k=>k.passed)&&overlaps.length===0&&pieces.length===1&&capGaps.every(c=>c.gap>0)&&openings.every(o=>o.removed>.001&&o.covered===9&&o.blocked===0);
-  return {mesh,base:meshData(chassis.base),trackpad:meshData(keep(trackpadPart(wasm,cfg,nodes))),highlights,report:{seats,passed,keycaps,capGaps,pieces:pieces.map(p=>p.volume()),hardware:overlaps,openings,volume:result.volume(),triangles:mesh.indices.length/3,milliseconds:performance.now()-start,notes:['Component/keycap envelopes are conservative boxes.','Flat seats and clip reliefs are generated. PCB retainers remain unimplemented. Minimum thickness and global self-intersections are not certified.']}};
+  const passed=seats.every(s=>s.passed)&&keycaps.every(k=>k.passed)&&overlaps.length===0&&pieces.length===1&&footprint.length===1&&capGaps.every(c=>c.gap>0)&&openings.every(o=>o.removed>.001&&o.covered===9&&o.blocked===0);
+  return {mesh,base:meshData(chassis.base),trackpad:meshData(keep(trackpadPart(wasm,cfg,nodes))),highlights,report:{seats,passed,keycaps,capGaps,pieces:pieces.map(p=>p.volume()),footprint:footprint.map(x=>x.a),hardware:overlaps,openings,volume:result.volume(),triangles:mesh.indices.length/3,milliseconds:performance.now()-start,notes:['Component/keycap envelopes are conservative boxes.','Flat seats and clip reliefs are generated. PCB retainers remain unimplemented. Minimum thickness and global self-intersections are not certified.']}};
  }finally{for(const m of [...all].reverse())m.delete()}
 }

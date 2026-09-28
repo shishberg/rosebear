@@ -90,31 +90,42 @@ thickness, the swept end's radius, how far the end keys reach into it
 - **Plate**: the square frame a switch clips into, 3 mm thick, extending 0.75 +
   1.4 mm past the keycap on each side.
 - **Ladder**: a column's plates joined edge to edge, with a thin **skirt** hanging
-  8 mm below each side edge.
+  8 mm below each side edge that has no wall.
 - **Swept end**: one quarter round (radius 9 mm) swept along a smooth curve through
   the column ends, across the back and across the front of the fingers, then a wall
   to the base. The end keys' plates reach 4 mm into the round. Round-bottomed slots
   part the columns down to half the wall height.
-- The thumb rows are ladders whose two ends roll over the same way, on front walls
-  that follow their well, with a rounded window. When the extra thumb pair is
-  close in front, it gets a back wall and a low web joins the two rows.
-- **Side walls**: the inner and pinky columns' outer sides run from the plate edge
-  down to the base, and close the ends of the swept end's quarter round at each
-  corner. The inner wall has a rounded window under each key; the outer wall has
-  a slot. A support joins the inner column to the thumb row, trimmed clear of the
-  keycaps' travel.
+- The thumb rows are ladders whose two ends roll over the same way.
+- **Walls** stand on the inner and pinky columns' outer sides and on the thumb
+  rows' fronts. When the extra thumb pair is close in front, it gets a back wall
+  as well, and a low web joins the two rows. Each key has its own wall segment.
+  The segment starts at the plate edge, just outside the key's tile pocket, and
+  follows the plate's tilt down to the pocket's depth. It then drops vertically
+  to the base. The plate widens to meet it, so the PCB never passes through a
+  wall. Neighbouring segments join at the plate and at the base, with a U slot
+  between them from half height up to just under the plates. There is no slot
+  where the edges are offset, as beside the 1.5u thumb key. At each end of a swept
+  end, a cap closes the quarter round; where a wall runs beside the cap, the two
+  are joined.
+- A support joins the inner column to the thumb row, trimmed clear of the
+  keycaps' travel. Ribs 6 mm tall join along the base: the main thumb row's right
+  end to the fingers' front, and, when the rows are close, the ends of the two
+  thumb rows to each other.
 - Tile pockets clear every key's tile, its components and the switch body out of
   the walls.
+- Above each plate the chassis is kept clear of the switch housing's rim (the
+  seat footprint, up to the keycap's lowest point) and of the keycap's travel.
 - The Cirque pod hangs from the far thumb key on a bracket.
 - The bottom plate is the footprint of everything above, 2 mm thick, and is a
-  separate print.
+  separate print. The editor hides it by default; **Bottom plate** shows it.
 
 ## Clearance checks
 
 `solid.ts` adds flat switch seats and clip reliefs, cuts the switch openings, and
 checks the result:
 
-- Each switch has a crisp, planar 16.6 × 16.6 mm seat, 1.5 mm thick, with the
+- Each switch has a crisp, planar 15.8 × 15.8 mm seat (`switch.seat_outer_mm`,
+  0.1 mm clear of a 15.6 mm switch housing rim), 1.5 mm thick, with the
   14.15 mm opening; two 5 mm-wide underside reliefs give the spring clips room.
   Seats are checked for a complete plate ring, material outside their planes and
   clip obstructions.
@@ -124,7 +135,8 @@ checks the result:
   The middle thumb uses its **27.525 × 18 × 9 mm** cap, **4 mm travel** and
   **2.5 mm clearance**. The keycap bottom at full press is set 2 mm above the seat.
 - Without the bottom plate the chassis must be one piece; loose pieces are listed
-  and highlighted.
+  and highlighted. The walls must also meet along the base: a section 1.5 mm up
+  must be one connected area. Separate footprints are listed and highlighted.
 - The closest distance between resting keycaps of the finger columns, the thumb
   row and the extra thumb row is listed; touching fails.
 
@@ -139,7 +151,7 @@ a print.
 `worker.ts` rebuilds outside the UI thread. Results carry revision IDs, so a stale
 result cannot replace a newer edit. A 30-second watchdog stops a stuck worker, and a
 fresh worker takes over every eight builds to release geometry-engine memory.
-A rebuild takes about 0.7 s on desktop Chrome.
+A rebuild takes about 0.8 s on desktop Chrome.
 
 ## Validation
 
