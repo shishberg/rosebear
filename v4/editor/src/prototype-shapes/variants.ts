@@ -97,7 +97,7 @@ function hexHoles(k:Kit,region:ReturnType<typeof footprint>,z:number,h:number){
 
 // Cirque TM040040 (40 mm) in a printed pod, clipped to the inner side.
 export function cirque(k:Kit,link:'bracket'|'none'='bracket'){
- const M=k.wasm.Manifold,f=k.frames.trackball.clone().premultiply(new Matrix4().makeTranslation(-8,0,0));
+ const M=k.wasm.Manifold,f=k.frames.trackpad.clone().multiply(new Matrix4().makeTranslation(0,0,-.5));
  let pod=place(M.cylinder(7,22.5,22.5,64).translate([0,0,-6.5]).subtract(M.cylinder(2,20.4,20.4,64).translate([0,0,-.5])),f);
  if(link==='bracket'){
   const c=point(f,[0,0,-4]),dist=(p:Vec3)=>Math.hypot(p[0]-c[0],p[1]-c[1]);
@@ -111,7 +111,7 @@ export function cirque(k:Kit,link:'bracket'|'none'='bracket'){
  }
  return pod;
 }
-export const cirquePad=(k:Kit)=>place(k.wasm.Manifold.cylinder(1,20,20,64).translate([0,0,-1.4]),k.frames.trackball.clone().premultiply(new Matrix4().makeTranslation(-8,0,0)));
+export const cirquePad=(k:Kit)=>place(k.wasm.Manifold.cylinder(1,20,20,64).translate([0,0,-1.4]),k.frames.trackpad.clone().multiply(new Matrix4().makeTranslation(0,0,-.5)));
 
 
 function faceted(k:Kit,pockets:boolean){

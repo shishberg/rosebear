@@ -10,7 +10,7 @@ The pointing device is open. The trackball in this pipeline is a placeholder; a 
 
 ## Browser chassis editor
 
-Run `make v4-editor` and open **http://127.0.0.1:5177**. The [editor guide](editor/README.md) covers viewport-plane dragging, autosave, project files, browser-only cutouts and explicit clearance acceptance tests. The right hand with the inner trackball and FFC underneath is primary. Other arrangements remain paused. The breakout board and FFC connector placeholder in the editor are smaller than the designed parts (see design status).
+Run `make v4-editor` and open **http://127.0.0.1:5177**. The editor builds the swept Skeletyl chassis for the right hand from the key layout, with the Cirque trackpad pod on the inner side. The [editor guide](editor/README.md) covers the layout parameters and handles, autosave, project files and the clearance checks. The FFC adapter placeholder is smaller than the designed part and not yet placed in the new chassis (see design status).
 
 KiCad/PCB generation stays offline. The Python chassis generator is retained as a numerical reference; editing no longer requires export/rebuild handoffs.
 

@@ -8,42 +8,23 @@ import Module from 'manifold-3d';
 import wasmUrl from 'manifold-3d/manifold.wasm?url';
 import type {Manifold} from 'manifold-3d';
 import {clone,componentFrames,defaults,frame} from '../geometry';
-import {buildSolid,capSize,hardware} from '../solid';
-import {mountedFrames} from '../mounts';
+import {capSize,hardware} from '../solid';
 import {variants,cirquePad,skelOutside,skelHits,skelHighlight,skelHighlightInfo,type Kit} from './variants';
 
-const current={key:'current',name:'Current editor shell (reference)',blurb:'The subdivision-surface shell from the chassis editor defaults, with its own roof-projected key poses and the trackball placeholder. Included for comparison.'};
-const all=[current,...variants];
+const all=variants;
 // Extra thumb keys: horizontal, lower than the angled thumb plane. World mm.
 const extras:Record<string,{name:string;keys:[number,number,number,number][]}>={
  none:{name:'3 thumb keys',keys:[]},
  outer:{name:'+2 outer, under middle/ring, finger splay',keys:[[0.5,-51,24,0],[23.5,-50,21,0]]},
  below:{name:'+2 tucked below, under the thumb gaps',keys:[[-49.2,-79.9,22,14],[-28.1,-74.5,24,14]]},
 };
-// Thumb layout (?layout=old for the poses above and the config's flat thumb arc).
-// New: the thumb row moves away from the finger columns, its keys spread wider
-// (11° steps on the arc instead of 10°), each outer thumb key
-// tilts toward the middle one on a circle (a well), and the +2 tucked below sit
-// on the same kind of curve, level with each other, further from the thumb row.
-const oldLayout=new URLSearchParams(location.search).get('layout')==='old';
-const L={shift:[0,-6] as [number,number],step_deg:11,well_deg:12,below:{gap_mm:7,arc_deg:5,well_deg:6}};
+// The thumb layout now lives in the editor config (thumb and thumb_extra), so
+// componentFrames gives the "+2 tucked below" keys. "none" drops them; "outer"
+// replaces them with its old world poses.
 function thumbLayout(project:typeof defaults,frames:Record<string,T.Matrix4>,ex:{keys:[number,number,number,number][]},tk:string){
- if(oldLayout){ex.keys.forEach(([x,y,z,rz],i)=>{frames['thumb_x'+(i+1)]=frame([x,y,z],[0,0,rz])});return frames}
- const th=project.config.geometry.thumb;th.arc.step_deg=L.step_deg;th.position_mm=[th.position_mm[0]+L.shift[0],th.position_mm[1]+L.shift[1],th.position_mm[2]];
- const f=componentFrames(project.config);Object.assign(frames,f);
- // Well: key i sits on a circle through the middle key, so its centre keeps its
- // place along the row, rises by d·tan(w/2) and tilts by w toward the middle.
- (th.keys as {name:string;offset_mm?:number[];rotation_deg?:number[]}[]).forEach((key,i)=>{
-  const w=(i-1)*L.well_deg,d=Math.abs(th.arc.radius_mm*Math.sin((i-1)*th.arc.step_deg*Math.PI/180)),K=frame(key.offset_mm,key.rotation_deg);
-  frames['thumb_'+key.name]=frames['thumb_'+key.name].clone().multiply(K.clone().invert()).multiply(frame([0,0,d*Math.tan(Math.abs(w)/2*Math.PI/180)],[0,-w,0])).multiply(K);
- });
- if(tk==='below'){
-  // Centre of the old pair, moved with the thumb row, then gap_mm further out.
-  // Spaced like the thumb row, so each key stays under a gap between thumb keys.
-  const b=L.below,rz=14,r=rz*Math.PI/180,c=[-38.65+L.shift[0]+Math.sin(r)*b.gap_mm,-77.2+L.shift[1]-Math.cos(r)*b.gap_mm,23],pitch=th.arc.radius_mm*Math.sin(L.step_deg*Math.PI/180),R=pitch/2/Math.sin(b.arc_deg*Math.PI/180);
-  [-1,1].forEach((j,i)=>{const a=j*b.arc_deg*Math.PI/180;frames['thumb_x'+(i+1)]=frame(c,[0,0,rz]).multiply(frame([R*Math.sin(a),R*(Math.cos(a)-1),0],[0,-j*b.well_deg,-j*b.arc_deg]))});
- }else ex.keys.forEach(([x,y,z,rz],i)=>{frames['thumb_x'+(i+1)]=frame([x,y,z],[0,0,rz])});
- return frames;
+ for(const n of Object.keys(frames))if(n.startsWith('thumb_x')&&tk!=='below')delete frames[n];
+ if(tk==='outer')ex.keys.forEach(([x,y,z,rz],i)=>{frames['thumb_x'+(i+1)]=frame([x,y,z],[0,0,rz])});
+ void project;return frames;
 }
 const params=new URLSearchParams(location.search);
 let vi=Math.max(0,all.findIndex(v=>v.key===params.get('variant'))),ti=Math.max(0,Object.keys(extras).indexOf(params.get('thumbs')||'none'));
@@ -77,13 +58,12 @@ async function show(){
  const v=all[vi],tk=Object.keys(extras)[ti],ex=extras[tk];
  const url=new URL(location.href);url.searchParams.set('variant',v.key);url.searchParams.set('thumbs',tk);history.replaceState(null,'',url);
  document.getElementById('vlabel')!.textContent=`${vi+1}/${all.length} · ${v.name}`;
- document.getElementById('tlabel')!.textContent=v.key==='current'?'(extra thumbs not shown on reference)':`Shift+←/→ · ${ex.name}`;
+ document.getElementById('tlabel')!.textContent=`Shift+←/→ · ${ex.name}`;
  document.getElementById('name')!.textContent=v.name;document.getElementById('blurb')!.textContent=v.blurb;document.getElementById('stats')!.textContent='Building…';
- const key=v.key==='current'?'current':v.key+'|'+tk;
+ const key=v.key+'|'+tk;
  if(!cache.has(key)){
   const wasm=await engine,t0=performance.now(),project=clone(defaults);let frames:Record<string,T.Matrix4>,m:Manifold,pad:Manifold|undefined;
-  if(v.key==='current'){frames=mountedFrames(project);const r=buildSolid(wasm,project);m=new wasm.Manifold(new wasm.Mesh({numProp:3,vertProperties:r.mesh.positions,triVerts:r.mesh.indices}))}
-  else{frames=thumbLayout(project,componentFrames(project.config),ex,tk);const kit:Kit={wasm,cfg:project.config,frames};m=(v as typeof variants[number]).build(kit);pad=cirquePad(kit)}
+  {frames=thumbLayout(project,componentFrames(project.config),ex,tk);const kit:Kit={wasm,cfg:project.config,frames};m=v.build(kit);pad=cirquePad(kit)}
   const slab=wasm.Manifold.cube([2000,2000,3],true).translate([0,0,.5]);
   // Pieces above the base: more than one means something only touches the removable plate.
   const above=m.subtract(slab),pieces=above.decompose().filter(p=>p.volume()>50).sort((a,b)=>b.volume()-a.volume()).map(p=>{const b=p.boundingBox();return `${(p.volume()/1000).toFixed(1)} @ ${b.min.map((v,i)=>((v+b.max[i])/2).toFixed(0)).join(',')}`});
@@ -91,7 +71,7 @@ async function show(){
   // (cap plus margin, from rest down by the travel) must not touch the chassis.
   // Gaps: closest distance between the resting caps of different key groups.
   let clear:string[]=[];
-  if(v.key!=='current'){
+  {
    const sw=project.config.switch,M=wasm.Manifold,keyNames=Object.keys(frames).filter(n=>n.startsWith('thumb_')||n.startsWith('matrix_'));
    const cap=(n:string,grow=0,travel=0)=>{const z=capSize(project.config,n);return M.cube([z[0]+2*grow,z[1]+2*grow,z[2]+travel],true).translate([0,0,sw.keycap_bottom_above_plate_mm-travel+(z[2]+travel)/2]).transform(frames[n].elements as never)};
    const hits=keyNames.map(n=>{const g=(sw.keycap_clearance_overrides_mm as Record<string,number>)[n]??sw.keycap_clearance_mm,x=m.intersect(cap(n,g,sw.travel_mm)),vol=x.volume(),bb=x.boundingBox();return vol>.05?`${n} ${vol.toFixed(0)} mm³ @ ${bb.min.map((q,i)=>((q+bb.max[i])/2).toFixed(0)).join(',')}`:''}).filter(Boolean);
@@ -111,9 +91,9 @@ async function show(){
  if(c.hl)group.add(new T.Mesh(c.hl,new T.MeshStandardMaterial({color:0xff7a1a,roughness:.5,polygonOffset:true,polygonOffsetFactor:-2,polygonOffsetUnits:-2})));
  if(c.pad)group.add(new T.Mesh(c.pad,new T.MeshStandardMaterial({color:0x4a5358,roughness:.35})));
  for(const part of hardware(c.project,c.frames)){
-  if(v.key!=='current'&&['trackball','ball','adapter'].includes(part.group))continue;
+  if(['trackpad','adapter'].includes(part.group))continue;
   if(part.group==='switch')continue;
-  const mesh=part.sphere?new T.Mesh(new T.SphereGeometry(part.sphere,24,16),new T.MeshStandardMaterial({color:colors[part.group]})):new T.Mesh(new T.BoxGeometry(...part.size),new T.MeshStandardMaterial({color:colors[part.group]??0x888888,roughness:.8}));
+  const mesh=new T.Mesh(new T.BoxGeometry(...part.size),new T.MeshStandardMaterial({color:colors[part.group]??0x888888,roughness:.8}));
   mesh.position.set(...part.center);mesh.applyMatrix4(new T.Matrix4().fromArray(part.matrix));mesh.userData.caps=part.group==='keycaps';
   mesh.visible=!mesh.userData.caps||(document.getElementById('caps') as HTMLInputElement).checked;group.add(mesh);
  }
