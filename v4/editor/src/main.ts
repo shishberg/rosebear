@@ -177,5 +177,6 @@ window.addEventListener('keydown',e=>{if((e.target as HTMLElement).matches('inpu
 Object.assign(window,{rosebearEditor:{getBuildRequests:()=>buildRequests,getShellId:()=>shell.geometry.uuid,getProject:()=>clone(project),getRevision:()=>revision,getSolidRevision:()=>solidRevision,getReport:()=>report,getSelected:()=>selected,
  handleScreen:(id:string)=>{const h=handles(project).find(h=>h.id===id);if(!h)throw Error('No handle '+id);return screen(h.at)},
  getHardware:()=>parts.children.map(o=>({name:o.name,group:o.userData.group,matrix:o.matrix.elements.slice()})),
- getHighlights:()=>failures.children.map(m=>({name:m.name,kind:m.userData.kind,visible:failures.visible&&m.visible,triangles:(m as T.Mesh).geometry.getIndex()!.count/3})),viewNormal:()=>camera.getWorldDirection(new T.Vector3()).toArray()}});
+ getHighlights:()=>failures.children.map(m=>({name:m.name,kind:m.userData.kind,visible:failures.visible&&m.visible,triangles:(m as T.Mesh).geometry.getIndex()!.count/3})),viewNormal:()=>camera.getWorldDirection(new T.Vector3()).toArray(),
+ lookFrom:(offset:V3,zoom=1)=>{camera.up.set(0,0,1);camera.position.copy(controls.target).add(new T.Vector3(...offset));camera.zoom=zoom;camera.lookAt(controls.target);camera.updateProjectionMatrix();controls.update();render()}}});
 historyButtons();refreshInputs();preview();startWorker();requestBuild();resize();

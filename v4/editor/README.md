@@ -98,9 +98,11 @@ thickness, the swept end's radius, how far the end keys reach into it
 - The thumb rows are ladders whose two ends roll over the same way, on front walls
   that follow their well, with a rounded window. When the extra thumb pair is
   close in front, it gets a back wall and a low web joins the two rows.
-- A wall with a rounded window under each key closes the inner side; the outer
-  side wall has a slot. A support joins the inner column to the thumb row,
-  trimmed clear of the keycaps' travel.
+- **Side walls**: the inner and pinky columns' outer sides run from the plate edge
+  down to the base, and close the ends of the swept end's quarter round at each
+  corner. The inner wall has a rounded window under each key; the outer wall has
+  a slot. A support joins the inner column to the thumb row, trimmed clear of the
+  keycaps' travel.
 - Tile pockets clear every key's tile, its components and the switch body out of
   the walls.
 - The Cirque pod hangs from the far thumb key on a bracket.

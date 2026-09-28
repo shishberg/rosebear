@@ -109,15 +109,30 @@ export function buildChassis(wasm:ManifoldToplevel,cfg:Config,frames:Record<stri
   return end;
  };
  const parts:Manifold[]=[];
- for(const c of COLS)parts.push(ladder(ROWS.map(r=>`matrix_${c}_${r}`),[[1,0],[-1,0]]));
+ // The outside columns' outer sides are the side walls, so they get no skirt there.
+ for(const [i,c] of COLS.entries())parts.push(ladder(ROWS.map(r=>`matrix_${c}_${r}`),[[1,0],[-1,0]].filter((d,j)=>!(i===0&&j===1||i===COLS.length-1&&j===0)) as [number,number][]));
+ // Swept ends across the back (e=0, top row) and front (e=1, bottom row) of the columns.
+ const ends=[0,1].map(e=>{const ns=COLS.map(c=>`matrix_${c}_${e?'bottom':'top'}`),f:[number,number]=[0,e?-1:1];return {ns,f,cv:curveThrough(ns,f)}});
+ for(const {ns,f,cv} of ends)parts.push(sweptEnd(cv,ns,f,true));
+ // Side walls: each outside column's side, from its plate edge to the base, one
+ // piece per pair of neighbouring keys. At the back and front each wall closes
+ // the open end of the swept end's quarter round.
+ const sideWall=(c:number,dir:[number,number])=>{
+  const col=ROWS.map(r=>`matrix_${COLS[c]}_${r}`),top=(n:string)=>strip(n,edgeFacing(n,dir),0,-T,G-W,G);
+  const pieces=col.slice(1).map((n,i)=>M.hull(floorOf([...top(col[i]),...top(n)])));
+  ends.forEach(({cv},e)=>{const n=col[e?2:0],q=cv.corners.filter(x=>x.c===c),mean=cv.corners.reduce((t,x)=>t+x.a,0)/cv.corners.length;
+   const out=q.reduce((a,b)=>Math.abs(b.a-mean)>Math.abs(a.a-mean)?b:a),inward=Math.sign(mean-out.a);
+   const arc=[0,1,2,3,4,5,6].flatMap(j=>{const th=j/6*Math.PI/2;return [0,W].map(da=>P(cv,out.a+inward*da,cv.F(out.a)-R+R*Math.sin(th),out.z-R+R*Math.cos(th)))});
+   pieces.push(M.hull(floorOf([...top(n),...arc])))});
+  return {col,wall:M.union(pieces)};
+ };
  // Outer side wall under the pinky column, with a slot.
- const pinky=ROWS.map(r=>`matrix_${COLS.at(-1)}_${r}`),side=pinky.flatMap(n=>strip(n,edgeFacing(n,[1,0]),-D+1,-D,G-2,G));
+ const outer=sideWall(COLS.length-1,[1,0]),side=outer.col.flatMap(n=>strip(n,edgeFacing(n,[1,0]),-D+1,-D,G-2,G));
  const xs=side.map(p=>p[0]),ys=side.map(p=>p[1]),x=Math.max(...xs),y0=Math.min(...ys)+12,y1=Math.max(...ys)-12;
- parts.push(M.hull(floorOf(side)).subtract(M.hull([y0,y1].map(y=>M.cylinder(20,4.5,4.5,32,true).rotate([0,90,0]).translate([x,y,10])))));
- // Inner wall under the inner column: a frame with a rounded opening under each
- // key. It starts from the skirt bottoms, since tilted keys hang past their plate.
+ parts.push(outer.wall.subtract(M.hull([y0,y1].map(y=>M.cylinder(20,4.5,4.5,32,true).rotate([0,90,0]).translate([x,y,10])))));
+ // Inner wall under the inner column, with a rounded opening under each key.
  const inner=ROWS.map(r=>`matrix_${COLS[0]}_${r}`);
- let innerWall=M.hull(floorOf(inner.flatMap(n=>strip(n,edgeFacing(n,[-1,0]),-D,-D,G-1.2,G))));
+ let innerWall=sideWall(0,[-1,0]).wall;
  for(const n of inner){const e=edgeFacing(n,[-1,0]),[p,q]=[at(n,e[0][0],e[0][1]*.62,-D,G),at(n,e[1][0],e[1][1]*.62,-D,G)];
   innerWall=innerWall.subtract(roundedWindow([[p[0],p[1],p[2]-4],[q[0],q[1],q[2]-4],[q[0],q[1],11],[p[0],p[1],11]],3.5,'x'))}
  parts.push(innerWall);
@@ -155,8 +170,6 @@ export function buildChassis(wasm:ManifoldToplevel,cfg:Config,frames:Record<stri
    parts.push(M.hull(near.flatMap(p=>[[p[0],p[1],1],[p[0],p[1],zj]] as Vec3[])));
   }
  }
- // Swept ends across the back (e=0, top row) and front (e=1, bottom row) of the columns.
- for(const e of [0,1]){const ends=COLS.map(c=>`matrix_${c}_${e?'bottom':'top'}`),f:[number,number]=[0,e?-1:1];parts.push(sweptEnd(curveThrough(ends,f),ends,f,true))}
  // Tile pockets: the walls are hulls between keys at different heights, so their
  // tops can reach up under a tile. Clear the tile, its components and the switch
  // body under every key, below the plate.
