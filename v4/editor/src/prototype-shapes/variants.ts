@@ -161,8 +161,9 @@ function endCap(k:Kit,n:string,e:Edge,G:number,R=9,w=2.4){
  return M.union(parts);
 }
 let capFloors:[number,number][][]=[],capDrops:Drop[]=[];
+// sides: the vertical wall's two side edges once built, outer and inner face, at the top of the wall.
 // ring: the cap's last arc step, [outer,inner] at one side then the other. dir: plan direction the cap rolls.
-interface Drop {ring:Vec3[];dir:[number,number]}
+interface Drop {ring:Vec3[];dir:[number,number];sides?:{o:Vec3;i:Vec3}[]}
 // Convex hull of loose 2D points (monotone chain). new CrossSection([pts]) treats
 // the points as an outline, and its fill rule drops parts of a self-crossing one.
 function hull2(ps:[number,number][]):[number,number][]{
@@ -173,20 +174,10 @@ function hull2(ps:[number,number][]):[number,number][]{
 // Debug: ?only=a,b keeps just the named Skeletyl parts; ?nocut=1 skips recutting keys.
 const qp=typeof location==='undefined'?new URLSearchParams():new URLSearchParams(location.search),only=qp.get('only')?.split(',');
 export let skelOutside:string[]=[];
-// Parts drawn in a highlight colour: ?hl=a,b names Skeletyl part tags (default: bridge).
-const hl=(qp.get('hl')??'bridge').split(',');
+// Parts drawn in a highlight colour: ?hl=a,b names Skeletyl part tags (default: join).
+const hl=(qp.get('hl')??'join').split(',');
 export let skelHighlight:Manifold[]=[],skelHighlightInfo:string[]=[];
 export const noCut=qp.get('nocut')==='1';
-// Bar across the slit between two keys' facing side skirts, around depth D/2.
-// Placed at the middle of a's skirt and the nearest point on b's.
-function bridge(k:Kit,a:string,b:string,G:number,D:number,len=5,h=2.4){
- const ea=edgeFacing(k,a,toward(k,a,b)),eb=edgeFacing(k,b,toward(k,b,a)),z=-D/2;
- const lerp=(e:Edge,t:number)=>[e[0][0]*(1-t)+e[1][0]*t,e[0][1]*(1-t)+e[1][1]*t];
- const pa=at(k,a,...lerp(ea,.5) as [number,number],z,G),q0=at(k,b,...eb[0],z,G),q1=at(k,b,...eb[1],z,G),ex=q1[0]-q0[0],ey=q1[1]-q0[1],L=Math.hypot(ex,ey);
- const tb=Math.min(1,Math.max(0,((pa[0]-q0[0])*ex+(pa[1]-q0[1])*ey)/L/L)),la=Math.hypot(...[0,1].map(i=>at(k,a,...ea[1],z,G)[i]-at(k,a,...ea[0],z,G)[i]) as [number,number]);
- const bar=(n:string,e:Edge,t:number,l:number)=>[t-len/2/l,t+len/2/l].flatMap(u=>[z-h/2,z+h/2].flatMap(zz=>[G-1.2,G].map(g=>at(k,n,...lerp(e,Math.min(1,Math.max(0,u))) as [number,number],zz,g))));
- return k.wasm.Manifold.hull([...bar(a,ea,.5,la),...bar(b,eb,tb,L)]);
-}
 interface SkelOpts {rim:'tray'|'bridged';drop:'square'|'angled'}
 function skeletyl(k:Kit,o:SkelOpts={rim:'tray',drop:'square'}){
  // Original: convex tray 3 mm past the caps with a 3.5 mm rim. Angled: the
@@ -206,8 +197,6 @@ function skeletyl(k:Kit,o:SkelOpts={rim:'tray',drop:'square'}){
   tag='cap';parts.push(endCap(k,col[0],edgeFacing(k,col[0],[0,1]),G),endCap(k,col[2],edgeFacing(k,col[2],[0,-1]),G));
   outline(col,2);
  }
- // Bridged: a bar between neighbouring columns' side skirts at each row, halfway down.
- if(o.rim==='bridged')for(let c=0;c+1<COLS.length;c++)for(const r of ROWS){tag='bridge';parts.push(bridge(k,`matrix_${COLS[c]}_${r}`,`matrix_${COLS[c+1]}_${r}`,G,D))}
  // Outer side wall with a slot.
  const pinky=ROWS.map(r=>`matrix_pinky_${r}`),side=pinky.flatMap(n=>strip(k,n,edgeFacing(k,n,[1,0]),-D+1,-D,G-2,G));
  let wall=M.hull(floorOf(side));
@@ -247,7 +236,7 @@ function skeletyl(k:Kit,o:SkelOpts={rim:'tray',drop:'square'}){
  // drops at 45 degrees from the arc end instead of leaving a flat shelf. Column c's back and front ends are drops 2c and 2c+1.
  const mid=(d:Drop)=>[(d.ring[0][0]+d.ring[2][0])/2,(d.ring[0][1]+d.ring[2][1])/2];
  tag='drop';capDrops.forEach((d,i)=>{
-  if(o.drop==='square'){parts.push(M.hull([...d.ring,...d.ring.map(p=>down(p,1))]));return}
+  if(o.drop==='square'){parts.push(M.hull([...d.ring,...d.ring.map(p=>down(p,1))]));d.sides=[{o:d.ring[0],i:d.ring[1]},{o:d.ring[2],i:d.ring[3]}];return}
   let nrm=d.dir;
   if(i<COLS.length*2){const c=i>>1,e=i&1,a=mid(capDrops[Math.max(0,c-1)*2+e]),b=mid(capDrops[Math.min(COLS.length-1,c+1)*2+e]),l=Math.hypot(b[0]-a[0],b[1]-a[1]);
    nrm=[(b[1]-a[1])/l,-(b[0]-a[0])/l];if(nrm[0]*d.dir[0]+nrm[1]*d.dir[1]<0)nrm=[-nrm[0],-nrm[1]]}
@@ -255,7 +244,35 @@ function skeletyl(k:Kit,o:SkelOpts={rim:'tray',drop:'square'}){
   const wall=outer.flatMap(p=>{const t=(reach-dot(p,nrm))/dot(d.dir,nrm),h:Vec3=[p[0]+d.dir[0]*t,p[1]+d.dir[1]*t,p[2]-t];return [h,[h[0]-nrm[0]*2.4,h[1]-nrm[1]*2.4,h[2]] as Vec3]});
   parts.push(M.hull([...d.ring,...wall]),M.hull([...wall,...wall.map(p=>down(p,1))]));
   capFloors[i].push(...wall.map(p=>[p[0],p[1]] as [number,number]));
+  d.sides=[{o:wall[0],i:wall[1]},{o:wall[2],i:wall[3]}];
  });
+ // Bridged: neighbouring columns' end walls are one wall in their lower half.
+ // Where the columns are staggered, the shorter column's end wall carries on
+ // across the gap to the longer column's side line, and a wall along that side
+ // runs out to the longer column's end wall.
+ const joins:Manifold[]=[];
+ if(o.rim==='bridged')for(let c=0;c+1<COLS.length;c++)for(const e of [0,1]){
+  const a=capDrops[c*2+e],b=capDrops[(c+1)*2+e],W=2.4;
+  const sub=(p:number[],q:number[])=>[p[0]-q[0],p[1]-q[1]],len=(v:number[])=>Math.hypot(v[0],v[1]),unit=(v:number[])=>{const l=len(v);return [v[0]/l,v[1]/l]};
+  // Facing side of each wall: the one nearer the other column's wall.
+  const face=(x:Drop,y:Drop)=>{const m=[(y.sides![0].o[0]+y.sides![1].o[0])/2,(y.sides![0].o[1]+y.sides![1].o[1])/2],j=len(sub(x.sides![0].o,m))<len(sub(x.sides![1].o,m))?0:1;return {f:x.sides![j],other:x.sides![1-j]}};
+  const fa=face(a,b),fb=face(b,a),dm=unit([a.dir[0]+b.dir[0],a.dir[1]+b.dir[1]]);
+  const along=(p:number[])=>p[0]*dm[0]+p[1]*dm[1],[L,S,fl,fs]=along(fa.f.o)>along(fb.f.o)?[a,b,fa,fb]:[b,a,fb,fa];
+  const zTop=Math.min(fa.f.o[2],fb.f.o[2]),zj=1+(zTop-1)/2;
+  // C: where the shorter wall's outer face line meets the longer column's side line.
+  const u=unit(sub(fs.f.o,fs.other.o)),p0=fs.f.o,q0=fl.f.o,dl=L.dir,den=u[0]*dl[1]-u[1]*dl[0];
+  const t=((q0[0]-p0[0])*dl[1]-(q0[1]-p0[1])*dl[0])/den,C=[p0[0]+u[0]*t,p0[1]+u[1]*t];
+  const inS=[-S.dir[0]*W,-S.dir[1]*W],inL=unit(sub(fl.other.o,fl.f.o)).map(v=>v*W);
+  const col=(ps:number[][])=>ps.flatMap(p=>[[p[0],p[1],1],[p[0],p[1],zj]] as Vec3[]);
+  // Across the gap, from 1 mm inside the shorter column's wall to past the corner,
+  // so it overlaps both that wall and the side piece.
+  const sO=[fs.f.o[0]-u[0],fs.f.o[1]-u[1]],sI=[fs.f.i[0]-u[0],fs.f.i[1]-u[1]];
+  const Cx=[C[0]+u[0]*W,C[1]+u[1]*W];joins.push(M.hull(col([sO,sI,Cx,[Cx[0]+inS[0],Cx[1]+inS[1]]])));
+  // Along the longer column's side, from a wall's thickness behind the corner
+  // (overlapping the piece across the gap) into its end wall.
+  const lEnd=[fl.f.o[0]-dl[0]*W/2,fl.f.o[1]-dl[1]*W/2];
+  const Ci=[C[0]-dl[0]*W,C[1]-dl[1]*W];joins.push(M.hull(col([Ci,[Ci[0]+inL[0],Ci[1]+inL[1]],lEnd,[lEnd[0]+inL[0],lEnd[1]+inL[1]]]))); }
+ tag='join';parts.push(...joins);
  const outlines=specs.map(sp=>new CS([hull2([...sp.names.flatMap(keyPts),...capFloors.slice(sp.lo,sp.hi).flat()])]));
  // Tray outline. Original: convex outlines of the fingers, thumbs and the joins
  // between them (rolled ends included), rounded. Angled: the fingers part is the
@@ -268,7 +285,7 @@ function skeletyl(k:Kit,o:SkelOpts={rim:'tray',drop:'square'}){
   ?CS.union([CS.union(outlines.slice(0,COLS.length)).offset(4,'Round',2,32).offset(-4,'Round',2,32),...groups.slice(1).map(blob)]).offset(margin,'Round',2,32).offset(3,'Round',2,32).offset(-3,'Round',2,32)
   :CS.union(groups.map(blob)).offset(margin,'Round',2,32).offset(8,'Round',2,32).offset(-8,'Round',2,32);
  // Base outline: the tray, or for bridged columns the key outlines closed across the slits.
- const base=o.rim==='tray'||o.drop==='angled'?fp:CS.union([...outlines,support.project()]).offset(5,'Round',2,32).offset(-4,'Round',2,32);
+ const base=o.rim==='tray'||o.drop==='angled'?fp:CS.union([...outlines,support.project(),...joins.map(j=>j.project())]).offset(5,'Round',2,32).offset(-5,'Round',2,32);
  if(o.rim==='tray'){
   tag='rim';parts.push(fp.extrude(7).subtract(fp.offset(-rimW,'Round').extrude(9).translate([0,0,2])));
   // Ledge: a 2 mm floor above the removable base, from the rim in to 2 mm
@@ -298,13 +315,13 @@ export const variants:Variant[]=[
   blurb:'The Skeletyl\'s construction on the Rosebear key poses: each column is its own curved ladder of switch frames with side skirts, with slits between columns. Column ends roll over in a quarter round and drop into a low rim tray on a flat base. A framed wall under the inner column, with a rounded opening under each key, supports the column and joins the thumb rows. The outer side wall has a slot, and the thumb row sits on a front wall with a rounded window. A 2 mm floor ledge runs from the rim in under the column walls, so the case is one piece without the bottom plate.',
   build:k=>noCut?skeletyl(k):cutKeys(k,skeletyl(k))},
  {key:'skel-bridged',name:'Skeletyl, bridged columns',
-  blurb:'The Skeletyl construction without the shared tray: neighbouring columns are joined by a bar across the slit at each row, halfway down their side skirts, as the original Skeletyl does. Column ends drop square onto a flat base that follows the columns closely.',
+  blurb:'The Skeletyl construction without the shared tray, as the original Skeletyl does it: neighbouring columns\' end walls are separate in their upper half and one wall in their lower half, back and front. Where columns are staggered, the lower wall steps along the side of the longer column. No rim and no lip: the base plate stops flush with the walls. The joins are drawn in orange.',
   build:k=>{const o:SkelOpts={rim:'bridged',drop:'square'};return noCut?skeletyl(k,o):cutKeys(k,skeletyl(k,o))}},
  {key:'skel-angled',name:'Skeletyl, angled end walls',
   blurb:'The Skeletyl tray, but each column end\'s vertical wall is turned about the vertical axis to run along the line through the neighbouring column ends, instead of square to the column. Where a wall stands out past the rolled end, its top slopes down at 45 degrees. The tray then follows the column ends instead of a convex outline: 1 mm past the end walls with a 2 mm rim, where the original is 3 mm past the rolled ends with a 3.5 mm rim.',
   build:k=>{const o:SkelOpts={rim:'tray',drop:'angled'};return noCut?skeletyl(k,o):cutKeys(k,skeletyl(k,o))}},
  {key:'skel-both',name:'Skeletyl, bridged and angled',
-  blurb:'Both changes: columns bridged halfway down their side skirts, no rim, and column end walls angled to follow the neighbouring column ends, standing on a flat base 1 mm past them.',
+  blurb:'Both changes: neighbouring columns\' end walls joined in their lower half, no rim, and the end walls turned to follow the neighbouring column ends, on a flat base 1 mm past them. The joins are drawn in orange.',
   build:k=>{const o:SkelOpts={rim:'bridged',drop:'angled'};return noCut?skeletyl(k,o):cutKeys(k,skeletyl(k,o))}},
  {key:'soft-web',name:'Soft-edged webbed well',
   blurb:'The webbed well below, with every crease rounded: shallow folds become smooth curves, sharper edges keep a visible line with a small fillet. Flat faces stay flat.',
