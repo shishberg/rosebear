@@ -201,7 +201,8 @@ function curveThrough(k:Kit,ends:string[],facing:[number,number],G:number,R:numb
  // Normal equations for f+R = c0 + c1 a + c2 a^2.
  const S=(pa:number,pf=0)=>corners.reduce((t,q)=>t+q.a**pa*(pf?q.f+R:1),0),A=[[S(0),S(1),S(2)],[S(1),S(2),S(3)],[S(2),S(3),S(4)]],b=[S(0,1),S(1,1),S(2,1)];
  const det=(m:number[][])=>m[0][0]*(m[1][1]*m[2][2]-m[1][2]*m[2][1])-m[0][1]*(m[1][0]*m[2][2]-m[1][2]*m[2][0])+m[0][2]*(m[1][0]*m[2][1]-m[1][1]*m[2][0]);
- const cf=[0,1,2].map(j=>det(A.map((r,i)=>r.map((v,jj)=>jj===j?b[i]:v)))/det(A));
+ // One key: its edge is square to the roll, so the curve is a straight line along it.
+ const cf=ends.length<2?[S(0,1)/S(0),0,0]:[0,1,2].map(j=>det(A.map((r,i)=>r.map((v,jj)=>jj===j?b[i]:v)))/det(A));
  const F0=(a:number)=>cf[0]+cf[1]*a+cf[2]*a*a,shift=Math.max(0,...corners.map(q=>q.f+Rmin-F0(q.a)));
  return {dm,ax,F:a=>F0(a)+shift,corners};
 }
@@ -278,11 +279,14 @@ function skeletyl(k:Kit,o:SkelOpts={rim:'tray',drop:'square'}){
  // Thumb rows on a front gusset with a triangular window.
  for(const g of [thumbs(k).filter(n=>!n.startsWith('thumb_x')),thumbs(k).filter(n=>n.startsWith('thumb_x'))].filter(g=>g.length)){
   tag='tladder';parts.push(ladder(k,g,G,D,[[0,1],[0,-1]]));
-  tag='tcap';if(g.length>1)parts.push(endCap(k,g[0],edgeFacing(k,g[0],toward(k,g[1],g[0])),G),endCap(k,g.at(-1)!,edgeFacing(k,g.at(-1)!,toward(k,g.at(-2)!,g.at(-1)!)),G));
-  if(o.thumbFront==='swept'){
-   // Swept front: the finger columns' swept end, along the thumb row's front edge.
-   tag='tsweep';parts.push(sweptEnd(curveThrough(k,g,[0,-1],G,9,9),g,[0,-1],false));
-   outline(g,(g.length>1?2:0)+1);continue;
+  const sweepEnds=o.thumbFront==='swept'&&g.length>1;
+  tag='tcap';if(g.length>1&&!sweepEnds)parts.push(endCap(k,g[0],edgeFacing(k,g[0],toward(k,g[1],g[0])),G),endCap(k,g.at(-1)!,edgeFacing(k,g.at(-1)!,toward(k,g.at(-2)!,g.at(-1)!)),G));
+  if(sweepEnds){
+   // Swept ends: the thumb row runs left to right, so like a finger column it
+   // rolls over at its two ends, built by the same swept-end code as the columns.
+   // No front wall: the row stands on its end walls and the inner support.
+   tag='tcap';for(const [n,m] of [[g[0],g[1]],[g.at(-1)!,g.at(-2)!]]){const d=toward(k,m,n);parts.push(sweptEnd(curveThrough(k,[n],d,G,9,9),[n],d,false))}
+   outline(g,2);continue;
   }
   outline(g,g.length>1?2:0);
   const front=g.flatMap(n=>strip(k,n,edgeFacing(k,n,[0,-1]),-T,-T,G-2,G));
@@ -435,7 +439,7 @@ export const variants:Variant[]=[
   blurb:'One rolled end swept along a smooth curve across the back, and another across the front, its top following the column ends\' heights. Each column\'s key surface continues flat out to it. Round-bottomed slots part the columns down to half the end wall height, so they are separate above and one wall below. No rim or lip.',
   build:k=>{const o:SkelOpts={rim:'bridged',drop:'swept'};return noCut?skeletyl(k,o):cutKeys(k,skeletyl(k,o))}},
  {key:'skel-swept-thumbs',name:'Skeletyl, swept ends, thumbs too',
-  blurb:'As "one swept end", and the thumb row\'s front uses the same construction: a quarter round swept along the thumb keys\' front edges, then a wall to the base, instead of the flat front wall with a rounded window. No slots between thumb keys, since the thumb keys are one strip.',
+  blurb:'As "one swept end", and the thumb row uses the same construction as a finger column: the row runs left to right, and its two ends roll over and drop to the base, built by the same swept-end code as the columns. There is no front wall under the thumb row.',
   build:k=>{const o:SkelOpts={rim:'bridged',drop:'swept',thumbFront:'swept'};return noCut?skeletyl(k,o):cutKeys(k,skeletyl(k,o))}},
  {key:'carved',name:'Carved shell',
   blurb:'One continuous skin through every key plate\'s corners, with walls straight down to the base, then a slit between each pair of neighbouring columns from the top down to half the end walls\' height. The columns are cut out of one shape rather than built separately and joined. No rim or lip.',
