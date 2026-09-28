@@ -135,25 +135,36 @@ function ladder(k:Kit,names:string[],G:number,D:number,sides:[number,number][]){
  for(const d of sides)for(const n of names)parts.push(M.hull(strip(k,n,edgeFacing(k,n,d),0,-D,G-1.2,G)));
  return M.union(parts);
 }
+// Opening through a wall facing roughly along world x or y: rounded corners
+// of radius r, placed inside the given quad corners.
+function roundedWindow(k:Kit,quad:Vec3[],r:number,axis:'x'|'y'){
+ const M=k.wasm.Manifold,c=[0,1,2].map(i=>quad.reduce((a,p)=>a+p[i],0)/quad.length);
+ return M.hull(quad.map(p=>{const d=[c[0]-p[0],c[1]-p[1],c[2]-p[2]],l=Math.hypot(...d)||1,q=p.map((v,i)=>v+d[i]/l*r*1.2);
+  return M.cylinder(60,r,r,32,true).rotate(axis==='x'?[0,90,0]:[90,0,0]).translate(q as Vec3)}));
+}
 // Quarter-round end on a column: continues the plate top over an arc of
 // radius R away from the key (local y sign sy), then drops to the tray.
-function endCap(k:Kit,n:string,sy:number,G:number,R=9,w=2.4){
- const M=k.wasm.Manifold,[hx,hy]=half(k,n,G),steps=6,parts:Manifold[]=[];
- const pt=(x:number,th:number,r:number)=>point(k.frames[n],[x,sy*(hy+r*Math.sin(th)),-R+r*Math.cos(th)]) as Vec3;
+function endCap(k:Kit,n:string,e:Edge,G:number,R=9,w=2.4){
+ // The edge's shared corner sign picks the local axis the cap rolls along.
+ const M=k.wasm.Manifold,alongX=e[0][0]===e[1][0],sy=alongX?e[0][0]:e[0][1],[ha,hb]=half(k,n,G),[hx,hy]=alongX?[hb,ha]:[ha,hb],steps=6,parts:Manifold[]=[];
+ const pt=(x:number,th:number,r:number)=>{const a=sy*(hy+r*Math.sin(th)),z=-R+r*Math.cos(th);return point(k.frames[n],alongX?[a,x,z]:[x,a,z]) as Vec3};
  const ring=(th:number)=>[-hx,hx].flatMap(x=>[pt(x,th,R),pt(x,th,R-w)]);
  for(let i=0;i<steps;i++)parts.push(M.hull([...ring(i/steps*Math.PI/2),...ring((i+1)/steps*Math.PI/2)]));
  const last=ring(Math.PI/2);parts.push(M.hull([...last,...last.map(p=>down(p,1))]));
  capFloors.push([...ring(0),...last].map(p=>[p[0],p[1]] as [number,number]));
+ // Foot: the drop face pushed out along the roll direction, trimmed to the tray later.
+ const o=pt(0,Math.PI/2,R),i0=pt(0,Math.PI/2,R-w),d=[o[0]-i0[0],o[1]-i0[1]],l=Math.hypot(d[0],d[1])||1;
+ capFeet.push(last.flatMap(p=>[0,1].map(s=>[p[0]+d[0]/l*14*s,p[1]+d[1]/l*14*s] as [number,number])));
  return M.union(parts);
 }
-let capFloors:[number,number][][]=[];
+let capFloors:[number,number][][]=[],capFeet:[number,number][][]=[];
 function skeletyl(k:Kit){
- capFloors=[];const M=k.wasm.Manifold,G=1.4,D=8,parts:Manifold[]=[];
+ capFloors=[];capFeet=[];const M=k.wasm.Manifold,G=1.4,D=8,parts:Manifold[]=[];
  const floorOf=(ps:Vec3[])=>[...ps,...ps.map(p=>down(p,1))];
  for(const c of COLS){
   const col=ROWS.map(r=>`matrix_${c}_${r}`);parts.push(ladder(k,col,G,D,[[1,0],[-1,0]]));
   // Column ends roll over in a quarter round, then drop to the tray.
-  parts.push(endCap(k,col[0],1,G),endCap(k,col[2],-1,G));
+  parts.push(endCap(k,col[0],edgeFacing(k,col[0],[0,1]),G),endCap(k,col[2],edgeFacing(k,col[2],[0,-1]),G));
  }
  // Outer side wall with a slot.
  const pinky=ROWS.map(r=>`matrix_pinky_${r}`),side=pinky.flatMap(n=>strip(k,n,edgeFacing(k,n,[1,0]),-D+1,-D,G-2,G));
@@ -163,24 +174,39 @@ function skeletyl(k:Kit){
  parts.push(wall);
  // Inner support: a solid wall under the inner column, joined to the thumb rows.
  const inner=ROWS.map(r=>`matrix_inner_${r}`);
- parts.push(M.hull(floorOf(inner.flatMap(n=>strip(k,n,edgeFacing(k,n,[-1,0]),-T,-T,G-2.4,G)))));
+ // Start from the skirt bottoms: the inner keys tilt, so their tiles hang past the plate edge.
+ // A frame rather than a solid wall: a rounded opening under each key, posts
+ // between keys where the column joins sit.
+ let innerWall=M.hull(floorOf(inner.flatMap(n=>strip(k,n,edgeFacing(k,n,[-1,0]),-D,-D,G-1.2,G))));
+ for(const n of inner){const e=edgeFacing(k,n,[-1,0]),[p,q]=[at(k,n,e[0][0],e[0][1]*.62,-D,G),at(k,n,e[1][0],e[1][1]*.62,-D,G)];
+  innerWall=innerWall.subtract(roundedWindow(k,[[p[0],p[1],p[2]-4],[q[0],q[1],q[2]-4],[q[0],q[1],11],[p[0],p[1],11]],3.5,'x'));}
+ parts.push(innerWall);
  const base3=thumbs(k).filter(n=>!n.startsWith('thumb_x'));
- parts.push(M.hull(floorOf([...strip(k,'matrix_inner_bottom',edgeFacing(k,'matrix_inner_bottom',[0,-1]),-T,-T,G-2,G),...base3.flatMap(n=>strip(k,n,edgeFacing(k,n,[0,1]),-T,-T,G-2,G))].filter(p=>p[0]<-30))));
+ parts.push(M.hull(floorOf([...strip(k,'matrix_inner_bottom',edgeFacing(k,'matrix_inner_bottom',[0,-1]),-D,-D,G-1.2,G),...base3.flatMap(n=>strip(k,n,edgeFacing(k,n,[0,1]),-D,-D,G-1.2,G))].filter(p=>p[0]<-30))));
  // Thumb rows on a front gusset with a triangular window.
  for(const g of [thumbs(k).filter(n=>!n.startsWith('thumb_x')),thumbs(k).filter(n=>n.startsWith('thumb_x'))].filter(g=>g.length)){
   parts.push(ladder(k,g,G,D,[[0,1],[0,-1]]));
+  if(g.length>1)parts.push(endCap(k,g[0],edgeFacing(k,g[0],toward(k,g[1],g[0])),G),endCap(k,g.at(-1)!,edgeFacing(k,g.at(-1)!,toward(k,g.at(-2)!,g.at(-1)!)),G));
   const front=g.flatMap(n=>strip(k,n,edgeFacing(k,n,[0,-1]),-T,-T,G-2,G));
   let gusset=M.hull(floorOf(front));
   if(g.length>1){
    // Window follows the sloping top of the wall, 4 mm below it, above the rim.
    const a=g[0],b=g.at(-1)!,topAt=(n:string,t:number)=>{const e=edgeFacing(k,n,[0,-1]),p=at(k,n,e[0][0]*(1-t)+e[1][0]*t,e[0][1]*(1-t)+e[1][1]*t,-T,G-1);return p};
    const ta=topAt(a,.5),tb=topAt(b,.5),quad:Vec3[]=[[ta[0],ta[1],ta[2]-4],[tb[0],tb[1],tb[2]-4],[tb[0],tb[1],10],[ta[0],ta[1],10]];
-   gusset=gusset.subtract(M.hull(quad.flatMap(p=>[[p[0],p[1]-20,p[2]],[p[0],p[1]+20,p[2]]] as Vec3[])).intersect(M.hull(floorOf(front.map(p=>[p[0],p[1],p[2]-3] as Vec3)))));}
+   gusset=gusset.subtract(roundedWindow(k,quad,4,'y').intersect(M.hull(floorOf(front.map(p=>[p[0],p[1],p[2]-3] as Vec3)))));}
   parts.push(gusset);
  }
- // Tray outline includes the rolled column ends.
- const CS=k.wasm.CrossSection,fp=CS.union([footprint(k,4,10),...capFloors.map(c=>new CS([c]).hull().offset(3,'Round',2,24))]).offset(3,'Round',2,24).offset(-3,'Round',2,24);
+ // Tray outline: convex outlines of the fingers, thumbs and the joins
+ // between them (rolled ends included), rounded.
+ const CS=k.wasm.CrossSection,flat=(ps:Vec3[])=>ps.map(p=>[p[0],p[1]] as [number,number]);
+ const fingers=COLS.flatMap(c=>ROWS.map(r=>`matrix_${c}_${r}`)),xt=thumbs(k).filter(n=>n.startsWith('thumb_x'));
+ const near=(names:string[])=>capFloors.filter(c=>names.some(n=>{const e=k.frames[n].elements;return c.some(p=>Math.hypot(p[0]-e[12],p[1]-e[13])<24)})).flat();
+ const blob=(names:string[])=>new CS([[...flat(names.flatMap(n=>corners(k,n,G))),...near(names)]]).hull();
+ const groups:string[][]=[fingers,base3,['matrix_inner_bottom','matrix_index_bottom',...base3],...(xt.length?[xt,[...xt,'matrix_middle_bottom','matrix_index_bottom']]:[])];
+ const fp=CS.union(groups.map(blob)).offset(3,'Round',2,32).offset(8,'Round',2,32).offset(-8,'Round',2,32);
  parts.push(fp.extrude(7).subtract(fp.offset(-3.5,'Round').extrude(9).translate([0,0,2])));
+ // Feet join each column end to the rim above the removable 2 mm base.
+ parts.push(CS.union(capFeet.map(f=>new CS([f]).hull())).intersect(fp.offset(-1)).extrude(4));
  return M.union([...parts,cirque(k)]);
 }
 function machined(k:Kit){
@@ -194,7 +220,7 @@ function machined(k:Kit){
 
 export const variants:Variant[]=[
  {key:'skeletyl',name:'Skeletyl construction',
-  blurb:'The Skeletyl\'s construction on the Rosebear key poses: each column is its own curved ladder of switch frames with side skirts, with slits between columns. Column ends roll over in a quarter round and drop into a low rim tray on a flat base. A solid wall under the inner column joins the thumb rows for support. The outer side wall has a slot, and the thumb row sits on a solid wall with a triangular window.',
+  blurb:'The Skeletyl\'s construction on the Rosebear key poses: each column is its own curved ladder of switch frames with side skirts, with slits between columns. Column ends roll over in a quarter round and drop into a low rim tray on a flat base. A framed wall under the inner column, with a rounded opening under each key, supports the column and joins the thumb rows. The outer side wall has a slot, and the thumb row sits on a front wall with a rounded window. Each column end has a foot out to the rim, so the case is one piece without the bottom plate.',
   build:k=>cutKeys(k,skeletyl(k))},
  {key:'soft-web',name:'Soft-edged webbed well',
   blurb:'The webbed well below, with every crease rounded: shallow folds become smooth curves, sharper edges keep a visible line with a small fillet. Flat faces stay flat.',
@@ -215,7 +241,7 @@ export const variants:Variant[]=[
   blurb:'Each key column sits on vertical ribs in the gaps between columns, running front to back and following the column\'s curve down to a flat base. The sides stay open, so the tile wiring is visible and reachable. The thumbs get front and back ribs of their own.',
   build:k=>{
    const M=k.wasm.Manifold,parts:Manifold[]=[plates(k,.7)];
-   const rib=(chain:{n:string;dir:[number,number]}[][],w=1.6)=>{for(const seg of chain)for(let i=0;i+1<seg.length;i++){const ps=seg.slice(i,i+2).flatMap(({n,dir})=>edgeFacing(k,n,dir).flatMap(([sx,sy])=>[at(k,n,sx,sy,-T,.7),at(k,n,sx,sy,-T-w,.7)]));parts.push(M.hull([...ps,...ps.map(p=>down(p,0)),...ps.map(p=>down(p,2))]))}};
+   const rib=(chain:{n:string;dir:[number,number]}[][],w=1.6)=>{for(const seg of chain)for(let i=0;i+1<seg.length;i++){const ps=seg.slice(i,i+2).flatMap(({n,dir})=>edgeFacing(k,n,dir).flatMap(([sx,sy])=>[at(k,n,sx,sy,-T/2,.4),at(k,n,sx,sy,-T-w,.4)]));parts.push(M.hull([...ps,...ps.map(p=>down(p,0)),...ps.map(p=>down(p,2))]))}};
    for(let c=0;c<=COLS.length;c++){
     const seg:{n:string;dir:[number,number]}[]=[];
     for(const row of ROWS){if(c>0)seg.push({n:`matrix_${COLS[c-1]}_${row}`,dir:[1,0]});if(c<COLS.length)seg.push({n:`matrix_${COLS[c]}_${row}`,dir:[-1,0]})}

@@ -46,7 +46,7 @@ renderer.setAnimationLoop(()=>renderer.render(scene,camera));
 const toGeom=(m:Manifold)=>{const mesh=m.getMesh(),g=new T.BufferGeometry(),p=new Float32Array(mesh.numVert*3);for(let i=0;i<mesh.numVert;i++)for(let j=0;j<3;j++)p[i*3+j]=mesh.vertProperties[i*mesh.numProp+j];g.setAttribute('position',new T.BufferAttribute(p,3));g.setIndex(new T.BufferAttribute(mesh.triVerts,1));return toCreasedNormals(g,Math.PI/6)};
 const colors:Record<string,number>={pcb:0x268878,components:0x303b43,keycaps:0xd7d8bd,trackball:0x9560b7,ball:0xc35451,adapter:0xd1a443};
 const engine=Module({locateFile:()=>wasmUrl}).then(m=>{m.setup();return m});
-const cache=new Map<string,{base:T.BufferGeometry;geom:T.BufferGeometry;pad?:T.BufferGeometry;frames:Record<string,T.Matrix4>;project:typeof defaults;ms:number;vol:number}>();
+const cache=new Map<string,{pieces:number[];base:T.BufferGeometry;geom:T.BufferGeometry;pad?:T.BufferGeometry;frames:Record<string,T.Matrix4>;project:typeof defaults;ms:number;vol:number}>();
 
 async function show(){
  const v=all[vi],tk=Object.keys(extras)[ti],ex=extras[tk];
@@ -60,7 +60,9 @@ async function show(){
   if(v.key==='current'){frames=mountedFrames(project);const r=buildSolid(wasm,project);m=new wasm.Manifold(new wasm.Mesh({numProp:3,vertProperties:r.mesh.positions,triVerts:r.mesh.indices}))}
   else{frames=componentFrames(project.config);ex.keys.forEach(([x,y,z,rz],i)=>{frames['thumb_x'+(i+1)]=frame([x,y,z],[0,0,rz])});const kit:Kit={wasm,cfg:project.config,frames};m=(v as typeof variants[number]).build(kit);pad=cirquePad(kit)}
   const slab=wasm.Manifold.cube([2000,2000,3],true).translate([0,0,.5]);
-  cache.set(key,{base:toGeom(m.intersect(slab)),geom:toGeom(m.subtract(slab)),pad:pad&&toGeom(pad),frames,project,ms:performance.now()-t0,vol:m.volume()/1000});
+  // Pieces above the base: more than one means something only touches the removable plate.
+  const above=m.subtract(slab),pieces=above.decompose().map(p=>p.volume()/1000).filter(v=>v>.05).sort((a,b)=>b-a);
+  cache.set(key,{pieces,base:toGeom(m.intersect(slab)),geom:toGeom(above),pad:pad&&toGeom(pad),frames,project,ms:performance.now()-t0,vol:m.volume()/1000});
  }
  const c=cache.get(key)!;
  if(all[vi]!==v||Object.keys(extras)[ti]!==tk)return;
@@ -76,7 +78,7 @@ async function show(){
   mesh.visible=!mesh.userData.caps||(document.getElementById('caps') as HTMLInputElement).checked;group.add(mesh);
  }
  const nk=Object.keys(c.frames).filter(n=>n.startsWith('thumb_')||n.startsWith('matrix_')).length;
- document.getElementById('stats')!.textContent=`${nk} keys · solid volume ≈ ${c.vol.toFixed(0)} cm³ (walls not hollowed in every shape) · built in ${c.ms.toFixed(0)} ms`;
+ document.getElementById('stats')!.textContent=`${nk} keys · solid volume ≈ ${c.vol.toFixed(0)} cm³ (walls not hollowed in every shape) · built in ${c.ms.toFixed(0)} ms · ${c.pieces.length===1?'one piece without the plate':`${c.pieces.length} loose pieces without the plate (${c.pieces.map(v=>v.toFixed(1)).join(', ')} cm³)`}`;
 }
 document.getElementById('caps')!.onchange=()=>group.children.forEach(o=>{if(o.userData.caps)o.visible=(document.getElementById('caps') as HTMLInputElement).checked});
 document.getElementById('plate')!.onchange=()=>{const on=(document.getElementById('plate') as HTMLInputElement).checked;grid.visible=on;group.children.forEach(o=>{if(o.userData.plate)o.visible=on})};
