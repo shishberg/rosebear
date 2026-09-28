@@ -11,6 +11,8 @@ export interface Kit {wasm:ManifoldToplevel;cfg:Config;frames:Record<string,Matr
 export interface Variant {key:string;name:string;blurb:string;build:(k:Kit)=>Manifold}
 
 const T=3; // plate thickness
+// Swept ends: how far the outermost key's plate may reach into the quarter round.
+const CUT=4;
 const COLS=['inner','index','middle','ring','pinky'],ROWS=['top','home','bottom'];
 const keys=(f:Record<string,Matrix4>)=>Object.keys(f).filter(isKey);
 const thumbs=(k:Kit)=>keys(k.frames).filter(n=>n.startsWith('thumb_')).sort((a,b)=>k.frames[a].elements[12]-k.frames[b].elements[12]);
@@ -20,6 +22,10 @@ const at=(k:Kit,n:string,sx:number,sy:number,z=0,grow=0):Vec3=>{const [hx,hy]=ha
 const corners=(k:Kit,n:string,grow=0)=>[[-1,-1],[1,-1],[1,1],[-1,1]].map(([x,y])=>at(k,n,x,y,0,grow));
 const place=(m:Manifold,f:Matrix4)=>m.transform(f.elements as never);
 const down=(p:Vec3,z=0):Vec3=>[p[0],p[1],z];
+// A keycap's travel envelope, as the editor's clearance check builds it: the cap
+// plus its margin, from rest down by the travel.
+const capSweep=(k:Kit,n:string)=>{const z=capSize(k.cfg,n),s=k.cfg.switch,g=(s.keycap_clearance_overrides_mm as Record<string,number>)[n]??s.keycap_clearance_mm;
+ return place(k.wasm.Manifold.cube([z[0]+2*g,z[1]+2*g,z[2]+s.travel_mm],true).translate([0,0,s.keycap_bottom_above_plate_mm-s.travel_mm+(z[2]+s.travel_mm)/2]),k.frames[n])};
 
 // Plate with a 14 mm switch cutout, in the key's frame.
 function plate(k:Kit,n:string,grow=0){
@@ -94,9 +100,14 @@ export function cirque(k:Kit,link:'bracket'|'none'='bracket'){
  const M=k.wasm.Manifold,f=k.frames.trackball.clone().premultiply(new Matrix4().makeTranslation(-8,0,0));
  let pod=place(M.cylinder(7,22.5,22.5,64).translate([0,0,-6.5]).subtract(M.cylinder(2,20.4,20.4,64).translate([0,0,-.5])),f);
  if(link==='bracket'){
-  const c=point(f,[0,0,-4]),near=['matrix_inner_home','matrix_inner_bottom','thumb_far'].flatMap(n=>corners(k,n)).sort((a,b)=>Math.hypot(a[0]-c[0],a[1]-c[1])-Math.hypot(b[0]-c[0],b[1]-c[1])).slice(0,2);
-  const rim=near.map(p=>{const d=[p[0]-c[0],p[1]-c[1]],l=Math.hypot(d[0],d[1]);return point(f,[0,0,0]).map((v,i)=>i<2?c[i]+d[i]/l*20:c[2]) as Vec3});
-  pod=pod.add(M.hull([...rim.flatMap(p=>[p,[p[0],p[1],p[2]-4] as Vec3]),...near.flatMap(p=>[[p[0],p[1],p[2]-T] as Vec3,[p[0],p[1],p[2]-T-4] as Vec3])]));
+  const c=point(f,[0,0,-4]),dist=(p:Vec3)=>Math.hypot(p[0]-c[0],p[1]-c[1]);
+  const near=['thumb_far'].flatMap(n=>[[-1,-1],[1,-1],[1,1],[-1,1]].map(([sx,sy])=>({n,sx,sy,p:at(k,n,sx,sy)}))).sort((a,b)=>dist(a.p)-dist(b.p)).slice(0,2);
+  const rim=near.map(({p})=>{const d=[p[0]-c[0],p[1]-c[1]],l=Math.hypot(d[0],d[1]);return point(f,[0,0,0]).map((v,i)=>i<2?c[i]+d[i]/l*20:c[2]) as Vec3});
+  // Anchored to the two corners of the far thumb key nearest the pod (the
+  // inner column's corners left it loose once the thumbs moved), below each
+  // corner along the key's own normal, 0.6 mm inside the
+  // plate edge, so the bracket reaches into the key's wall even on a tilted key.
+  pod=pod.add(M.hull([...rim.flatMap(p=>[p,[p[0],p[1],p[2]-4] as Vec3]),...near.flatMap(({n,sx,sy})=>[at(k,n,sx,sy,-T,.8),at(k,n,sx,sy,-T-4,.8)])]));
  }
  return pod;
 }
@@ -175,7 +186,7 @@ function hull2(ps:[number,number][]):[number,number][]{
 }
 // Debug: ?only=a,b keeps just the named Skeletyl parts; ?nocut=1 skips recutting keys.
 const qp=typeof location==='undefined'?new URLSearchParams():new URLSearchParams(location.search),only=qp.get('only')?.split(',');
-export let skelOutside:string[]=[];
+export let skelOutside:string[]=[],skelHits:string[]=[];
 // Debug: ?hl=a,b draws the named Skeletyl part tags in orange (none by default).
 const hl=qp.get('hl')?.split(',')??[];
 export let skelHighlight:Manifold[]=[],skelHighlightInfo:string[]=[];
@@ -219,7 +230,7 @@ function skeletyl(k:Kit,o:SkelOpts={rim:'tray',drop:'square'}){
  const specs:{names:string[];lo:number;hi:number}[]=[],outline=(names:string[],caps:number)=>specs.push({names,lo:capFloors.length-caps,hi:capFloors.length});
  const parts={push:(...ms:Manifold[])=>{if(!only||only.includes(tag))for(const m of ms){all.push(m);tags.push(tag)}}};
  const floorOf=(ps:Vec3[])=>[...ps,...ps.map(p=>down(p,1))];
- const W=2.4,curves=o.drop==='fitted'?[endCurve(k,0,G,9,6),endCurve(k,1,G,9,6)]:o.drop==='swept'?[endCurve(k,0,G,9,9),endCurve(k,1,G,9,9)]:undefined;
+ const W=2.4,curves=o.drop==='fitted'?[endCurve(k,0,G,9,6),endCurve(k,1,G,9,6)]:o.drop==='swept'?[endCurve(k,0,G,9,9-CUT),endCurve(k,1,G,9,9-CUT)]:undefined;
  const P=(cv:Curve,a:number,f:number,z:number):Vec3=>[cv.ax[0]*a+cv.dm[0]*f,cv.ax[1]*a+cv.dm[1]*f,z];
  // Swept end: one quarter round of radius 9 swept along a curve through the
  // facing edges of a row of end keys, its top following their heights (linear
@@ -275,7 +286,9 @@ function skeletyl(k:Kit,o:SkelOpts={rim:'tray',drop:'square'}){
  tag='inner';parts.push(innerWall);
  const base3=thumbs(k).filter(n=>!n.startsWith('thumb_x'));
  const support=M.hull(floorOf([...strip(k,'matrix_inner_bottom',edgeFacing(k,'matrix_inner_bottom',[0,-1]),-D,-D,G-1.2,G),...base3.flatMap(n=>strip(k,n,edgeFacing(k,n,[0,1]),-D,-D,G-1.2,G))].filter(p=>p[0]<-30)));
- tag='support';parts.push(support);
+ // Trimmed under the keycaps: the hull rises from the thumb row to the inner
+ // column, into the travel of the thumb keycaps that overhang their plates.
+ tag='support';parts.push(o.thumbFront==='swept'?support.subtract(M.union([...base3,...inner].map(n=>capSweep(k,n)))):support);
  // Thumb rows on a front gusset with a triangular window.
  for(const g of [thumbs(k).filter(n=>!n.startsWith('thumb_x')),thumbs(k).filter(n=>n.startsWith('thumb_x'))].filter(g=>g.length)){
   tag='tladder';parts.push(ladder(k,g,G,D,[[0,1],[0,-1]]));
@@ -284,19 +297,35 @@ function skeletyl(k:Kit,o:SkelOpts={rim:'tray',drop:'square'}){
   if(sweepEnds){
    // Swept ends: the thumb row runs left to right, so like a finger column it
    // rolls over at its two ends, built by the same swept-end code as the columns.
-   // No front wall: the row stands on its end walls and the inner support.
-   tag='tcap';for(const [n,m] of [[g[0],g[1]],[g.at(-1)!,g.at(-2)!]]){const d=toward(k,m,n);parts.push(sweptEnd(curveThrough(k,[n],d,G,9,9),[n],d,false))}
-   outline(g,2);continue;
+   tag='tcap';for(const [n,m] of [[g[0],g[1]],[g.at(-1)!,g.at(-2)!]]){const d=toward(k,m,n);parts.push(sweptEnd(curveThrough(k,[n],d,G,9,9-CUT),[n],d,false))}
   }
   outline(g,g.length>1?2:0);
   const front=g.flatMap(n=>strip(k,n,edgeFacing(k,n,[0,-1]),-T,-T,G-2,G));
-  let gusset=M.hull(floorOf(front));
+  // Swept thumbs: the wall follows the row's well, one piece per pair of
+  // neighbouring keys, so its top doesn't bridge above the lower middle key.
+  let gusset=sweepEnds?M.union(g.slice(1).map((n,i)=>M.hull(floorOf([g[i],n].flatMap(q=>strip(k,q,edgeFacing(k,q,[0,-1]),-T,-T,G-2,G)))))):M.hull(floorOf(front));
   if(g.length>1){
    // Window follows the sloping top of the wall, 4 mm below it, above the rim.
+   // Swept thumbs: level with the lowest key's front edge, 4 mm below it.
    const a=g[0],b=g.at(-1)!,topAt=(n:string,t:number)=>{const e=edgeFacing(k,n,[0,-1]),p=at(k,n,e[0][0]*(1-t)+e[1][0]*t,e[0][1]*(1-t)+e[1][1]*t,-T,G-1);return p};
-   const ta=topAt(a,.5),tb=topAt(b,.5),quad:Vec3[]=[[ta[0],ta[1],ta[2]-4],[tb[0],tb[1],tb[2]-4],[tb[0],tb[1],10],[ta[0],ta[1],10]];
+   const ta=topAt(a,.5),tb=topAt(b,.5),zl=Math.min(...g.map(n=>topAt(n,.5)[2]));if(sweepEnds){ta[2]=zl;tb[2]=zl}
+   const quad:Vec3[]=[[ta[0],ta[1],ta[2]-4],[tb[0],tb[1],tb[2]-4],[tb[0],tb[1],10],[ta[0],ta[1],10]];
    gusset=gusset.subtract(roundedWindow(k,quad,4,'y').intersect(M.hull(floorOf(front.map(p=>[p[0],p[1],p[2]-3] as Vec3)))));}
   tag='gusset';parts.push(gusset);
+ }
+ // Swept thumbs: a thumb row close in front of the main one gets a back wall
+ // too, following its well, and a low web joins that wall to the main row's
+ // front wall across the few millimetres between them, up to half height.
+ const xt0=thumbs(k).filter(n=>n.startsWith('thumb_x'));
+ if(o.thumbFront==='swept'&&xt0.length){
+  const back=(n:string)=>strip(k,n,edgeFacing(k,n,[0,1]),-T,-T,G-2,G),a=base3.flatMap(n=>strip(k,n,edgeFacing(k,n,[0,-1]),-T,-T,G-2,G)),b=xt0.flatMap(back);
+  const d=(p:Vec3,ps:Vec3[])=>Math.min(...ps.map(q=>Math.hypot(p[0]-q[0],p[1]-q[1])));
+  if(Math.min(...a.map(p=>d(p,b)))<15){
+   tag='tback';parts.push(M.union(xt0.length>1?xt0.slice(1).map((n,i)=>M.hull(floorOf([...back(xt0[i]),...back(n)]))):[M.hull(floorOf(b))]));
+   // Only the facing stretches of the two walls, so the web stays narrow.
+   const zj=1+(Math.min(...b.map(p=>p[2]))-1)/2,near=[...a.filter(p=>d(p,b)<15),...b.filter(p=>d(p,a)<15)];
+   tag='tjoin';parts.push(M.hull(near.flatMap(p=>[[p[0],p[1],1],[p[0],p[1],zj]] as Vec3[])));
+  }
  }
  // End walls from each rolled end down to the tray. Square: straight down from
  // the arc. Angled: column end walls turn about the vertical axis to run along
@@ -381,6 +410,8 @@ function skeletyl(k:Kit,o:SkelOpts={rim:'tray',drop:'square'}){
  skelOutside=all.flatMap((m,i)=>m.subtract(inTray).decompose().filter(p=>p.volume()>1).map(p=>{const b=p.boundingBox();return `${tags[i]} ${(p.volume()/1000).toFixed(2)}cm³ @ ${b.min.map((v,j)=>((v+b.max[j])/2).toFixed(0)).join(',')}`}));
  all.forEach((m,i)=>{if(!hl.includes(tags[i]))return;skelHighlight.push(m);const b=m.boundingBox();skelHighlightInfo.push(`${tags[i]} ${m.volume().toFixed(0)}mm³ ${b.max.map((v,j)=>(v-b.min[j]).toFixed(1)).join('×')} @ ${b.min.map((v,j)=>((v+b.max[j])/2).toFixed(0)).join(',')}`)});
  tag='cirque';parts.push(cirque(k));
+ // Debug: which parts each keycap's travel envelope hits.
+ skelHits=keys(k.frames).flatMap(n=>{const e=capSweep(k,n);return all.flatMap((m,i)=>{const v=m.intersect(e).volume();return v>.05?[`${n}×${tags[i]} ${v.toFixed(0)}`]:[]})});
  return M.union(all);
 }
 // Carved shell: one continuous skin through every key plate's corners, walls
@@ -439,7 +470,7 @@ export const variants:Variant[]=[
   blurb:'One rolled end swept along a smooth curve across the back, and another across the front, its top following the column ends\' heights. Each column\'s key surface continues flat out to it. Round-bottomed slots part the columns down to half the end wall height, so they are separate above and one wall below. No rim or lip.',
   build:k=>{const o:SkelOpts={rim:'bridged',drop:'swept'};return noCut?skeletyl(k,o):cutKeys(k,skeletyl(k,o))}},
  {key:'skel-swept-thumbs',name:'Skeletyl, swept ends, thumbs too',
-  blurb:'As "one swept end", and the thumb row uses the same construction as a finger column: the row runs left to right, and its two ends roll over and drop to the base, built by the same swept-end code as the columns. There is no front wall under the thumb row.',
+  blurb:'As "one swept end", and the thumb row uses the same construction as a finger column: the row runs left to right, and its two ends roll over and drop to the base, built by the same swept-end code as the columns. The front wall under the thumb row follows the row\'s well. With the +2 tucked below, that row gets a back wall as well and a low web joins it to the thumb row\'s front wall.',
   build:k=>{const o:SkelOpts={rim:'bridged',drop:'swept',thumbFront:'swept'};return noCut?skeletyl(k,o):cutKeys(k,skeletyl(k,o))}},
  {key:'carved',name:'Carved shell',
   blurb:'One continuous skin through every key plate\'s corners, with walls straight down to the base, then a slit between each pair of neighbouring columns from the top down to half the end walls\' height. The columns are cut out of one shape rather than built separately and joined. No rim or lip.',

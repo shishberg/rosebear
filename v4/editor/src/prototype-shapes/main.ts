@@ -8,9 +8,9 @@ import Module from 'manifold-3d';
 import wasmUrl from 'manifold-3d/manifold.wasm?url';
 import type {Manifold} from 'manifold-3d';
 import {clone,componentFrames,defaults,frame} from '../geometry';
-import {buildSolid,hardware} from '../solid';
+import {buildSolid,capSize,hardware} from '../solid';
 import {mountedFrames} from '../mounts';
-import {variants,cirquePad,skelOutside,skelHighlight,skelHighlightInfo,type Kit} from './variants';
+import {variants,cirquePad,skelOutside,skelHits,skelHighlight,skelHighlightInfo,type Kit} from './variants';
 
 const current={key:'current',name:'Current editor shell (reference)',blurb:'The subdivision-surface shell from the chassis editor defaults, with its own roof-projected key poses and the trackball placeholder. Included for comparison.'};
 const all=[current,...variants];
@@ -20,6 +20,31 @@ const extras:Record<string,{name:string;keys:[number,number,number,number][]}>={
  outer:{name:'+2 outer, under middle/ring, finger splay',keys:[[0.5,-51,24,0],[23.5,-50,21,0]]},
  below:{name:'+2 tucked below, under the thumb gaps',keys:[[-49.2,-79.9,22,14],[-28.1,-74.5,24,14]]},
 };
+// Thumb layout (?layout=old for the poses above and the config's flat thumb arc).
+// New: the thumb row moves away from the finger columns, its keys spread wider
+// (11° steps on the arc instead of 10°), each outer thumb key
+// tilts toward the middle one on a circle (a well), and the +2 tucked below sit
+// on the same kind of curve, level with each other, further from the thumb row.
+const oldLayout=new URLSearchParams(location.search).get('layout')==='old';
+const L={shift:[0,-6] as [number,number],step_deg:11,well_deg:12,below:{gap_mm:7,arc_deg:5,well_deg:6}};
+function thumbLayout(project:typeof defaults,frames:Record<string,T.Matrix4>,ex:{keys:[number,number,number,number][]},tk:string){
+ if(oldLayout){ex.keys.forEach(([x,y,z,rz],i)=>{frames['thumb_x'+(i+1)]=frame([x,y,z],[0,0,rz])});return frames}
+ const th=project.config.geometry.thumb;th.arc.step_deg=L.step_deg;th.position_mm=[th.position_mm[0]+L.shift[0],th.position_mm[1]+L.shift[1],th.position_mm[2]];
+ const f=componentFrames(project.config);Object.assign(frames,f);
+ // Well: key i sits on a circle through the middle key, so its centre keeps its
+ // place along the row, rises by d·tan(w/2) and tilts by w toward the middle.
+ (th.keys as {name:string;offset_mm?:number[];rotation_deg?:number[]}[]).forEach((key,i)=>{
+  const w=(i-1)*L.well_deg,d=Math.abs(th.arc.radius_mm*Math.sin((i-1)*th.arc.step_deg*Math.PI/180)),K=frame(key.offset_mm,key.rotation_deg);
+  frames['thumb_'+key.name]=frames['thumb_'+key.name].clone().multiply(K.clone().invert()).multiply(frame([0,0,d*Math.tan(Math.abs(w)/2*Math.PI/180)],[0,-w,0])).multiply(K);
+ });
+ if(tk==='below'){
+  // Centre of the old pair, moved with the thumb row, then gap_mm further out.
+  // Spaced like the thumb row, so each key stays under a gap between thumb keys.
+  const b=L.below,rz=14,r=rz*Math.PI/180,c=[-38.65+L.shift[0]+Math.sin(r)*b.gap_mm,-77.2+L.shift[1]-Math.cos(r)*b.gap_mm,23],pitch=th.arc.radius_mm*Math.sin(L.step_deg*Math.PI/180),R=pitch/2/Math.sin(b.arc_deg*Math.PI/180);
+  [-1,1].forEach((j,i)=>{const a=j*b.arc_deg*Math.PI/180;frames['thumb_x'+(i+1)]=frame(c,[0,0,rz]).multiply(frame([R*Math.sin(a),R*(Math.cos(a)-1),0],[0,-j*b.well_deg,-j*b.arc_deg]))});
+ }else ex.keys.forEach(([x,y,z,rz],i)=>{frames['thumb_x'+(i+1)]=frame([x,y,z],[0,0,rz])});
+ return frames;
+}
 const params=new URLSearchParams(location.search);
 let vi=Math.max(0,all.findIndex(v=>v.key===params.get('variant'))),ti=Math.max(0,Object.keys(extras).indexOf(params.get('thumbs')||'none'));
 
@@ -46,7 +71,7 @@ renderer.setAnimationLoop(()=>renderer.render(scene,camera));
 const toGeom=(m:Manifold)=>{const mesh=m.getMesh(),g=new T.BufferGeometry(),p=new Float32Array(mesh.numVert*3);for(let i=0;i<mesh.numVert;i++)for(let j=0;j<3;j++)p[i*3+j]=mesh.vertProperties[i*mesh.numProp+j];g.setAttribute('position',new T.BufferAttribute(p,3));g.setIndex(new T.BufferAttribute(mesh.triVerts,1));return toCreasedNormals(g,Math.PI/6)};
 const colors:Record<string,number>={pcb:0x268878,components:0x303b43,keycaps:0xd7d8bd,trackball:0x9560b7,ball:0xc35451,adapter:0xd1a443};
 const engine=Module({locateFile:()=>wasmUrl}).then(m=>{m.setup();return m});
-const cache=new Map<string,{hl?:T.BufferGeometry;hlInfo:string[];outside:string[];pieces:string[];base:T.BufferGeometry;geom:T.BufferGeometry;pad?:T.BufferGeometry;frames:Record<string,T.Matrix4>;project:typeof defaults;ms:number;vol:number}>();
+const cache=new Map<string,{clear:string[];hl?:T.BufferGeometry;hlInfo:string[];outside:string[];pieces:string[];base:T.BufferGeometry;geom:T.BufferGeometry;pad?:T.BufferGeometry;frames:Record<string,T.Matrix4>;project:typeof defaults;ms:number;vol:number}>();
 
 async function show(){
  const v=all[vi],tk=Object.keys(extras)[ti],ex=extras[tk];
@@ -58,11 +83,24 @@ async function show(){
  if(!cache.has(key)){
   const wasm=await engine,t0=performance.now(),project=clone(defaults);let frames:Record<string,T.Matrix4>,m:Manifold,pad:Manifold|undefined;
   if(v.key==='current'){frames=mountedFrames(project);const r=buildSolid(wasm,project);m=new wasm.Manifold(new wasm.Mesh({numProp:3,vertProperties:r.mesh.positions,triVerts:r.mesh.indices}))}
-  else{frames=componentFrames(project.config);ex.keys.forEach(([x,y,z,rz],i)=>{frames['thumb_x'+(i+1)]=frame([x,y,z],[0,0,rz])});const kit:Kit={wasm,cfg:project.config,frames};m=(v as typeof variants[number]).build(kit);pad=cirquePad(kit)}
+  else{frames=thumbLayout(project,componentFrames(project.config),ex,tk);const kit:Kit={wasm,cfg:project.config,frames};m=(v as typeof variants[number]).build(kit);pad=cirquePad(kit)}
   const slab=wasm.Manifold.cube([2000,2000,3],true).translate([0,0,.5]);
   // Pieces above the base: more than one means something only touches the removable plate.
   const above=m.subtract(slab),pieces=above.decompose().filter(p=>p.volume()>50).sort((a,b)=>b.volume()-a.volume()).map(p=>{const b=p.boundingBox();return `${(p.volume()/1000).toFixed(1)} @ ${b.min.map((v,i)=>((v+b.max[i])/2).toFixed(0)).join(',')}`});
-  cache.set(key,{hl:v.key.startsWith('skel')&&skelHighlight.length?toGeom(wasm.Manifold.union(skelHighlight).subtract(slab)):undefined,hlInfo:v.key.startsWith('skel')?[...skelHighlightInfo]:[],outside:v.key.startsWith('skel')?[...skelOutside]:[],pieces,base:toGeom(m.intersect(slab)),geom:toGeom(above),pad:pad&&toGeom(pad),frames,project,ms:performance.now()-t0,vol:m.volume()/1000});
+  // Keycap clearance, as the editor's report checks it: the cap's travel envelope
+  // (cap plus margin, from rest down by the travel) must not touch the chassis.
+  // Gaps: closest distance between the resting caps of different key groups.
+  let clear:string[]=[];
+  if(v.key!=='current'){
+   const sw=project.config.switch,M=wasm.Manifold,keyNames=Object.keys(frames).filter(n=>n.startsWith('thumb_')||n.startsWith('matrix_'));
+   const cap=(n:string,grow=0,travel=0)=>{const z=capSize(project.config,n);return M.cube([z[0]+2*grow,z[1]+2*grow,z[2]+travel],true).translate([0,0,sw.keycap_bottom_above_plate_mm-travel+(z[2]+travel)/2]).transform(frames[n].elements as never)};
+   const hits=keyNames.map(n=>{const g=(sw.keycap_clearance_overrides_mm as Record<string,number>)[n]??sw.keycap_clearance_mm,x=m.intersect(cap(n,g,sw.travel_mm)),vol=x.volume(),bb=x.boundingBox();return vol>.05?`${n} ${vol.toFixed(0)} mm³ @ ${bb.min.map((q,i)=>((q+bb.max[i])/2).toFixed(0)).join(',')}`:''}).filter(Boolean);
+   const groups:[string,string[]][]=[['fingers',keyNames.filter(n=>n.startsWith('matrix_'))],['thumbs',keyNames.filter(n=>n.startsWith('thumb_')&&!n.startsWith('thumb_x'))],['extra thumbs',keyNames.filter(n=>n.startsWith('thumb_x'))]];
+   const u=groups.map(([g,ns])=>[g,ns.length?M.union(ns.map(n=>cap(n))):undefined] as const),gaps:string[]=[];
+   for(let i=0;i<u.length;i++)for(let j=i+1;j<u.length;j++){const a=u[i][1],b=u[j][1];if(a&&b){const d=a.minGap(b,40);if(d<40)gaps.push(`${u[i][0]}–${u[j][0]} ${d.toFixed(1)} mm`)}}
+   clear=[hits.length?`keycaps hit the chassis: ${hits.join('; ')}${v.key.startsWith('skel')?` (parts: ${skelHits.join('; ')})`:''}`:'no keycap hits the chassis',`closest caps: ${gaps.join(', ')}`];
+  }
+  cache.set(key,{clear,hl:v.key.startsWith('skel')&&skelHighlight.length?toGeom(wasm.Manifold.union(skelHighlight).subtract(slab)):undefined,hlInfo:v.key.startsWith('skel')?[...skelHighlightInfo]:[],outside:v.key.startsWith('skel')?[...skelOutside]:[],pieces,base:toGeom(m.intersect(slab)),geom:toGeom(above),pad:pad&&toGeom(pad),frames,project,ms:performance.now()-t0,vol:m.volume()/1000});
  }
  const c=cache.get(key)!;
  if(all[vi]!==v||Object.keys(extras)[ti]!==tk)return;
@@ -83,7 +121,7 @@ async function show(){
  if(params.get('fit')==='1'){const box=new T.Box3();group.children.forEach(o=>{if(o.visible)box.expandByObject(o)});const ctr=box.getCenter(new T.Vector3()),r=box.getBoundingSphere(new T.Sphere()).radius,v=T.MathUtils.degToRad(camera.fov)/2,h=Math.atan(Math.tan(v)*camera.aspect),dir=camera.position.clone().sub(controls.target).normalize();
   controls.target.copy(ctr);camera.position.copy(ctr).addScaledVector(dir,r/Math.sin(Math.min(v,h))*.9);controls.update()}
  const nk=Object.keys(c.frames).filter(n=>n.startsWith('thumb_')||n.startsWith('matrix_')).length;
- document.getElementById('stats')!.textContent=`${nk} keys · solid volume ≈ ${c.vol.toFixed(0)} cm³ (walls not hollowed in every shape) · built in ${c.ms.toFixed(0)} ms · ${c.pieces.length===1?'one piece without the plate':`${c.pieces.length} loose pieces without the plate (cm³ @ x,y,z: ${c.pieces.join('; ')})`}${c.outside.length?` · outside the rim: ${c.outside.join('; ')}`:''}${c.hlInfo.length?` · ${c.hlInfo.length} parts in orange${params.get('hlinfo')==='1'?` (mm: ${c.hlInfo.join('; ')})`:''}`:''}`;
+ document.getElementById('stats')!.textContent=`${nk} keys · solid volume ≈ ${c.vol.toFixed(0)} cm³ (walls not hollowed in every shape) · built in ${c.ms.toFixed(0)} ms · ${c.pieces.length===1?'one piece without the plate':`${c.pieces.length} loose pieces without the plate (cm³ @ x,y,z: ${c.pieces.join('; ')})`}${c.clear.length?` · ${c.clear.join(' · ')}`:''}${c.outside.length?` · outside the rim: ${c.outside.join('; ')}`:''}${c.hlInfo.length?` · ${c.hlInfo.length} parts in orange${params.get('hlinfo')==='1'?` (mm: ${c.hlInfo.join('; ')})`:''}`:''}`;
 }
 document.getElementById('caps')!.onchange=()=>group.children.forEach(o=>{if(o.userData.caps)o.visible=(document.getElementById('caps') as HTMLInputElement).checked});
 document.getElementById('plate')!.onchange=()=>{const on=(document.getElementById('plate') as HTMLInputElement).checked;grid.visible=on;group.children.forEach(o=>{if(o.userData.plate)o.visible=on})};
