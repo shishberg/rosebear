@@ -91,7 +91,7 @@ function hexHoles(k:Kit,region:ReturnType<typeof footprint>,z:number,h:number){
 
 // Cirque TM040040 (40 mm) in a printed pod, clipped to the inner side.
 export function cirque(k:Kit,link:'bracket'|'none'='bracket'){
- const M=k.wasm.Manifold,f=k.frames.trackball;
+ const M=k.wasm.Manifold,f=k.frames.trackball.clone().premultiply(new Matrix4().makeTranslation(-8,0,0));
  let pod=place(M.cylinder(7,22.5,22.5,64).translate([0,0,-6.5]).subtract(M.cylinder(2,20.4,20.4,64).translate([0,0,-.5])),f);
  if(link==='bracket'){
   const c=point(f,[0,0,-4]),near=['matrix_inner_home','matrix_inner_bottom','thumb_far'].flatMap(n=>corners(k,n)).sort((a,b)=>Math.hypot(a[0]-c[0],a[1]-c[1])-Math.hypot(b[0]-c[0],b[1]-c[1])).slice(0,2);
@@ -100,7 +100,7 @@ export function cirque(k:Kit,link:'bracket'|'none'='bracket'){
  }
  return pod;
 }
-export const cirquePad=(k:Kit)=>place(k.wasm.Manifold.cylinder(1,20,20,64).translate([0,0,-1.4]),k.frames.trackball);
+export const cirquePad=(k:Kit)=>place(k.wasm.Manifold.cylinder(1,20,20,64).translate([0,0,-1.4]),k.frames.trackball.clone().premultiply(new Matrix4().makeTranslation(-8,0,0)));
 
 
 function faceted(k:Kit,pockets:boolean){
@@ -116,9 +116,12 @@ function faceted(k:Kit,pockets:boolean){
 // Round creases (minSmoothness gives sharp edges a small fillet), then recut
 // the switch holes and keycap clearance so they stay crisp.
 function soften(k:Kit,m:Manifold,angle:number,smooth:number,levels:number){
- const M=k.wasm.Manifold;let out=m.smoothOut(angle,smooth).refine(levels);
- for(const n of keys(k.frames)){const [hx,hy]=half(k,n,-.25);out=out.subtract(place(M.cube([14,14,20],true),k.frames[n])).subtract(place(M.cube([hx*2,hy*2,60],true).translate([0,0,30]),k.frames[n]))}
- return out;
+ return cutKeys(k,m.smoothOut(angle,smooth).refine(levels));
+}
+function cutKeys(k:Kit,m:Manifold){
+ const M=k.wasm.Manifold;
+ for(const n of keys(k.frames)){const [hx,hy]=half(k,n,-.25);m=m.subtract(place(M.cube([14,14,20],true),k.frames[n])).subtract(place(M.cube([hx*2,hy*2,60],true).translate([0,0,30]),k.frames[n]))}
+ return m;
 }
 type Edge=[number,number][];
 // Solid strip along a plate edge: z0..z1 along the normal, grown g0..g1 outward.
@@ -128,16 +131,29 @@ function ladder(k:Kit,names:string[],G:number,D:number,sides:[number,number][]){
  const M=k.wasm.Manifold,parts:Manifold[]=[];
  for(const n of names)parts.push(place(M.cube([half(k,n,G)[0]*2,half(k,n,G)[1]*2,T],true).translate([0,0,-T/2]),k.frames[n]));
  for(let i=0;i+1<names.length;i++){const a=names[i],b=names[i+1];parts.push(M.hull([...strip(k,a,edgeFacing(k,a,toward(k,a,b)),0,-T,0,G),...strip(k,b,edgeFacing(k,b,toward(k,b,a)),0,-T,0,G)]))}
- for(const d of sides)for(let i=0;i<names.length;i++){const seg=names.slice(i,i+2);parts.push(M.hull(seg.flatMap(n=>strip(k,n,edgeFacing(k,n,d),0,-D,G-1.2,G))))}
+ // One flat skirt per key, so no twisted faces between keys at different angles.
+ for(const d of sides)for(const n of names)parts.push(M.hull(strip(k,n,edgeFacing(k,n,d),0,-D,G-1.2,G)));
  return M.union(parts);
 }
+// Quarter-round end on a column: continues the plate top over an arc of
+// radius R away from the key (local y sign sy), then drops to the tray.
+function endCap(k:Kit,n:string,sy:number,G:number,R=9,w=2.4){
+ const M=k.wasm.Manifold,[hx,hy]=half(k,n,G),steps=6,parts:Manifold[]=[];
+ const pt=(x:number,th:number,r:number)=>point(k.frames[n],[x,sy*(hy+r*Math.sin(th)),-R+r*Math.cos(th)]) as Vec3;
+ const ring=(th:number)=>[-hx,hx].flatMap(x=>[pt(x,th,R),pt(x,th,R-w)]);
+ for(let i=0;i<steps;i++)parts.push(M.hull([...ring(i/steps*Math.PI/2),...ring((i+1)/steps*Math.PI/2)]));
+ const last=ring(Math.PI/2);parts.push(M.hull([...last,...last.map(p=>down(p,1))]));
+ capFloors.push([...ring(0),...last].map(p=>[p[0],p[1]] as [number,number]));
+ return M.union(parts);
+}
+let capFloors:[number,number][][]=[];
 function skeletyl(k:Kit){
- const M=k.wasm.Manifold,G=1.4,D=8,parts:Manifold[]=[];
+ capFloors=[];const M=k.wasm.Manifold,G=1.4,D=8,parts:Manifold[]=[];
  const floorOf=(ps:Vec3[])=>[...ps,...ps.map(p=>down(p,1))];
  for(const c of COLS){
   const col=ROWS.map(r=>`matrix_${c}_${r}`);parts.push(ladder(k,col,G,D,[[1,0],[-1,0]]));
-  // Column ends drop as flat walls to the tray.
-  parts.push(M.hull(floorOf(strip(k,col[0],edgeFacing(k,col[0],[0,1]),0,-T,G-2,G))),M.hull(floorOf(strip(k,col[2],edgeFacing(k,col[2],[0,-1]),0,-T,G-2,G))));
+  // Column ends roll over in a quarter round, then drop to the tray.
+  parts.push(endCap(k,col[0],1,G),endCap(k,col[2],-1,G));
  }
  // Outer side wall with a slot.
  const pinky=ROWS.map(r=>`matrix_pinky_${r}`),side=pinky.flatMap(n=>strip(k,n,edgeFacing(k,n,[1,0]),-D+1,-D,G-2,G));
@@ -145,17 +161,25 @@ function skeletyl(k:Kit){
  const xs=side.map(p=>p[0]),ys=side.map(p=>p[1]),x=Math.max(...xs),y0=Math.min(...ys)+12,y1=Math.max(...ys)-12;
  wall=wall.subtract(M.hull([y0,y1].map(y=>M.cylinder(20,4.5,4.5,32,true).rotate([0,90,0]).translate([x,y,10]))));
  parts.push(wall);
+ // Inner support: a solid wall under the inner column, joined to the thumb rows.
+ const inner=ROWS.map(r=>`matrix_inner_${r}`);
+ parts.push(M.hull(floorOf(inner.flatMap(n=>strip(k,n,edgeFacing(k,n,[-1,0]),-T,-T,G-2.4,G)))));
+ const base3=thumbs(k).filter(n=>!n.startsWith('thumb_x'));
+ parts.push(M.hull(floorOf([...strip(k,'matrix_inner_bottom',edgeFacing(k,'matrix_inner_bottom',[0,-1]),-T,-T,G-2,G),...base3.flatMap(n=>strip(k,n,edgeFacing(k,n,[0,1]),-T,-T,G-2,G))].filter(p=>p[0]<-30))));
  // Thumb rows on a front gusset with a triangular window.
  for(const g of [thumbs(k).filter(n=>!n.startsWith('thumb_x')),thumbs(k).filter(n=>n.startsWith('thumb_x'))].filter(g=>g.length)){
   parts.push(ladder(k,g,G,D,[[0,1],[0,-1]]));
   const front=g.flatMap(n=>strip(k,n,edgeFacing(k,n,[0,-1]),-T,-T,G-2,G));
   let gusset=M.hull(floorOf(front));
-  if(g.length>1){const mid=at(k,g[Math.floor(g.length/2)],0,0,0),a=at(k,g[0],0,0,0),b=at(k,g.at(-1)!,0,0,0);
-   const low=Math.min(...front.map(p=>p[2]));const tri:Vec3[]=[[mid[0],mid[1],low-4],[a[0]+(mid[0]-a[0])*.35,a[1]+(mid[1]-a[1])*.35,5],[b[0]+(mid[0]-b[0])*.35,b[1]+(mid[1]-b[1])*.35,5]];
-   gusset=gusset.subtract(M.hull(tri.flatMap(p=>[[p[0],p[1]-15,p[2]],[p[0],p[1]+15,p[2]]] as Vec3[])).intersect(M.hull(floorOf(front.map(p=>[p[0],p[1],p[2]-3] as Vec3)))));}
+  if(g.length>1){
+   // Window follows the sloping top of the wall, 4 mm below it, above the rim.
+   const a=g[0],b=g.at(-1)!,topAt=(n:string,t:number)=>{const e=edgeFacing(k,n,[0,-1]),p=at(k,n,e[0][0]*(1-t)+e[1][0]*t,e[0][1]*(1-t)+e[1][1]*t,-T,G-1);return p};
+   const ta=topAt(a,.5),tb=topAt(b,.5),quad:Vec3[]=[[ta[0],ta[1],ta[2]-4],[tb[0],tb[1],tb[2]-4],[tb[0],tb[1],10],[ta[0],ta[1],10]];
+   gusset=gusset.subtract(M.hull(quad.flatMap(p=>[[p[0],p[1]-20,p[2]],[p[0],p[1]+20,p[2]]] as Vec3[])).intersect(M.hull(floorOf(front.map(p=>[p[0],p[1],p[2]-3] as Vec3)))));}
   parts.push(gusset);
  }
- const fp=footprint(k,4,10);
+ // Tray outline includes the rolled column ends.
+ const CS=k.wasm.CrossSection,fp=CS.union([footprint(k,4,10),...capFloors.map(c=>new CS([c]).hull().offset(3,'Round',2,24))]).offset(3,'Round',2,24).offset(-3,'Round',2,24);
  parts.push(fp.extrude(7).subtract(fp.offset(-3.5,'Round').extrude(9).translate([0,0,2])));
  return M.union([...parts,cirque(k)]);
 }
@@ -170,8 +194,8 @@ function machined(k:Kit){
 
 export const variants:Variant[]=[
  {key:'skeletyl',name:'Skeletyl construction',
-  blurb:'The Skeletyl\'s construction on the Rosebear key poses: each column is its own curved ladder of switch frames with side skirts, with slits between columns. Column ends drop as flat walls into a low rim tray on a flat base. The outer side wall has a slot, and the thumb row sits on a solid wall with a triangular window. Edges get small fillets.',
-  build:k=>soften(k,skeletyl(k),60,.25,2)},
+  blurb:'The Skeletyl\'s construction on the Rosebear key poses: each column is its own curved ladder of switch frames with side skirts, with slits between columns. Column ends roll over in a quarter round and drop into a low rim tray on a flat base. A solid wall under the inner column joins the thumb rows for support. The outer side wall has a slot, and the thumb row sits on a solid wall with a triangular window.',
+  build:k=>cutKeys(k,skeletyl(k))},
  {key:'soft-web',name:'Soft-edged webbed well',
   blurb:'The webbed well below, with every crease rounded: shallow folds become smooth curves, sharper edges keep a visible line with a small fillet. Flat faces stay flat.',
   build:k=>{const r=roof(k),base=footprint(k,3);return k.wasm.Manifold.union([soften(k,k.wasm.Manifold.union([web(k,r),plates(k),walls(k,r,1,3)]),40,.35,3),base.extrude(2).subtract(hexHoles(k,base,0,2)),cirque(k)])}},
