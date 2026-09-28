@@ -190,7 +190,11 @@ function rollDir(k:Kit,n:string,e:Edge):[number,number]{
  return [(a[0]-o[0])/l,(a[1]-o[1])/l];
 }
 function endCurve(k:Kit,e:0|1,G:number,R:number,Rmin:number):Curve{
- const ends=COLS.map(c=>`matrix_${c}_${e?'bottom':'top'}`),edges=ends.map(n=>edgeFacing(k,n,[0,e?-1:1]));
+ return curveThrough(k,COLS.map(c=>`matrix_${c}_${e?'bottom':'top'}`),[0,e?-1:1],G,R,Rmin);
+}
+// The same fit through the edges of any row of keys that face one way.
+function curveThrough(k:Kit,ends:string[],facing:[number,number],G:number,R:number,Rmin:number):Curve{
+ const edges=ends.map(n=>edgeFacing(k,n,facing));
  const ds=ends.map((n,i)=>rollDir(k,n,edges[i])),s=ds.reduce((a,d)=>[a[0]+d[0],a[1]+d[1]],[0,0]),l=Math.hypot(s[0],s[1]);
  const dm:[number,number]=[s[0]/l,s[1]/l],ax:[number,number]=[-dm[1],dm[0]];
  const corners=ends.flatMap((n,c)=>edges[c].map(([sx,sy])=>{const p=at(k,n,sx,sy,0,G);return {a:p[0]*ax[0]+p[1]*ax[1],f:p[0]*dm[0]+p[1]*dm[1],z:p[2],c}}));
@@ -201,7 +205,7 @@ function endCurve(k:Kit,e:0|1,G:number,R:number,Rmin:number):Curve{
  const F0=(a:number)=>cf[0]+cf[1]*a+cf[2]*a*a,shift=Math.max(0,...corners.map(q=>q.f+Rmin-F0(q.a)));
  return {dm,ax,F:a=>F0(a)+shift,corners};
 }
-interface SkelOpts {rim:'tray'|'bridged';drop:'square'|'angled'|'fitted'|'swept'}
+interface SkelOpts {rim:'tray'|'bridged';drop:'square'|'angled'|'fitted'|'swept';thumbFront?:'gusset'|'swept'}
 function skeletyl(k:Kit,o:SkelOpts={rim:'tray',drop:'square'}){
  // Original: convex tray 3 mm past the caps with a 3.5 mm rim. Angled: the
  // tray hugs the columns, 1 mm past the end walls, with a 2 mm rim.
@@ -216,6 +220,34 @@ function skeletyl(k:Kit,o:SkelOpts={rim:'tray',drop:'square'}){
  const floorOf=(ps:Vec3[])=>[...ps,...ps.map(p=>down(p,1))];
  const W=2.4,curves=o.drop==='fitted'?[endCurve(k,0,G,9,6),endCurve(k,1,G,9,6)]:o.drop==='swept'?[endCurve(k,0,G,9,9),endCurve(k,1,G,9,9)]:undefined;
  const P=(cv:Curve,a:number,f:number,z:number):Vec3=>[cv.ax[0]*a+cv.dm[0]*f,cv.ax[1]*a+cv.dm[1]*f,z];
+ // Swept end: one quarter round of radius 9 swept along a curve through the
+ // facing edges of a row of end keys, its top following their heights (linear
+ // between corners), then a wall to the base. Each key's surface continues flat
+ // out to it. With slots, round-bottomed slots part neighbouring keys down to
+ // half the wall height.
+ const sweptEnd=(cv:Curve,ends:string[],facing:[number,number],slots:boolean)=>{
+  const R=9,cs=[...cv.corners].sort((x,y)=>x.a-y.a),a0=cs[0].a,a1=cs.at(-1)!.a;
+  const zs=(a:number)=>{for(let i=0;i+1<cs.length;i++)if(a<=cs[i+1].a){const t=(a-cs[i].a)/((cs[i+1].a-cs[i].a)||1);return cs[i].z*(1-t)+cs[i+1].z*t}return cs.at(-1)!.z};
+  const as=[...new Set([...cs.map(q=>q.a),...Array.from({length:Math.ceil((a1-a0)/3)},(_,i)=>a0+i*3)])].sort((x,y)=>x-y);
+  const prof=(a:number,th:number,r:number)=>P(cv,a,cv.F(a)-R+r*Math.sin(th),zs(a)-R+r*Math.cos(th));
+  const sweep:Manifold[]=[];
+  for(let i=0;i+1<as.length;i++){const [p,q]=[as[i],as[i+1]];
+   for(let j=0;j<6;j++){const t0=j/6*Math.PI/2,t1=(j+1)/6*Math.PI/2;sweep.push(M.hull([p,q].flatMap(a=>[prof(a,t0,R),prof(a,t0,R-W),prof(a,t1,R),prof(a,t1,R-W)])))}
+   sweep.push(M.hull([p,q].flatMap(a=>[prof(a,Math.PI/2,R),prof(a,Math.PI/2,R-W)]).flatMap(v=>[v,down(v,1)])))}
+  // Flat continuation of each column's end key out to the swept end, 0.5 mm into it.
+  ends.forEach((n,ci)=>{const ed=edgeFacing(k,n,facing),q=cv.corners.filter(x=>x.c===ci);
+   sweep.push(M.hull([...ed.flatMap(([sx,sy])=>[at(k,n,sx,sy,0,G),at(k,n,sx,sy,-W,G)]),...q.flatMap(x=>[P(cv,x.a,cv.F(x.a)-R+.5,x.z),P(cv,x.a,cv.F(x.a)-R+.5,x.z-W)])]))});
+  let end=M.union(sweep);
+  if(slots)for(let ci=0;ci+1<ends.length;ci++){
+   const side=(c:number,o:number)=>{const m=cv.corners.filter(x=>x.c===o).reduce((t,x)=>t+x.a/2,0);return cv.corners.filter(x=>x.c===c).sort((x,y)=>Math.abs(x.a-m)-Math.abs(y.a-m))[0]},l=side(ci,ci+1),r=side(ci+1,ci),am=(l.a+r.a)/2,hw=Math.max(1.5,Math.abs(r.a-l.a)/2);
+   const zj=1+(Math.min(zs(l.a),zs(r.a))-R-1)/2,f0=Math.min(cv.F(l.a),cv.F(r.a))-R-.2,f1=Math.max(cv.F(l.a),cv.F(r.a))+3;
+   // Round-bottomed slot: a cylinder along dm at the bottom, hulled with the top.
+   const cyl=(f:number)=>M.sphere(hw,16).translate(P(cv,am,f,zj+hw));
+   end=end.subtract(M.hull([cyl(f0),cyl(f1),...[f0,f1].flatMap(f=>[-hw,hw].map(da=>P(cv,am+da,f,120)))]));
+  }
+  capFloors.push(as.flatMap(a=>[prof(a,Math.PI/2,R),prof(a,Math.PI/4,R)]).map(p=>[p[0],p[1]] as [number,number]));
+  return end;
+ };
  for(const c of COLS){
   const col=ROWS.map(r=>`matrix_${c}_${r}`);tag='ladder';parts.push(ladder(k,col,G,D,[[1,0],[-1,0]]));
   // Column ends roll over in a quarter round, then drop to the tray. Fitted:
@@ -247,6 +279,11 @@ function skeletyl(k:Kit,o:SkelOpts={rim:'tray',drop:'square'}){
  for(const g of [thumbs(k).filter(n=>!n.startsWith('thumb_x')),thumbs(k).filter(n=>n.startsWith('thumb_x'))].filter(g=>g.length)){
   tag='tladder';parts.push(ladder(k,g,G,D,[[0,1],[0,-1]]));
   tag='tcap';if(g.length>1)parts.push(endCap(k,g[0],edgeFacing(k,g[0],toward(k,g[1],g[0])),G),endCap(k,g.at(-1)!,edgeFacing(k,g.at(-1)!,toward(k,g.at(-2)!,g.at(-1)!)),G));
+  if(o.thumbFront==='swept'){
+   // Swept front: the finger columns' swept end, along the thumb row's front edge.
+   tag='tsweep';parts.push(sweptEnd(curveThrough(k,g,[0,-1],G,9,9),g,[0,-1],false));
+   outline(g,(g.length>1?2:0)+1);continue;
+  }
   outline(g,g.length>1?2:0);
   const front=g.flatMap(n=>strip(k,n,edgeFacing(k,n,[0,-1]),-T,-T,G-2,G));
   let gusset=M.hull(floorOf(front));
@@ -310,29 +347,7 @@ function skeletyl(k:Kit,o:SkelOpts={rim:'tray',drop:'square'}){
  // following the column ends' heights (linear between corners), then a wall
  // to the base. Each column's key surface continues flat out to it. Slots with
  // round bottoms part the columns down to half the wall height.
- if(o.drop==='swept')for(const e of [0,1]){
-  const cv=curves![e],R=9,cs=[...cv.corners].sort((x,y)=>x.a-y.a),a0=cs[0].a,a1=cs.at(-1)!.a;
-  const zs=(a:number)=>{for(let i=0;i+1<cs.length;i++)if(a<=cs[i+1].a){const t=(a-cs[i].a)/((cs[i+1].a-cs[i].a)||1);return cs[i].z*(1-t)+cs[i+1].z*t}return cs.at(-1)!.z};
-  const as=[...new Set([...cs.map(q=>q.a),...Array.from({length:Math.ceil((a1-a0)/3)},(_,i)=>a0+i*3)])].sort((x,y)=>x-y);
-  const prof=(a:number,th:number,r:number)=>P(cv,a,cv.F(a)-R+r*Math.sin(th),zs(a)-R+r*Math.cos(th));
-  const sweep:Manifold[]=[];
-  for(let i=0;i+1<as.length;i++){const [p,q]=[as[i],as[i+1]];
-   for(let j=0;j<6;j++){const t0=j/6*Math.PI/2,t1=(j+1)/6*Math.PI/2;sweep.push(M.hull([p,q].flatMap(a=>[prof(a,t0,R),prof(a,t0,R-W),prof(a,t1,R),prof(a,t1,R-W)])))}
-   sweep.push(M.hull([p,q].flatMap(a=>[prof(a,Math.PI/2,R),prof(a,Math.PI/2,R-W)]).flatMap(v=>[v,down(v,1)])))}
-  // Flat continuation of each column's end key out to the swept end, 0.5 mm into it.
-  COLS.forEach((c,ci)=>{const n=`matrix_${c}_${e?'bottom':'top'}`,ed=edgeFacing(k,n,[0,e?-1:1]),q=cv.corners.filter(x=>x.c===ci);
-   sweep.push(M.hull([...ed.flatMap(([sx,sy])=>[at(k,n,sx,sy,0,G),at(k,n,sx,sy,-W,G)]),...q.flatMap(x=>[P(cv,x.a,cv.F(x.a)-R+.5,x.z),P(cv,x.a,cv.F(x.a)-R+.5,x.z-W)])]))});
-  let end=M.union(sweep);
-  for(let ci=0;ci+1<COLS.length;ci++){
-   const side=(c:number,o:number)=>{const m=cv.corners.filter(x=>x.c===o).reduce((t,x)=>t+x.a/2,0);return cv.corners.filter(x=>x.c===c).sort((x,y)=>Math.abs(x.a-m)-Math.abs(y.a-m))[0]},l=side(ci,ci+1),r=side(ci+1,ci),am=(l.a+r.a)/2,hw=Math.max(1.5,Math.abs(r.a-l.a)/2);
-   const zj=1+(Math.min(zs(l.a),zs(r.a))-R-1)/2,f0=Math.min(cv.F(l.a),cv.F(r.a))-R-.2,f1=Math.max(cv.F(l.a),cv.F(r.a))+3;
-   // Round-bottomed slot: a cylinder along dm at the bottom, hulled with the top.
-   const cyl=(f:number)=>M.sphere(hw,16).translate(P(cv,am,f,zj+hw));
-   end=end.subtract(M.hull([cyl(f0),cyl(f1),...[f0,f1].flatMap(f=>[-hw,hw].map(da=>P(cv,am+da,f,120)))]));
-  }
-  tag='cap';parts.push(end);
-  capFloors.push(as.flatMap(a=>[prof(a,Math.PI/2,R),prof(a,Math.PI/4,R)]).map(p=>[p[0],p[1]] as [number,number]));
- }
+ if(o.drop==='swept')for(const e of [0,1]){tag='cap';parts.push(sweptEnd(curves![e],COLS.map(c=>`matrix_${c}_${e?'bottom':'top'}`),[0,e?-1:1],true))}
  tag='join';parts.push(...joins);
  const outlines=specs.map(sp=>new CS([hull2([...sp.names.flatMap(keyPts),...capFloors.slice(sp.lo,sp.hi).flat()])]));
  // Tray outline. Original: convex outlines of the fingers, thumbs and the joins
@@ -419,6 +434,9 @@ export const variants:Variant[]=[
  {key:'skel-swept',name:'Skeletyl, one swept end',
   blurb:'One rolled end swept along a smooth curve across the back, and another across the front, its top following the column ends\' heights. Each column\'s key surface continues flat out to it. Round-bottomed slots part the columns down to half the end wall height, so they are separate above and one wall below. No rim or lip.',
   build:k=>{const o:SkelOpts={rim:'bridged',drop:'swept'};return noCut?skeletyl(k,o):cutKeys(k,skeletyl(k,o))}},
+ {key:'skel-swept-thumbs',name:'Skeletyl, swept ends, thumbs too',
+  blurb:'As "one swept end", and the thumb row\'s front uses the same construction: a quarter round swept along the thumb keys\' front edges, then a wall to the base, instead of the flat front wall with a rounded window. No slots between thumb keys, since the thumb keys are one strip.',
+  build:k=>{const o:SkelOpts={rim:'bridged',drop:'swept',thumbFront:'swept'};return noCut?skeletyl(k,o):cutKeys(k,skeletyl(k,o))}},
  {key:'carved',name:'Carved shell',
   blurb:'One continuous skin through every key plate\'s corners, with walls straight down to the base, then a slit between each pair of neighbouring columns from the top down to half the end walls\' height. The columns are cut out of one shape rather than built separately and joined. No rim or lip.',
   build:k=>noCut?carved(k):cutKeys(k,carved(k))},
