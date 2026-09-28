@@ -62,7 +62,7 @@ async function show(){
   const slab=wasm.Manifold.cube([2000,2000,3],true).translate([0,0,.5]);
   // Pieces above the base: more than one means something only touches the removable plate.
   const above=m.subtract(slab),pieces=above.decompose().filter(p=>p.volume()>50).sort((a,b)=>b.volume()-a.volume()).map(p=>{const b=p.boundingBox();return `${(p.volume()/1000).toFixed(1)} @ ${b.min.map((v,i)=>((v+b.max[i])/2).toFixed(0)).join(',')}`});
-  cache.set(key,{hl:v.key.startsWith('skel')&&skelHighlight.length?toGeom(wasm.Manifold.union(skelHighlight)):undefined,hlInfo:v.key.startsWith('skel')?[...skelHighlightInfo]:[],outside:v.key.startsWith('skel')?[...skelOutside]:[],pieces,base:toGeom(m.intersect(slab)),geom:toGeom(above),pad:pad&&toGeom(pad),frames,project,ms:performance.now()-t0,vol:m.volume()/1000});
+  cache.set(key,{hl:v.key.startsWith('skel')&&skelHighlight.length?toGeom(wasm.Manifold.union(skelHighlight).subtract(slab)):undefined,hlInfo:v.key.startsWith('skel')?[...skelHighlightInfo]:[],outside:v.key.startsWith('skel')?[...skelOutside]:[],pieces,base:toGeom(m.intersect(slab)),geom:toGeom(above),pad:pad&&toGeom(pad),frames,project,ms:performance.now()-t0,vol:m.volume()/1000});
  }
  const c=cache.get(key)!;
  if(all[vi]!==v||Object.keys(extras)[ti]!==tk)return;
