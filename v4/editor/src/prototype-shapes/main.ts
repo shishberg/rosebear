@@ -3,6 +3,7 @@
 // dev server. Nothing here is saved or feeds the real editor.
 import * as T from 'three';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
+import {toCreasedNormals} from 'three/addons/utils/BufferGeometryUtils.js';
 import Module from 'manifold-3d';
 import wasmUrl from 'manifold-3d/manifold.wasm?url';
 import type {Manifold} from 'manifold-3d';
@@ -16,8 +17,8 @@ const all=[current,...variants];
 // Extra thumb keys: horizontal, lower than the angled thumb plane. World mm.
 const extras:Record<string,{name:string;keys:[number,number,number,number][]}>={
  none:{name:'3 thumb keys',keys:[]},
- outer:{name:'+2 outer, under middle/ring',keys:[[-0.5,-53,24,25],[19.5,-46,21,35]]},
- below:{name:'+2 tucked below, under index/middle',keys:[[-26,-76,24,15],[-5,-72,21,15]]},
+ outer:{name:'+2 outer, under middle/ring, finger splay',keys:[[0.5,-51,24,0],[23.5,-50,21,0]]},
+ below:{name:'+2 tucked below, under the thumb gaps',keys:[[-49.2,-79.9,22,14],[-28.1,-74.5,24,14]]},
 };
 const params=new URLSearchParams(location.search);
 let vi=Math.max(0,all.findIndex(v=>v.key===params.get('variant'))),ti=Math.max(0,Object.keys(extras).indexOf(params.get('thumbs')||'none'));
@@ -42,7 +43,7 @@ const group=new T.Group();scene.add(group);
 function resize(){renderer.setSize(innerWidth,innerHeight);camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix()}addEventListener('resize',resize);resize();
 renderer.setAnimationLoop(()=>renderer.render(scene,camera));
 
-const toGeom=(m:Manifold)=>{const mesh=m.getMesh(),g=new T.BufferGeometry(),p=new Float32Array(mesh.numVert*3);for(let i=0;i<mesh.numVert;i++)for(let j=0;j<3;j++)p[i*3+j]=mesh.vertProperties[i*mesh.numProp+j];g.setAttribute('position',new T.BufferAttribute(p,3));g.setIndex(new T.BufferAttribute(mesh.triVerts,1));const n=g.toNonIndexed();n.computeVertexNormals();return n};
+const toGeom=(m:Manifold)=>{const mesh=m.getMesh(),g=new T.BufferGeometry(),p=new Float32Array(mesh.numVert*3);for(let i=0;i<mesh.numVert;i++)for(let j=0;j<3;j++)p[i*3+j]=mesh.vertProperties[i*mesh.numProp+j];g.setAttribute('position',new T.BufferAttribute(p,3));g.setIndex(new T.BufferAttribute(mesh.triVerts,1));return toCreasedNormals(g,Math.PI/6)};
 const colors:Record<string,number>={pcb:0x268878,components:0x303b43,keycaps:0xd7d8bd,trackball:0x9560b7,ball:0xc35451,adapter:0xd1a443};
 const engine=Module({locateFile:()=>wasmUrl}).then(m=>{m.setup();return m});
 const cache=new Map<string,{geom:T.BufferGeometry;pad?:T.BufferGeometry;frames:Record<string,T.Matrix4>;project:typeof defaults;ms:number;vol:number}>();
@@ -63,7 +64,7 @@ async function show(){
  const c=cache.get(key)!;
  if(all[vi]!==v||Object.keys(extras)[ti]!==tk)return;
  group.clear();
- group.add(new T.Mesh(c.geom,new T.MeshStandardMaterial({color:0x8f9ea4,roughness:.65,metalness:.05,flatShading:true})));
+ group.add(new T.Mesh(c.geom,new T.MeshStandardMaterial({color:0x8f9ea4,roughness:.65,metalness:.05})));
  if(c.pad)group.add(new T.Mesh(c.pad,new T.MeshStandardMaterial({color:0x4a5358,roughness:.35})));
  for(const part of hardware(c.project,c.frames)){
   if(v.key!=='current'&&['trackball','ball','adapter'].includes(part.group))continue;
