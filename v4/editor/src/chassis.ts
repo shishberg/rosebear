@@ -1,8 +1,8 @@
 // Chassis: Skeletyl-style construction with swept ends, built from the key poses.
 // Each finger column is a ladder of switch plates.
 // Across the back and across the front of the columns runs one swept end: a
-// quarter round swept along a smooth curve through the column ends, then a wall
-// to the base. Round-bottomed slots part the columns down to half that wall's
+// quarter round swept along a curve that follows each column's end as closely as
+// the tile pockets allow, then a wall to the base. Round-bottomed slots part the columns down to half that wall's
 // height. The thumb rows use the same construction, running left to right. The
 // outside edges without a swept end are walls, one segment under each key,
 // parted by U slots. Low ribs join the thumb rows and the fingers along the
@@ -39,6 +39,8 @@ export interface ChassisResult {
   base: Manifold;
   pod: Manifold;
   pocketCut: Manifold;
+  /** For each key, the chassis its keycap's room (and the switch rim's) had to remove. */
+  roomCuts: { name: string; cut: Manifold }[];
   wallWindows: WallWindow[];
 }
 /**
@@ -66,14 +68,18 @@ const SIZES = {
   wallFoot: 1,
   /** A wall's inner face is this far outside the tile pocket. */
   wallPocketGap: 0.25,
-  /** A swept end's quarter round starts this far past the end keys' tile pockets (plan). */
-  endPocketGap: 0.1,
+  /** A swept end's quarter round stays this far clear of the end keys' tile pockets and switch bodies (it has flat faces). */
+  endPocketGap: 0.2,
   /** Each end key's flat continuation reaches this far into its swept end. */
   endOverlap: 0.5,
   /** A swept end is sampled at every end-key corner and at this spacing between (plan). */
   sweepStation: 3,
   /** Flat faces in each quarter round. */
   roundFaces: 6,
+  /** Past its plate edge, a key's line for a swept end falls away by this times the distance squared (1/mm). */
+  endBlend: 1,
+  /** How far (mm) the smooth maximum joining those lines may round off their crossings. */
+  endSmoothing: 0.5,
   /** Swept-end slots between columns: at least this half-width (plan). */
   endSlotMinHalfWidth: 1.5,
   /** Swept-end slots start this far inside the quarter round's centre and end this far past its face. */
@@ -164,6 +170,11 @@ interface EndCurve {
   side: Plan;
   /** How far out the quarter round's outer face is, at position s. */
   outerAt: (s: number) => number;
+  /** The range of s the swept end covers: every end key's plate, tile pocket and switch body. */
+  from: number;
+  to: number;
+  /** The height of the quarter round's top at position s. */
+  topAt: (s: number) => number;
   /** The end keys' plate corners on the curve's side, by end key index. */
   corners: { s: number; out: number; z: number; key: number }[];
 }
@@ -239,6 +250,7 @@ export function buildChassis(
     tile.size_mm[1] / 2 + tile.clearance_mm,
   ];
   const switchHole = sw.cutout_mm.map((x) => x + sw.cutout_clearance_mm);
+  const switchHoleHalf: HalfWidths = [switchHole[0] / 2, switchHole[1] / 2];
   const seat = seatSettings(cfg).outer;
   const seatHalf: HalfWidths = [seat[0] / 2, seat[1] / 2];
   const plateHalf: HalfWidths = [seatHalf[0] + plateMargin, seatHalf[1] + plateMargin];
@@ -365,11 +377,11 @@ export function buildChassis(
     return [(a[0] - o[0]) / l, (a[1] - o[1]) / l];
   };
   /**
-   * The curve for a swept end across the facing edges of a row of end keys: a
-   * quadratic least-squares fit through the end corners pushed out by the end
-   * radius, then moved out until the quarter round starts past every tile pocket
-   * (the plates reach out flat to meet it) and is at least radius - end_cut
-   * past every plate corner.
+   * The curve for a swept end across the facing edges of a row of end keys.
+   * Along each key it runs parallel to the key's edge, as close as it can: the
+   * tile pocket stays inside the quarter round's hollow (or under the flat
+   * plate), and the plate corners reach at most end_cut into the round. Between
+   * keys it changes smoothly from one key's line to the next.
    */
   const endCurve = (ends: string[], facing: Plan): EndCurve => {
     const edges = ends.map((n) => edgeFacing(n, facing));
@@ -387,40 +399,91 @@ export function buildChassis(
         return { s: alongSide(p), out: alongOut(p), z: p[2], key };
       }),
     );
-    // Normal equations for out + radius = c0 + c1 s + c2 s^2.
-    const moment = (power: number, ofOut = false) =>
-      corners.reduce((t, q) => t + q.s ** power * (ofOut ? q.out + endRadius : 1), 0);
-    const A = [
-      [moment(0), moment(1), moment(2)],
-      [moment(1), moment(2), moment(3)],
-      [moment(2), moment(3), moment(4)],
-    ];
-    const b = [moment(0, true), moment(1, true), moment(2, true)];
-    const det = (m: number[][]) =>
-      m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1]) -
-      m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0]) +
-      m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0]);
-    // One key: its edge is square to the roll, so the curve is a straight line along it.
-    const coef =
-      ends.length < 2
-        ? [moment(0, true) / moment(0), 0, 0]
-        : [0, 1, 2].map(
-            (j) => det(A.map((r, i) => r.map((v, jj) => (jj === j ? b[i] : v)))) / det(A),
-          );
-    const fitted = (s: number) => coef[0] + coef[1] * s + coef[2] * s * s;
-    const pocketCorners = ends.flatMap((n, key) =>
-      edges[key].flatMap((corner) =>
-        [-plateThickness, -pocketDepth].map((z) => keyPoint(n, corner, z, pocketHalf)),
-      ),
+    const sorted = [...corners].sort((x, y) => x.s - y.s);
+    // The quarter round's top: the plate corners' heights, linear between them.
+    const topAt = (s: number) => {
+      for (let i = 0; i + 1 < sorted.length; i++)
+        if (s <= sorted[i + 1].s) {
+          const t = Math.max(0, (s - sorted[i].s) / (sorted[i + 1].s - sorted[i].s || 1));
+          return sorted[i].z * (1 - t) + sorted[i + 1].z * t;
+        }
+      return sorted.at(-1)!.z;
+    };
+    /** The least outerAt(s) that keeps point p clear, where the round's top is at top. */
+    const hollow = endRadius - wallThickness - SIZES.endPocketGap;
+    const outerFor = (p: Vec3, top: number) => {
+      const above = p[2] - (top - endRadius);
+      if (above <= 0) return alongOut(p) + wallThickness + SIZES.endPocketGap;
+      if (above < hollow) return alongOut(p) + endRadius - Math.sqrt(hollow ** 2 - above ** 2);
+      return alongOut(p) + endRadius + SIZES.endPocketGap;
+    };
+    // Each key's points: its plate corners, which may reach end_cut into the round
+    // but no further than the switch seat's edge, and the corners of its tile
+    // pocket and switch body, which must stay clear of the round.
+    const needs = ends.map((n, key) =>
+      edges[key].flatMap((corner) => {
+        const plate = keyPoint(n, corner, 0, plateHalfAt(n, corner));
+        return [
+          { s: alongSide(plate), outer: alongOut(plate) + endRadius - endCut, reach: 0 },
+          {
+            s: alongSide(plate),
+            outer: alongOut(keyPoint(n, corner, 0, seatHalf)) + endRadius,
+            reach: 0,
+          },
+          ...(
+            [
+              [-plateThickness, pocketHalf],
+              [-pocketDepth, pocketHalf],
+              [-plateThickness, switchHoleHalf],
+              [-SIZES.switchBelowPlate, switchHoleHalf],
+            ] as const
+          ).map(([z, half]) => {
+            const p = keyPoint(n, corner, z, half);
+            const reach = wallThickness + SIZES.endPocketGap;
+            return { s: alongSide(p), outer: outerFor(p, topAt(alongSide(p))), reach };
+          }),
+        ];
+      }),
     );
-    const shift = Math.max(
-      0,
-      ...corners.map((q) => q.out + endRadius - endCut - fitted(q.s)),
-      ...pocketCorners.map(
-        (p) => alongOut(p) + SIZES.endPocketGap + endRadius - fitted(alongSide(p)),
-      ),
-    );
-    return { outward, side, outerAt: (s) => fitted(s) + shift, corners };
+    // Each key's line, parallel to its plate edge and just far enough out, across
+    // its plate, tile pocket and switch body.
+    const lines = ends.map((_, key) => {
+      const [a, b] = corners.filter((q) => q.key === key);
+      const slope = (b.out - a.out) / (b.s - a.s);
+      const offset = Math.max(...needs[key].map((q) => q.outer - slope * q.s));
+      const ss = needs[key].map((q) => q.s);
+      return { from: Math.min(...ss), to: Math.max(...ss), slope, offset };
+    });
+    // The swept end covers every end key's plate, and its tile pocket and switch
+    // body with room beyond them for the solid cap that closes the round.
+    const from = Math.min(...needs.flat().map((q) => q.s - q.reach));
+    const to = Math.max(...needs.flat().map((q) => q.s + q.reach));
+    const first = Math.min(...lines.map((k) => k.from));
+    const last = Math.max(...lines.map((k) => k.to));
+    // Past those, toward a neighbour, a key's line falls away quadratically;
+    // a smooth maximum of the lines (never below the largest) joins them.
+    const lineAt = (k: (typeof lines)[number], s: number) => {
+      const past = Math.max(0, k.from > first ? k.from - s : 0, k.to < last ? s - k.to : 0);
+      return k.offset + k.slope * s - SIZES.endBlend * past ** 2;
+    };
+    const smooth = SIZES.endSmoothing;
+    const joined = (s: number) => {
+      const v = lines.map((k) => lineAt(k, s));
+      const top = Math.max(...v);
+      return top + smooth * Math.log(v.reduce((t, x) => t + Math.exp((x - top) / smooth), 0));
+    };
+    // The blend is a little lower than each line near the gaps; move the whole
+    // curve out by the largest shortfall.
+    const shift = Math.max(0, ...needs.flat().map((q) => q.outer - joined(q.s)));
+    return {
+      outward,
+      side,
+      from,
+      to,
+      outerAt: (s) => joined(s) + shift,
+      topAt,
+      corners,
+    };
   };
   const curvePoint = (curve: EndCurve, s: number, out: number, z: number): Vec3 => [
     curve.side[0] * s + curve.outward[0] * out,
@@ -440,16 +503,9 @@ export function buildChassis(
     withSlots: boolean,
   ): SweptEnd => {
     const sorted = [...curve.corners].sort((x, y) => x.s - y.s);
-    const sStart = sorted[0].s;
-    const sEnd = sorted.at(-1)!.s;
-    const topAt = (s: number) => {
-      for (let i = 0; i + 1 < sorted.length; i++)
-        if (s <= sorted[i + 1].s) {
-          const t = (s - sorted[i].s) / (sorted[i + 1].s - sorted[i].s || 1);
-          return sorted[i].z * (1 - t) + sorted[i + 1].z * t;
-        }
-      return sorted.at(-1)!.z;
-    };
+    const sStart = curve.from;
+    const sEnd = curve.to;
+    const topAt = curve.topAt;
     // Where the sweep is sampled: every corner, and every 3 mm between.
     const stations = [
       ...new Set([
@@ -499,9 +555,13 @@ export function buildChassis(
       );
     }
     // Flat continuation of each end key out to the swept end, 0.5 mm into it.
+    // Where the round starts under the plate, there is nothing to continue.
     ends.forEach((n, key) => {
       const edge = edgeFacing(n, facing);
       const onCurve = curve.corners.filter((x) => x.key === key);
+      const reach = (x: (typeof onCurve)[number]) =>
+        curve.outerAt(x.s) - endRadius + SIZES.endOverlap;
+      if (onCurve.every((x) => reach(x) <= x.out)) return;
       pieces.push(
         M.hull([
           ...edge.flatMap((corner) => [
@@ -509,13 +569,8 @@ export function buildChassis(
             keyPoint(n, corner, -wallThickness, plateHalfAt(n, corner)),
           ]),
           ...onCurve.flatMap((x) => [
-            curvePoint(curve, x.s, curve.outerAt(x.s) - endRadius + SIZES.endOverlap, x.z),
-            curvePoint(
-              curve,
-              x.s,
-              curve.outerAt(x.s) - endRadius + SIZES.endOverlap,
-              x.z - wallThickness,
-            ),
+            curvePoint(curve, x.s, Math.max(x.out, reach(x)), x.z),
+            curvePoint(curve, x.s, Math.max(x.out, reach(x)), x.z - wallThickness),
           ]),
         ]),
       );
@@ -909,38 +964,43 @@ export function buildChassis(
   const base = footprint.extrude(chassis.base_thickness_mm);
   const pod = trackpadPod(wasm, cfg, frames, keyPoint, seatHalf, plateHalf);
   const pocketCut = built.add(pod).intersect(pockets);
-  let body = cleared.add(pod);
+  const uncarved = cleared.add(pod);
+  let body = uncarved;
   // Room above each plate: the switch hole, the switch housing's rim up to the
-  // keycap's lowest point, and the keycap with its clearance above that.
+  // keycap's lowest point, and the keycap with its clearance above that. What the
+  // rim's and keycap's room remove is kept for the checks: it is chassis that was
+  // built where a keycap goes.
   const capLowest = Math.max(0, sw.keycap_bottom_above_plate_mm - sw.travel_mm);
+  const roomCuts: { name: string; cut: Manifold }[] = [];
   for (const n of keyNames) {
     const cap = capSize(cfg, n);
     const clearance =
       (sw.keycap_clearance_overrides_mm as Record<string, number>)[n] ?? sw.keycap_clearance_mm;
+    const room = place(
+      M.cube(
+        [
+          cap[0] + 2 * clearance + SIZES.keycapRoomExtra,
+          cap[1] + 2 * clearance + SIZES.keycapRoomExtra,
+          SIZES.keycapRoomHeight,
+        ],
+        true,
+      ).translate([0, 0, capLowest + SIZES.keycapRoomHeight / 2]),
+      frames[n],
+    );
+    const rim =
+      capLowest > 0.1
+        ? place(
+            M.cube([seat[0], seat[1], capLowest], true).translate([0, 0, capLowest / 2]),
+            frames[n],
+          )
+        : undefined;
+    const keycapRoom = rim ? room.add(rim) : room;
+    roomCuts.push({ name: n, cut: uncarved.intersect(keycapRoom) });
     body = body
       .subtract(place(M.cube([...sw.cutout_mm, SIZES.switchHoleHeight] as Vec3, true), frames[n]))
-      .subtract(
-        place(
-          M.cube(
-            [
-              cap[0] + 2 * clearance + SIZES.keycapRoomExtra,
-              cap[1] + 2 * clearance + SIZES.keycapRoomExtra,
-              SIZES.keycapRoomHeight,
-            ],
-            true,
-          ).translate([0, 0, capLowest + SIZES.keycapRoomHeight / 2]),
-          frames[n],
-        ),
-      );
-    if (capLowest > 0.1)
-      body = body.subtract(
-        place(
-          M.cube([seat[0], seat[1], capLowest], true).translate([0, 0, capLowest / 2]),
-          frames[n],
-        ),
-      );
+      .subtract(keycapRoom);
   }
-  return { body, base, pod, pocketCut, wallWindows };
+  return { body, base, pod, pocketCut, roomCuts, wallWindows };
 }
 
 // Cirque trackpad in a printed pod on the inner side, held by a bracket to the

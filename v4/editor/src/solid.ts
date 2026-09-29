@@ -12,6 +12,8 @@ const CHECKS = {
   empty: 0.001,
   /** Volume the tile pockets may remove before the check fails. */
   pocketCut: 0.01,
+  /** Volume a keycap's room may remove from the chassis before the check fails. */
+  roomCut: 0.05,
   /** Each seat is trimmed flat this far above and below its plane. */
   seatTrim: 7,
   /** Clip reliefs: this tall below the seat, reaching this far into the switch hole and this far past clip_relief_depth_mm. */
@@ -125,6 +127,8 @@ export interface Report {
   pieces: number[];
   footprint: number[];
   pocketCut: number;
+  /** Keys whose keycap room had to remove chassis, and how much (mm³). */
+  roomCuts: { name: string; volume: number }[];
   hardware: { name: string; group: string; volume: number }[];
   openings: { name: string; removed: number; covered: number; blocked: number }[];
   walls: WallCheck[];
@@ -142,7 +146,7 @@ export interface WallCheck {
 }
 export interface Highlight {
   name: string;
-  kind: 'rest' | 'travel' | 'hardware' | 'opening' | 'seat' | 'loose' | 'wall';
+  kind: 'rest' | 'travel' | 'room' | 'hardware' | 'opening' | 'seat' | 'loose' | 'wall';
   mesh: MeshData;
 }
 export interface BuildResult {
@@ -285,6 +289,7 @@ export function buildSolid(wasm: ManifoldToplevel, project: Project): BuildResul
     keep(chassis.base);
     keep(chassis.pod);
     keep(chassis.pocketCut);
+    for (const r of chassis.roomCuts) keep(r.cut);
     let body = chassis.body;
     if (body.status() !== 'NoError') throw Error('Invalid chassis: ' + body.status());
     const { outer, thickness } = seatSettings(cfg);
@@ -398,6 +403,12 @@ export function buildSolid(wasm: ManifoldToplevel, project: Project): BuildResul
         kind: 'hardware',
         mesh: meshData(chassis.pocketCut),
       });
+    // Chassis built where a keycap goes, which its room had to remove.
+    const roomCuts = chassis.roomCuts
+      .map((r) => ({ name: r.name, volume: r.cut.volume(), cut: r.cut }))
+      .filter((r) => r.volume > CHECKS.roomCut);
+    for (const r of roomCuts)
+      highlights.push({ name: `${r.name} keycap room`, kind: 'room', mesh: meshData(r.cut) });
     const result = keep(cut.add(chassis.base));
     // Every wall is solid apart from its slots, and every slot goes through.
     const walls = checkWalls(wasm, cut, chassis.wallWindows);
@@ -520,6 +531,7 @@ export function buildSolid(wasm: ManifoldToplevel, project: Project): BuildResul
       pieces.length === 1 &&
       footprint.length === 1 &&
       pocketCut <= CHECKS.pocketCut &&
+      roomCuts.length === 0 &&
       walls.checks.every((w) => w.passed) &&
       capGaps.every((c) => c.gap > 0) &&
       openings.every((o) => o.removed > CHECKS.empty && o.covered === 9 && o.blocked === 0);
@@ -536,6 +548,7 @@ export function buildSolid(wasm: ManifoldToplevel, project: Project): BuildResul
         pieces: pieces.map((p) => p.volume()),
         footprint: footprint.map((x) => x.a),
         pocketCut,
+        roomCuts: roomCuts.map(({ name, volume }) => ({ name, volume })),
         hardware: overlaps,
         openings,
         walls: walls.checks,

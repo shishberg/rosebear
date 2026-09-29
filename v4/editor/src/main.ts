@@ -102,7 +102,7 @@ function updateFailures(items: Highlight[]) {
   clearFailures();
   for (const item of items) {
     const color =
-      item.kind === 'travel'
+      item.kind === 'travel' || item.kind === 'room'
         ? 0xffa124
         : item.kind === 'opening' ||
             item.kind === 'seat' ||
@@ -682,6 +682,16 @@ function showReport(r: Report) {
       : `Parts reach ${r.pocketCut.toFixed(1)} mm³ into the tile pockets.`,
     r.pocketCut > 0.01 ? 'tile pocket cut' : undefined,
   );
+  add(
+    r.roomCuts.length
+      ? `${r.roomCuts.length} keycap rooms had to cut into the chassis.`
+      : 'No chassis was built where a keycap goes.',
+  );
+  for (const c of r.roomCuts)
+    add(
+      `${c.name.replaceAll('_', ' ')}: its keycap room cut ${c.volume.toFixed(1)} mm³ out of the chassis`,
+      `${c.name} keycap room`,
+    );
   const badWalls = r.walls.filter((w) => !w.passed);
   add(
     badWalls.length

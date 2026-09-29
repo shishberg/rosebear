@@ -73,6 +73,7 @@ test('default chassis passes: one piece on one footprint, clear of the tile pock
   assert.equal(r.report.pieces.length, 1);
   assert.equal(r.report.footprint.length, 1);
   assert(r.report.pocketCut <= 0.01, `tile pockets cut ${r.report.pocketCut} mm³`);
+  assert.deepEqual(r.report.roomCuts, []);
   assert.deepEqual(r.report.hardware, []);
   assert(r.report.keycaps.every((k) => k.passed));
   assert(r.report.capGaps.every((g) => g.gap > 1));
@@ -144,6 +145,19 @@ test('the checker reports keycap collisions and loose pieces', async () => {
   assert.equal(r2.report.footprint.length, 2);
   assert.equal(r2.report.passed, false);
   assert(r2.highlights.some((h) => h.kind === 'loose'));
+});
+test('the checker reports chassis built where a keycap goes', async () => {
+  const wasm = await Module();
+  wasm.setup();
+  // The thumb cluster moved 10 mm toward the fingers: the 1.5u key's room cuts
+  // into the fingers' front swept end.
+  const close = clone(defaults);
+  close.config.geometry.thumb.position_mm[1] += 10;
+  const r = buildSolid(wasm, close);
+  const home = r.report.roomCuts.find((c) => c.name === 'thumb_home');
+  assert(home && home.volume > 10);
+  assert.equal(r.report.passed, false);
+  assert(r.highlights.some((h) => h.kind === 'room' && h.name === 'thumb_home keycap room'));
 });
 test('the wall check finds a gap through a wall and a slot that does not go through', async () => {
   const wasm = await Module();

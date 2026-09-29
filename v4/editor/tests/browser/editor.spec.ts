@@ -148,7 +148,10 @@ test('clearance overlays isolate collisions, toggle, and clear on edit', async (
   const all = await highlights();
   expect(all.length).toBeGreaterThan(1);
   expect(all.every((h: any) => h.visible && h.triangles > 0)).toBe(true);
-  await page.locator('#fit-list button').filter({ hasText: 'thumb home' }).click();
+  await page
+    .locator('#fit-list button')
+    .filter({ hasText: /^thumb home: .* at rest/ })
+    .click();
   const visible = (await highlights()).filter((h: any) => h.visible);
   expect(visible.length).toBeGreaterThan(0);
   expect(visible.every((h: any) => h.name === 'thumb_home')).toBe(true);

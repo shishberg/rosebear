@@ -58,7 +58,7 @@ pair tucked in front of it). The keys fan along an arc:
 
 `trackpad.position_mm` and `rotation_deg` place the Cirque pod. `chassis` holds
 the construction's dimensions: plate thickness and margin, wall thickness, the
-swept end's radius, how far the end keys may reach into it (`end_cut_mm`) and the
+swept end's radius, how far the end plates may reach into it (`end_cut_mm`) and the
 base plate thickness.
 
 ## Use
@@ -94,11 +94,14 @@ base plate thickness.
   15.8 mm switch seat on each side (17.6 mm square, 1 mm past the 15.6 mm housing
   rim). The tile is wider than the plate and sticks out below it.
 - **Ladder**: a column's plates joined edge to edge.
-- **Swept end**: one quarter round (radius 9 mm) swept along a smooth curve through
-  the column ends, across the back and across the front of the fingers, then a wall
-  to the base. The round starts just past the end keys' tile pockets; each end
-  plate continues flat out to it. Round-bottomed slots part the columns down to
-  half the wall height.
+- **Swept end**: one quarter round (radius 9 mm) swept across the back and across
+  the front of the fingers, then a wall to the base. Along each column's end it
+  runs parallel to the plate edge, as close in as it can: the tile pocket and
+  switch body must stay inside the round's hollow, and the round may start up to
+  `end_cut_mm` inside the plate edge but not inside the switch seat. Where the
+  round starts past the plate edge, the plate continues flat out to it. Between
+  columns the curve changes smoothly from one column's line to the next, and
+  round-bottomed slots part the columns down to half the wall height.
 - The thumb rows are ladders whose two ends roll over the same way.
 - **Walls** stand on the inner and pinky columns' outer sides and on the thumb
   rows' fronts. When the extra thumb pair is close in front, it gets a back wall
@@ -135,6 +138,9 @@ checks the result:
 - Keycaps at rest and over their full travel plus clearance must not touch it.
   The middle thumb uses its **27.525 × 18 × 9 mm** cap, **4 mm travel** and
   **2.5 mm clearance**. The keycap bottom at full press is set 2 mm above the seat.
+  Each keycap's room is cut out of the chassis before this check, so it fails
+  only when the room is smaller than the keycap's travel; the keycap room check
+  below reports chassis that was in the way.
 - Without the bottom plate the chassis must be one piece; loose pieces are listed
   and highlighted. The walls must also meet along the base: a section 1.5 mm up
   must be one connected area. Separate footprints are listed and highlighted.
@@ -145,11 +151,15 @@ checks the result:
   taking in only the wall's own thickness: any hole in that view that is not a
   slot is a gap, and a slot with no hole is blind (something fills it or stands
   close behind it). Gaps and blind slots are listed and highlighted pink.
+- No chassis may be built where a keycap goes. Each keycap's room (the keycap
+  and its clearance from its lowest point up, and the switch housing's rim below
+  that) is cut out of the chassis, and whatever it removed is listed and
+  highlighted orange.
 - The closest distance between resting keycaps of the finger columns, the thumb
   row and the extra thumb row is listed; touching fails.
 
 Failures are highlighted in the viewport: red for at-rest or hardware overlap,
-orange for the keycap travel envelope, pink for opening, seat or loose-piece
+orange for the keycap travel envelope and for chassis cut away by a keycap's room, pink for opening, seat or loose-piece
 defects. Click a result to isolate it, or **Show all failures**.
 
 Envelopes are conservative boxes, not measured parts. PCB retainers, minimum wall

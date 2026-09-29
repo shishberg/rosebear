@@ -23,6 +23,8 @@ if (report.pieces.length > 1)
 if (report.footprint.length > 1) console.log(`${report.footprint.length} separate footprints`);
 if (report.pocketCut > 0.01)
   console.log(`parts reach ${report.pocketCut.toFixed(2)} mm³ into the tile pockets`);
+for (const c of report.roomCuts)
+  console.log(`${c.name}: keycap room cut ${c.volume.toFixed(2)} mm³ out of the chassis`);
 for (const o of report.openings)
   if (o.covered < 9 || o.blocked || o.removed <= 0.001)
     console.log(`${o.name}: opening incomplete`);
