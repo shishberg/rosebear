@@ -34,8 +34,8 @@ const CHECKS = {
   capGapSearch: 40,
   /** A hole through a wall smaller than this area is ignored. */
   wallGap: 0.01,
-  /** A blind slot is highlighted by a rod this radius through its centre. */
-  blindSlotMarker: 1.5,
+  /** A blind cutout is highlighted by a rod this radius through its centre. */
+  blindCutoutMarker: 1.5,
 } as const;
 export interface Part {
   name: string;
@@ -137,11 +137,11 @@ export interface Report {
   milliseconds: number;
   notes: string[];
 }
-/** One wall window: the areas of holes through it that are not slots, and slots that don't go through. */
+/** One wall window: the areas of holes through it that are not cutouts, and cutouts that don't go through. */
 export interface WallCheck {
   name: string;
   gaps: number[];
-  blindSlots: number;
+  blindCutouts: number;
   passed: boolean;
 }
 export interface Highlight {
@@ -180,8 +180,8 @@ const contains = (p: number[][], [x, y]: number[]) => {
 };
 /**
  * Look through each wall window along its normal: the solid's outline there,
- * projected onto the wall, must have a hole at each slot centre and no other
- * hole. A hole that is not a slot is a gap through the wall; a slot with no
+ * projected onto the wall, must have a hole at each cutout centre and no other
+ * hole. A hole that is not a cutout is a gap through the wall; a cutout with no
  * hole is blind. Gaps are returned as solids for highlighting.
  */
 export function checkWalls(wasm: ManifoldToplevel, solid: Manifold, windows: WallWindow[]) {
@@ -210,13 +210,13 @@ export function checkWalls(wasm: ManifoldToplevel, solid: Manifold, windows: Wal
         .toPolygons()
         .map((p) => p as number[][])
         .filter((p) => -signedArea(p) > CHECKS.wallGap);
-      const gaps = holes.filter((h) => !w.slots.some((c) => contains(h, c)));
-      const blind = w.slots.filter((c) => !holes.some((h) => contains(h, c)));
+      const gaps = holes.filter((h) => !w.cutouts.some((c) => contains(h, c)));
+      const blind = w.cutouts.filter((c) => !holes.some((h) => contains(h, c)));
       for (const c of blind) {
         const marker = keep(
           keep(
             keep(
-              wasm.Manifold.cylinder(depth, CHECKS.blindSlotMarker, CHECKS.blindSlotMarker, 24),
+              wasm.Manifold.cylinder(depth, CHECKS.blindCutoutMarker, CHECKS.blindCutoutMarker, 24),
             ).translate([c[0], c[1], w.across[0]]),
           ).transform(fromWall),
         );
@@ -233,7 +233,7 @@ export function checkWalls(wasm: ManifoldToplevel, solid: Manifold, windows: Wal
       checks.push({
         name: w.name,
         gaps: gaps.map((g) => -signedArea(g)),
-        blindSlots: blind.length,
+        blindCutouts: blind.length,
         passed: gaps.length === 0 && blind.length === 0,
       });
     } finally {
@@ -421,7 +421,7 @@ export function buildSolid(wasm: ManifoldToplevel, project: Project): BuildResul
     for (const r of roomCuts)
       highlights.push({ name: `${r.name} keycap room`, kind: 'room', mesh: meshData(r.cut) });
     const result = keep(cut.add(chassis.base));
-    // Every wall is solid apart from its slots, and every slot goes through.
+    // Every wall is solid apart from its cutouts, and every cutout goes through.
     const walls = checkWalls(wasm, cut, chassis.wallWindows);
     for (const g of walls.gapSolids) highlights.push({ name: g.name, kind: 'wall', mesh: g.mesh });
     const seats: SeatCheck[] = [];

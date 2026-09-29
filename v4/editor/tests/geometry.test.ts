@@ -78,10 +78,10 @@ test('default chassis passes: one piece on one footprint, clear of the tile pock
   assert(r.report.keycaps.every((k) => k.passed));
   assert(r.report.capGaps.every((g) => g.gap > 1));
   assert(r.report.openings.every((o) => o.removed > 0 && o.covered === 9 && o.blocked === 0));
-  // Solid walls with open slots: two on each finger column, two on the thumb row
-  // and one on each of the extra thumb row's walls.
+  // Solid walls with a cutout under each key: three on each outer finger column,
+  // three on the thumb row and two on each of the extra thumb row's walls.
   assert(r.report.walls.every((w) => w.passed));
-  assert.equal(r.report.walls.filter((w) => w.name.includes(': slot ')).length, 8);
+  assert.equal(r.report.walls.length, 13);
   assert(r.report.passed);
   const mounted = new wasm.Manifold(
     new wasm.Mesh({ numProp: 3, vertProperties: r.mesh.positions, triVerts: r.mesh.indices }),
@@ -159,34 +159,41 @@ test('the checker reports chassis built where a keycap goes', async () => {
   assert.equal(r.report.passed, false);
   assert(r.highlights.some((h) => h.kind === 'room' && h.name === 'thumb_home keycap room'));
 });
-test('the wall check finds a gap through a wall and a slot that does not go through', async () => {
+test('the wall check finds a gap through a wall and a cutout that does not go through', async () => {
   const wasm = await Module();
   wasm.setup();
   const cfg = clone(defaults.config);
   const chassis = buildChassis(wasm, cfg, componentFrames(cfg));
   const pinky = chassis.wallWindows.filter((w) => w.name.startsWith('pinky column wall'));
-  const slot = pinky.find((w) => w.name.includes(': slot '))!;
   const home = pinky.find((w) => w.name === 'pinky column wall: matrix_pinky_home')!;
+  const top = pinky.find((w) => w.name === 'pinky column wall: matrix_pinky_top')!;
   // A plan point on a window's mid-plane, at a distance along the wall.
-  const at = (w: typeof slot, along: number, z: number): [number, number, number] => {
+  const at = (w: typeof home, along: number, z: number): [number, number, number] => {
     const across = (w.across[0] + w.across[1]) / 2;
     const [nx, ny] = w.normal;
     return [-ny * along + nx * across, nx * along + ny * across, z];
   };
-  // A slit 6 mm long and 0.5 mm high through the middle of the home key's wall,
-  // and the slot filled.
-  const slitAlong = (home.along[0] + home.along[1]) / 2;
-  const slit = wasm.Manifold.cube([30, 6, 0.5], true)
-    .rotate([0, 0, (Math.atan2(home.normal[1], home.normal[0]) * 180) / Math.PI])
-    .translate(at(home, slitAlong, 8));
-  const fill = wasm.Manifold.cube([30, 10, 20], true)
-    .rotate([0, 0, (Math.atan2(slot.normal[1], slot.normal[0]) * 180) / Math.PI])
-    .translate(at(slot, slot.slots[0][0], slot.slots[0][1]));
+  const turn = (m: ReturnType<typeof wasm.Manifold.cube>) =>
+    m.rotate([0, 0, (Math.atan2(home.normal[1], home.normal[0]) * 180) / Math.PI]);
+  // A slit 2 mm long and 0.5 mm high through the post between the top and home
+  // keys, and the home key's cutout filled.
+  const [homeAlong, homeZ] = home.cutouts[0];
+  const slit = turn(wasm.Manifold.cube([30, 2, 0.5], true)).translate(
+    at(home, (homeAlong + top.cutouts[0][0]) / 2, homeZ),
+  );
+  const fill = turn(wasm.Manifold.cube([30, 20.5, 16], true)).translate(at(home, homeAlong, homeZ));
   const damaged = chassis.body.subtract(slit).add(fill);
   const { checks, gapSolids } = checkWalls(wasm, damaged, pinky);
   const byName = Object.fromEntries(checks.map((c) => [c.name, c]));
-  assert.equal(byName[home.name].gaps.length, 1);
-  assert(Math.abs(byName[home.name].gaps[0] - 3) < 0.1);
-  assert.equal(byName[slot.name].blindSlots, 1);
-  assert.equal(gapSolids.length, 1 + checks.reduce((t, c) => t + c.blindSlots, 0));
+  // The slit is inside both keys' windows.
+  for (const w of [home, top]) {
+    assert.equal(byName[w.name].gaps.length, 1, w.name);
+    assert(Math.abs(byName[w.name].gaps[0] - 1) < 0.1, w.name);
+  }
+  assert.equal(byName[home.name].blindCutouts, 1);
+  assert.equal(byName[top.name].blindCutouts, 0);
+  assert.equal(
+    gapSolids.length,
+    checks.reduce((t, c) => t + c.gaps.length + c.blindCutouts, 0),
+  );
 });

@@ -31,7 +31,7 @@ for (const o of report.openings)
 for (const w of report.walls)
   if (!w.passed)
     console.log(
-      `${w.name}: ${w.gaps.length} gaps through the wall (${w.gaps.map((a) => a.toFixed(2)).join(', ')} mm²), ${w.blindSlots} blind slots`,
+      `${w.name}: ${w.gaps.length} gaps through the wall (${w.gaps.map((a) => a.toFixed(2)).join(', ')} mm²), ${w.blindCutouts} blind cutouts`,
     );
 for (const h of report.hardware)
   if (h.group !== 'keycaps') console.log(`${h.name}: ${h.volume.toFixed(3)} mm³ hardware overlap`);

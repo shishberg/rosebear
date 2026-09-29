@@ -4,8 +4,8 @@
 // quarter round swept along a curve that follows each column's end as closely as
 // the tile pockets allow, then a wall to the base. Round-bottomed slots part the columns down to half that wall's
 // height. The thumb rows use the same construction, running left to right. The
-// outside edges without a swept end are walls, one segment under each key,
-// parted by U slots. Low ribs join the thumb rows and the fingers along the
+// outside edges without a swept end are walls flush with the plate edges, with
+// a U cutout under each key that clears its tile pocket. Low ribs join the thumb rows and the fingers along the
 // base. Nothing is built into a tile pocket. The whole case stands on a flat
 // base plate cut to its own footprint.
 //
@@ -18,9 +18,10 @@
 //  ladder       a row of plates joined edge to edge;
 //  swept end    one quarter round swept along a curve through a row of keys' end
 //               edges, then a wall to the base;
-//  wall         a slab from a key's plate edge that follows the plate's tilt down
-//               past the tile pocket, just outside it, then drops vertically to
-//               the base. The plate widens to meet it.
+//  wall         a slab just inside a key's plate edge that follows the plate's
+//               tilt down to the tile pocket's depth, then drops vertically to
+//               the base. A U cutout under each key clears its tile pocket;
+//               posts between keys and a strip along the base remain.
 //
 // Coordinates: "key coordinates" are a key's own frame, with the origin at the
 // plate top's centre, x and y across the plate and z along its normal (up is
@@ -48,15 +49,15 @@ export interface ChassisResult {
  * looking along `normal` through the plan slab `across`, between `along`.
  * Both ranges are plan distances: along the wall's direction (-normal[1],
  * normal[0]) and along the normal. The wall should be solid there apart from
- * its U slots.
+ * its U cutout.
  */
 export interface WallWindow {
   name: string;
   normal: [number, number];
   along: [number, number];
   across: [number, number];
-  /** The slot centres inside the window, as [along, z]: each should be a hole through the wall. */
-  slots: [number, number][];
+  /** The cutout centres inside the window, as [along, z]: each should be a hole through the wall. */
+  cutouts: [number, number][];
 }
 
 /**
@@ -66,7 +67,7 @@ export interface WallWindow {
 const SIZES = {
   /** Wall and base heights: walls stop this far above z = 0, inside the base plate. */
   wallFoot: 1,
-  /** A wall's inner face is this far outside the tile pocket. */
+  /** A wall's end, where it joins a swept end's cap, reaches this far past the tile pocket. */
   wallPocketGap: 0.25,
   /** A swept end's quarter round stays this far clear of the end keys' tile pockets and switch bodies (it has flat faces). */
   endPocketGap: 0.3,
@@ -81,18 +82,10 @@ const SIZES = {
   /** Swept-end slots start this far inside the quarter round's centre and end this far past its face. */
   endSlotInside: 0.2,
   endSlotPast: 3,
-  /** Wall slots (the U between wall segments): half-width along the wall. */
-  wallSlotHalfWidth: 3,
-  /** A wall slot's top is this far below the plates' undersides. */
-  wallSlotBelowPlate: 0.8,
-  /** No wall slot if its round bottom would be less than this above its half-width (a short wall). */
-  wallSlotMinRise: 2,
-  /** No wall slot where neighbouring plate edges are offset across the wall by more than this. */
-  wallSlotMaxOffset: 4,
-  /** A wall slot reaches this far past both faces of the wall. */
-  wallSlotPast: 1,
-  /** A slot's check window reaches this far past each side of the slot, along the wall. */
-  slotWindowPast: 2,
+  /** Wall cutouts (the U under each key): radius of the round bottom corners. */
+  wallCutoutRadius: 2,
+  /** A wall cutout reaches this far past both faces of the wall. */
+  wallCutoutPast: 1.5,
   /** A swept end's cap joins a wall segment whose tilted part comes within this distance (plan). */
   capReach: 8,
   /** The extra thumb row gets a back wall when its plates come this close to the main row's (plan). */
@@ -145,14 +138,6 @@ const planDistance = (p: number[], q: number[]) => Math.hypot(p[0] - q[0], p[1] 
 /** The end of a strip nearest a plan point. */
 const endNearest = (s: Strip, p: number[]) =>
   planDistance(s[0].topInner, p) < planDistance(s[1].topInner, p) ? s[0] : s[1];
-
-/** A wall on one side of a key: which side, and its faces' half-widths. */
-interface Wall {
-  axis: number;
-  side: number;
-  inner: number;
-  outer: number;
-}
 
 /**
  * A smooth plan curve across the facing edges of a row of end keys. Positions
@@ -258,14 +243,6 @@ export function buildChassis(
     Math.max(seatHalf[1] + plateMargin, pocketHalf[1]),
   ];
 
-  const wallsByKey = new Map<string, Wall[]>();
-  /** Half-widths of key n's plate toward a corner: out to a wall's outer face on a walled side. */
-  const plateHalfAt = (n: string, [sx, sy]: Corner): HalfWidths => {
-    const half: HalfWidths = [plateHalf[0], plateHalf[1]];
-    for (const w of wallsByKey.get(n) ?? [])
-      if ((w.axis ? sy : sx) === w.side) half[w.axis] = w.outer;
-    return half;
-  };
   /** World point on key n: toward a corner by the given half-widths, z along the normal. */
   const keyPoint = (n: string, [sx, sy]: Corner, z: number, half: HalfWidths): Vec3 =>
     point(frames[n], [sx * half[0], sy * half[1], z]);
@@ -337,7 +314,7 @@ export function buildChassis(
   ): Strip => {
     const axis = facingAxis(edge);
     return edge.map((corner) => {
-      const alongHalf = along ?? plateHalfAt(n, corner)[1 - axis];
+      const alongHalf = along ?? plateHalf[1 - axis];
       const at = (z: number, across: number) =>
         keyPoint(n, corner, z, axis ? [alongHalf, across] : [across, alongHalf]);
       return {
@@ -348,20 +325,46 @@ export function buildChassis(
       };
     }) as Strip;
   };
-  /** Register a wall on the side of key n facing dir, its inner face just outside the tile pocket. */
-  const addWall = (n: string, dir: Plan) => {
-    const edge = edgeFacing(n, dir);
+  /**
+   * The U cutout in a wall under key n's edge: the tile pocket's width along the
+   * wall, from the plate's underside down past the pocket's depth, with round
+   * bottom corners that just take in the pocket's lower corners. It follows the
+   * key's tilt and reaches past both faces of the wall.
+   */
+  const wallCutout = (n: string, edge: Edge) => {
     const axis = facingAxis(edge);
-    const inner = pocketHalf[axis] + SIZES.wallPocketGap;
-    wallsByKey.set(n, [
-      ...(wallsByKey.get(n) ?? []),
-      { axis, side: edge[0][axis], inner, outer: inner + wallThickness },
-    ]);
+    const side = edge[0][axis];
+    const r = SIZES.wallCutoutRadius;
+    const along = pocketHalf[1 - axis];
+    const across = [
+      plateHalf[axis] - wallThickness - SIZES.wallCutoutPast,
+      plateHalf[axis] + SIZES.wallCutoutPast,
+    ];
+    const at = (a: number, c: number, z: number) => {
+      const v: Vec3 = [0, 0, z];
+      v[1 - axis] = a;
+      v[axis] = side * c;
+      return point(frames[n], v);
+    };
+    const profile: [number, number][] = [
+      [-along, -plateThickness],
+      [along, -plateThickness],
+      ...[-1, 1].flatMap((sign) =>
+        Array.from({ length: 5 }, (_, i) => {
+          const angle = (i / 4) * (Math.PI / 2);
+          return [sign * (along - r + r * Math.cos(angle)), -pocketDepth - r * Math.sin(angle)] as [
+            number,
+            number,
+          ];
+        }),
+      ),
+    ];
+    return {
+      solid: M.hull(across.flatMap((c) => profile.map(([a, z]) => at(a, c, z)))),
+      /** The cutout's centre, in the middle of the wall. */
+      centre: at(0, plateHalf[axis] - wallThickness / 2, -(plateThickness + pocketDepth) / 2),
+    };
   };
-  const wallAt = (n: string, edge: Edge) =>
-    (wallsByKey.get(n) ?? []).find(
-      (w) => w.axis === facingAxis(edge) && w.side === edge[0][facingAxis(edge)],
-    );
   const planToward = (a: string, b: string): Plan => {
     const p = keyCentre(a);
     const q = keyCentre(b);
@@ -375,7 +378,7 @@ export function buildChassis(
         M.hull(
           [-1, 1].flatMap((sx) =>
             [-1, 1].flatMap((sy) =>
-              [0, -plateThickness].map((z) => keyPoint(n, [sx, sy], z, plateHalfAt(n, [sx, sy]))),
+              [0, -plateThickness].map((z) => keyPoint(n, [sx, sy], z, plateHalf)),
             ),
           ),
         ),
@@ -418,7 +421,7 @@ export function buildChassis(
     const alongOut = (p: number[]) => p[0] * outward[0] + p[1] * outward[1];
     const corners = ends.flatMap((n, key) =>
       edges[key].map((corner) => {
-        const p = keyPoint(n, corner, 0, plateHalfAt(n, corner));
+        const p = keyPoint(n, corner, 0, plateHalf);
         return { s: alongSide(p), out: alongOut(p), z: p[2], key };
       }),
     );
@@ -445,7 +448,7 @@ export function buildChassis(
     // pocket and switch body, which must stay clear of the round.
     const needs = ends.map((n, key) =>
       edges[key].flatMap((corner) => {
-        const plate = keyPoint(n, corner, 0, plateHalfAt(n, corner));
+        const plate = keyPoint(n, corner, 0, plateHalf);
         return [
           { s: alongSide(plate), outer: alongOut(plate) + endRadius - endCut },
           {
@@ -593,7 +596,7 @@ export function buildChassis(
         return [p[0] - t * e[8], p[1] - t * e[9], p[2] - t * e[10]];
       };
       const top = [
-        ...edge.map((corner) => keyPoint(n, corner, 0, plateHalfAt(n, corner))),
+        ...edge.map((corner) => keyPoint(n, corner, 0, plateHalf)),
         ...onCurve.map((x) => curvePoint(curve, x.s, Math.max(x.out, reach(x)), x.z)),
       ];
       pieces.push(M.hull([...top, ...top.map(below)]));
@@ -669,9 +672,6 @@ export function buildChassis(
     [columns[0], [-1, 0]],
     [columns.at(-1)!, [1, 0]],
   ];
-  for (const [c, dir] of outerColumns) for (const n of columnKeys(c)) addWall(n, dir);
-  for (const n of [...thumbRow, ...extraRow]) addWall(n, [0, -1]);
-  if (extraRowClose) for (const n of extraRow) addWall(n, [0, 1]);
 
   const parts: Manifold[] = [];
   for (const c of columns) parts.push(ladder(columnKeys(c)));
@@ -696,11 +696,12 @@ export function buildChassis(
   });
   for (const s of [...fingerEnds, ...thumbRowEnds.flat()]) parts.push(s.solid);
 
-  // A run of walls along one side of a row of keys: one segment per key, joined
-  // at the base and at the plate, with a U slot between neighbours from half
-  // height up to just under the plates. An end segment takes in the cap that
-  // closes the quarter round of a swept end beside it. Each segment follows its
-  // plate's tilt down to the tile pocket's depth, then drops to the base.
+  // A run of walls along one side of a row of keys, flush with the plate edges:
+  // one segment per key, joined to its neighbours. Each segment follows its
+  // plate's tilt down to the tile pocket's depth, then drops to the base. A U
+  // cutout under each key clears its tile pocket, leaving a post between
+  // neighbouring keys and a strip along the base. An end segment takes in the
+  // cap that closes the quarter round of a swept end beside it.
   const usedCaps = new Set<Cap>();
   const wallWindows: WallWindow[] = [];
   const wallRun = (name: string, ns: string[], dir: Plan, caps: Cap[]) => {
@@ -708,21 +709,22 @@ export function buildChassis(
     // reaches into the tile pocket on a rolled key.
     const segments: WallSegment[] = ns.map((n) => {
       const edge = edgeFacing(n, dir);
-      const wall = wallAt(n, edge)!;
       const axis = facingAxis(edge);
-      const dropTop = strip(n, edge, -pocketDepth, -pocketDepth, wall.inner, wall.outer);
+      const outer = plateHalf[axis];
+      const inner = outer - wallThickness;
+      const dropTop = strip(n, edge, -pocketDepth, -pocketDepth, inner, outer);
       return {
-        tilted: strip(n, edge, 0, -pocketDepth, wall.inner, wall.outer),
+        tilted: strip(n, edge, 0, -pocketDepth, inner, outer),
         tiltedLong: strip(
           n,
           edge,
           0,
           -pocketDepth,
-          wall.inner,
-          wall.outer,
+          inner,
+          outer,
           pocketHalf[1 - axis] + SIZES.wallPocketGap,
         ),
-        underPlate: strip(n, edge, -plateThickness, -plateThickness, wall.inner, wall.outer),
+        underPlate: strip(n, edge, -plateThickness, -plateThickness, inner, outer),
         dropTop,
         onBase: mapStrip(dropTop, (p) => atHeight(p, SIZES.wallFoot)),
       };
@@ -731,16 +733,15 @@ export function buildChassis(
       M.hull(stripPoints(s.tilted)),
       M.hull([...stripPoints(s.dropTop), ...stripPoints(s.onBase)]),
     ]);
-    const slots: Manifold[] = [];
+    const cutouts = ns.map((n) => wallCutout(n, edgeFacing(n, dir)));
     // The plan points each segment's window must take in: its own strips, the
     // cap it joins, and on each joint side the neighbouring key's centre, so
-    // the slot between them is inside the window.
+    // the post between them is inside the window.
     const ownPoints = segments.map((s) => [...stripPoints(s.tilted), ...stripPoints(s.onBase)]);
     const windowPoints = segments.map((s, i) => [
       ...ownPoints[i],
       ...[ns[i - 1], ns[i + 1]].filter((n) => n).map((n) => keyCentre(n)),
     ]);
-    const slotCentres: Vec3[] = [];
     for (const i of new Set([0, ns.length - 1]))
       for (const cap of caps) {
         const s = segments[i];
@@ -794,83 +795,6 @@ export function buildChassis(
           ...endPoints(atB(b.onBase)),
         ]),
       );
-      // No slot where the two edges are offset across the wall (a 1.5u key beside
-      // 1u keys): the joint is then a diagonal wall. The slot is 2 halfWidth wide,
-      // centred between the two keys; its top follows the plates' undersides
-      // between their corners, 0.8 mm below them.
-      const halfWidth = SIZES.wallSlotHalfWidth;
-      const underA = atA(a.underPlate);
-      const underB = atB(b.underPlate);
-      const pa = underA.topOuter;
-      const pb = underB.topOuter;
-      const gap = planDistance(pb, pa) || 1;
-      const pointsA = endPoints(underA);
-      const pointsB = endPoints(underB);
-      const tops = [0.5 - halfWidth / gap, 0.5 + halfWidth / gap].flatMap((t) =>
-        pointsA.map(
-          (p, q) =>
-            [
-              p[0] + (pointsB[q][0] - p[0]) * t,
-              p[1] + (pointsB[q][1] - p[1]) * t,
-              p[2] + (pointsB[q][2] - p[2]) * t - SIZES.wallSlotBelowPlate,
-            ] as Vec3,
-        ),
-      );
-      // The round bottom's centre, at half the slot top's lowest height.
-      const roundZ = Math.min(...tops.map((p) => p[2])) / 2;
-      const wallNormal = [
-        underA.topOuter[0] - underA.topInner[0],
-        underA.topOuter[1] - underA.topInner[1],
-      ];
-      const offsetAcross =
-        Math.abs((pb[0] - pa[0]) * wallNormal[0] + (pb[1] - pa[1]) * wallNormal[1]) /
-        (Math.hypot(wallNormal[0], wallNormal[1]) || 1);
-      if (roundZ < halfWidth + SIZES.wallSlotMinRise || offsetAcross > SIZES.wallSlotMaxOffset)
-        continue;
-      const mid = [0, 1].map((k) => (pa[k] + pb[k]) / 2);
-      const alongWall = [(pb[0] - pa[0]) / gap, (pb[1] - pa[1]) / gap];
-      const acrossWall = [-alongWall[1], alongWall[0]];
-      // Deep enough to pass through both the tilted part and the drop, which
-      // sits further out on a rolled key.
-      const halfDepth =
-        Math.max(
-          ...[...joint, ...endPoints(atA(a.dropTop)), ...endPoints(atB(b.dropTop))].map((p) =>
-            Math.abs((p[0] - mid[0]) * acrossWall[0] + (p[1] - mid[1]) * acrossWall[1]),
-          ),
-        ) + SIZES.wallSlotPast;
-      const outward = Math.sign(acrossWall[0] * wallNormal[0] + acrossWall[1] * wallNormal[1]) || 1;
-      const slotNormal: Plan = [outward * acrossWall[0], outward * acrossWall[1]];
-      const slotAlong = mid[0] * -slotNormal[1] + mid[1] * slotNormal[0];
-      const slotAcross = mid[0] * slotNormal[0] + mid[1] * slotNormal[1];
-      slotCentres.push([mid[0], mid[1], roundZ]);
-      wallWindows.push({
-        name: `${name}: slot ${ns[i]} – ${ns[i + 1]}`,
-        normal: slotNormal,
-        along: [
-          slotAlong - halfWidth - SIZES.slotWindowPast,
-          slotAlong + halfWidth + SIZES.slotWindowPast,
-        ],
-        across: [slotAcross - halfDepth, slotAcross + halfDepth],
-        slots: [[slotAlong, roundZ]],
-      });
-      slots.push(
-        M.hull([
-          M.cylinder(2 * halfDepth, halfWidth, halfWidth, 32, true)
-            .rotate([90, 0, 0])
-            .rotate([0, 0, (Math.atan2(alongWall[1], alongWall[0]) * 180) / Math.PI])
-            .translate([mid[0], mid[1], roundZ]),
-          ...tops.flatMap((p) =>
-            [-1, 1].map(
-              (sign) =>
-                [
-                  p[0] + acrossWall[0] * sign * halfDepth,
-                  p[1] + acrossWall[1] * sign * halfDepth,
-                  p[2],
-                ] as Vec3,
-            ),
-          ),
-        ]),
-      );
     }
     segments.forEach((s, i) => {
       const under = s.underPlate[0];
@@ -888,13 +812,10 @@ export function buildChassis(
         normal,
         along: range(along),
         across: range(across),
-        slots: slotCentres
-          .map((c) => [alongOf(c), c[2]] as [number, number])
-          .filter(([a]) => a > Math.min(...along) && a < Math.max(...along)),
+        cutouts: [[alongOf(cutouts[i].centre), cutouts[i].centre[2]]],
       });
     });
-    const run = M.union(pieces);
-    return slots.length ? run.subtract(M.union(slots)) : run;
+    return M.union(pieces).subtract(M.union(cutouts.map((c) => c.solid)));
   };
   const fingerCaps = fingerEnds.flatMap((s) => s.caps);
   for (const [c, dir] of outerColumns)

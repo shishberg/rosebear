@@ -107,12 +107,13 @@ base plate thickness.
 - The thumb rows are ladders whose two ends roll over the same way.
 - **Walls** stand on the inner and pinky columns' outer sides and on the thumb
   rows' fronts. When the extra thumb pair is close in front, it gets a back wall
-  as well. Each key has its own wall segment.
-  The segment starts at the plate edge, just outside the key's tile pocket, and
-  follows the plate's tilt down to the pocket's depth. It then drops vertically
-  to the base. The plate widens to meet it. No wall reaches into a tile pocket. Neighbouring segments join at the plate and at the base, with a U slot
-  between them from half height up to just under the plates. There is no slot
-  where the edges are offset, as beside the 1.5u thumb key. At each end of a swept
+  as well. A wall is flush with the plate edges, so a walled side is no wider
+  than an open one. Each key has its own wall segment, joined to its neighbours'.
+  The segment follows the plate's tilt down to the tile pocket's depth, then
+  drops vertically to the base. A U cutout under each key, the tile pocket's
+  width, runs from the plate's underside to just below the pocket, with 2 mm
+  round bottom corners. What remains is a post between each pair of keys and a
+  strip along the base. At each end of a swept
   end, a cap closes the quarter round; where a wall runs beside the cap, the two
   are joined. A cap with no wall beside it closes the round only down to the
   plate's underside, leaving the tile pocket open.
@@ -150,11 +151,12 @@ checks the result:
 - No part of the chassis may reach into a tile pocket, so every tile can be
   placed and soldered. Any overlap is listed, and the pieces with volume are
   highlighted red.
-- Every wall must be solid apart from its U slots, and every slot must go
-  through. The check looks straight through each wall segment and each slot,
-  taking in only the wall's own thickness: any hole in that view that is not a
-  slot is a gap, and a slot with no hole is blind (something fills it or stands
-  close behind it). Gaps and blind slots are listed and highlighted pink.
+- Every wall must be solid apart from its U cutouts, and every cutout must go
+  through. The check looks straight through each wall segment, from the
+  neighbouring keys' centres on either side, taking in only the wall's own
+  thickness: any hole in that view that is not the key's cutout is a gap, and a
+  cutout with no hole is blind (something fills it or stands close behind it).
+  Gaps and blind cutouts are listed and highlighted pink.
 - No chassis may be built where a keycap goes. Each keycap's room (the keycap
   and its clearance from its lowest point up, and the switch housing's rim below
   that) is cut out of the chassis, and whatever it removed is listed and

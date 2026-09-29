@@ -695,14 +695,14 @@ function showReport(r: Report) {
   const badWalls = r.walls.filter((w) => !w.passed);
   add(
     badWalls.length
-      ? `${badWalls.length} wall windows have gaps or blind slots.`
-      : `The walls are solid apart from their ${r.walls.filter((w) => w.name.includes(': slot ')).length} slots, and every slot goes through.`,
+      ? `${badWalls.length} wall windows have gaps or blind cutouts.`
+      : `The walls are solid apart from their ${r.walls.length} cutouts, and every cutout goes through.`,
   );
   for (const w of badWalls)
     add(
       `${w.name.replaceAll('_', ' ')}: ${[
         ...w.gaps.map((a) => `gap through the wall, ${a.toFixed(2)} mm²`),
-        ...(w.blindSlots ? ['slot does not go through'] : []),
+        ...(w.blindCutouts ? ['cutout does not go through'] : []),
       ].join('; ')}`,
       w.name,
     );
