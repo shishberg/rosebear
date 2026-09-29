@@ -311,6 +311,7 @@
     "end_radius_mm": 9,
     "end_cut_mm": 4,
     "base_thickness_mm": 2,
-    "wall_pattern": "hex"
+    "wall_pattern": "hex",
+    "tile_rests": true
   }
 }

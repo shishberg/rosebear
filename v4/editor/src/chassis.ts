@@ -117,6 +117,13 @@ const SIZES = {
   podBracketBelowRim: 4,
   podBracketInset: 2.5,
   podBracketDepth: 4,
+  /** PROTOTYPE tile rests: width along the plate edge, how far the foot reaches under the tile, the foot's thickness and its gap below the tile. */
+  restWidth: 12,
+  restUnder: 1.5,
+  restThickness: 1.5,
+  restGap: 0.1,
+  /** A rest past a ladder's end key hangs from this far past its tile pocket. */
+  restEndStem: 1.6,
 } as const;
 
 /** A plan vector or direction, [x, y] in world coordinates. */
@@ -718,6 +725,87 @@ export function buildChassis(
     [columns.at(-1)!, [1, 0]],
   ];
 
+  // PROTOTYPE tile rests. Pressing a switch into its hotswap socket pushes the
+  // tile down, and nothing else holds it. A web hangs from the plate between
+  // neighbouring keys in a ladder, and past each ladder's end keys, down past the
+  // tiles; a foot at its bottom reaches under each tile's edge. The tile slides
+  // in sideways onto the feet before its switch goes in.
+  const tileRests = () => {
+    const restTop = -(tile.plate_top_to_pcb_top_mm + tile.size_mm[2]) - SIZES.restGap;
+    const restBottom = restTop - SIZES.restThickness;
+    /** Key n's share of a rest under its edge facing dir: from inside the plate, `reach` past the pocket, down to the foot. */
+    const restSide = (n: string, dir: Plan, reach: number) => {
+      const edge = edgeFacing(n, dir);
+      const axis = facingAxis(edge);
+      const side = edge[0][axis];
+      const out = pocketHalf[axis] + reach;
+      const under = pocketHalf[axis] - SIZES.restUnder;
+      return [-1, 1].flatMap((a) =>
+        (
+          [
+            [out, -plateThickness / 2],
+            [out, restBottom],
+            [under, restTop],
+            [under, restBottom],
+          ] as [number, number][]
+        ).map(([c, z]) => {
+          const v: Vec3 = [0, 0, z];
+          v[1 - axis] = (a * SIZES.restWidth) / 2;
+          v[axis] = side * c;
+          return point(frames[n], v);
+        }),
+      );
+    };
+    const rests: Manifold[] = [];
+    const clear = (n: string) => {
+      // The tile, from the plate down to the foot, its components with their
+      // clearance, and the switch body.
+      const c = tile.component_clearance_mm;
+      const tileTop = -tile.plate_top_to_pcb_top_mm;
+      return place(
+        M.union([
+          M.cube([2 * pocketHalf[0], 2 * pocketHalf[1], -restTop], true).translate([
+            0,
+            0,
+            restTop / 2,
+          ]),
+          ...tile.components.map((p) =>
+            M.cube(p.size_mm.map((x) => x + 2 * c) as Vec3, true).translate([
+              p.center_mm[0],
+              p.center_mm[1],
+              p.center_mm[2] + tileTop,
+            ]),
+          ),
+          M.cube([switchHole[0], switchHole[1], SIZES.switchBelowPlate], true).translate([
+            0,
+            0,
+            -SIZES.switchBelowPlate / 2,
+          ]),
+        ]),
+        frames[n],
+      );
+    };
+    const rows = [...columns.map(columnKeys), thumbRow, extraRow].filter((r) => r.length);
+    for (const ns of rows) {
+      for (let i = 0; i + 1 < ns.length; i++)
+        rests.push(
+          M.hull([
+            ...restSide(ns[i], planToward(ns[i], ns[i + 1]), 0),
+            ...restSide(ns[i + 1], planToward(ns[i + 1], ns[i]), 0),
+          ]),
+        );
+      if (ns.length > 1)
+        for (const [end, next] of [
+          [ns[0], ns[1]],
+          [ns.at(-1)!, ns.at(-2)!],
+        ]) {
+          const [x, y] = planToward(next, end);
+          rests.push(M.hull(restSide(end, [x, y], SIZES.restEndStem)));
+        }
+    }
+    return M.union(rests).subtract(M.union(keyNames.map(clear)));
+  };
+
   const parts: Manifold[] = [];
   for (const c of columns) parts.push(ladder(columnKeys(c)));
   // Swept ends across the back (top row) and front (bottom row) of the columns.
@@ -1175,7 +1263,9 @@ export function buildChassis(
   }
 
   const built = M.union(parts);
-  const cleared = built.subtract(pockets);
+  const cleared = built
+    .subtract(pockets)
+    .add((chassis as { tile_rests?: boolean }).tile_rests !== false ? tileRests() : M.union([]));
   // Base plate: the footprint of everything built, holes filled, so it is flush with the walls.
   const signedArea = (p: [number, number][]) =>
     p.reduce((t, q, i) => {

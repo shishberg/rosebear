@@ -129,6 +129,12 @@ default, or `"solid"`).
   end, a cap closes the quarter round; where a wall runs beside the cap, the two
   are joined. A cap with no wall beside it closes the round only down to the
   plate's underside, leaving the tile pocket open.
+- **Tile rests** (prototype; `chassis.tile_rests: false` turns them off): pressing
+  a switch into its hotswap socket pushes the tile down. A web 12 mm wide hangs
+  from the plate between neighbouring keys in each column and thumb row, and just
+  past each row's end keys. A foot 1.5 mm thick at its bottom reaches 1.5 mm
+  under each tile's edge, 0.1 mm below it, cut back around the tile's parts. The
+  tile slides in sideways onto the feet before its switch goes in.
 - Ribs 6 mm tall join along the base: both ends of the main thumb row to the
   fingers' front, and, when the rows are close, the ends of the two thumb rows to
   each other.
