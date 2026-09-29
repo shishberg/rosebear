@@ -100,7 +100,7 @@ const SIZES = {
   hexPast: 6,
   /** A swept end's cap joins a wall segment whose tilted part comes within this distance (plan). */
   capReach: 8,
-  /** The extra thumb row gets a back wall when its plates come this close to the main row's (plan). */
+  /** The main thumb row has no front wall when the extra row's plates come this close to its own (plan). */
   closeRows: 15,
   /** Height of the ribs joining footprints along the base. */
   ribHeight: 6,
@@ -698,8 +698,9 @@ export function buildChassis(
     };
   };
 
-  // Walls: the inner and pinky columns' outer sides, the thumb rows' fronts, and
-  // the back of an extra thumb row close in front of the main one.
+  // Walls: the inner and pinky columns' outer sides, the main thumb row's back,
+  // and the thumb rows' fronts. When the extra thumb row is close in front of the
+  // main one, the main row's front, which faces it, has no wall.
   const facingCorners = (ns: string[], dir: Plan) =>
     ns.flatMap((n) => edgeFacing(n, dir).map((corner) => keyPoint(n, corner, 0, plateHalf)));
   const extraRowClose =
@@ -1108,26 +1109,21 @@ export function buildChassis(
   const fingerCaps = fingerEnds.flatMap((s) => s.caps);
   for (const [c, dir] of outerColumns)
     parts.push(wallRun(`${c} column wall`, columnKeys(c), dir, fingerCaps));
-  [thumbRow, extraRow].forEach((row, i) => {
+  const thumbWalls: [string, string[], Plan, number][] = [
+    ['thumb row back wall', thumbRow, [0, 1], 0],
+    ['extra thumb row front wall', extraRow, [0, -1], 1],
+  ];
+  if (!extraRowClose) thumbWalls.push(['thumb row front wall', thumbRow, [0, -1], 0]);
+  for (const [name, row, dir, i] of thumbWalls)
     if (row.length)
       parts.push(
         wallRun(
-          i ? 'extra thumb row front wall' : 'thumb row front wall',
+          name,
           row,
-          [0, -1],
+          dir,
           thumbRowEnds[i].flatMap((s) => s.caps),
         ),
       );
-  });
-  if (extraRowClose)
-    parts.push(
-      wallRun(
-        'extra thumb row back wall',
-        extraRow,
-        [0, 1],
-        thumbRowEnds[1].flatMap((s) => s.caps),
-      ),
-    );
   // Caps on swept ends with no wall beside them. The round's inside can hold the
   // corner of the end key's tile pocket, so a cap closes the round only down to
   // the plate's underside; below that the round's end is open.

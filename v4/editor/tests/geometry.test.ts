@@ -81,7 +81,7 @@ test('default chassis passes: one piece on one footprint, clear of the tile pock
   // Solid walls with a cutout under each key: three on each outer finger column,
   // three on the thumb row and two on each of the extra thumb row's walls.
   assert(r.report.walls.every((w) => w.passed));
-  assert.equal(r.report.walls.length, 13);
+  assert.equal(r.report.walls.length, 11);
   assert(r.report.passed);
   const mounted = new wasm.Manifold(
     new wasm.Mesh({ numProp: 3, vertProperties: r.mesh.positions, triVerts: r.mesh.indices }),

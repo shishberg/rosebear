@@ -106,9 +106,9 @@ default, or `"solid"`).
   smoothly from one line to the next. Round-bottomed slots part the columns down
   to half the wall height.
 - The thumb rows are ladders whose two ends roll over the same way.
-- **Walls** stand on the inner and pinky columns' outer sides and on the thumb
-  rows' fronts. When the extra thumb pair is close in front, it gets a back wall
-  as well. A wall is flush with the plate edges, so a walled side is no wider
+- **Walls** stand on the inner and pinky columns' outer sides, the main thumb
+  row's back and the thumb rows' fronts. When the extra thumb pair is close in
+  front, the main row's front, which faces it, has no wall. A wall is flush with the plate edges, so a walled side is no wider
   than an open one. Each key has its own wall segment, joined to its neighbours'.
   The segment follows the plate's tilt down to the tile pocket's depth, then
   drops vertically to the base. A U cutout under each key, the tile pocket's
