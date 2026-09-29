@@ -196,4 +196,15 @@ test('the wall check finds a gap through a wall and a cutout that does not go th
     gapSolids.length,
     checks.reduce((t, c) => t + c.gaps.length + c.blindCutouts, 0),
   );
+  // The inner column's wall is tall enough for the hex pattern: the home key's
+  // window sees its cutout, the openings above and below the hexagons, and the
+  // two hexagons beside it. With the solid pattern it sees only the cutout.
+  const innerHome = (c: typeof cfg) =>
+    buildChassis(wasm, c, componentFrames(c)).wallWindows.find(
+      (w) => w.name === 'inner column wall: matrix_inner_home',
+    )!.cutouts.length;
+  assert.equal(innerHome(cfg), 5);
+  const solid = clone(cfg);
+  solid.chassis.wall_pattern = 'solid';
+  assert.equal(innerHome(solid), 1);
 });

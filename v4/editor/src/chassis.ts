@@ -21,7 +21,9 @@
 //  wall         a slab just inside a key's plate edge that follows the plate's
 //               tilt down to the tile pocket's depth, then drops vertically to
 //               the base. A U cutout under each key clears its tile pocket;
-//               posts between keys and a strip along the base remain.
+//               posts between keys and a strip along the base remain. With
+//               wall_pattern "hex", tall walls are opened further into
+//               hexagonal struts.
 //
 // Coordinates: "key coordinates" are a key's own frame, with the origin at the
 // plate top's centre, x and y across the plate and z along its normal (up is
@@ -86,6 +88,12 @@ const SIZES = {
   wallCutoutRadius: 2,
   /** A wall cutout reaches this far past both faces of the wall. */
   wallCutoutPast: 1.5,
+  /** Hex wall pattern: the struts' slope from horizontal, in degrees. */
+  hexSlope: 30,
+  /** Hex wall pattern: the lowest hexagon corners are this many strut widths above the wall's foot. */
+  hexLowCorner: 2,
+  /** Hex wall pattern: an opening reaches this far past both faces of the wall (plan). */
+  hexPast: 6,
   /** A swept end's cap joins a wall segment whose tilted part comes within this distance (plan). */
   capReach: 8,
   /** The extra thumb row gets a back wall when its plates come this close to the main row's (plan). */
@@ -363,6 +371,10 @@ export function buildChassis(
       solid: M.hull(across.flatMap((c) => profile.map(([a, z]) => at(a, c, z)))),
       /** The cutout's centre, in the middle of the wall. */
       centre: at(0, plateHalf[axis] - wallThickness / 2, -(plateThickness + pocketDepth) / 2),
+      /** The lowest points of its two round corners, in the middle of the wall. */
+      bottoms: [-1, 1].map((sign) =>
+        at(sign * (along - r), plateHalf[axis] - wallThickness / 2, -pocketDepth - r),
+      ),
     };
   };
   const planToward = (a: string, b: string): Plan => {
@@ -696,6 +708,167 @@ export function buildChassis(
   });
   for (const s of [...fingerEnds, ...thumbRowEnds.flat()]) parts.push(s.solid);
 
+  /**
+   * The hex pattern for a run of walls: openings that leave struts
+   * wall_mm wide. Posts stand between keys (and just past each end key's tile
+   * pocket) down to a hexagon centred under each post. The hexagons' upright
+   * sides are under the key centres. Under each key, the opening above the
+   * hexagons takes in the U cutout and comes to a point at the upright side's
+   * top; the opening below them comes to a point at its bottom and runs down to
+   * a strip along the base. A key whose wall is too short for an upright side
+   * wall_mm long keeps its plain U cutout and solid wall.
+   * Returns the openings and, for each key, the openings its wall window
+   * should see as holes (world points inside them).
+   */
+  const hexOpenings = (dropTops: Strip[], cutouts: ReturnType<typeof wallCutout>[]) => {
+    const w = wallThickness;
+    const n = dropTops.length;
+    const plan = (p: number[]): Plan => [p[0], p[1]];
+    const toward = (a: Plan, b: Plan): Plan => {
+      const l = planDistance(a, b) || 1;
+      return [(b[0] - a[0]) / l, (b[1] - a[1]) / l];
+    };
+    // Nodes: K under each key, P at each post (n + 1 of them, the ends just
+    // past the end keys' tile pockets).
+    const K = dropTops.map((s) => {
+      const ps = stripPoints(s);
+      return [0, 1].map((k) => ps.reduce((t, p) => t + p[k], 0) / ps.length) as Plan;
+    });
+    const along = pocketHalf[0] + w / 2;
+    const endPost = (key: number, other: number): Plan => {
+      if (n < 2) return K[key];
+      const d = toward(K[other], K[key]);
+      return [K[key][0] + d[0] * along, K[key][1] + d[1] * along];
+    };
+    const P: Plan[] = [
+      endPost(0, 1),
+      ...K.slice(1).map((k, i) => [(K[i][0] + k[0]) / 2, (K[i][1] + k[1]) / 2] as Plan),
+      endPost(n - 1, n - 2),
+    ];
+    const tan = Math.tan((SIZES.hexSlope * Math.PI) / 180);
+    // Post j's hexagon corners: its top, below the U cutouts beside it, and its bottom.
+    const bottomNear = (key: number, post: number) =>
+      cutouts[key].bottoms.reduce((a, b) =>
+        planDistance(a, P[post]) < planDistance(b, P[post]) ? a : b,
+      )[2];
+    const top = P.map(
+      (_, j) =>
+        Math.min(...[j - 1, j].filter((k) => k >= 0 && k < n).map((k) => bottomNear(k, j))) - w / 2,
+    );
+    const low = SIZES.wallFoot + SIZES.hexLowCorner * w;
+    // Key i's upright side: from the higher to the lower of the two slopes' ends.
+    const rise = (i: number, j: number) => planDistance(K[i], P[j]) * tan;
+    const upper = K.map((_, i) => Math.min(top[i] - rise(i, i), top[i + 1] - rise(i, i + 1)));
+    const lower = K.map((_, i) => Math.max(low + rise(i, i), low + rise(i, i + 1)));
+    const fits = K.map((_, i) => upper[i] - lower[i] >= w);
+    // A plane polygon of (plan point, height) corners, inset by half a strut and
+    // pushed through the wall along its plan normal.
+    const opening = (corners: [Plan, number][]) => {
+      const u = toward(corners[0][0], corners[1][0]);
+      const o = corners[0][0];
+      const pts = corners.map(
+        ([p, z]) => [(p[0] - o[0]) * u[0] + (p[1] - o[1]) * u[1], z] as [number, number],
+      );
+      const area = pts.reduce((t, q, k) => {
+        const r = pts[(k + 1) % pts.length];
+        return t + q[0] * r[1] - r[0] * q[1];
+      }, 0);
+      const depth = 2 * (w + SIZES.hexPast);
+      const normal: Plan = [u[1], -u[0]];
+      const solid = new CS([area > 0 ? pts : [...pts].reverse()])
+        .offset(-w / 2, 'Miter')
+        .extrude(depth)
+        .transform([
+          u[0],
+          u[1],
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+          normal[0],
+          normal[1],
+          0,
+          0,
+          o[0] - (normal[0] * depth) / 2,
+          o[1] - (normal[1] * depth) / 2,
+          0,
+          1,
+        ] as never);
+      const inside: Vec3 = [
+        corners.reduce((t, c) => t + c[0][0], 0) / corners.length,
+        corners.reduce((t, c) => t + c[0][1], 0) / corners.length,
+        corners.reduce((t, c) => t + c[1], 0) / corners.length,
+      ];
+      return { solid, inside, corners: corners.map(([p, z]) => [p[0], p[1], z] as Vec3) };
+    };
+    const solids: Manifold[] = [];
+    const holes: Vec3[][] = K.map(() => []);
+    const reach: Vec3[][] = K.map(() => []);
+    const add = (o: ReturnType<typeof opening>, keys: number[]) => {
+      solids.push(o.solid);
+      for (const k of keys) {
+        holes[k].push(o.inside);
+        reach[k].push(...o.corners);
+      }
+    };
+    for (let i = 0; i < n; i++) {
+      if (!fits[i]) continue;
+      const high = Math.max(...cutouts[i].bottoms.map((p) => p[2])) + pocketDepth + 5;
+      add(
+        opening([
+          [P[i], high],
+          [P[i + 1], high],
+          [P[i + 1], top[i + 1]],
+          [K[i], upper[i]],
+          [P[i], top[i]],
+        ]),
+        [i],
+      );
+      const floor = SIZES.wallFoot + w / 2;
+      add(
+        opening([
+          [P[i], floor],
+          [P[i + 1], floor],
+          [P[i + 1], low],
+          [K[i], lower[i]],
+          [P[i], low],
+        ]),
+        [i],
+      );
+    }
+    // Half hexagons inside the end posts.
+    for (const [key, post] of [
+      [0, 0],
+      [n - 1, n],
+    ])
+      if (fits[key] && (post === 0 || n > 1))
+        add(
+          opening([
+            [P[post], low],
+            [K[key], lower[key]],
+            [K[key], upper[key]],
+            [P[post], top[post]],
+          ]),
+          [key],
+        );
+    for (let j = 1; j < n; j++)
+      if (fits[j - 1] && fits[j])
+        add(
+          opening([
+            [K[j - 1], lower[j - 1]],
+            [P[j], low],
+            [K[j], lower[j]],
+            [K[j], upper[j]],
+            [P[j], top[j]],
+            [K[j - 1], upper[j - 1]],
+          ]),
+          [j - 1, j],
+        );
+    return { solids, holes, reach };
+  };
+
   // A run of walls along one side of a row of keys, flush with the plate edges:
   // one segment per key, joined to its neighbours. Each segment follows its
   // plate's tilt down to the tile pocket's depth, then drops to the base. A U
@@ -734,12 +907,21 @@ export function buildChassis(
       M.hull([...stripPoints(s.dropTop), ...stripPoints(s.onBase)]),
     ]);
     const cutouts = ns.map((n) => wallCutout(n, edgeFacing(n, dir)));
+    const hex =
+      (chassis.wall_pattern ?? 'hex') === 'hex'
+        ? hexOpenings(
+            segments.map((s) => s.dropTop),
+            cutouts,
+          )
+        : { solids: [], holes: ns.map(() => []), reach: ns.map(() => []) };
     // The plan points each segment's window must take in: its own strips, the
-    // cap it joins, and on each joint side the neighbouring key's centre, so
-    // the post between them is inside the window.
+    // cap it joins, the corners of its hex pattern openings, and on each joint
+    // side the neighbouring key's centre, so the post between them is inside
+    // the window.
     const ownPoints = segments.map((s) => [...stripPoints(s.tilted), ...stripPoints(s.onBase)]);
     const windowPoints = segments.map((s, i) => [
       ...ownPoints[i],
+      ...hex.reach[i],
       ...[ns[i - 1], ns[i + 1]].filter((n) => n).map((n) => keyCentre(n)),
     ]);
     for (const i of new Set([0, ns.length - 1]))
@@ -812,10 +994,10 @@ export function buildChassis(
         normal,
         along: range(along),
         across: range(across),
-        cutouts: [[alongOf(cutouts[i].centre), cutouts[i].centre[2]]],
+        cutouts: [cutouts[i].centre, ...hex.holes[i]].map((c) => [alongOf(c), c[2]]),
       });
     });
-    return M.union(pieces).subtract(M.union(cutouts.map((c) => c.solid)));
+    return M.union(pieces).subtract(M.union([...cutouts.map((c) => c.solid), ...hex.solids]));
   };
   const fingerCaps = fingerEnds.flatMap((s) => s.caps);
   for (const [c, dir] of outerColumns)

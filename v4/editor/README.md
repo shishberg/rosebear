@@ -58,8 +58,9 @@ pair tucked in front of it). The keys fan along an arc:
 
 `trackpad.position_mm` and `rotation_deg` place the Cirque pod. `chassis` holds
 the construction's dimensions: plate thickness and margin, wall thickness, the
-swept end's radius, how far the end plates may reach into it (`end_cut_mm`) and the
-base plate thickness.
+swept end's radius, how far the end plates may reach into it (`end_cut_mm`), the
+base plate thickness and the walls' pattern (`wall_pattern`: `"hex"`, the
+default, or `"solid"`).
 
 ## Use
 
@@ -113,7 +114,12 @@ base plate thickness.
   drops vertically to the base. A U cutout under each key, the tile pocket's
   width, runs from the plate's underside to just below the pocket, with 2 mm
   round bottom corners. What remains is a post between each pair of keys and a
-  strip along the base. At each end of a swept
+  strip along the base. With the hex pattern, the wall below the cutouts is
+  opened into struts wall_mm wide: each post comes down to a hexagon centred
+  under it, with upright sides under the key centres and 30° slopes, and
+  struts run from the hexagons down to the base strip. A key whose wall is too
+  short for an upright side wall_mm long keeps its solid wall; in the default
+  layout only the inner column's wall is tall enough. At each end of a swept
   end, a cap closes the quarter round; where a wall runs beside the cap, the two
   are joined. A cap with no wall beside it closes the round only down to the
   plate's underside, leaving the tile pocket open.
@@ -154,7 +160,8 @@ checks the result:
 - Every wall must be solid apart from its U cutouts, and every cutout must go
   through. The check looks straight through each wall segment, from the
   neighbouring keys' centres on either side, taking in only the wall's own
-  thickness: any hole in that view that is not the key's cutout is a gap, and a
+  thickness: any hole in that view that is not the key's cutout or one of its
+  hex pattern openings is a gap, and a
   cutout with no hole is blind (something fills it or stands close behind it).
   Gaps and blind cutouts are listed and highlighted pink.
 - No chassis may be built where a keycap goes. Each keycap's room (the keycap
