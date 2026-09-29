@@ -139,6 +139,7 @@ function showReport(r:Report){const badge=$('fit-badge');badge.className=r.passe
  for(let i=1;i<r.pieces.length;i++)add(`loose piece ${i}: ${(r.pieces[i]/1000).toFixed(1)} cm³`,`loose piece ${i}`);
  add(r.footprint.length===1?'The walls meet along the base without the bottom plate.':`The walls stand on ${r.footprint.length} separate footprints without the bottom plate.`);
  for(let i=1;i<r.footprint.length;i++)add(`separate footprint ${i}: ${r.footprint[i].toFixed(0)} mm²`,`separate footprint ${i}`);
+ add(r.pocketCut<=.01?'No part reaches into a tile pocket.':`Parts reach ${r.pocketCut.toFixed(1)} mm³ into the tile pockets.`,r.pocketCut>.01?'tile pocket cut':undefined);
  for(const seat of r.seats)if(!seat.passed)add(`${seat.name}: switch seat defect (${seat.missing.toFixed(2)} mm³ missing, ${seat.excess.toFixed(2)} mm³ outside seating planes, ${seat.clipBlocked.toFixed(2)} mm³ clip obstruction)`,seat.name);
  for(const k of r.keycaps)if(!k.passed)add(`${k.name.replaceAll('_',' ')}: ${k.atRest.toFixed(2)} mm³ at rest; ${k.swept.toFixed(2)} mm³ through travel + ${k.margin} mm clearance`,k.name);
  for(const h of r.hardware)add(`${h.name}: ${h.volume.toFixed(2)} mm³ ${h.group}/chassis overlap`,h.name);

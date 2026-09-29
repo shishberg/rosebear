@@ -108,7 +108,7 @@
     "thumb": {
       "position_mm": [
         -45,
-        -61,
+        -64,
         0
       ],
       "rotation_deg": [
@@ -141,7 +141,7 @@
     "thumb_extra": {
       "position_mm": [
         -36.185,
-        -89.992,
+        -92.992,
         -7.607
       ],
       "rotation_deg": [
@@ -306,8 +306,7 @@
   },
   "chassis": {
     "plate_thickness_mm": 3,
-    "plate_margin_mm": 1.4,
-    "skirt_depth_mm": 8,
+    "plate_margin_mm": 0.9,
     "wall_mm": 2.4,
     "end_radius_mm": 9,
     "end_cut_mm": 4,

@@ -57,9 +57,9 @@ pair tucked in front of it). The keys fan along an arc:
 | `keys` | Key names in order along the arc, each with an optional `offset_mm` and `rotation_deg` (the middle thumb key is turned 90° for its 1.5u cap). |
 
 `trackpad.position_mm` and `rotation_deg` place the Cirque pod. `chassis` holds
-the construction's dimensions: plate thickness and margin, skirt depth, wall
-thickness, the swept end's radius, how far the end keys reach into it
-(`end_cut_mm`) and the base plate thickness.
+the construction's dimensions: plate thickness and margin, wall thickness, the
+swept end's radius, how far the end keys may reach into it (`end_cut_mm`) and the
+base plate thickness.
 
 ## Use
 
@@ -87,35 +87,36 @@ thickness, the swept end's radius, how far the end keys reach into it
 
 `chassis.ts` builds the chassis from the key poses:
 
-- **Plate**: the square frame a switch clips into, 3 mm thick, extending 0.75 +
-  1.4 mm past the keycap on each side.
-- **Ladder**: a column's plates joined edge to edge, with a thin **skirt** hanging
-  8 mm below each side edge that has no wall.
+- **Tile**: the bought 1U key PCB under each switch (see [the v4 README](../README.md)),
+  provisionally 19 × 19 mm. Its **tile pocket** is the space under the plate kept
+  clear for the tile, its parts and the switch body.
+- **Plate**: the square frame a switch clips into, 3 mm thick, 0.9 mm past the
+  15.8 mm switch seat on each side (17.6 mm square, 1 mm past the 15.6 mm housing
+  rim). The tile is wider than the plate and sticks out below it.
+- **Ladder**: a column's plates joined edge to edge.
 - **Swept end**: one quarter round (radius 9 mm) swept along a smooth curve through
   the column ends, across the back and across the front of the fingers, then a wall
-  to the base. The end keys' plates reach 4 mm into the round. Round-bottomed slots
-  part the columns down to half the wall height.
+  to the base. The round starts just past the end keys' tile pockets; each end
+  plate continues flat out to it. Round-bottomed slots part the columns down to
+  half the wall height.
 - The thumb rows are ladders whose two ends roll over the same way.
 - **Walls** stand on the inner and pinky columns' outer sides and on the thumb
   rows' fronts. When the extra thumb pair is close in front, it gets a back wall
-  as well, and a low web joins the two rows. Each key has its own wall segment.
+  as well. Each key has its own wall segment.
   The segment starts at the plate edge, just outside the key's tile pocket, and
   follows the plate's tilt down to the pocket's depth. It then drops vertically
-  to the base. The plate widens to meet it, so the PCB never passes through a
-  wall. Neighbouring segments join at the plate and at the base, with a U slot
+  to the base. The plate widens to meet it. No wall reaches into a tile pocket. Neighbouring segments join at the plate and at the base, with a U slot
   between them from half height up to just under the plates. There is no slot
   where the edges are offset, as beside the 1.5u thumb key. At each end of a swept
   end, a cap closes the quarter round; where a wall runs beside the cap, the two
   are joined.
-- A support joins the inner column to the thumb row, trimmed clear of the
-  keycaps' travel. Ribs 6 mm tall join along the base: the main thumb row's right
-  end to the fingers' front, and, when the rows are close, the ends of the two
-  thumb rows to each other.
-- Tile pockets clear every key's tile, its components and the switch body out of
-  the walls.
+- Ribs 6 mm tall join along the base: the main thumb row's right end to the
+  fingers' front, and, when the rows are close, the ends of the two thumb rows to
+  each other.
 - Above each plate the chassis is kept clear of the switch housing's rim (the
   seat footprint, up to the keycap's lowest point) and of the keycap's travel.
-- The Cirque pod hangs from the far thumb key on a bracket.
+- The Cirque pod hangs from the far thumb key on a bracket fixed to the plate's
+  two nearest corners.
 - The bottom plate is the footprint of everything above, 2 mm thick, and is a
   separate print. The editor hides it by default; **Bottom plate** shows it.
 
@@ -137,6 +138,8 @@ checks the result:
 - Without the bottom plate the chassis must be one piece; loose pieces are listed
   and highlighted. The walls must also meet along the base: a section 1.5 mm up
   must be one connected area. Separate footprints are listed and highlighted.
+- No part of the chassis may reach into a tile pocket, so every tile can be
+  placed and soldered. Any overlap is listed and highlighted red.
 - The closest distance between resting keycaps of the finger columns, the thumb
   row and the extra thumb row is listed; touching fails.
 

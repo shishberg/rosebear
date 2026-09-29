@@ -1,16 +1,18 @@
 // Chassis: Skeletyl-style construction with swept ends, built from the key poses.
-// Each finger column is a ladder of switch plates with skirts down each side.
+// Each finger column is a ladder of switch plates.
 // Across the back and across the front of the columns runs one swept end: a
 // quarter round swept along a smooth curve through the column ends, then a wall
 // to the base. Round-bottomed slots part the columns down to half that wall's
 // height. The thumb rows use the same construction, running left to right. The
 // outside edges without a swept end are walls, one segment under each key,
 // parted by U slots. Low ribs join the thumb rows and the fingers along the
-// base. The whole case stands on a flat base plate cut to its own footprint. Terms:
-//  plate      the square frame a switch clips into, T thick, the keycap plus
-//             0.75 + G mm per side;
-//  skirt      a thin wall hanging D below a plate edge;
-//  ladder     a row of plates joined edge to edge, with skirts;
+// base. Nothing is built into a tile pocket. The whole case stands on a flat
+// base plate cut to its own footprint. Terms:
+//  tile       the small bought PCB under each switch (hotswap socket, LED, diode);
+//  tile pocket the space under a plate kept clear for the tile and its parts;
+//  plate      the square frame a switch clips into, T thick, G mm past the
+//             switch seat on each side (the tile below may reach past it);
+//  ladder     a row of plates joined edge to edge;
 //  swept end  one quarter round swept along a curve through a row of keys' end
 //             edges, then a wall to the base;
 //  wall       a slab from a key's plate edge that follows the plate's tilt down
@@ -22,12 +24,12 @@ import {point,ROWS,type Config} from './geometry';
 
 export const isKey=(name:string)=>name.startsWith('thumb_')||name.startsWith('matrix_');
 export const capSize=(c:Config,n:string)=>((c.switch.keycap_overrides_mm as Record<string,number[]>)[n]||c.switch.keycap_mm) as Vec3;
-export interface ChassisResult {body:Manifold;base:Manifold;pod:Manifold}
+export interface ChassisResult {body:Manifold;base:Manifold;pod:Manifold;pocketCut:Manifold}
 type Edge=[number,number][];
 interface Curve {dm:[number,number];ax:[number,number];F:(a:number)=>number;corners:{a:number;f:number;z:number;c:number}[]}
 
 export function buildChassis(wasm:ManifoldToplevel,cfg:Config,frames:Record<string,Matrix4>):ChassisResult{
- const M=wasm.Manifold,CS=wasm.CrossSection,ch=cfg.chassis,T=ch.plate_thickness_mm,G=ch.plate_margin_mm,D=ch.skirt_depth_mm,W=ch.wall_mm,R=ch.end_radius_mm,CUT=ch.end_cut_mm;
+ const M=wasm.Manifold,CS=wasm.CrossSection,ch=cfg.chassis,T=ch.plate_thickness_mm,G=ch.plate_margin_mm,W=ch.wall_mm,R=ch.end_radius_mm,CUT=ch.end_cut_mm;
  const g=cfg.geometry,COLS=g.columns.map(c=>c.name),names=Object.keys(frames).filter(isKey);
  const byX=(ns:string[])=>ns.sort((a,b)=>frames[a].elements[12]-frames[b].elements[12]);
  const base3=byX(g.thumb.keys.map(k=>'thumb_'+k.name)),xt=byX(((g as {thumb_extra?:{keys:{name:string}[]}}).thumb_extra?.keys??[]).map(k=>'thumb_'+k.name));
@@ -40,15 +42,12 @@ export function buildChassis(wasm:ManifoldToplevel,cfg:Config,frames:Record<stri
  const axisOf=(e:Edge)=>e[0][0]===e[1][0]?0:1;
  const gr=(n:string,sx:number,sy:number):[number,number]=>{const g:[number,number]=[G,G];for(const w of walled.get(n)??[])if((w.a?sy:sx)===w.s)g[w.a]=w.g1;return g};
  // World point on a key plate: sx,sy in -1..1 across the plate, z along the normal,
- // grown past the keycap outline (+0.75 mm) by grow, or [x, y] grows.
- const at=(n:string,sx:number,sy:number,z=0,grow:number|[number,number]=0):Vec3=>{const c=capSize(cfg,n),[gx,gy]=typeof grow==='number'?[grow,grow]:grow;return point(frames[n],[sx*(c[0]/2+.75+gx),sy*(c[1]/2+.75+gy),z])};
+ // grown past the switch seat's outline by grow, or [x, y] grows.
+ const so=sw.seat_outer_mm??[16.6,16.6];
+ const at=(n:string,sx:number,sy:number,z=0,grow:number|[number,number]=0):Vec3=>{const [gx,gy]=typeof grow==='number'?[grow,grow]:grow;return point(frames[n],[sx*(so[0]/2+gx),sy*(so[1]/2+gy),z])};
  const place=(m:Manifold,f:Matrix4)=>m.transform(f.elements as never);
  const down=(p:Vec3,z=0):Vec3=>[p[0],p[1],z];
  const floorOf=(ps:Vec3[])=>[...ps,...ps.map(p=>down(p,1))];
- // A keycap's travel envelope, as the clearance check builds it: the cap plus
- // its margin, from rest down by the travel.
- const capSweep=(n:string)=>{const z=capSize(cfg,n),s=cfg.switch,m=(s.keycap_clearance_overrides_mm as Record<string,number>)[n]??s.keycap_clearance_mm;
-  return place(M.cube([z[0]+2*m,z[1]+2*m,z[2]+s.travel_mm],true).translate([0,0,s.keycap_bottom_above_plate_mm-s.travel_mm+(z[2]+s.travel_mm)/2]),frames[n])};
  // Plate edge facing a world XY direction, as two corner sign pairs.
  const edgeFacing=(n:string,dir:[number,number]):Edge=>{
   const m=frames[n].elements,edges:Edge[]=[[[1,-1],[1,1]],[[-1,-1],[-1,1]],[[-1,1],[1,1]],[[-1,-1],[1,-1]]];
@@ -56,23 +55,21 @@ export function buildChassis(wasm:ManifoldToplevel,cfg:Config,frames:Record<stri
   return edges.reduce((a,b)=>score(b)>score(a)?b:a);
  };
  // Solid strip along a plate edge: z0..z1 along the normal, grown g0..g1 outward,
- // running to the plate's corners. Its points are grouped by corner, four each.
- const strip=(n:string,e:Edge,z0:number,z1:number,g0:number,g1:number):Vec3[]=>{const a=axisOf(e);return e.flatMap(([sx,sy])=>{const o=gr(n,sx,sy)[1-a];return [z0,z1].flatMap(z=>[g0,g1].map(q=>at(n,sx,sy,z,a?[o,q]:[q,o])))})};
+ // running to the plate's corners, or grown along to `along`. Its points are
+ // grouped by corner, four each.
+ const strip=(n:string,e:Edge,z0:number,z1:number,g0:number,g1:number,along?:number):Vec3[]=>{const a=axisOf(e);return e.flatMap(([sx,sy])=>{const o=along??gr(n,sx,sy)[1-a];return [z0,z1].flatMap(z=>[g0,g1].map(q=>at(n,sx,sy,z,a?[o,q]:[q,o])))})};
  // Register a wall on the side of key n facing dir, its inner face just outside
  // the tile pocket.
  const addWall=(n:string,dir:[number,number])=>{
-  const e=edgeFacing(n,dir),a=axisOf(e),g0=Math.max(G-W,pk[a]+.1-(capSize(cfg,n)[a]/2+.75));
+  const e=edgeFacing(n,dir),a=axisOf(e),g0=pk[a]+.25-so[a]/2;
   walled.set(n,[...(walled.get(n)??[]),{a,s:e[0][a],g0,g1:g0+W}]);
  };
  const wallOn=(n:string,e:Edge)=>(walled.get(n)??[]).find(w=>w.a===axisOf(e)&&w.s===e[0][axisOf(e)]);
  const toward=(a:string,b:string):[number,number]=>{const p=frames[a].elements,q=frames[b].elements;return [q[12]-p[12],q[13]-p[13]]};
- const ladder=(ns:string[],sides:[number,number][])=>{
+ const ladder=(ns:string[])=>{
   const parts:Manifold[]=[];
   for(const n of ns)parts.push(M.hull([-1,1].flatMap(sx=>[-1,1].flatMap(sy=>[0,-T].map(z=>at(n,sx,sy,z,gr(n,sx,sy)))))));
   for(let i=0;i+1<ns.length;i++){const a=ns[i],b=ns[i+1];parts.push(M.hull([...strip(a,edgeFacing(a,toward(a,b)),0,-T,0,G),...strip(b,edgeFacing(b,toward(b,a)),0,-T,0,G)]))}
-  // One flat skirt per key, so no twisted faces between keys at different angles.
-  // Walled sides have none.
-  for(const d of sides)for(const n of ns)if(!wallOn(n,edgeFacing(n,d)))parts.push(M.hull(strip(n,edgeFacing(n,d),0,-D,G-1.2,G)));
   return M.union(parts);
  };
  const rollDir=(n:string,e:Edge):[number,number]=>{
@@ -82,8 +79,8 @@ export function buildChassis(wasm:ManifoldToplevel,cfg:Config,frames:Record<stri
  // Smooth plan curve across the facing edges of a row of end keys, in axes dm
  // (the mean direction the ends face) and ax across it: f = F(a), a quadratic
  // least-squares fit through the end corners pushed out by R, then moved out
- // until it is at least R-CUT past every corner (so the plates reach CUT mm
- // into the quarter round).
+ // until the quarter round starts past every tile pocket (the plates reach out
+ // flat to meet it) and is at least R-CUT past every plate corner.
  const curveThrough=(ends:string[],facing:[number,number]):Curve=>{
   const edges=ends.map(n=>edgeFacing(n,facing));
   const ds=ends.map((n,i)=>rollDir(n,edges[i])),s=ds.reduce((a,d)=>[a[0]+d[0],a[1]+d[1]],[0,0]),l=Math.hypot(s[0],s[1]);
@@ -94,7 +91,8 @@ export function buildChassis(wasm:ManifoldToplevel,cfg:Config,frames:Record<stri
   const det=(m:number[][])=>m[0][0]*(m[1][1]*m[2][2]-m[1][2]*m[2][1])-m[0][1]*(m[1][0]*m[2][2]-m[1][2]*m[2][0])+m[0][2]*(m[1][0]*m[2][1]-m[1][1]*m[2][0]);
   // One key: its edge is square to the roll, so the curve is a straight line along it.
   const cf=ends.length<2?[S(0,1)/S(0),0,0]:[0,1,2].map(j=>det(A.map((r,i)=>r.map((v,jj)=>jj===j?b[i]:v)))/det(A));
-  const F0=(a:number)=>cf[0]+cf[1]*a+cf[2]*a*a,shift=Math.max(0,...corners.map(q=>q.f+R-CUT-F0(q.a)));
+  const F0=(a:number)=>cf[0]+cf[1]*a+cf[2]*a*a,pockets=ends.flatMap((n,c)=>edges[c].flatMap(([sx,sy])=>[-T,-tz].map(z=>point(frames[n],[sx*pk[0],sy*pk[1],z]))));
+  const shift=Math.max(0,...corners.map(q=>q.f+R-CUT-F0(q.a)),...pockets.map(p=>{const a=p[0]*ax[0]+p[1]*ax[1];return p[0]*dm[0]+p[1]*dm[1]+.1+R-F0(a)}));
   return {dm,ax,F:a=>F0(a)+shift,corners};
  };
  const P=(cv:Curve,a:number,f:number,z:number):Vec3=>[cv.ax[0]*a+cv.dm[0]*f,cv.ax[1]*a+cv.dm[1]*f,z];
@@ -134,11 +132,11 @@ export function buildChassis(wasm:ManifoldToplevel,cfg:Config,frames:Record<stri
  for(const n of [...base3,...xt])addWall(n,[0,-1]);
  if(close)for(const n of xt)addWall(n,[0,1]);
  const parts:Manifold[]=[];
- for(const c of COLS)parts.push(ladder(ROWS.map(r=>`matrix_${c}_${r}`),[[1,0],[-1,0]]));
+ for(const c of COLS)parts.push(ladder(ROWS.map(r=>`matrix_${c}_${r}`)));
  // Swept ends across the back (e=0, top row) and front (e=1, bottom row) of the columns.
  const ends=[0,1].map(e=>{const ns=COLS.map(c=>`matrix_${c}_${e?'bottom':'top'}`),f:[number,number]=[0,e?-1:1];return sweptEnd(curveThrough(ns,f),ns,f,true)});
  // Thumb rows: a ladder whose two ends (left, then right) roll over as swept ends.
- const rowEnds=[base3,xt].map(row=>{if(!row.length)return [];parts.push(ladder(row,[[0,1],[0,-1]]));
+ const rowEnds=[base3,xt].map(row=>{if(!row.length)return [];parts.push(ladder(row));
   return row.length>1?[[row[0],row[1]],[row.at(-1)!,row.at(-2)!]].map(([n,m])=>{const d=toward(m,n);return sweptEnd(curveThrough([n],d),[n],d,false)}):[]});
  for(const s of [...ends,...rowEnds.flat()])parts.push(s.end);
  // A run of walls along one side of a row of keys: one segment per key, joined
@@ -148,15 +146,24 @@ export function buildChassis(wasm:ManifoldToplevel,cfg:Config,frames:Record<stri
  // plate's tilt down to the tile pocket's depth, then drops to the base.
  const used=new Set<Vec3[]>();
  const wallRun=(ns:string[],dir:[number,number],caps:Vec3[][])=>{
-  const segs=ns.map(n=>{const e=edgeFacing(n,dir),w=wallOn(n,e)!,side=strip(n,e,0,-tz,w.g0,w.g1);
-   return {side,under:strip(n,e,-T,-T,w.g0,w.g1),pts:[...side,...strip(n,e,-tz,-tz,w.g0,w.g1).map(p=>down(p,1))]}});
-  const pieces=segs.map(s=>M.hull(s.pts)),slots:Manifold[]=[];
-  for(const i of new Set([0,ns.length-1]))for(const cap of caps)if(!used.has(cap)&&Math.min(...segs[i].side.map(p=>Math.hypot(p[0]-cap[0][0],p[1]-cap[0][1])))<8){used.add(cap);pieces.push(M.hull([...segs[i].pts,...cap]))}
+  // Each segment is two hulls, the tilted part and the drop, so neither
+  // reaches into the tile pocket on a rolled key.
+  const segs=ns.map(n=>{const e=edgeFacing(n,dir),w=wallOn(n,e)!,bot=strip(n,e,-tz,-tz,w.g0,w.g1),a=axisOf(e);
+   return {long:strip(n,e,0,-tz,w.g0,w.g1,pk[1-a]+.25-so[1-a]/2),side:strip(n,e,0,-tz,w.g0,w.g1),under:strip(n,e,-T,-T,w.g0,w.g1),bot,base:bot.map(p=>down(p,1))}});
+  const pieces=segs.flatMap(s=>[M.hull(s.side),M.hull([...s.bot,...s.base])]),slots:Manifold[]=[];
+  // The half of a segment's point list at one corner: the one nearest point c.
+  const nearTo=(c:Vec3|number[],ps:Vec3[])=>{const d=(k:number)=>Math.hypot(ps[k][0]-c[0],ps[k][1]-c[1]);return d(0)<d(ps.length/2)?ps.slice(0,ps.length/2):ps.slice(ps.length/2)};
+  for(const i of new Set([0,ns.length-1]))for(const cap of caps)if(!used.has(cap)&&Math.min(...segs[i].side.map(p=>Math.hypot(p[0]-cap[0][0],p[1]-cap[0][1])))<8){used.add(cap);
+   // The cap's quarter round (14 points, the last two at its foot) joins the
+   // tilted part, carried along past the tile pocket; its drop to the base
+   // joins the segment's drop.
+   const s=segs[i],c=cap[0],top=cap.slice(0,14);
+   pieces.push(M.hull([...nearTo(c,s.side),...nearTo(c,s.long)]),M.hull([...nearTo(c,s.long),...top]),M.hull([...nearTo(c,s.bot),...nearTo(c,s.base),...top.slice(12),...cap.slice(14)]))}
   // The four points of each list nearest key j, for key i: its corner there.
-  const near=(i:number,j:number,ps:Vec3[])=>{const c=frames[ns[j]].elements,d=(k:number)=>Math.hypot(ps[k][0]-c[12],ps[k][1]-c[13]);return d(0)<d(4)?ps.slice(0,ps.length/2):ps.slice(ps.length/2)};
+  const near=(i:number,j:number,ps:Vec3[])=>nearTo([frames[ns[j]].elements[12],frames[ns[j]].elements[13]],ps);
   for(let i=0;i+1<ns.length;i++){
-   const joint=[...near(i,i+1,segs[i].pts.slice(0,8)),...near(i,i+1,segs[i].pts.slice(8)),...near(i+1,i,segs[i+1].pts.slice(0,8)),...near(i+1,i,segs[i+1].pts.slice(8))];
-   pieces.push(M.hull(joint));
+   const a=segs[i],b=segs[i+1],joint=[...near(i,i+1,a.side),...near(i+1,i,b.side)];
+   pieces.push(M.hull(joint),M.hull([...near(i,i+1,a.bot),...near(i,i+1,a.base),...near(i+1,i,b.bot),...near(i+1,i,b.base)]));
    // No slot where the two edges are offset (a 1.5u key beside 1u keys): the
    // joint is then a diagonal wall. The slot's top follows both plates'
    // undersides, 0.8 mm below them, reaching hw into each key.
@@ -177,19 +184,6 @@ export function buildChassis(wasm:ManifoldToplevel,cfg:Config,frames:Record<stri
  if(close)parts.push(wallRun(xt,[0,1],rowEnds[1].flatMap(s=>s.caps)));
  // Caps on swept ends with no wall beside them.
  for(const cap of [...ends,...rowEnds.flat()].flatMap(s=>s.caps))if(!used.has(cap))parts.push(M.hull(cap));
- // Support joining the inner column to the thumb row, trimmed under the keycaps:
- // it rises from the thumb row to the inner column, into the travel of thumb
- // keycaps that overhang their plates.
- const inner=ROWS.map(r=>`matrix_${COLS[0]}_${r}`),ib=inner[2],support=M.hull(floorOf([...strip(ib,edgeFacing(ib,[0,-1]),-D,-D,G-1.2,G),...base3.flatMap(n=>strip(n,edgeFacing(n,[0,1]),-D,-D,G-1.2,G))].filter(p=>p[0]<-30)));
- parts.push(support.subtract(M.union([...base3,...inner].map(capSweep))));
- // A low web joins the two thumb rows' facing walls across the few millimetres
- // between them, up to half height.
- if(close){
-  const foot=(ns:string[],d:[number,number])=>ns.flatMap(n=>{const e=edgeFacing(n,d),w=wallOn(n,e)!;return strip(n,e,-T,-T,w.g0,w.g1)}),a=foot(base3,[0,-1]),b=foot(xt,[0,1]);
-  const d=(p:Vec3,ps:Vec3[])=>Math.min(...ps.map(q=>Math.hypot(p[0]-q[0],p[1]-q[1])));
-  const zj=1+(Math.min(...b.map(p=>p[2]))-1)/2,near=[...a.filter(p=>d(p,b)<15),...b.filter(p=>d(p,a)<15)];
-  parts.push(M.hull(near.flatMap(p=>[[p[0],p[1],1],[p[0],p[1],zj]] as Vec3[])));
- }
  // Ribs along the base, so the footprint is connected without the bottom plate:
  // the main thumb row's right end to the fingers' front, and the thumb rows'
  // ends to each other. Each runs between the closest points of two footprints.
@@ -202,26 +196,25 @@ export function buildChassis(wasm:ManifoldToplevel,cfg:Config,frames:Record<stri
  // Tile pockets: clear the tile, its components and the switch body under every
  // key, below the plate, from anything that reaches up under them.
  const pockets=M.union(names.flatMap(n=>[place(M.cube([2*pk[0],2*pk[1],tz-T],true).translate([0,0,-(tz+T)/2]),frames[n]),place(M.cube([cw[0],cw[1],13-T],true).translate([0,0,-(13+T)/2]),frames[n])]));
- const walls=M.union(parts).subtract(pockets);
+ const built=M.union(parts),walls=built.subtract(pockets);
  // Base plate: the footprint of everything built, holes filled, so it is flush with the walls.
  const area=(p:[number,number][])=>p.reduce((t,q,i)=>{const r=p[(i+1)%p.length];return t+q[0]*r[1]-r[0]*q[1]},0);
  const plan=CS.union(walls.project().toPolygons().filter(p=>area(p as [number,number][])>0).map(p=>new CS([p])));
  const base=plan.extrude(ch.base_thickness_mm);
- const pod=trackpadPod(wasm,cfg,frames,at);
+ const pod=trackpadPod(wasm,cfg,frames,G,at),pocketCut=built.add(pod).intersect(pockets);
  let body=walls.add(pod);
  // Room above each plate: the switch hole, the switch housing's rim up to the
  // keycap's lowest point, and the keycap with its clearance above that.
- const so=sw.seat_outer_mm??[16.6,16.6],low=Math.max(0,sw.keycap_bottom_above_plate_mm-sw.travel_mm);
+ const low=Math.max(0,sw.keycap_bottom_above_plate_mm-sw.travel_mm);
  for(const n of names){const c=capSize(cfg,n),m=(sw.keycap_clearance_overrides_mm as Record<string,number>)[n]??sw.keycap_clearance_mm;
   body=body.subtract(place(M.cube([14,14,20],true),frames[n])).subtract(place(M.cube([c[0]+2*m+.2,c[1]+2*m+.2,60],true).translate([0,0,low+30]),frames[n]));
   if(low>.1)body=body.subtract(place(M.cube([so[0],so[1],low],true).translate([0,0,low/2]),frames[n]))}
- return {body,base,pod};
+ return {body,base,pod,pocketCut};
 }
 // Cirque trackpad in a printed pod on the inner side, held by a bracket to the
-// two corners of the far thumb key nearest to it. The bracket reaches below each
-// corner along the key's own normal, 0.8 mm inside the plate edge, so it joins
-// the key's skirt even on a tilted key.
-function trackpadPod(wasm:ManifoldToplevel,cfg:Config,frames:Record<string,Matrix4>,at:(n:string,sx:number,sy:number,z?:number,grow?:number)=>Vec3){
+// two corners of the far thumb key nearest to it. The bracket takes in the
+// plate's full thickness at each corner, above the tile pocket.
+function trackpadPod(wasm:ManifoldToplevel,cfg:Config,frames:Record<string,Matrix4>,G:number,at:(n:string,sx:number,sy:number,z?:number,grow?:number)=>Vec3){
  const M=wasm.Manifold,t=cfg.trackpad,f=frames.trackpad,r=t.diameter_mm/2+t.clearance_mm,ro=r+t.pod_wall_mm,T=cfg.chassis.plate_thickness_mm;
  // The pod's rim top is the frame's origin; the pad sits on the recess floor.
  const recess=t.thickness_mm+t.top_below_rim_mm;
@@ -229,7 +222,7 @@ function trackpadPod(wasm:ManifoldToplevel,cfg:Config,frames:Record<string,Matri
  const c=point(f,[0,0,-4]),dist=(p:Vec3)=>Math.hypot(p[0]-c[0],p[1]-c[1]);
  const near=[[-1,-1],[1,-1],[1,1],[-1,1]].map(([sx,sy])=>({sx,sy,p:at('thumb_far',sx,sy)})).sort((a,b)=>dist(a.p)-dist(b.p)).slice(0,2);
  const rim=near.map(({p})=>{const d=[p[0]-c[0],p[1]-c[1]],l=Math.hypot(d[0],d[1]);return [c[0]+d[0]/l*(ro-2.5),c[1]+d[1]/l*(ro-2.5),c[2]] as Vec3});
- return pod.add(M.hull([...rim.flatMap(p=>[p,[p[0],p[1],p[2]-4] as Vec3]),...near.flatMap(({sx,sy})=>[at('thumb_far',sx,sy,-T,.8),at('thumb_far',sx,sy,-T-4,.8)])]));
+ return pod.add(M.hull([...rim.flatMap(p=>[p,[p[0],p[1],p[2]-4] as Vec3]),...near.flatMap(({sx,sy})=>[at('thumb_far',sx,sy,0,G),at('thumb_far',sx,sy,-T,G)])]));
 }
 /** The trackpad itself, for display. */
 export const trackpadPart=(wasm:ManifoldToplevel,cfg:Config,frames:Record<string,Matrix4>)=>{const t=cfg.trackpad;return wasm.Manifold.cylinder(t.thickness_mm,t.diameter_mm/2,t.diameter_mm/2,64).translate([0,0,-t.top_below_rim_mm-t.thickness_mm+.01]).transform(frames.trackpad.elements as never)};
