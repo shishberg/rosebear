@@ -339,9 +339,12 @@ export function buildSolid(wasm: ManifoldToplevel, project: Project): BuildResul
           ),
         );
     }
-    // Crisp flat seats: trim the plate above and below each mounting footprint,
-    // then fill it so the switch lip is continuously supported.
-    body = keep(keep(body.subtract(keep(M.union(seatTrims)))).add(keep(M.union(seatPlates))));
+    // Crisp flat seats: fill each mounting footprint so the switch lip is
+    // continuously supported, then trim the plate above and below it. (Trimming
+    // first and then filling put the trimmed faces exactly on the fill's faces,
+    // and Manifold's union then dropped material elsewhere: it cut a wedge from
+    // the index home plate's edge.)
+    body = keep(keep(body.add(keep(M.union(seatPlates)))).subtract(keep(M.union(seatTrims))));
     const cuts: Manifold[] = [...clipCuts];
     const openings: Report['openings'] = [];
     const record = (

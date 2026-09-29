@@ -108,6 +108,20 @@ test('default chassis passes: one piece on one footprint, clear of the tile pock
           assert(Math.abs(heights[1] + 1.5) < 1e-4, name);
         }
       }
+    // The seats only change the plate inside their footprint: its side edges
+    // match the chassis before seating. (Trimming before filling once cut a
+    // wedge from the index home plate's edge.)
+    const chassis = buildChassis(wasm, defaults.config, componentFrames(defaults.config)).body;
+    for (const [name, m] of Object.entries(componentFrames(defaults.config)))
+      if (name.startsWith('matrix_'))
+        for (const side of [-1, 1])
+          for (const y of [-6, 0, 6]) {
+            const a = new Vector3(side * 11, y, -0.5).applyMatrix4(m).toArray(),
+              b = new Vector3(side * 8, y, -0.5).applyMatrix4(m).toArray();
+            const first = (s: typeof mounted) =>
+              Math.min(99, ...s.rayCast(a, b).map((h) => h.distance));
+            assert(Math.abs(first(mounted) - first(chassis)) < 1e-3, `${name} ${side} ${y}`);
+          }
   } finally {
     mounted.delete();
   }
