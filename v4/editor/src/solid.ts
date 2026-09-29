@@ -186,10 +186,16 @@ const contains = (p: number[][], [x, y]: number[]) => {
 /**
  * Look through each wall window along its normal: the solid's outline there,
  * projected onto the wall, must have a hole at each cutout centre and no other
- * hole. A hole that is not a cutout is a gap through the wall; a cutout with no
- * hole is blind. Gaps are returned as solids for highlighting.
+ * hole. A hole that is not a cutout, and that none of `openings` passes
+ * through, is a gap through the wall; a cutout with no hole is blind. Gaps are
+ * returned as solids for highlighting.
  */
-export function checkWalls(wasm: ManifoldToplevel, solid: Manifold, windows: WallWindow[]) {
+export function checkWalls(
+  wasm: ManifoldToplevel,
+  solid: Manifold,
+  windows: WallWindow[],
+  openings?: Manifold,
+) {
   const checks: WallCheck[] = [];
   const gapSolids: { name: string; mesh: MeshData }[] = [];
   for (const w of windows) {
@@ -219,7 +225,22 @@ export function checkWalls(wasm: ManifoldToplevel, solid: Manifold, windows: Wal
         .toPolygons()
         .map((p) => p as number[][])
         .filter((p) => -signedArea(p) > CHECKS.wallGap);
-      const gaps = holes.filter((h) => !w.cutouts.some((c) => contains(h, c)));
+      // A hole straight through the window, back in world coordinates.
+      const through = (h: number[][]) =>
+        keep(
+          keep(keep(new wasm.CrossSection([[...h].reverse() as [number, number][]])).extrude(depth))
+            .translate([0, 0, w.across[0]])
+            .transform(fromWall),
+        );
+      // Where a neighbouring key's wall turns across the window, part of one of
+      // its openings can show as a closed hole: a hole that a designed opening
+      // passes through is not a gap.
+      const gaps = holes
+        .filter((h) => !w.cutouts.some((c) => contains(h, c)))
+        .map((h) => ({ h, solid: through(h) }))
+        .filter(
+          ({ solid }) => !openings || keep(solid.intersect(openings)).volume() <= CHECKS.wallGap,
+        );
       const blind = w.cutouts.filter((c) => !holes.some((h) => contains(h, c)));
       for (const c of blind) {
         const marker = keep(
@@ -231,17 +252,10 @@ export function checkWalls(wasm: ManifoldToplevel, solid: Manifold, windows: Wal
         );
         gapSolids.push({ name: w.name, mesh: meshData(marker) });
       }
-      for (const g of gaps) {
-        const gap = keep(
-          keep(keep(new wasm.CrossSection([[...g].reverse() as [number, number][]])).extrude(depth))
-            .translate([0, 0, w.across[0]])
-            .transform(fromWall),
-        );
-        gapSolids.push({ name: w.name, mesh: meshData(gap) });
-      }
+      for (const g of gaps) gapSolids.push({ name: w.name, mesh: meshData(g.solid) });
       checks.push({
         name: w.name,
-        gaps: gaps.map((g) => -signedArea(g)),
+        gaps: gaps.map((g) => -signedArea(g.h)),
         blindCutouts: blind.length,
         passed: gaps.length === 0 && blind.length === 0,
       });
@@ -431,7 +445,7 @@ export function buildSolid(wasm: ManifoldToplevel, project: Project): BuildResul
       highlights.push({ name: `${r.name} keycap room`, kind: 'room', mesh: meshData(r.cut) });
     const result = keep(cut.add(chassis.base));
     // Every wall is solid apart from its cutouts, and every cutout goes through.
-    const walls = checkWalls(wasm, cut, chassis.wallWindows);
+    const walls = checkWalls(wasm, cut, chassis.wallWindows, chassis.wallOpenings);
     for (const g of walls.gapSolids) highlights.push({ name: g.name, kind: 'wall', mesh: g.mesh });
     const seats: SeatCheck[] = [];
     for (const [name, m] of keyNodes) {

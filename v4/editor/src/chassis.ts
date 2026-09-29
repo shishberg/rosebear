@@ -45,6 +45,8 @@ export interface ChassisResult {
   /** For each key, the chassis its keycap's room (and the switch rim's) had to remove. */
   roomCuts: { name: string; cut: Manifold }[];
   wallWindows: WallWindow[];
+  /** Every opening cut through the walls (cutouts and hex pattern openings). */
+  wallOpenings: Manifold;
 }
 /**
  * A window through a wall, for the checks: the part of the wall seen when
@@ -971,6 +973,7 @@ export function buildChassis(
   // cap that closes the quarter round of a swept end beside it.
   const usedCaps = new Set<Cap>();
   const wallWindows: WallWindow[] = [];
+  const wallOpenings: Manifold[] = [];
   const wallRun = (name: string, ns: string[], dir: Plan, caps: Cap[]) => {
     // Each segment is two hulls, the tilted part and the drop, so neither
     // reaches into the tile pocket on a rolled key.
@@ -1102,9 +1105,9 @@ export function buildChassis(
     });
     // With the hex pattern a cutout needs no round bottom: the opening above
     // the hexagons comes down to a point under the tile pocket.
-    return M.union(pieces).subtract(
-      M.union([...cutouts.map((c, i) => (hexOn ? c.square : c.solid)), ...hex.solids]),
-    );
+    const openings = M.union([...cutouts.map((c) => (hexOn ? c.square : c.solid)), ...hex.solids]);
+    wallOpenings.push(openings);
+    return M.union(pieces).subtract(openings);
   };
   const fingerCaps = fingerEnds.flatMap((s) => s.caps);
   for (const [c, dir] of outerColumns)
@@ -1225,7 +1228,15 @@ export function buildChassis(
       .subtract(place(M.cube([...sw.cutout_mm, SIZES.switchHoleHeight] as Vec3, true), frames[n]))
       .subtract(keycapRoom);
   }
-  return { body, base, pod, pocketCut, roomCuts, wallWindows };
+  return {
+    body,
+    base,
+    pod,
+    pocketCut,
+    roomCuts,
+    wallWindows,
+    wallOpenings: M.union(wallOpenings),
+  };
 }
 
 // Cirque trackpad in a printed pod on the inner side, held by a bracket to the

@@ -25,6 +25,13 @@ const variants: Record<string, (c: Config) => void> = {
       t.rotation_deg[2] += 5;
     }
   },
+  closer: (c) => {
+    // Both thumb clusters closer to the fingers and to each other.
+    c.geometry.thumb.position_mm = [-42.56, -60.704, 0];
+    (c.geometry as { thumb_extra: typeof c.geometry.thumb }).thumb_extra.position_mm = [
+      -34.046, -84.128, -7.607,
+    ];
+  },
   roll: (c) => {
     for (const col of c.geometry.columns as Layout[]) col.roll_deg = (col.roll_deg ?? 0) + 6;
   },

@@ -185,7 +185,7 @@ test('the wall check finds a gap through a wall and a cutout that does not go th
   );
   const fill = turn(wasm.Manifold.cube([30, 20.5, 16], true)).translate(at(home, homeAlong, homeZ));
   const damaged = chassis.body.subtract(slit).add(fill);
-  const { checks, gapSolids } = checkWalls(wasm, damaged, pinky);
+  const { checks, gapSolids } = checkWalls(wasm, damaged, pinky, chassis.wallOpenings);
   const byName = Object.fromEntries(checks.map((c) => [c.name, c]));
   // The slit is inside both keys' windows.
   for (const w of [home, top]) {

@@ -167,7 +167,8 @@ checks the result:
   through. The check looks straight through each wall segment, from the
   neighbouring keys' centres on either side, taking in only the wall's own
   thickness: any hole in that view that is not the key's cutout or one of its
-  hex pattern openings is a gap, and a
+  hex pattern openings, and that no designed opening passes through (a
+  neighbouring key's wall can turn across the view), is a gap, and a
   cutout with no hole is blind (something fills it or stands close behind it).
   Gaps and blind cutouts are listed and highlighted pink.
 - No chassis may be built where a keycap goes. Each keycap's room (the keycap
