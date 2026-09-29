@@ -114,12 +114,16 @@ default, or `"solid"`).
   drops vertically to the base. A U cutout under each key, the tile pocket's
   width, runs from the plate's underside to just below the pocket, with 2 mm
   round bottom corners. What remains is a post between each pair of keys and a
-  strip along the base. With the hex pattern, the wall below the cutouts is
-  opened into struts wall_mm wide: each post comes down to a hexagon centred
-  under it, with upright sides under the key centres and 30° slopes, and
-  struts run from the hexagons down to the base strip. A key whose wall is too
-  short for an upright side wall_mm long keeps its solid wall; in the default
-  layout only the inner column's wall is tall enough. At each end of a swept
+  strip along the base. With the hex pattern, the wall is opened into struts
+  wall_mm wide: each post comes down to a hexagon centred under it, with
+  upright sides under the key centres, and struts run from the hexagons down
+  to the base strip. The struts slope at 30° and pass 0.5 mm under the tile
+  pockets' corners (and the switch bodies' where the wall reaches over them),
+  so the upright sides are as long as the wall allows. On a shorter wall the
+  slope is lowered to keep the upright sides wall_mm long, down to 10°; a key
+  whose wall is shorter still keeps its U cutout and solid wall. In the
+  default layout the inner column and the main thumb row's front have the
+  pattern; the pinky column and the extra thumb pair's walls are too short. At each end of a swept
   end, a cap closes the quarter round; where a wall runs beside the cap, the two
   are joined. A cap with no wall beside it closes the round only down to the
   plate's underside, leaving the tile pocket open.
