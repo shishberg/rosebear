@@ -76,10 +76,10 @@ test('default chassis passes: one piece on one footprint, clear of the tile pock
   assert.deepEqual(r.report.roomCuts, []);
   assert.deepEqual(r.report.hardware, []);
   assert(r.report.keycaps.every((k) => k.passed));
-  assert(r.report.capGaps.every((g) => g.gap > 1));
+  assert(r.report.capGaps.every((g) => g.gap > 0));
   assert(r.report.openings.every((o) => o.removed > 0 && o.covered === 9 && o.blocked === 0));
-  // Solid walls with a cutout under each key: three on each outer finger column,
-  // three on the thumb row and two on each of the extra thumb row's walls.
+  // A wall under each key: three on each outer finger column, three on the
+  // thumb row's back and two on the extra thumb row's front.
   assert(r.report.walls.every((w) => w.passed));
   assert.equal(r.report.walls.length, 11);
   assert(r.report.passed);

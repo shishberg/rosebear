@@ -107,8 +107,8 @@
     "key_overrides": {},
     "thumb": {
       "position_mm": [
-        -45,
-        -64,
+        -42.56,
+        -60.704,
         0
       ],
       "rotation_deg": [
@@ -140,8 +140,8 @@
     },
     "thumb_extra": {
       "position_mm": [
-        -36.185,
-        -92.992,
+        -34.046,
+        -84.128,
         -7.607
       ],
       "rotation_deg": [
