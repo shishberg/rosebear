@@ -16,8 +16,14 @@ const variants: Record<string, (c: Config) => void> = {
     c.chassis.wall_mm = 3;
   },
   thumbs: (c) => {
-    c.geometry.thumb.position_mm[1] -= 6;
-    c.geometry.thumb.rotation_deg[2] += 8;
+    // Both thumb clusters moved and turned together, so they stay clear of each other.
+    for (const t of [
+      c.geometry.thumb,
+      (c.geometry as { thumb_extra: typeof c.geometry.thumb }).thumb_extra,
+    ]) {
+      t.position_mm[0] += 4;
+      t.rotation_deg[2] += 5;
+    }
   },
   roll: (c) => {
     for (const col of c.geometry.columns as Layout[]) col.roll_deg = (col.roll_deg ?? 0) + 6;

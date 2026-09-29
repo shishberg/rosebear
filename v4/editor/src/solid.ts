@@ -397,11 +397,22 @@ export function buildSolid(wasm: ManifoldToplevel, project: Project): BuildResul
     );
     // Material the tile pockets had to remove: a wall or other part built into a tile's space.
     const pocketCut = chassis.pocketCut.volume();
+    // Only pieces with volume: faces the chassis shares with a pocket's boundary
+    // come out as flat slivers, which would be highlighted as if they cut in.
     if (pocketCut > CHECKS.pocketCut)
       highlights.push({
         name: 'tile pocket cut',
         kind: 'hardware',
-        mesh: meshData(chassis.pocketCut),
+        mesh: meshData(
+          keep(
+            wasm.Manifold.union(
+              chassis.pocketCut
+                .decompose()
+                .map((p) => keep(p))
+                .filter((p) => p.volume() > CHECKS.empty),
+            ),
+          ),
+        ),
       });
     // Chassis built where a keycap goes, which its room had to remove.
     const roomCuts = chassis.roomCuts

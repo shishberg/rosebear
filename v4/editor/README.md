@@ -90,18 +90,20 @@ base plate thickness.
 - **Tile**: the bought 1U key PCB under each switch (see [the v4 README](../README.md)),
   provisionally 19 × 19 mm. Its **tile pocket** is the space under the plate kept
   clear for the tile, its parts and the switch body.
-- **Plate**: the square frame a switch clips into, 3 mm thick, 0.9 mm past the
-  15.8 mm switch seat on each side (17.6 mm square, 1 mm past the 15.6 mm housing
-  rim). The tile is wider than the plate and sticks out below it.
+- **Plate**: the square frame a switch clips into, 3 mm thick. It reaches 0.9 mm
+  past the 15.8 mm switch seat on each side, or to the edge of the tile pocket if
+  that is further, so the plate always covers the tile.
 - **Ladder**: a column's plates joined edge to edge.
 - **Swept end**: one quarter round (radius 9 mm) swept across the back and across
   the front of the fingers, then a wall to the base. Along each column's end it
   runs parallel to the plate edge, as close in as it can: the tile pocket and
   switch body must stay inside the round's hollow, and the round may start up to
   `end_cut_mm` inside the plate edge but not inside the switch seat. Where the
-  round starts past the plate edge, the plate continues flat out to it. Between
-  columns the curve changes smoothly from one column's line to the next, and
-  round-bottomed slots part the columns down to half the wall height.
+  round starts past the plate edge, the plate continues flat out to it, as thick
+  as the plate. The curve spans the end keys' plates. Where two columns' lines
+  overlap, the outer one is used; across a gap between them the curve changes
+  smoothly from one line to the next. Round-bottomed slots part the columns down
+  to half the wall height.
 - The thumb rows are ladders whose two ends roll over the same way.
 - **Walls** stand on the inner and pinky columns' outer sides and on the thumb
   rows' fronts. When the extra thumb pair is close in front, it gets a back wall
@@ -112,8 +114,9 @@ base plate thickness.
   between them from half height up to just under the plates. There is no slot
   where the edges are offset, as beside the 1.5u thumb key. At each end of a swept
   end, a cap closes the quarter round; where a wall runs beside the cap, the two
-  are joined.
-- Ribs 6 mm tall join along the base: the main thumb row's right end to the
+  are joined. A cap with no wall beside it closes the round only down to the
+  plate's underside, leaving the tile pocket open.
+- Ribs 6 mm tall join along the base: both ends of the main thumb row to the
   fingers' front, and, when the rows are close, the ends of the two thumb rows to
   each other.
 - Above each plate the chassis is kept clear of the switch housing's rim (the
@@ -145,7 +148,8 @@ checks the result:
   and highlighted. The walls must also meet along the base: a section 1.5 mm up
   must be one connected area. Separate footprints are listed and highlighted.
 - No part of the chassis may reach into a tile pocket, so every tile can be
-  placed and soldered. Any overlap is listed and highlighted red.
+  placed and soldered. Any overlap is listed, and the pieces with volume are
+  highlighted red.
 - Every wall must be solid apart from its U slots, and every slot must go
   through. The check looks straight through each wall segment and each slot,
   taking in only the wall's own thickness: any hole in that view that is not a
