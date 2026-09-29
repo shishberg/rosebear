@@ -119,11 +119,13 @@ default, or `"solid"`).
   upright sides under the key centres, and struts run from the hexagons down
   to the base strip. The struts slope at 30° and pass 0.5 mm under the tile
   pockets' corners (and the switch bodies' where the wall reaches over them),
-  so the upright sides are as long as the wall allows. On a shorter wall the
-  slope is lowered to keep the upright sides wall_mm long, down to 10°; a key
-  whose wall is shorter still keeps its U cutout and solid wall. In the
-  default layout the inner column and the main thumb row's front have the
-  pattern; the pinky column and the extra thumb pair's walls are too short. At each end of a swept
+  so the upright sides are as long as the wall allows. Where a key's upright
+  side would be shorter than wall_mm, the pattern is cut off at the base
+  strip instead: the key has no strut below it, and the hexagons either side
+  run down to the strip. In the default layout the pinky column and the extra
+  thumb pair's walls are cut off this way; the inner column and the main thumb
+  row's front have whole hexagons. The half hexagons inside a run's end posts
+  are cut only where a cap closes the wall's end. At each end of a swept
   end, a cap closes the quarter round; where a wall runs beside the cap, the two
   are joined. A cap with no wall beside it closes the round only down to the
   plate's underside, leaving the tile pocket open.

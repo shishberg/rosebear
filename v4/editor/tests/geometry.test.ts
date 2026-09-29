@@ -162,7 +162,9 @@ test('the checker reports chassis built where a keycap goes', async () => {
 test('the wall check finds a gap through a wall and a cutout that does not go through', async () => {
   const wasm = await Module();
   wasm.setup();
+  // Plain walls, so the slit goes through a solid post.
   const cfg = clone(defaults.config);
+  cfg.chassis.wall_pattern = 'solid';
   const chassis = buildChassis(wasm, cfg, componentFrames(cfg));
   const pinky = chassis.wallWindows.filter((w) => w.name.startsWith('pinky column wall'));
   const home = pinky.find((w) => w.name === 'pinky column wall: matrix_pinky_home')!;
@@ -203,8 +205,8 @@ test('the wall check finds a gap through a wall and a cutout that does not go th
     buildChassis(wasm, c, componentFrames(c)).wallWindows.find(
       (w) => w.name === 'inner column wall: matrix_inner_home',
     )!.cutouts.length;
-  assert.equal(innerHome(cfg), 5);
-  const solid = clone(cfg);
-  solid.chassis.wall_pattern = 'solid';
-  assert.equal(innerHome(solid), 1);
+  const hex = clone(cfg);
+  hex.chassis.wall_pattern = 'hex';
+  assert.equal(innerHome(hex), 5);
+  assert.equal(innerHome(cfg), 1);
 });

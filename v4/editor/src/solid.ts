@@ -34,6 +34,11 @@ const CHECKS = {
   capGapSearch: 40,
   /** A hole through a wall smaller than this area is ignored. */
   wallGap: 0.01,
+  /**
+   * The projected wall outline is grown then shrunk by this much, closing the
+   * zero-width slits projection can leave between touching faces.
+   */
+  wallSliver: 0.01,
   /** A blind cutout is highlighted by a rod this radius through its centre. */
   blindCutoutMarker: 1.5,
 } as const;
@@ -204,7 +209,11 @@ export function checkWalls(wasm: ManifoldToplevel, solid: Manifold, windows: Wal
           (w.across[0] + w.across[1]) / 2,
         ]),
       );
-      const outline = keep(keep(turned.intersect(window)).project());
+      const outline = keep(
+        keep(
+          keep(keep(turned.intersect(window)).project()).offset(CHECKS.wallSliver, 'Miter'),
+        ).offset(-CHECKS.wallSliver, 'Miter'),
+      );
       // Holes are the outline's clockwise loops.
       const holes = outline
         .toPolygons()
