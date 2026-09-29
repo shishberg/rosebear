@@ -164,16 +164,18 @@ export function buildChassis(wasm:ManifoldToplevel,cfg:Config,frames:Record<stri
   for(let i=0;i+1<ns.length;i++){
    const a=segs[i],b=segs[i+1],joint=[...near(i,i+1,a.side),...near(i+1,i,b.side)];
    pieces.push(M.hull(joint),M.hull([...near(i,i+1,a.bot),...near(i,i+1,a.base),...near(i+1,i,b.bot),...near(i+1,i,b.base)]));
-   // No slot where the two edges are offset (a 1.5u key beside 1u keys): the
-   // joint is then a diagonal wall. The slot's top follows both plates'
-   // undersides, 0.8 mm below them, reaching hw into each key.
-   const hw=3,side=(k:number,j:number)=>{const n=near(k,j,segs[k].under),f=segs[k].under.filter(p=>!n.includes(p)),l=Math.hypot(f[0][0]-n[0][0],f[0][1]-n[0][1])||1;
-    return n.flatMap((p,q)=>[p,p.map((v,r)=>v+(f[q][r]-v)*hw/l)]).map(p=>[p[0],p[1],p[2]-.8] as Vec3)};
-   const tops=[...side(i,i+1),...side(i+1,i)],zb=Math.min(...tops.map(p=>p[2]))/2;
-   const pa=near(i,i+1,segs[i].under)[1],pb=near(i+1,i,segs[i+1].under)[1];
-   if(zb<hw+2||Math.hypot(pa[0]-pb[0],pa[1]-pb[1])>4)continue;
-   const m=[0,1].map(k=>(pa[k]+pb[k])/2),l=Math.hypot(pb[0]-pa[0],pb[1]-pa[1])||1,tu=[(pb[0]-pa[0])/l,(pb[1]-pa[1])/l],nu=[-tu[1],tu[0]];
-   const across=Math.max(...joint.map(p=>Math.abs((p[0]-m[0])*nu[0]+(p[1]-m[1])*nu[1])))+1;
+   // No slot where the two edges are offset across the wall (a 1.5u key beside
+   // 1u keys): the joint is then a diagonal wall. The slot is 2 hw wide, centred
+   // between the two keys; its top follows the plates' undersides between their
+   // corners, 0.8 mm below them.
+   const hw=3,ua=near(i,i+1,a.under),ub=near(i+1,i,b.under),pa=ua[1],pb=ub[1],l=Math.hypot(pb[0]-pa[0],pb[1]-pa[1])||1;
+   const tops=[.5-hw/l,.5+hw/l].flatMap(t=>ua.map((p,q)=>[p[0]+(ub[q][0]-p[0])*t,p[1]+(ub[q][1]-p[1])*t,p[2]+(ub[q][2]-p[2])*t-.8] as Vec3)),zb=Math.min(...tops.map(p=>p[2]))/2;
+   const wn=[ua[1][0]-ua[0][0],ua[1][1]-ua[0][1]],wl=Math.hypot(wn[0],wn[1])||1;
+   if(zb<hw+2||Math.abs((pb[0]-pa[0])*wn[0]+(pb[1]-pa[1])*wn[1])/wl>4)continue;
+   const m=[0,1].map(k=>(pa[k]+pb[k])/2),tu=[(pb[0]-pa[0])/l,(pb[1]-pa[1])/l],nu=[-tu[1],tu[0]];
+   // Wide enough to pass through both the tilted part and the drop, which sits
+   // further out on a rolled key.
+   const across=Math.max(...[...joint,...near(i,i+1,a.bot),...near(i+1,i,b.bot)].map(p=>Math.abs((p[0]-m[0])*nu[0]+(p[1]-m[1])*nu[1])))+1;
    slots.push(M.hull([M.cylinder(2*across,hw,hw,32,true).rotate([90,0,0]).rotate([0,0,Math.atan2(tu[1],tu[0])*180/Math.PI]).translate([m[0],m[1],zb]),
     ...tops.flatMap(p=>[-1,1].map(b=>[p[0]+nu[0]*b*across,p[1]+nu[1]*b*across,p[2]] as Vec3))]));
   }
