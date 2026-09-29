@@ -4,6 +4,33 @@ import { seatSettings } from './seats';
 import { buildChassis, capSize, isKey, trackpadPart } from './chassis';
 import { componentFrames, validateProject, type V3, type MeshData, type Project } from './geometry';
 export { capSize, isKey };
+/** Sizes and limits for the seats and the clearance checks, in mm (volumes in mm³, areas in mm²). */
+const CHECKS = {
+  /** Overlap volume below which a collision is ignored. */
+  overlap: 0.05,
+  /** Volume below which a cut or probe counts as empty. */
+  empty: 0.001,
+  /** Volume the tile pockets may remove before the check fails. */
+  pocketCut: 0.01,
+  /** Each seat is trimmed flat this far above and below its plane. */
+  seatTrim: 7,
+  /** Clip reliefs: this tall below the seat, reaching this far into the switch hole and this far past clip_relief_depth_mm. */
+  clipReliefHeight: 3,
+  clipReliefIntoHole: 0.15,
+  clipReliefPastDepth: 0.05,
+  /** Opening probes: nine, this far inside the opening's edges. */
+  probeInset: 0.25,
+  /** Each opening must be clear from this far below the switch body to this height above the plate. */
+  openingBelowBody: 0.5,
+  openingTop: 12,
+  /** Pieces smaller than this are ignored when counting pieces. */
+  minPiece: 50,
+  /** The footprint check's section height above z = 0, and the smallest area it counts. */
+  footprintHeight: 1.5,
+  minFootprint: 1,
+  /** Keycap groups further apart than this are not listed. */
+  capGapSearch: 40,
+} as const;
 export interface Part {
   name: string;
   group: string;
@@ -136,13 +163,15 @@ export function buildSolid(wasm: ManifoldToplevel, project: Project): BuildResul
   };
   // The switch hole, and the clip reliefs either side of it in y.
   const hole = sw.cutout_mm.map((x) => x + sw.cutout_clearance_mm);
-  const clipY = hole[1] / 2 + sw.clip_relief_depth_mm / 2 - 0.05;
+  const clipDepth =
+    sw.clip_relief_depth_mm + CHECKS.clipReliefIntoHole + CHECKS.clipReliefPastDepth;
+  const clipY = hole[1] / 2 - CHECKS.clipReliefIntoHole + clipDepth / 2;
   const highlights: Highlight[] = [];
   const collision = (body: Manifold, envelope: Manifold, name: string, kind: Highlight['kind']) => {
     const hit = body.intersect(envelope);
     try {
       const v = Math.max(0, hit.volume());
-      if (v > 0.05) highlights.push({ name, kind, mesh: meshData(hit) });
+      if (v > CHECKS.overlap) highlights.push({ name, kind, mesh: meshData(hit) });
       return v;
     } finally {
       hit.delete();
@@ -174,15 +203,18 @@ export function buildSolid(wasm: ManifoldToplevel, project: Project): BuildResul
     for (const [, m] of keyNodes) {
       seatPlates.push(place(box([...outer, thickness], [0, 0, -thickness / 2]), m));
       seatTrims.push(
-        place(box([...outer, 7], [0, 0, 3.5]), m),
-        place(box([...outer, 7 - thickness], [0, 0, (-7 - thickness) / 2]), m),
+        place(box([...outer, CHECKS.seatTrim], [0, 0, CHECKS.seatTrim / 2]), m),
+        place(
+          box([...outer, CHECKS.seatTrim - thickness], [0, 0, (-CHECKS.seatTrim - thickness) / 2]),
+          m,
+        ),
       );
       for (const sign of [-1, 1])
         clipCuts.push(
           place(
             box(
-              [sw.clip_width_mm, sw.clip_relief_depth_mm + 0.2, 3],
-              [0, sign * clipY, -thickness - 1.5],
+              [sw.clip_width_mm, clipDepth, CHECKS.clipReliefHeight],
+              [0, sign * clipY, -thickness - CHECKS.clipReliefHeight / 2],
             ),
             m,
           ),
@@ -205,26 +237,27 @@ export function buildSolid(wasm: ManifoldToplevel, project: Project): BuildResul
       // blocked if any of it is left once the opening's height is punched out.
       let covered = 0;
       let blocked = 0;
-      for (const x of [-size[0] / 2 + 0.25, 0, size[0] / 2 - 0.25])
-        for (const y of [-size[1] / 2 + 0.25, 0, size[1] / 2 - 0.25]) {
+      const inset = CHECKS.probeInset;
+      for (const x of [-size[0] / 2 + inset, 0, size[0] / 2 - inset])
+        for (const y of [-size[1] / 2 + inset, 0, size[1] / 2 - inset]) {
           const probe = place(box([0.3, 0.3, 24], [x, y, 0]), pose);
           const hit = keep(body.intersect(probe));
-          if (hit.volume() > 0.001) {
+          if (hit.volume() > CHECKS.empty) {
             covered++;
             const punch = place(box([0.4, 0.4, top - bottom], [x, y, (top + bottom) / 2]), pose);
             const rest = keep(hit.subtract(punch));
-            if (rest.volume() > 0.001) blocked++;
+            if (rest.volume() > CHECKS.empty) blocked++;
           }
         }
       const removed = volume(body, cutter);
-      if (covered < 9 || blocked || removed <= 0.001)
+      if (covered < 9 || blocked || removed <= CHECKS.empty)
         highlights.push({ name, kind: 'opening', mesh: meshData(cutter) });
       openings.push({ name, removed, covered, blocked });
       cuts.push(cutter);
     };
     for (const [name, m] of keyNodes) {
-      const bottom = -sw.body_below_plate_mm - 0.5;
-      const top = 12;
+      const bottom = -sw.body_below_plate_mm - CHECKS.openingBelowBody;
+      const top = CHECKS.openingTop;
       record(
         name,
         place(box([...hole, top - bottom], [0, 0, (top + bottom) / 2]), m),
@@ -241,7 +274,7 @@ export function buildSolid(wasm: ManifoldToplevel, project: Project): BuildResul
     const pieces = cut
       .decompose()
       .map(keep)
-      .filter((p) => p.volume() > 50)
+      .filter((p) => p.volume() > CHECKS.minPiece)
       .sort((a, b) => b.volume() - a.volume());
     pieces
       .slice(1)
@@ -250,14 +283,14 @@ export function buildSolid(wasm: ManifoldToplevel, project: Project): BuildResul
       );
     // Without the bottom plate the walls must also meet each other along the base:
     // a section just above the plate must be one connected area.
-    const section = cut.slice(1.5);
+    const section = cut.slice(CHECKS.footprintHeight);
     const footprint = section
       .decompose()
       .map((c) => {
         const a = c.area();
         return { a, c };
       })
-      .filter((x) => x.a > 1)
+      .filter((x) => x.a > CHECKS.minFootprint)
       .sort((x, y) => y.a - x.a);
     footprint.slice(1).forEach((x, i) =>
       highlights.push({
@@ -268,7 +301,7 @@ export function buildSolid(wasm: ManifoldToplevel, project: Project): BuildResul
     );
     // Material the tile pockets had to remove: a wall or other part built into a tile's space.
     const pocketCut = chassis.pocketCut.volume();
-    if (pocketCut > 0.01)
+    if (pocketCut > CHECKS.pocketCut)
       highlights.push({
         name: 'tile pocket cut',
         kind: 'hardware',
@@ -298,21 +331,24 @@ export function buildSolid(wasm: ManifoldToplevel, project: Project): BuildResul
           result,
           place(
             box(
-              [sw.clip_width_mm, sw.clip_relief_depth_mm + 0.18, 2.99],
-              [0, sign * clipY, -thickness - 1.505],
+              // Just inside the relief, so its own faces don't count.
+              [sw.clip_width_mm, clipDepth - 0.02, CHECKS.clipReliefHeight - 0.01],
+              [0, sign * clipY, -thickness - CHECKS.clipReliefHeight / 2 - 0.005],
             ),
             m,
           ),
           name,
           'seat',
         );
-      if (missing > 0.05) highlights.push({ name, kind: 'seat', mesh: meshData(missingSolid) });
+      if (missing > CHECKS.overlap)
+        highlights.push({ name, kind: 'seat', mesh: meshData(missingSolid) });
       seats.push({
         name,
         missing,
         excess,
         clipBlocked,
-        passed: missing <= 0.05 && excess <= 0.05 && clipBlocked <= 0.05,
+        passed:
+          missing <= CHECKS.overlap && excess <= CHECKS.overlap && clipBlocked <= CHECKS.overlap,
       });
     }
     const overlaps: Report['hardware'] = [];
@@ -327,7 +363,7 @@ export function buildSolid(wasm: ManifoldToplevel, project: Project): BuildResul
           p.name,
           'hardware',
         );
-        if (v > 0.05) overlaps.push({ name: p.name, group: p.group, volume: v });
+        if (v > CHECKS.overlap) overlaps.push({ name: p.name, group: p.group, volume: v });
       }
     const keycaps: Clearance[] = [];
     const rests: Record<string, Manifold> = {};
@@ -358,7 +394,7 @@ export function buildSolid(wasm: ManifoldToplevel, project: Project): BuildResul
         travel: sw.travel_mm,
         atRest,
         swept,
-        passed: atRest <= 0.05 && swept <= 0.05,
+        passed: atRest <= CHECKS.overlap && swept <= CHECKS.overlap,
       });
     }
     // Closest distance between the resting keycaps of the finger columns, the thumb row and the extra thumb row.
@@ -377,8 +413,9 @@ export function buildSolid(wasm: ManifoldToplevel, project: Project): BuildResul
     const capGaps: Report['capGaps'] = [];
     for (let i = 0; i < unions.length; i++)
       for (let j = i + 1; j < unions.length; j++) {
-        const gap = unions[i][1].minGap(unions[j][1], 40);
-        if (gap < 40) capGaps.push({ between: `${unions[i][0]} – ${unions[j][0]}`, gap });
+        const gap = unions[i][1].minGap(unions[j][1], CHECKS.capGapSearch);
+        if (gap < CHECKS.capGapSearch)
+          capGaps.push({ between: `${unions[i][0]} – ${unions[j][0]}`, gap });
       }
     // The chassis and its bottom plate are separate prints, sent separately.
     const mesh = meshData(cut);
@@ -388,9 +425,9 @@ export function buildSolid(wasm: ManifoldToplevel, project: Project): BuildResul
       overlaps.length === 0 &&
       pieces.length === 1 &&
       footprint.length === 1 &&
-      pocketCut <= 0.01 &&
+      pocketCut <= CHECKS.pocketCut &&
       capGaps.every((c) => c.gap > 0) &&
-      openings.every((o) => o.removed > 0.001 && o.covered === 9 && o.blocked === 0);
+      openings.every((o) => o.removed > CHECKS.empty && o.covered === 9 && o.blocked === 0);
     return {
       mesh,
       base: meshData(chassis.base),

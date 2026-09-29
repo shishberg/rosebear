@@ -162,7 +162,17 @@ A rebuild takes about 0.8 s on desktop Chrome.
 npm --prefix v4/editor test               # layout, chassis and checker tests
 npm --prefix v4/editor run test:browser   # real Chrome workflow
 npm --prefix v4/editor run test:fit       # mechanical acceptance of the default or a saved project
+npm --prefix v4/editor run fingerprint    # geometry fingerprints, for refactors
+npm --prefix v4/editor run format         # Prettier
 ```
+
+A change meant to leave the geometry alone must leave `fingerprint`'s output
+unchanged: save it before the change and diff it after. It builds the default
+project and five variants (plate margin and wall, thumb position, column roll,
+no extra thumb row, tile and seat size).
+
+Construction sizes that are not in the config are named in `SIZES` at the top of
+`chassis.ts`; the checks' sizes and limits are in `CHECKS` in `solid.ts`.
 
 `test:fit` optionally takes a saved project file and exits nonzero whenever a
 check fails. `tests/python-reference.json` is a frozen fixture from the previous

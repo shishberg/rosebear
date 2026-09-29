@@ -29,6 +29,7 @@
 import type { Manifold, ManifoldToplevel, Vec3 } from 'manifold-3d';
 import { Matrix4 } from 'three';
 import { point, ROWS, type Config } from './geometry';
+import { seatSettings } from './seats';
 
 export const isKey = (name: string) => name.startsWith('thumb_') || name.startsWith('matrix_');
 export const capSize = (c: Config, n: string) =>
@@ -39,6 +40,57 @@ export interface ChassisResult {
   pod: Manifold;
   pocketCut: Manifold;
 }
+
+/**
+ * Construction sizes that are not in the config, in mm. Distances are in key
+ * coordinates unless noted.
+ */
+const SIZES = {
+  /** Wall and base heights: walls stop this far above z = 0, inside the base plate. */
+  wallFoot: 1,
+  /** A wall's inner face is this far outside the tile pocket. */
+  wallPocketGap: 0.25,
+  /** A swept end's quarter round starts this far past the end keys' tile pockets (plan). */
+  endPocketGap: 0.1,
+  /** Each end key's flat continuation reaches this far into its swept end. */
+  endOverlap: 0.5,
+  /** A swept end is sampled at every end-key corner and at this spacing between (plan). */
+  sweepStation: 3,
+  /** Flat faces in each quarter round. */
+  roundFaces: 6,
+  /** Swept-end slots between columns: at least this half-width (plan). */
+  endSlotMinHalfWidth: 1.5,
+  /** Swept-end slots start this far inside the quarter round's centre and end this far past its face. */
+  endSlotInside: 0.2,
+  endSlotPast: 3,
+  /** Wall slots (the U between wall segments): half-width along the wall. */
+  wallSlotHalfWidth: 3,
+  /** A wall slot's top is this far below the plates' undersides. */
+  wallSlotBelowPlate: 0.8,
+  /** No wall slot if its round bottom would be less than this above its half-width (a short wall). */
+  wallSlotMinRise: 2,
+  /** No wall slot where neighbouring plate edges are offset across the wall by more than this. */
+  wallSlotMaxOffset: 4,
+  /** A wall slot reaches this far past both faces of the wall. */
+  wallSlotPast: 1,
+  /** A swept end's cap joins a wall segment whose tilted part comes within this distance (plan). */
+  capReach: 8,
+  /** The extra thumb row gets a back wall when its plates come this close to the main row's (plan). */
+  closeRows: 15,
+  /** Height of the ribs joining footprints along the base. */
+  ribHeight: 6,
+  /** The switch body and pins below the plate top: kept clear under the switch hole. */
+  switchBelowPlate: 13,
+  /** The keycap's room is this much wider than the cap plus its clearance, in total. */
+  keycapRoomExtra: 0.2,
+  /** Heights cut above the plate: the switch hole's and the keycap room's. */
+  switchHoleHeight: 20,
+  keycapRoomHeight: 60,
+  /** A trackpad bracket: its centre this far below the pod's rim, its ends this far inside the pod's outer radius, and this deep. */
+  podBracketBelowRim: 4,
+  podBracketInset: 2.5,
+  podBracketDepth: 4,
+} as const;
 
 /** A plan vector or direction, [x, y] in world coordinates. */
 type Plan = [number, number];
@@ -169,7 +221,7 @@ export function buildChassis(
     tile.size_mm[1] / 2 + tile.clearance_mm,
   ];
   const switchHole = sw.cutout_mm.map((x) => x + sw.cutout_clearance_mm);
-  const seat = sw.seat_outer_mm ?? [16.6, 16.6];
+  const seat = seatSettings(cfg).outer;
   const seatHalf: HalfWidths = [seat[0] / 2, seat[1] / 2];
   const plateHalf: HalfWidths = [seatHalf[0] + plateMargin, seatHalf[1] + plateMargin];
 
@@ -187,7 +239,6 @@ export function buildChassis(
   const keyCentre = (n: string): Plan => [frames[n].elements[12], frames[n].elements[13]];
   const place = (m: Manifold, f: Matrix4) => m.transform(f.elements as never);
   const atHeight = (p: Vec3, z = 0): Vec3 => [p[0], p[1], z];
-  const withBase = (ps: Vec3[]) => [...ps, ...ps.map((p) => atHeight(p, 1))];
 
   /** The plate edge of key n that faces a plan direction. */
   const edgeFacing = (n: string, dir: Plan): Edge => {
@@ -248,7 +299,7 @@ export function buildChassis(
   const addWall = (n: string, dir: Plan) => {
     const edge = edgeFacing(n, dir);
     const axis = facingAxis(edge);
-    const inner = pocketHalf[axis] + 0.25;
+    const inner = pocketHalf[axis] + SIZES.wallPocketGap;
     wallsByKey.set(n, [
       ...(wallsByKey.get(n) ?? []),
       { axis, side: edge[0][axis], inner, outer: inner + wallThickness },
@@ -347,7 +398,9 @@ export function buildChassis(
     const shift = Math.max(
       0,
       ...corners.map((q) => q.out + endRadius - endCut - fitted(q.s)),
-      ...pocketCorners.map((p) => alongOut(p) + 0.1 + endRadius - fitted(alongSide(p))),
+      ...pocketCorners.map(
+        (p) => alongOut(p) + SIZES.endPocketGap + endRadius - fitted(alongSide(p)),
+      ),
     );
     return { outward, side, outerAt: (s) => fitted(s) + shift, corners };
   };
@@ -383,7 +436,10 @@ export function buildChassis(
     const stations = [
       ...new Set([
         ...sorted.map((q) => q.s),
-        ...Array.from({ length: Math.ceil((sEnd - sStart) / 3) }, (_, i) => sStart + i * 3),
+        ...Array.from(
+          { length: Math.ceil((sEnd - sStart) / SIZES.sweepStation) },
+          (_, i) => sStart + i * SIZES.sweepStation,
+        ),
       ]),
     ].sort((x, y) => x - y);
     /** A point on the quarter round at s: angle from the top, distance from its centre. */
@@ -398,9 +454,9 @@ export function buildChassis(
     const pieces: Manifold[] = [];
     for (let i = 0; i + 1 < stations.length; i++) {
       const pair = [stations[i], stations[i + 1]];
-      for (let j = 0; j < 6; j++) {
-        const from = ((j / 6) * Math.PI) / 2;
-        const to = (((j + 1) / 6) * Math.PI) / 2;
+      for (let j = 0; j < SIZES.roundFaces; j++) {
+        const from = ((j / SIZES.roundFaces) * Math.PI) / 2;
+        const to = (((j + 1) / SIZES.roundFaces) * Math.PI) / 2;
         pieces.push(
           M.hull(
             pair.flatMap((s) => [
@@ -420,7 +476,7 @@ export function buildChassis(
               roundPoint(s, Math.PI / 2, endRadius),
               roundPoint(s, Math.PI / 2, inner),
             ])
-            .flatMap((p) => [p, atHeight(p, 1)]),
+            .flatMap((p) => [p, atHeight(p, SIZES.wallFoot)]),
         ),
       );
     }
@@ -435,8 +491,13 @@ export function buildChassis(
             keyPoint(n, corner, -wallThickness, plateHalfAt(n, corner)),
           ]),
           ...onCurve.flatMap((x) => [
-            curvePoint(curve, x.s, curve.outerAt(x.s) - endRadius + 0.5, x.z),
-            curvePoint(curve, x.s, curve.outerAt(x.s) - endRadius + 0.5, x.z - wallThickness),
+            curvePoint(curve, x.s, curve.outerAt(x.s) - endRadius + SIZES.endOverlap, x.z),
+            curvePoint(
+              curve,
+              x.s,
+              curve.outerAt(x.s) - endRadius + SIZES.endOverlap,
+              x.z - wallThickness,
+            ),
           ]),
         ]),
       );
@@ -454,10 +515,13 @@ export function buildChassis(
         const left = cornerToward(key, key + 1);
         const right = cornerToward(key + 1, key);
         const sMid = (left.s + right.s) / 2;
-        const halfWidth = Math.max(1.5, Math.abs(right.s - left.s) / 2);
-        const bottomZ = 1 + (Math.min(topAt(left.s), topAt(right.s)) - endRadius - 1) / 2;
-        const outFrom = Math.min(curve.outerAt(left.s), curve.outerAt(right.s)) - endRadius - 0.2;
-        const outTo = Math.max(curve.outerAt(left.s), curve.outerAt(right.s)) + 3;
+        const halfWidth = Math.max(SIZES.endSlotMinHalfWidth, Math.abs(right.s - left.s) / 2);
+        const bottomZ =
+          SIZES.wallFoot +
+          (Math.min(topAt(left.s), topAt(right.s)) - endRadius - SIZES.wallFoot) / 2;
+        const outFrom =
+          Math.min(curve.outerAt(left.s), curve.outerAt(right.s)) - endRadius - SIZES.endSlotInside;
+        const outTo = Math.max(curve.outerAt(left.s), curve.outerAt(right.s)) + SIZES.endSlotPast;
         // Round-bottomed slot: balls at the bottom, hulled with the top.
         const ball = (out: number) =>
           M.sphere(halfWidth, 16).translate(curvePoint(curve, sMid, out, bottomZ + halfWidth));
@@ -475,17 +539,19 @@ export function buildChassis(
       [sStart, 1],
       [sEnd, -1],
     ].map(([s, sign]) => {
-      const round = [0, 1, 2, 3, 4, 5, 6].flatMap((j) =>
+      const round = Array.from({ length: SIZES.roundFaces + 1 }, (_, j) => j).flatMap((j) =>
         [0, wallThickness].map((ds) =>
-          roundPoint(s + sign * ds, ((j / 6) * Math.PI) / 2, endRadius),
+          roundPoint(s + sign * ds, ((j / SIZES.roundFaces) * Math.PI) / 2, endRadius),
         ),
       );
-      return { round, onBase: round.map((p) => atHeight(p, 1)) };
+      return { round, onBase: round.map((p) => atHeight(p, SIZES.wallFoot)) };
     });
     return {
       solid,
       caps,
-      baseLine: stations.map((s) => curvePoint(curve, s, curve.outerAt(s) - wallThickness / 2, 1)),
+      baseLine: stations.map((s) =>
+        curvePoint(curve, s, curve.outerAt(s) - wallThickness / 2, SIZES.wallFoot),
+      ),
     };
   };
 
@@ -500,7 +566,7 @@ export function buildChassis(
       ...facingCorners(thumbRow, [0, -1]).flatMap((p) =>
         facingCorners(extraRow, [0, 1]).map((q) => planDistance(p, q)),
       ),
-    ) < 15;
+    ) < SIZES.closeRows;
   const outerColumns: [string, Plan][] = [
     [columns[0], [-1, 0]],
     [columns.at(-1)!, [1, 0]],
@@ -555,11 +621,11 @@ export function buildChassis(
           -pocketDepth,
           wall.inner,
           wall.outer,
-          pocketHalf[1 - axis] + 0.25,
+          pocketHalf[1 - axis] + SIZES.wallPocketGap,
         ),
         underPlate: strip(n, edge, -plateThickness, -plateThickness, wall.inner, wall.outer),
         dropTop,
-        onBase: mapStrip(dropTop, (p) => atHeight(p, 1)),
+        onBase: mapStrip(dropTop, (p) => atHeight(p, SIZES.wallFoot)),
       };
     });
     const pieces = segments.flatMap((s) => [
@@ -573,7 +639,7 @@ export function buildChassis(
         const anchor = cap.round[0];
         if (
           usedCaps.has(cap) ||
-          Math.min(...stripPoints(s.tilted).map((p) => planDistance(p, anchor))) >= 8
+          Math.min(...stripPoints(s.tilted).map((p) => planDistance(p, anchor))) >= SIZES.capReach
         )
           continue;
         usedCaps.add(cap);
@@ -606,7 +672,7 @@ export function buildChassis(
       // 1u keys): the joint is then a diagonal wall. The slot is 2 halfWidth wide,
       // centred between the two keys; its top follows the plates' undersides
       // between their corners, 0.8 mm below them.
-      const halfWidth = 3;
+      const halfWidth = SIZES.wallSlotHalfWidth;
       const underA = atA(a.underPlate);
       const underB = atB(b.underPlate);
       const pa = underA.topOuter;
@@ -620,7 +686,7 @@ export function buildChassis(
             [
               p[0] + (pointsB[q][0] - p[0]) * t,
               p[1] + (pointsB[q][1] - p[1]) * t,
-              p[2] + (pointsB[q][2] - p[2]) * t - 0.8,
+              p[2] + (pointsB[q][2] - p[2]) * t - SIZES.wallSlotBelowPlate,
             ] as Vec3,
         ),
       );
@@ -633,7 +699,8 @@ export function buildChassis(
       const offsetAcross =
         Math.abs((pb[0] - pa[0]) * wallNormal[0] + (pb[1] - pa[1]) * wallNormal[1]) /
         (Math.hypot(wallNormal[0], wallNormal[1]) || 1);
-      if (roundZ < halfWidth + 2 || offsetAcross > 4) continue;
+      if (roundZ < halfWidth + SIZES.wallSlotMinRise || offsetAcross > SIZES.wallSlotMaxOffset)
+        continue;
       const mid = [0, 1].map((k) => (pa[k] + pb[k]) / 2);
       const alongWall = [(pb[0] - pa[0]) / gap, (pb[1] - pa[1]) / gap];
       const acrossWall = [-alongWall[1], alongWall[0]];
@@ -644,7 +711,7 @@ export function buildChassis(
           ...[...joint, ...endPoints(atA(a.dropTop)), ...endPoints(atB(b.dropTop))].map((p) =>
             Math.abs((p[0] - mid[0]) * acrossWall[0] + (p[1] - mid[1]) * acrossWall[1]),
           ),
-        ) + 1;
+        ) + SIZES.wallSlotPast;
       slots.push(
         M.hull([
           M.cylinder(2 * halfDepth, halfWidth, halfWidth, 32, true)
@@ -696,7 +763,7 @@ export function buildChassis(
   // ends to each other. Each runs between the closest points of two base lines.
   // Ends are round and centred on the walls' mid-lines, clear of the lines'
   // ends, so they stay inside the walls.
-  const rib = (lineA: Vec3[], lineB: Vec3[], height = 6) => {
+  const rib = (lineA: Vec3[], lineB: Vec3[], height = SIZES.ribHeight) => {
     let best: [Vec3, Vec3] = [lineA[1], lineB[1]];
     let bestDistance = Infinity;
     for (const p of lineA.slice(1, -1))
@@ -709,7 +776,11 @@ export function buildChassis(
       }
     return M.hull(
       best.map((p) =>
-        M.cylinder(height - 1, wallThickness / 2, wallThickness / 2, 24).translate([p[0], p[1], 1]),
+        M.cylinder(height - SIZES.wallFoot, wallThickness / 2, wallThickness / 2, 24).translate([
+          p[0],
+          p[1],
+          SIZES.wallFoot,
+        ]),
       ),
     );
   };
@@ -732,11 +803,10 @@ export function buildChassis(
         frames[n],
       ),
       place(
-        M.cube([switchHole[0], switchHole[1], 13 - plateThickness], true).translate([
-          0,
-          0,
-          -(13 + plateThickness) / 2,
-        ]),
+        M.cube(
+          [switchHole[0], switchHole[1], SIZES.switchBelowPlate - plateThickness],
+          true,
+        ).translate([0, 0, -(SIZES.switchBelowPlate + plateThickness) / 2]),
         frames[n],
       ),
     ]),
@@ -768,14 +838,17 @@ export function buildChassis(
     const clearance =
       (sw.keycap_clearance_overrides_mm as Record<string, number>)[n] ?? sw.keycap_clearance_mm;
     body = body
-      .subtract(place(M.cube([14, 14, 20], true), frames[n]))
+      .subtract(place(M.cube([...sw.cutout_mm, SIZES.switchHoleHeight] as Vec3, true), frames[n]))
       .subtract(
         place(
-          M.cube([cap[0] + 2 * clearance + 0.2, cap[1] + 2 * clearance + 0.2, 60], true).translate([
-            0,
-            0,
-            capLowest + 30,
-          ]),
+          M.cube(
+            [
+              cap[0] + 2 * clearance + SIZES.keycapRoomExtra,
+              cap[1] + 2 * clearance + SIZES.keycapRoomExtra,
+              SIZES.keycapRoomHeight,
+            ],
+            true,
+          ).translate([0, 0, capLowest + SIZES.keycapRoomHeight / 2]),
           frames[n],
         ),
       );
@@ -813,7 +886,7 @@ function trackpadPod(
     .translate([0, 0, -t.pod_depth_mm])
     .subtract(M.cylinder(recess + 1, padRadius, padRadius, 64).translate([0, 0, -recess]))
     .transform(f.elements as never);
-  const centre = point(f, [0, 0, -4]);
+  const centre = point(f, [0, 0, -SIZES.podBracketBelowRim]);
   const nearest = (
     [
       [-1, -1],
@@ -829,14 +902,14 @@ function trackpadPod(
     const d = [p[0] - centre[0], p[1] - centre[1]];
     const l = Math.hypot(d[0], d[1]);
     return [
-      centre[0] + (d[0] / l) * (podRadius - 2.5),
-      centre[1] + (d[1] / l) * (podRadius - 2.5),
+      centre[0] + (d[0] / l) * (podRadius - SIZES.podBracketInset),
+      centre[1] + (d[1] / l) * (podRadius - SIZES.podBracketInset),
       centre[2],
     ] as Vec3;
   });
   return pod.add(
     M.hull([
-      ...rim.flatMap((p) => [p, [p[0], p[1], p[2] - 4] as Vec3]),
+      ...rim.flatMap((p) => [p, [p[0], p[1], p[2] - SIZES.podBracketDepth] as Vec3]),
       ...nearest.flatMap(({ corner }) => [
         keyPoint('thumb_far', corner, 0, plateHalf),
         keyPoint('thumb_far', corner, -plateThickness, plateHalf),
