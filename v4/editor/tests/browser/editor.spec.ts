@@ -124,13 +124,11 @@ test('a newer edit supersedes an in-flight build; invalid imports leave the proj
   const bytes = await fs.readFile((await solid.path())!);
   expect(bytes.length).toBe(84 + 50 * bytes.readUInt32LE(80));
   const initial = await project(page);
-  await page
-    .locator('#file')
-    .setInputFiles({
-      name: 'invalid.json',
-      mimeType: 'application/json',
-      buffer: Buffer.from('{"version":999}'),
-    });
+  await page.locator('#file').setInputFiles({
+    name: 'invalid.json',
+    mimeType: 'application/json',
+    buffer: Buffer.from('{"version":999}'),
+  });
   await expect(page.locator('#load-error')).toContainText('Not a Rosebear editor project');
   expect(await project(page)).toEqual(initial);
 });

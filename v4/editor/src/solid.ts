@@ -1,7 +1,7 @@
 import type { Manifold, ManifoldToplevel, Mat4 } from 'manifold-3d';
 import { Matrix4 } from 'three';
 import { seatSettings } from './seats';
-import { buildChassis, capSize, isKey, trackpadPart } from './chassis';
+import { buildChassis, capSize, isKey, trackpadPart, type WallWindow } from './chassis';
 import { componentFrames, validateProject, type V3, type MeshData, type Project } from './geometry';
 export { capSize, isKey };
 /** Sizes and limits for the seats and the clearance checks, in mm (volumes in mm³, areas in mm²). */
@@ -30,6 +30,10 @@ const CHECKS = {
   minFootprint: 1,
   /** Keycap groups further apart than this are not listed. */
   capGapSearch: 40,
+  /** A hole through a wall smaller than this area is ignored. */
+  wallGap: 0.01,
+  /** A blind slot is highlighted by a rod this radius through its centre. */
+  blindSlotMarker: 1.5,
 } as const;
 export interface Part {
   name: string;
@@ -123,14 +127,22 @@ export interface Report {
   pocketCut: number;
   hardware: { name: string; group: string; volume: number }[];
   openings: { name: string; removed: number; covered: number; blocked: number }[];
+  walls: WallCheck[];
   volume: number;
   triangles: number;
   milliseconds: number;
   notes: string[];
 }
+/** One wall window: the areas of holes through it that are not slots, and slots that don't go through. */
+export interface WallCheck {
+  name: string;
+  gaps: number[];
+  blindSlots: number;
+  passed: boolean;
+}
 export interface Highlight {
   name: string;
-  kind: 'rest' | 'travel' | 'hardware' | 'opening' | 'seat' | 'loose';
+  kind: 'rest' | 'travel' | 'hardware' | 'opening' | 'seat' | 'loose' | 'wall';
   mesh: MeshData;
 }
 export interface BuildResult {
@@ -146,6 +158,85 @@ function meshData(solid: Manifold): MeshData {
   for (let i = 0; i < positions.length / 3; i++)
     for (let j = 0; j < 3; j++) positions[i * 3 + j] = raw.vertProperties[i * raw.numProp + j];
   return { positions, indices: new Uint32Array(raw.triVerts) };
+}
+const signedArea = (p: number[][]) =>
+  p.reduce((t, q, i) => {
+    const r = p[(i + 1) % p.length];
+    return t + q[0] * r[1] - r[0] * q[1];
+  }, 0) / 2;
+const contains = (p: number[][], [x, y]: number[]) => {
+  let inside = false;
+  for (let i = 0, j = p.length - 1; i < p.length; j = i++)
+    if (
+      p[i][1] > y !== p[j][1] > y &&
+      x < ((p[j][0] - p[i][0]) * (y - p[i][1])) / (p[j][1] - p[i][1]) + p[i][0]
+    )
+      inside = !inside;
+  return inside;
+};
+/**
+ * Look through each wall window along its normal: the solid's outline there,
+ * projected onto the wall, must have a hole at each slot centre and no other
+ * hole. A hole that is not a slot is a gap through the wall; a slot with no
+ * hole is blind. Gaps are returned as solids for highlighting.
+ */
+export function checkWalls(wasm: ManifoldToplevel, solid: Manifold, windows: WallWindow[]) {
+  const checks: WallCheck[] = [];
+  const gapSolids: { name: string; mesh: MeshData }[] = [];
+  for (const w of windows) {
+    const [nx, ny] = w.normal;
+    // World to (along, z, across) and back; column-major rotations.
+    const toWall = [-ny, 0, nx, 0, nx, 0, ny, 0, 0, 1, 0, 0, 0, 0, 0, 1] as Mat4;
+    const fromWall = [-ny, nx, 0, 0, 0, 0, 1, 0, nx, ny, 0, 0, 0, 0, 0, 1] as Mat4;
+    const depth = w.across[1] - w.across[0];
+    const made: { delete(): void }[] = [];
+    const keep = <T extends { delete(): void }>(m: T) => (made.push(m), m);
+    try {
+      const turned = keep(solid.transform(toWall));
+      const window = keep(
+        keep(wasm.Manifold.cube([w.along[1] - w.along[0], 1000, depth], true)).translate([
+          (w.along[0] + w.along[1]) / 2,
+          0,
+          (w.across[0] + w.across[1]) / 2,
+        ]),
+      );
+      const outline = keep(keep(turned.intersect(window)).project());
+      // Holes are the outline's clockwise loops.
+      const holes = outline
+        .toPolygons()
+        .map((p) => p as number[][])
+        .filter((p) => -signedArea(p) > CHECKS.wallGap);
+      const gaps = holes.filter((h) => !w.slots.some((c) => contains(h, c)));
+      const blind = w.slots.filter((c) => !holes.some((h) => contains(h, c)));
+      for (const c of blind) {
+        const marker = keep(
+          keep(
+            keep(
+              wasm.Manifold.cylinder(depth, CHECKS.blindSlotMarker, CHECKS.blindSlotMarker, 24),
+            ).translate([c[0], c[1], w.across[0]]),
+          ).transform(fromWall),
+        );
+        gapSolids.push({ name: w.name, mesh: meshData(marker) });
+      }
+      for (const g of gaps) {
+        const gap = keep(
+          keep(keep(new wasm.CrossSection([[...g].reverse() as [number, number][]])).extrude(depth))
+            .translate([0, 0, w.across[0]])
+            .transform(fromWall),
+        );
+        gapSolids.push({ name: w.name, mesh: meshData(gap) });
+      }
+      checks.push({
+        name: w.name,
+        gaps: gaps.map((g) => -signedArea(g)),
+        blindSlots: blind.length,
+        passed: gaps.length === 0 && blind.length === 0,
+      });
+    } finally {
+      for (const m of made.reverse()) m.delete();
+    }
+  }
+  return { checks, gapSolids };
 }
 export function buildSolid(wasm: ManifoldToplevel, project: Project): BuildResult {
   validateProject(project);
@@ -308,6 +399,9 @@ export function buildSolid(wasm: ManifoldToplevel, project: Project): BuildResul
         mesh: meshData(chassis.pocketCut),
       });
     const result = keep(cut.add(chassis.base));
+    // Every wall is solid apart from its slots, and every slot goes through.
+    const walls = checkWalls(wasm, cut, chassis.wallWindows);
+    for (const g of walls.gapSolids) highlights.push({ name: g.name, kind: 'wall', mesh: g.mesh });
     const seats: SeatCheck[] = [];
     for (const [name, m] of keyNodes) {
       // The seat must be a complete ring around the hole, with nothing outside its plane.
@@ -426,6 +520,7 @@ export function buildSolid(wasm: ManifoldToplevel, project: Project): BuildResul
       pieces.length === 1 &&
       footprint.length === 1 &&
       pocketCut <= CHECKS.pocketCut &&
+      walls.checks.every((w) => w.passed) &&
       capGaps.every((c) => c.gap > 0) &&
       openings.every((o) => o.removed > CHECKS.empty && o.covered === 9 && o.blocked === 0);
     return {
@@ -443,6 +538,7 @@ export function buildSolid(wasm: ManifoldToplevel, project: Project): BuildResul
         pocketCut,
         hardware: overlaps,
         openings,
+        walls: walls.checks,
         volume: result.volume(),
         triangles: mesh.indices.length / 3,
         milliseconds: performance.now() - start,

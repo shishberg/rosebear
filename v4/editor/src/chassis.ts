@@ -39,6 +39,22 @@ export interface ChassisResult {
   base: Manifold;
   pod: Manifold;
   pocketCut: Manifold;
+  wallWindows: WallWindow[];
+}
+/**
+ * A window through a wall, for the checks: the part of the wall seen when
+ * looking along `normal` through the plan slab `across`, between `along`.
+ * Both ranges are plan distances: along the wall's direction (-normal[1],
+ * normal[0]) and along the normal. The wall should be solid there apart from
+ * its U slots.
+ */
+export interface WallWindow {
+  name: string;
+  normal: [number, number];
+  along: [number, number];
+  across: [number, number];
+  /** The slot centres inside the window, as [along, z]: each should be a hole through the wall. */
+  slots: [number, number][];
 }
 
 /**
@@ -73,6 +89,8 @@ const SIZES = {
   wallSlotMaxOffset: 4,
   /** A wall slot reaches this far past both faces of the wall. */
   wallSlotPast: 1,
+  /** A slot's check window reaches this far past each side of the slot, along the wall. */
+  slotWindowPast: 2,
   /** A swept end's cap joins a wall segment whose tilted part comes within this distance (plan). */
   capReach: 8,
   /** The extra thumb row gets a back wall when its plates come this close to the main row's (plan). */
@@ -604,7 +622,8 @@ export function buildChassis(
   // closes the quarter round of a swept end beside it. Each segment follows its
   // plate's tilt down to the tile pocket's depth, then drops to the base.
   const usedCaps = new Set<Cap>();
-  const wallRun = (ns: string[], dir: Plan, caps: Cap[]) => {
+  const wallWindows: WallWindow[] = [];
+  const wallRun = (name: string, ns: string[], dir: Plan, caps: Cap[]) => {
     // Each segment is two hulls, the tilted part and the drop, so neither
     // reaches into the tile pocket on a rolled key.
     const segments: WallSegment[] = ns.map((n) => {
@@ -633,6 +652,15 @@ export function buildChassis(
       M.hull([...stripPoints(s.dropTop), ...stripPoints(s.onBase)]),
     ]);
     const slots: Manifold[] = [];
+    // The plan points each segment's window must take in: its own strips, the
+    // cap it joins, and on each joint side the neighbouring key's centre, so
+    // the slot between them is inside the window.
+    const ownPoints = segments.map((s) => [...stripPoints(s.tilted), ...stripPoints(s.onBase)]);
+    const windowPoints = segments.map((s, i) => [
+      ...ownPoints[i],
+      ...[ns[i - 1], ns[i + 1]].filter((n) => n).map((n) => keyCentre(n)),
+    ]);
+    const slotCentres: Vec3[] = [];
     for (const i of new Set([0, ns.length - 1]))
       for (const cap of caps) {
         const s = segments[i];
@@ -643,13 +671,26 @@ export function buildChassis(
         )
           continue;
         usedCaps.add(cap);
+        windowPoints[i].push(...cap.round);
         // The cap's quarter round joins the tilted part, carried along past the
-        // tile pocket; its drop to the base joins the segment's drop.
+        // tile pocket; its drop to the base joins the segment's drop. The two
+        // hulls share the carried part's bottom edge, so no gap opens between
+        // them. The round's hull also takes in the drop's outer top corner: on
+        // a rolled key the tilted part leans, and without it the outer face
+        // has a shallow groove along that shared edge.
         const near = (strip: Strip) => endPoints(endNearest(strip, anchor));
+        const longEnd = endNearest(s.tiltedLong, anchor);
         pieces.push(
           M.hull([...near(s.tilted), ...near(s.tiltedLong)]),
-          M.hull([...near(s.tiltedLong), ...cap.round]),
-          M.hull([...near(s.dropTop), ...near(s.onBase), ...cap.round.slice(-2), ...cap.onBase]),
+          M.hull([...near(s.tiltedLong), endNearest(s.dropTop, anchor).topOuter, ...cap.round]),
+          M.hull([
+            longEnd.bottomInner,
+            longEnd.bottomOuter,
+            ...near(s.dropTop),
+            ...near(s.onBase),
+            ...cap.round.slice(-2),
+            ...cap.onBase,
+          ]),
         );
       }
     for (let i = 0; i + 1 < ns.length; i++) {
@@ -712,6 +753,21 @@ export function buildChassis(
             Math.abs((p[0] - mid[0]) * acrossWall[0] + (p[1] - mid[1]) * acrossWall[1]),
           ),
         ) + SIZES.wallSlotPast;
+      const outward = Math.sign(acrossWall[0] * wallNormal[0] + acrossWall[1] * wallNormal[1]) || 1;
+      const slotNormal: Plan = [outward * acrossWall[0], outward * acrossWall[1]];
+      const slotAlong = mid[0] * -slotNormal[1] + mid[1] * slotNormal[0];
+      const slotAcross = mid[0] * slotNormal[0] + mid[1] * slotNormal[1];
+      slotCentres.push([mid[0], mid[1], roundZ]);
+      wallWindows.push({
+        name: `${name}: slot ${ns[i]} – ${ns[i + 1]}`,
+        normal: slotNormal,
+        along: [
+          slotAlong - halfWidth - SIZES.slotWindowPast,
+          slotAlong + halfWidth + SIZES.slotWindowPast,
+        ],
+        across: [slotAcross - halfDepth, slotAcross + halfDepth],
+        slots: [[slotAlong, roundZ]],
+      });
       slots.push(
         M.hull([
           M.cylinder(2 * halfDepth, halfWidth, halfWidth, 32, true)
@@ -731,15 +787,38 @@ export function buildChassis(
         ]),
       );
     }
+    segments.forEach((s, i) => {
+      const under = s.underPlate[0];
+      const out = [under.topOuter[0] - under.topInner[0], under.topOuter[1] - under.topInner[1]];
+      const l = Math.hypot(out[0], out[1]);
+      const normal: Plan = [out[0] / l, out[1] / l];
+      const alongOf = (p: number[]) => p[0] * -normal[1] + p[1] * normal[0];
+      const acrossOf = (p: number[]) => p[0] * normal[0] + p[1] * normal[1];
+      const along = windowPoints[i].map(alongOf);
+      // Across the wall, the window takes in only the segment's own thickness.
+      const across = ownPoints[i].map(acrossOf);
+      const range = (xs: number[]): [number, number] => [Math.min(...xs), Math.max(...xs)];
+      wallWindows.push({
+        name: `${name}: ${ns[i]}`,
+        normal,
+        along: range(along),
+        across: range(across),
+        slots: slotCentres
+          .map((c) => [alongOf(c), c[2]] as [number, number])
+          .filter(([a]) => a > Math.min(...along) && a < Math.max(...along)),
+      });
+    });
     const run = M.union(pieces);
     return slots.length ? run.subtract(M.union(slots)) : run;
   };
   const fingerCaps = fingerEnds.flatMap((s) => s.caps);
-  for (const [c, dir] of outerColumns) parts.push(wallRun(columnKeys(c), dir, fingerCaps));
+  for (const [c, dir] of outerColumns)
+    parts.push(wallRun(`${c} column wall`, columnKeys(c), dir, fingerCaps));
   [thumbRow, extraRow].forEach((row, i) => {
     if (row.length)
       parts.push(
         wallRun(
+          i ? 'extra thumb row front wall' : 'thumb row front wall',
           row,
           [0, -1],
           thumbRowEnds[i].flatMap((s) => s.caps),
@@ -749,6 +828,7 @@ export function buildChassis(
   if (extraRowClose)
     parts.push(
       wallRun(
+        'extra thumb row back wall',
         extraRow,
         [0, 1],
         thumbRowEnds[1].flatMap((s) => s.caps),
@@ -860,7 +940,7 @@ export function buildChassis(
         ),
       );
   }
-  return { body, base, pod, pocketCut };
+  return { body, base, pod, pocketCut, wallWindows };
 }
 
 // Cirque trackpad in a printed pod on the inner side, held by a bracket to the

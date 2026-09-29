@@ -26,6 +26,11 @@ if (report.pocketCut > 0.01)
 for (const o of report.openings)
   if (o.covered < 9 || o.blocked || o.removed <= 0.001)
     console.log(`${o.name}: opening incomplete`);
+for (const w of report.walls)
+  if (!w.passed)
+    console.log(
+      `${w.name}: ${w.gaps.length} gaps through the wall (${w.gaps.map((a) => a.toFixed(2)).join(', ')} mm²), ${w.blindSlots} blind slots`,
+    );
 for (const h of report.hardware)
   if (h.group !== 'keycaps') console.log(`${h.name}: ${h.volume.toFixed(3)} mm³ hardware overlap`);
 process.exitCode = report.passed ? 0 : 1;

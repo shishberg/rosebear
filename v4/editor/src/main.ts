@@ -104,7 +104,10 @@ function updateFailures(items: Highlight[]) {
     const color =
       item.kind === 'travel'
         ? 0xffa124
-        : item.kind === 'opening' || item.kind === 'seat' || item.kind === 'loose'
+        : item.kind === 'opening' ||
+            item.kind === 'seat' ||
+            item.kind === 'loose' ||
+            item.kind === 'wall'
           ? 0xf16bd8
           : 0xff303e;
     const mesh = new T.Mesh(
@@ -679,6 +682,20 @@ function showReport(r: Report) {
       : `Parts reach ${r.pocketCut.toFixed(1)} mm³ into the tile pockets.`,
     r.pocketCut > 0.01 ? 'tile pocket cut' : undefined,
   );
+  const badWalls = r.walls.filter((w) => !w.passed);
+  add(
+    badWalls.length
+      ? `${badWalls.length} wall windows have gaps or blind slots.`
+      : `The walls are solid apart from their ${r.walls.filter((w) => w.name.includes(': slot ')).length} slots, and every slot goes through.`,
+  );
+  for (const w of badWalls)
+    add(
+      `${w.name.replaceAll('_', ' ')}: ${[
+        ...w.gaps.map((a) => `gap through the wall, ${a.toFixed(2)} mm²`),
+        ...(w.blindSlots ? ['slot does not go through'] : []),
+      ].join('; ')}`,
+      w.name,
+    );
   for (const seat of r.seats)
     if (!seat.passed)
       add(

@@ -140,6 +140,11 @@ checks the result:
   must be one connected area. Separate footprints are listed and highlighted.
 - No part of the chassis may reach into a tile pocket, so every tile can be
   placed and soldered. Any overlap is listed and highlighted red.
+- Every wall must be solid apart from its U slots, and every slot must go
+  through. The check looks straight through each wall segment and each slot,
+  taking in only the wall's own thickness: any hole in that view that is not a
+  slot is a gap, and a slot with no hole is blind (something fills it or stands
+  close behind it). Gaps and blind slots are listed and highlighted pink.
 - The closest distance between resting keycaps of the finger columns, the thumb
   row and the extra thumb row is listed; touching fails.
 

@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import Module from 'manifold-3d';
 import { Vector3 } from 'three';
 import { defaults, clone, componentFrames, validateProject } from '../src/geometry';
-import { buildSolid } from '../src/solid';
+import { buildSolid, checkWalls } from '../src/solid';
+import { buildChassis } from '../src/chassis';
 import ref from './python-reference.json';
 const pos = (m: { elements: number[] }) => new Vector3(...m.elements.slice(12, 15));
 const normal = (m: { elements: number[] }) => new Vector3(...m.elements.slice(8, 11));
@@ -76,6 +77,10 @@ test('default chassis passes: one piece on one footprint, clear of the tile pock
   assert(r.report.keycaps.every((k) => k.passed));
   assert(r.report.capGaps.every((g) => g.gap > 1));
   assert(r.report.openings.every((o) => o.removed > 0 && o.covered === 9 && o.blocked === 0));
+  // Solid walls with open slots: two on each finger column, two on the thumb row
+  // and one on each of the extra thumb row's walls.
+  assert(r.report.walls.every((w) => w.passed));
+  assert.equal(r.report.walls.filter((w) => w.name.includes(': slot ')).length, 8);
   assert(r.report.passed);
   const mounted = new wasm.Manifold(
     new wasm.Mesh({ numProp: 3, vertProperties: r.mesh.positions, triVerts: r.mesh.indices }),
@@ -139,4 +144,35 @@ test('the checker reports keycap collisions and loose pieces', async () => {
   assert.equal(r2.report.footprint.length, 2);
   assert.equal(r2.report.passed, false);
   assert(r2.highlights.some((h) => h.kind === 'loose'));
+});
+test('the wall check finds a gap through a wall and a slot that does not go through', async () => {
+  const wasm = await Module();
+  wasm.setup();
+  const cfg = clone(defaults.config);
+  const chassis = buildChassis(wasm, cfg, componentFrames(cfg));
+  const pinky = chassis.wallWindows.filter((w) => w.name.startsWith('pinky column wall'));
+  const slot = pinky.find((w) => w.name.includes(': slot '))!;
+  const home = pinky.find((w) => w.name === 'pinky column wall: matrix_pinky_home')!;
+  // A plan point on a window's mid-plane, at a distance along the wall.
+  const at = (w: typeof slot, along: number, z: number): [number, number, number] => {
+    const across = (w.across[0] + w.across[1]) / 2;
+    const [nx, ny] = w.normal;
+    return [-ny * along + nx * across, nx * along + ny * across, z];
+  };
+  // A slit 6 mm long and 0.5 mm high through the middle of the home key's wall,
+  // and the slot filled.
+  const slitAlong = (home.along[0] + home.along[1]) / 2;
+  const slit = wasm.Manifold.cube([30, 6, 0.5], true)
+    .rotate([0, 0, (Math.atan2(home.normal[1], home.normal[0]) * 180) / Math.PI])
+    .translate(at(home, slitAlong, 8));
+  const fill = wasm.Manifold.cube([30, 10, 20], true)
+    .rotate([0, 0, (Math.atan2(slot.normal[1], slot.normal[0]) * 180) / Math.PI])
+    .translate(at(slot, slot.slots[0][0], slot.slots[0][1]));
+  const damaged = chassis.body.subtract(slit).add(fill);
+  const { checks, gapSolids } = checkWalls(wasm, damaged, pinky);
+  const byName = Object.fromEntries(checks.map((c) => [c.name, c]));
+  assert.equal(byName[home.name].gaps.length, 1);
+  assert(Math.abs(byName[home.name].gaps[0] - 3) < 0.1);
+  assert.equal(byName[slot.name].blindSlots, 1);
+  assert.equal(gapSolids.length, 1 + checks.reduce((t, c) => t + c.blindSlots, 0));
 });
