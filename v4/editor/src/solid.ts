@@ -215,9 +215,22 @@ export function checkWalls(
           (w.across[0] + w.across[1]) / 2,
         ]),
       );
+      // The window's ends are closed, so an opening that runs on past them
+      // (such as a slot between two keys' cutouts) is still a hole.
+      const ends = [w.along[0], w.along[1]].map((a) =>
+        keep(
+          keep(wasm.Manifold.cube([CHECKS.wallSliver, 1000, depth], true)).translate([
+            a,
+            0,
+            (w.across[0] + w.across[1]) / 2,
+          ]),
+        ),
+      );
       const outline = keep(
         keep(
-          keep(keep(turned.intersect(window)).project()).offset(CHECKS.wallSliver, 'Miter'),
+          keep(
+            keep(keep(turned.intersect(window)).add(keep(wasm.Manifold.union(ends)))).project(),
+          ).offset(CHECKS.wallSliver, 'Miter'),
         ).offset(-CHECKS.wallSliver, 'Miter'),
       );
       // Holes are the outline's clockwise loops.

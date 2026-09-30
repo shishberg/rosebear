@@ -4,14 +4,17 @@ import Module from 'manifold-3d';
 import { Vector3 } from 'three';
 import { defaults, clone, componentFrames, validateProject } from '../src/geometry';
 import { buildSolid, checkWalls } from '../src/solid';
-import { buildChassis } from '../src/chassis';
+import { buildChassis, SIZES } from '../src/chassis';
 import ref from './python-reference.json';
 const pos = (m: { elements: number[] }) => new Vector3(...m.elements.slice(12, 15));
 const normal = (m: { elements: number[] }) => new Vector3(...m.elements.slice(8, 11));
 test('default column heights reproduce the Python reference finger poses', () => {
   // The heights and sideways tilts were taken from the old paraboloid surface, so
-  // the finger keys sit where the Python generator put them.
-  for (const [key, m] of Object.entries(componentFrames(defaults.config)))
+  // the finger keys sit where the Python generator put them. (The default turns
+  // the bottom row's keys about their centres; the reference doesn't.)
+  const unturned = clone(defaults.config);
+  (unturned.geometry as { key_overrides: object }).key_overrides = {};
+  for (const [key, m] of Object.entries(componentFrames(unturned)))
     if (key.startsWith('matrix_'))
       m.elements.forEach((x, i) =>
         assert(Math.abs(x - (ref.frames as Record<string, number[]>)[key][i]) < 1e-3, key),
@@ -223,4 +226,64 @@ test('the wall check finds a gap through a wall and a cutout that does not go th
   hex.chassis.wall_pattern = 'hex';
   assert.equal(innerHome(hex), 5);
   assert.equal(innerHome(cfg), 1);
+});
+test('every finger tile has a clear way in past its tile rests', async () => {
+  const wasm = await Module();
+  wasm.setup();
+  const M = wasm.Manifold;
+  const cfg = clone(defaults.config);
+  const f = componentFrames(cfg);
+  const body = buildChassis(wasm, cfg, f).body;
+  const t = cfg.tile,
+    top = -t.plate_top_to_pcb_top_mm;
+  type V3 = [number, number, number];
+  // The tile and its parts, moved in the key's frame.
+  const parts = ([x, y, z]: number[]) => [
+    M.cube(t.size_mm as V3, true).translate([x, y, top - t.size_mm[2] / 2 + z]),
+    ...t.components.map((c) =>
+      M.cube(c.size_mm as V3, true).translate([
+        c.center_mm[0] + x,
+        c.center_mm[1] + y,
+        c.center_mm[2] + top + z,
+      ]),
+    ),
+  ];
+  // Each part swept straight through a list of positions.
+  const path = (n: string, ...at: number[][]) =>
+    M.union(
+      at.slice(1).flatMap((b, i) => {
+        const [p, q] = [parts(at[i]), parts(b)];
+        return p.map((x, j) => M.hull([x, q[j]]));
+      }),
+    ).transform(f[n].elements as never);
+  const keys = Object.keys(f).filter((n) => n.startsWith('matrix_'));
+  const side = new Set(cfg.chassis.tile_side_entry);
+  const s = SIZES.restSlide;
+  for (const n of keys) {
+    const others = M.union(
+      keys
+        .filter((k) => k !== n)
+        .map((k) => M.union(parts([0, 0, 0])).transform(f[k].elements as never)),
+    );
+    // Outward: along the key's x axis, away from the neighbouring column.
+    const col = cfg.geometry.columns.findIndex((c) => n.startsWith(`matrix_${c.name}_`));
+    const nb = `matrix_${cfg.geometry.columns[col ? col - 1 : 1].name}_${n.split('_')[2]}`;
+    const e = f[n].elements;
+    const out = -Math.sign(
+      (f[nb].elements[12] - e[12]) * e[0] + (f[nb].elements[13] - e[13]) * e[1],
+    );
+    const walled = col === 0 || col === cfg.geometry.columns.length - 1;
+    // A tile entering sideways comes in through its wall cutout at its own
+    // height (from 12 mm out it is mostly outside the wall and can come in at
+    // an angle); one that slides comes up 3 mm from below, restSlide in front
+    // of its place, and slides back. In a walled column it comes up inward of
+    // the wall first, then moves out into the slot through the post.
+    const p = side.has(n)
+      ? path(n, [out * 12, 0, 0], [0, 0, 0])
+      : walled
+        ? path(n, [-out * 2.8, -s, -3], [-out * 2.8, -s, 0], [0, -s, 0], [0, 0, 0])
+        : path(n, [0, -s, -3], [0, -s, 0], [0, 0, 0]);
+    assert(p.intersect(body).volume() < 0.01, `${n} hits the chassis`);
+    assert(p.intersect(others).volume() < 0.01, `${n} hits another tile`);
+  }
 });

@@ -104,7 +104,43 @@
         ]
       }
     ],
-    "key_overrides": {},
+    "key_overrides": {
+      "matrix_inner_bottom": {
+        "rotation_deg": [
+          0,
+          0,
+          180
+        ]
+      },
+      "matrix_index_bottom": {
+        "rotation_deg": [
+          0,
+          0,
+          180
+        ]
+      },
+      "matrix_middle_bottom": {
+        "rotation_deg": [
+          0,
+          0,
+          180
+        ]
+      },
+      "matrix_ring_bottom": {
+        "rotation_deg": [
+          0,
+          0,
+          180
+        ]
+      },
+      "matrix_pinky_bottom": {
+        "rotation_deg": [
+          0,
+          0,
+          180
+        ]
+      }
+    },
     "thumb": {
       "position_mm": [
         -42.56,
@@ -312,6 +348,13 @@
     "end_cut_mm": 4,
     "base_thickness_mm": 2,
     "wall_pattern": "hex",
-    "tile_rests": true
+    "tile_rests": true,
+    "tile_side_entry": [
+      "matrix_inner_top",
+      "matrix_inner_home",
+      "matrix_pinky_top",
+      "matrix_pinky_home",
+      "matrix_pinky_bottom"
+    ]
   }
 }

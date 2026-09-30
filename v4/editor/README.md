@@ -131,18 +131,21 @@ default, or `"solid"`).
   are joined. A cap with no wall beside it closes the round only down to the
   plate's underside, leaving the tile pocket open.
 - **Tile rests** (prototype; `chassis.tile_rests: false` turns them off): pressing
-  a switch into its hotswap socket pushes the tile down. In each finger row a
-  web 12 mm long joins neighbouring columns' plates beside the keys; a foot
-  under the back of each tile's side edge, from 5.5 mm behind its centre, holds
-  the tile under the socket. A tile goes up 4.3 mm in front of its place and
-  slides back onto the feet. On the inner and pinky columns' outer sides the
-  foot is inside the wall, hung from the plate just behind the tile pocket. In
-  the thumb rows the rests hang between neighbouring keys along the row and past
-  its end keys, and reach under the whole edge. Each foot is 1.5 mm thick,
-  reaches 1.5 mm under the tile, 0.1 mm below it, and is cut back around the
-  tile's parts. Only the index, middle and ring columns' top and home tiles can
-  be fitted this way: the bottom row's tiles would slide into the front swept
-  end, and the outer columns' tiles into the wall's posts.
+  a switch into its hotswap socket pushes the tile down. A foot 1.5 mm thick
+  reaches 1.5 mm under a tile's side edge, 0.1 mm below it, cut back around the
+  tile's parts. In the finger columns, most tiles go up 7.5 mm in front of their
+  place and slide back onto their feet, so the feet are only under the back of
+  the side edges, from 2.3 mm behind the centre: under the socket. The bottom
+  row's keys are turned 180° (`geometry.key_overrides`), so their sockets face
+  the front and their tiles slide forward, clear of the front swept end. In each
+  row a web joins neighbouring columns' plates along their feet. The tiles in
+  `chassis.tile_side_entry` (by default the outer columns' except the inner
+  bottom, which the trackpad pod blocks) come in sideways through their wall
+  cutout at their own height: under the walled edge their feet are only at the
+  ends, clear of the parts' tracks, and hang from the posts. An outer column's
+  tile that slides goes up just inward of the wall, moves out, and slides
+  through a slot cut in the post. In the thumb rows the rests hang between
+  neighbouring keys along the row and past its end keys.
 - Ribs 6 mm tall join along the base: both ends of the main thumb row to the
   fingers' front, and, when the rows are close, the ends of the two thumb rows to
   each other.
@@ -179,8 +182,8 @@ checks the result:
   highlighted red.
 - Every wall must be solid apart from its U cutouts, and every cutout must go
   through. The check looks straight through each wall segment, from the
-  neighbouring keys' centres on either side, taking in only the wall's own
-  thickness: any hole in that view that is not the key's cutout or one of its
+  neighbouring keys' centres on either side (the view's ends count as solid),
+  taking in only the wall's own thickness: any hole in that view that is not the key's cutout or one of its
   hex pattern openings, and that no designed opening passes through (a
   neighbouring key's wall can turn across the view), is a gap, and a
   cutout with no hole is blind (something fills it or stands close behind it).
@@ -189,6 +192,9 @@ checks the result:
   and its clearance from its lowest point up, and the switch housing's rim below
   that) is cut out of the chassis, and whatever it removed is listed and
   highlighted orange.
+- The tests also check that every finger tile has a clear way in past the tile
+  rests (its slide, or its path through the wall cutout) that misses the chassis
+  and the other tiles.
 - The closest distance between resting keycaps of the finger columns, the thumb
   row and the extra thumb row is listed; touching fails.
 

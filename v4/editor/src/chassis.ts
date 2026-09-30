@@ -68,7 +68,7 @@ export interface WallWindow {
  * Construction sizes that are not in the config, in mm. Distances are in key
  * coordinates unless noted.
  */
-const SIZES = {
+export const SIZES = {
   /** Wall and base heights: walls stop this far above z = 0, inside the base plate. */
   wallFoot: 1,
   /** A wall's end, where it joins a swept end's cap, reaches this far past the tile pocket; a square wall cutout is this much larger than the pocket. */
@@ -117,23 +117,26 @@ const SIZES = {
   podBracketBelowRim: 4,
   podBracketInset: 2.5,
   podBracketDepth: 4,
-  /** PROTOTYPE tile rests: width along the plate edge, how far the foot reaches under the tile, the foot's thickness and its gap below the tile. */
+  /** PROTOTYPE tile rests: a thumb rest's width along the plate edge, how far a foot reaches under the tile, its thickness and its gap below the tile. */
   restWidth: 12,
   restUnder: 1.5,
   restThickness: 1.5,
   restGap: 0.1,
-  /** A rest past a ladder's end key hangs from this far past its tile pocket. */
+  /** A rest past a thumb row's end key hangs from this far past its tile pocket. */
   restEndStem: 1.6,
   /**
-   * In the finger columns the feet are only under the back of each tile's side
-   * edges, from this far behind its centre: a tile goes up just in front of its
-   * place and slides back onto them. A foot reaches this far past the pocket
-   * into the web; an outer column's foot, inside the wall, hangs from the plate
-   * this far behind the pocket.
+   * A finger tile that slides goes up this far in front of its place and
+   * slides back onto its feet. Feet and webs stay this far clear of a tile's
+   * way in and of its parts' tracks.
    */
-  restFootFrom: 5.5,
+  restSlide: 7.5,
+  restPathClear: 0.3,
+  /** A foot reaches this far past the tile pocket into its web. */
   restFootOut: 0.5,
+  /** A foot inside a wall hangs from the plate this far past the tile pocket, at the post. */
   restBarPast: 2,
+  /** A tile's way in is cut this far clear of the tile, above it (the foot is restGap below). */
+  restPathAbove: 0.3,
 } as const;
 
 /** A plan vector or direction, [x, y] in world coordinates. */
@@ -263,6 +266,12 @@ export function buildChassis(
   const restsOn = (chassis as { tile_rests?: boolean }).tile_rests !== false;
   const restTop = -(tile.plate_top_to_pcb_top_mm + tile.size_mm[2]) - SIZES.restGap;
   const restBottom = restTop - SIZES.restThickness;
+  // Finger tiles that go in sideways through their wall cutout; the rest slide
+  // along their column (by default, all the outer columns' tiles go in sideways).
+  const sideEntry = new Set(
+    (chassis as { tile_side_entry?: string[] }).tile_side_entry ??
+      [columns[0], columns.at(-1)!].flatMap(columnKeys),
+  );
   const pocketHalf: HalfWidths = [
     tile.size_mm[0] / 2 + tile.clearance_mm,
     tile.size_mm[1] / 2 + tile.clearance_mm,
@@ -791,32 +800,42 @@ export function buildChassis(
         }),
       );
     };
-    /** A foot under the back of key n's side edge facing dir, reaching `out` past the pocket to hang from the plate. */
-    const backFoot = (n: string, dir: Plan, past: number, out: number) =>
+    /** A foot under key n's edge facing dir, from `from` to `to` along it, reaching `out` past the pocket. */
+    const foot = (n: string, dir: Plan, from: number, to: number, out: number) =>
       M.hull(
-        edgePoints(n, dir, [SIZES.restFootFrom, pocketHalf[1] + past], (axis) => [
+        edgePoints(n, dir, [from, to], (axis) => [
           [pocketHalf[axis] + out, -plateThickness / 2],
           [pocketHalf[axis] + out, restBottom],
           [pocketHalf[axis] - SIZES.restUnder, restTop],
           [pocketHalf[axis] - SIZES.restUnder, restBottom],
         ]),
       );
-    /** The web between two keys' facing side edges, from inside the plate (so it overlaps the plate rather than sharing its edge face) down to the feet. */
+    // Finger tiles go in one of two ways. Most slide: a tile goes up restSlide
+    // in front of its place and slides back, so its feet can only be under the
+    // back of its side edges, where nothing was above them on its way up; that
+    // is also under the socket. A tile in tile_side_entry comes in sideways
+    // through its wall cutout at its own height: its feet under the walled edge
+    // are only at the ends, clear of its parts' tracks, and hang from the posts.
+    const clearance = tile.component_clearance_mm;
+    const backFrom = tile.size_mm[1] / 2 - SIZES.restSlide + SIZES.restPathClear;
+    const partSpans = tile.components.map((p) => [
+      p.center_mm[1] - p.size_mm[1] / 2 - clearance,
+      p.center_mm[1] + p.size_mm[1] / 2 + clearance,
+    ]);
+    const frontTo = Math.min(...partSpans.map((r) => r[0])) - SIZES.restPathClear;
+    const backEndFrom = Math.max(...partSpans.map((r) => r[1])) + SIZES.restPathClear;
+    const barEnd = pocketHalf[1] + SIZES.restBarPast;
+    /** The web between two keys' facing side edges, along their feet, from inside the plate (so it overlaps the plate rather than sharing its edge face) down to the feet. */
     const web = (a: string, b: string) =>
       M.hull(
         [
           [a, b],
           [b, a],
         ].flatMap(([n, other]) =>
-          edgePoints(
-            n,
-            planToward(n, other),
-            [-SIZES.restWidth / 2, SIZES.restWidth / 2],
-            (axis) => [
-              [pocketHalf[axis] - SIZES.restFootOut, -plateThickness / 2],
-              [pocketHalf[axis], restBottom],
-            ],
-          ),
+          edgePoints(n, planToward(n, other), [backFrom, pocketHalf[1]], (axis) => [
+            [pocketHalf[axis] - SIZES.restFootOut, -plateThickness / 2],
+            [pocketHalf[axis], restBottom],
+          ]),
         ),
       );
     const rests: Manifold[] = [];
@@ -847,24 +866,29 @@ export function buildChassis(
         frames[n],
       );
     };
-    // Finger columns: a bridge between neighbouring columns' keys in each row,
-    // under the tiles' side edges, and a rest outside each outer column.
+    // Finger columns: in each row a bridge between neighbouring columns' keys,
+    // and feet inside the outer columns' walls.
     for (const r of ROWS) {
       const ns = columns.map((c) => `matrix_${c}_${r}`);
       for (let i = 0; i + 1 < ns.length; i++)
         rests.push(
           web(ns[i], ns[i + 1]),
-          backFoot(ns[i], planToward(ns[i], ns[i + 1]), 0, SIZES.restFootOut),
-          backFoot(ns[i + 1], planToward(ns[i + 1], ns[i]), 0, SIZES.restFootOut),
+          ...[
+            [ns[i], ns[i + 1]],
+            [ns[i + 1], ns[i]],
+          ].map(([n, other]) =>
+            foot(n, planToward(n, other), backFrom, pocketHalf[1], SIZES.restFootOut),
+          ),
         );
-      // Outer columns: inside the wall, hung from the plate just behind the tile pocket.
       for (const [end, next] of [
         [ns[0], ns[1]],
         [ns.at(-1)!, ns.at(-2)!],
-      ])
-        rests.push(
-          backFoot(end, planToward(next, end), SIZES.restBarPast, plateHalf[0] - pocketHalf[0]),
-        );
+      ]) {
+        const dir = planToward(next, end);
+        if (sideEntry.has(end))
+          rests.push(foot(end, dir, -barEnd, frontTo, 0), foot(end, dir, backEndFrom, barEnd, 0));
+        else rests.push(foot(end, dir, backFrom, barEnd, 0));
+      }
     }
     // Thumb rows: rests between neighbouring keys along the row and past its ends.
     for (const ns of [thumbRow, extraRow].filter((r) => r.length)) {
@@ -885,6 +909,44 @@ export function buildChassis(
         }
     }
     return M.union(rests).subtract(M.union(keyNames.map(clear)));
+  };
+  /**
+   * A sliding finger tile's way back onto its feet: the tile and its parts,
+   * restPathClear larger (only restPathAbove above the tile, so the feet stay),
+   * swept from restSlide in front of its place. It is cut only in the walled
+   * columns, where it makes a slot through the wall post in the way.
+   */
+  const slidePaths = () => {
+    const c = SIZES.restPathClear;
+    const tileTop = -tile.plate_top_to_pcb_top_mm;
+    const t = tile.size_mm;
+    const boxes = [
+      {
+        size: [t[0] + 2 * c, t[1] + 2 * c, t[2] + SIZES.restPathAbove + SIZES.restGap / 2],
+        centre: [0, 0, tileTop + (SIZES.restPathAbove - t[2] - SIZES.restGap / 2) / 2],
+      },
+      ...tile.components.map((p) => ({
+        size: p.size_mm.map((x) => x + 2 * tile.component_clearance_mm),
+        centre: [p.center_mm[0], p.center_mm[1], p.center_mm[2] + tileTop],
+      })),
+    ];
+    return M.union(
+      [columns[0], columns.at(-1)!]
+        .flatMap(columnKeys)
+        .filter((n) => !sideEntry.has(n))
+        .flatMap((n) =>
+          boxes.map(({ size, centre }) => {
+            const b = M.cube(size as Vec3, true);
+            return place(
+              M.hull([
+                b.translate([centre[0], centre[1] - SIZES.restSlide, centre[2]]),
+                b.translate(centre as Vec3),
+              ]),
+              frames[n],
+            );
+          }),
+        ),
+    );
   };
 
   const parts: Manifold[] = [];
@@ -1344,7 +1406,9 @@ export function buildChassis(
   }
 
   const built = M.union(parts);
-  const cleared = built.subtract(pockets).add(restsOn ? tileRests() : M.union([]));
+  const cleared = restsOn
+    ? built.subtract(pockets).add(tileRests()).subtract(slidePaths())
+    : built.subtract(pockets);
   // Base plate: the footprint of everything built, holes filled, so it is flush with the walls.
   const signedArea = (p: [number, number][]) =>
     p.reduce((t, q, i) => {
