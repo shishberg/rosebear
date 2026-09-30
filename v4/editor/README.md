@@ -102,25 +102,28 @@ default, or `"solid"`).
   switch body must stay inside the round's hollow, and the round may start up to
   `end_cut_mm` inside the plate edge but not inside the switch seat. Where the
   round starts past the plate edge, the plate continues flat out to it, as thick
-  as the plate. The curve spans the end keys' plates. Where two columns' lines
+  as the plate. The curve spans the end keys' plates, and on past a wall beside
+  it to the wall's outer face. Where two columns' lines
   overlap, the outer one is used; across a gap between them the curve changes
   smoothly from one line to the next. Round-bottomed slots part the columns down
   to half the wall height.
 - The thumb rows are ladders whose two ends roll over the same way.
 - **Walls** stand on the inner and pinky columns' outer sides, the main thumb
   row's back and the thumb rows' fronts. When the extra thumb pair is close in
-  front, the main row's front, which faces it, has no wall. A wall is flush with the plate edges, so a walled side is no wider
-  than an open one. Each key has its own wall segment, joined to its neighbours'.
+  front, the main row's front, which faces it, has no wall. A wall stands just
+  outside the plate edges, wall_mm thick, so the tile pockets stay inside it
+  and a walled side is wall_mm wider than an open one. Each key has its own wall
+  segment, joined to its neighbours'.
   The segment follows the plate's tilt down to the tile pocket's depth, then
   drops vertically to the base. A U cutout under each key, the tile pocket's
   width, runs from the plate's underside to just below the pocket, with 2 mm
   round bottom corners. What remains is a post between each pair of keys and a
-  strip along the base. With the hex pattern, the wall is opened into struts
+  strip along the base. Above the plate's underside the wall is whole, from key
+  to key. With the hex pattern, the wall is opened into struts
   wall_mm wide: each post comes down to a hexagon centred under it, with
   upright sides under the key centres, and struts run from the hexagons down
   to the base strip. The struts slope at 30° and pass 0.5 mm under the tile
-  pockets' corners (and the switch bodies' where the wall reaches over them),
-  so the upright sides are as long as the wall allows. Where a key's upright
+  pockets' corners, so the upright sides are as long as the wall allows. Where a key's upright
   side would be shorter than wall_mm, the pattern is cut off at the base
   strip instead: the key has no strut below it, and the hexagons either side
   run down to the strip. In the default layout the pinky column and the extra
@@ -138,13 +141,10 @@ default, or `"solid"`).
   the side edges, from 2.3 mm behind the centre: under the socket. The bottom
   row's keys are turned 180° (`geometry.key_overrides`), so their sockets face
   the front and their tiles slide forward, clear of the front swept end. In each
-  row a web joins neighbouring columns' plates along their feet. The tiles in
-  `chassis.tile_side_entry` (by default the outer columns' except the inner
-  bottom, which the trackpad pod blocks) come in sideways through their wall
-  cutout at their own height: under the walled edge their feet are only at the
-  ends, clear of the parts' tracks, and hang from the posts. An outer column's
-  tile that slides goes up just inward of the wall, moves out, and slides
-  through a slot cut in the post. In the thumb rows the rests hang between
+  row a web joins neighbouring columns' plates along their feet; in the outer
+  columns the feet under the walled edge hang from the wall. Where the wall
+  between two keys comes inside a tile's way in, the way is cut out of it. In
+  the thumb rows the rests hang between
   neighbouring keys along the row and past its end keys.
 - Ribs 6 mm tall join along the base: both ends of the main thumb row to the
   fingers' front, and, when the rows are close, the ends of the two thumb rows to
@@ -152,7 +152,7 @@ default, or `"solid"`).
 - Above each plate the chassis is kept clear of the switch housing's rim (the
   seat footprint, up to the keycap's lowest point) and of the keycap's travel.
 - The Cirque pod hangs from the far thumb key on a bracket fixed to the plate's
-  two nearest corners.
+  two nearest corners, out to the wall's face where a wall is beside them.
 - The bottom plate is the footprint of everything above, 2 mm thick, and is a
   separate print. The editor hides it by default; **Bottom plate** shows it.
 
@@ -174,8 +174,8 @@ checks the result:
   Each keycap's room is cut out of the chassis before this check, so it fails
   only when the room is smaller than the keycap's travel; the keycap room check
   below reports chassis that was in the way.
-- Without the bottom plate the chassis must be one piece; loose pieces are listed
-  and highlighted. The walls must also meet along the base: a section 1.5 mm up
+- Without the bottom plate the chassis must be one piece; loose pieces over
+  0.5 mm³ are listed and highlighted. The walls must also meet along the base: a section 1.5 mm up
   must be one connected area. Separate footprints are listed and highlighted.
 - No part of the chassis may reach into a tile pocket, so every tile can be
   placed and soldered. Any overlap is listed, and the pieces with volume are
@@ -193,8 +193,8 @@ checks the result:
   that) is cut out of the chassis, and whatever it removed is listed and
   highlighted orange.
 - The tests also check that every finger tile has a clear way in past the tile
-  rests (its slide, or its path through the wall cutout) that misses the chassis
-  and the other tiles.
+  rests (up 3 mm from below, 7.5 mm in front of its place, then back) that
+  misses the chassis and the other tiles.
 - The closest distance between resting keycaps of the finger columns, the thumb
   row and the extra thumb row is listed; touching fails.
 

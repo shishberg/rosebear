@@ -257,32 +257,16 @@ test('every finger tile has a clear way in past its tile rests', async () => {
       }),
     ).transform(f[n].elements as never);
   const keys = Object.keys(f).filter((n) => n.startsWith('matrix_'));
-  const side = new Set(cfg.chassis.tile_side_entry);
   const s = SIZES.restSlide;
+  const rise = SIZES.restRise;
   for (const n of keys) {
     const others = M.union(
       keys
         .filter((k) => k !== n)
         .map((k) => M.union(parts([0, 0, 0])).transform(f[k].elements as never)),
     );
-    // Outward: along the key's x axis, away from the neighbouring column.
-    const col = cfg.geometry.columns.findIndex((c) => n.startsWith(`matrix_${c.name}_`));
-    const nb = `matrix_${cfg.geometry.columns[col ? col - 1 : 1].name}_${n.split('_')[2]}`;
-    const e = f[n].elements;
-    const out = -Math.sign(
-      (f[nb].elements[12] - e[12]) * e[0] + (f[nb].elements[13] - e[13]) * e[1],
-    );
-    const walled = col === 0 || col === cfg.geometry.columns.length - 1;
-    // A tile entering sideways comes in through its wall cutout at its own
-    // height (from 12 mm out it is mostly outside the wall and can come in at
-    // an angle); one that slides comes up 3 mm from below, restSlide in front
-    // of its place, and slides back. In a walled column it comes up inward of
-    // the wall first, then moves out into the slot through the post.
-    const p = side.has(n)
-      ? path(n, [out * 12, 0, 0], [0, 0, 0])
-      : walled
-        ? path(n, [-out * 2.8, -s, -3], [-out * 2.8, -s, 0], [0, -s, 0], [0, 0, 0])
-        : path(n, [0, -s, -3], [0, -s, 0], [0, 0, 0]);
+    // Each tile comes up restRise from below, restSlide in front of its place, and slides back.
+    const p = path(n, [0, -s, -rise], [0, -s, 0], [0, 0, 0]);
     assert(p.intersect(body).volume() < 0.01, `${n} hits the chassis`);
     assert(p.intersect(others).volume() < 0.01, `${n} hits another tile`);
   }

@@ -182,13 +182,6 @@
     "end_cut_mm": 4,
     "base_thickness_mm": 2,
     "wall_pattern": "hex",
-    "tile_rests": true,
-    "tile_side_entry": [
-      "matrix_inner_top",
-      "matrix_inner_home",
-      "matrix_pinky_top",
-      "matrix_pinky_home",
-      "matrix_pinky_bottom"
-    ]
+    "tile_rests": true
   }
 }

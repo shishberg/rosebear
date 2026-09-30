@@ -25,8 +25,8 @@ const CHECKS = {
   /** Each opening must be clear from this far below the switch body to this height above the plate. */
   openingBelowBody: 0.5,
   openingTop: 12,
-  /** Pieces smaller than this are ignored when counting pieces. */
-  minPiece: 50,
+  /** Pieces smaller than this (mm³) are ignored when counting pieces: slivers left by boolean operations. */
+  minPiece: 0.5,
   /** The footprint check's section height above z = 0, and the smallest area it counts. */
   footprintHeight: 1.5,
   minFootprint: 1,
