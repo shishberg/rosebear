@@ -132,13 +132,17 @@ default, or `"solid"`).
   plate's underside, leaving the tile pocket open.
 - **Tile rests** (prototype; `chassis.tile_rests: false` turns them off): pressing
   a switch into its hotswap socket pushes the tile down. In each finger row a
-  bridge 12 mm wide joins neighbouring columns' plates under their side edges;
-  on the inner and pinky columns' outer sides a bar crosses the wall cutout,
-  hung from the plate just past the tile pocket at each end. In the thumb rows
-  the rests hang between neighbouring keys along the row and past its end keys.
-  A foot 1.5 mm thick at the bottom of each rest reaches 1.5 mm under the tile's
-  edge, 0.1 mm below it, cut back around the tile's parts. The wall check looks
-  for each cutout's hole above the bar.
+  web 12 mm long joins neighbouring columns' plates beside the keys; a foot
+  under the back of each tile's side edge, from 5.5 mm behind its centre, holds
+  the tile under the socket. A tile goes up 4.3 mm in front of its place and
+  slides back onto the feet. On the inner and pinky columns' outer sides the
+  foot is inside the wall, hung from the plate just behind the tile pocket. In
+  the thumb rows the rests hang between neighbouring keys along the row and past
+  its end keys, and reach under the whole edge. Each foot is 1.5 mm thick,
+  reaches 1.5 mm under the tile, 0.1 mm below it, and is cut back around the
+  tile's parts. Only the index, middle and ring columns' top and home tiles can
+  be fitted this way: the bottom row's tiles would slide into the front swept
+  end, and the outer columns' tiles into the wall's posts.
 - Ribs 6 mm tall join along the base: both ends of the main thumb row to the
   fingers' front, and, when the rows are close, the ends of the two thumb rows to
   each other.

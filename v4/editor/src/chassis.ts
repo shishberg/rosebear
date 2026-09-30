@@ -124,7 +124,15 @@ const SIZES = {
   restGap: 0.1,
   /** A rest past a ladder's end key hangs from this far past its tile pocket. */
   restEndStem: 1.6,
-  /** A foot across an outer column's wall cutout hangs from the plate this far past the tile pocket at each end. */
+  /**
+   * In the finger columns the feet are only under the back of each tile's side
+   * edges, from this far behind its centre: a tile goes up just in front of its
+   * place and slides back onto them. A foot reaches this far past the pocket
+   * into the web; an outer column's foot, inside the wall, hangs from the plate
+   * this far behind the pocket.
+   */
+  restFootFrom: 5.5,
+  restFootOut: 0.5,
   restBarPast: 2,
 } as const;
 
@@ -399,12 +407,8 @@ export function buildChassis(
       solid: M.hull(across.flatMap((c) => profile.map(([a, z]) => at(a, c, z)))),
       /** The tile pocket's shape through the wall, wallPocketGap larger, without the round bottom. */
       square: M.hull(across.flatMap((c) => box.map(([a, z]) => at(a, c, z)))),
-      /** The cutout's centre, in the middle of the wall (above the foot across it, with tile rests). */
-      centre: at(
-        0,
-        plateHalf[axis] - wallThickness / 2,
-        restsOn ? (restTop - plateThickness) / 2 : -(plateThickness + pocketDepth) / 2,
-      ),
+      /** The cutout's centre, in the middle of the wall. */
+      centre: at(0, plateHalf[axis] - wallThickness / 2, -(plateThickness + pocketDepth) / 2),
       /**
        * The lowest points the wall must stay clear of, within the wall's
        * thickness: the tile pocket's lower corners and, where the wall reaches
@@ -765,34 +769,56 @@ export function buildChassis(
       );
     };
     /**
-     * A foot under key n's walled edge facing dir: a bar across its wall
-     * cutout, hung from the plate at each end, just past the tile pocket.
+     * Points under key n's edge facing dir, in the key's frame: at each distance
+     * `along` the edge (+ toward the key's back), each [distance out from the
+     * key's centre, z] that `across` gives for the edge's axis.
      */
-    const wallBar = (n: string, dir: Plan) => {
+    const edgePoints = (
+      n: string,
+      dir: Plan,
+      along: number[],
+      across: (axis: 0 | 1) => [number, number][],
+    ) => {
       const edge = edgeFacing(n, dir);
       const axis = facingAxis(edge);
       const side = edge[0][axis];
-      const box = (along: number[], zs: number[]) =>
-        M.hull(
-          along.flatMap((a) =>
-            [pocketHalf[axis] - SIZES.restUnder, plateHalf[axis]].flatMap((c) =>
-              zs.map((z) => {
-                const v: Vec3 = [0, 0, z];
-                v[1 - axis] = a;
-                v[axis] = side * c;
-                return point(frames[n], v);
-              }),
-            ),
-          ),
-        );
-      const end = pocketHalf[1 - axis] + SIZES.restBarPast;
-      return M.union([
-        box([-end, end], [restTop, restBottom]),
-        ...[-1, 1].map((a) =>
-          box([a * pocketHalf[1 - axis], a * end], [-plateThickness / 2, restBottom]),
-        ),
-      ]);
+      return along.flatMap((a) =>
+        across(axis).map(([c, z]) => {
+          const v: Vec3 = [0, 0, z];
+          v[1 - axis] = a;
+          v[axis] = side * c;
+          return point(frames[n], v);
+        }),
+      );
     };
+    /** A foot under the back of key n's side edge facing dir, reaching `out` past the pocket to hang from the plate. */
+    const backFoot = (n: string, dir: Plan, past: number, out: number) =>
+      M.hull(
+        edgePoints(n, dir, [SIZES.restFootFrom, pocketHalf[1] + past], (axis) => [
+          [pocketHalf[axis] + out, -plateThickness / 2],
+          [pocketHalf[axis] + out, restBottom],
+          [pocketHalf[axis] - SIZES.restUnder, restTop],
+          [pocketHalf[axis] - SIZES.restUnder, restBottom],
+        ]),
+      );
+    /** The web between two keys' facing side edges, from inside the plate (so it overlaps the plate rather than sharing its edge face) down to the feet. */
+    const web = (a: string, b: string) =>
+      M.hull(
+        [
+          [a, b],
+          [b, a],
+        ].flatMap(([n, other]) =>
+          edgePoints(
+            n,
+            planToward(n, other),
+            [-SIZES.restWidth / 2, SIZES.restWidth / 2],
+            (axis) => [
+              [pocketHalf[axis] - SIZES.restFootOut, -plateThickness / 2],
+              [pocketHalf[axis], restBottom],
+            ],
+          ),
+        ),
+      );
     const rests: Manifold[] = [];
     const clear = (n: string) => {
       // The tile, from the plate's underside down to the foot (a rest overlaps
@@ -827,16 +853,18 @@ export function buildChassis(
       const ns = columns.map((c) => `matrix_${c}_${r}`);
       for (let i = 0; i + 1 < ns.length; i++)
         rests.push(
-          M.hull([
-            ...restSide(ns[i], planToward(ns[i], ns[i + 1]), 0),
-            ...restSide(ns[i + 1], planToward(ns[i + 1], ns[i]), 0),
-          ]),
+          web(ns[i], ns[i + 1]),
+          backFoot(ns[i], planToward(ns[i], ns[i + 1]), 0, SIZES.restFootOut),
+          backFoot(ns[i + 1], planToward(ns[i + 1], ns[i]), 0, SIZES.restFootOut),
         );
+      // Outer columns: inside the wall, hung from the plate just behind the tile pocket.
       for (const [end, next] of [
         [ns[0], ns[1]],
         [ns.at(-1)!, ns.at(-2)!],
       ])
-        rests.push(wallBar(end, planToward(next, end)));
+        rests.push(
+          backFoot(end, planToward(next, end), SIZES.restBarPast, plateHalf[0] - pocketHalf[0]),
+        );
     }
     // Thumb rows: rests between neighbouring keys along the row and past its ends.
     for (const ns of [thumbRow, extraRow].filter((r) => r.length)) {
