@@ -1,8 +1,9 @@
 # Rosebear chassis editor
 
 The right-hand chassis editing loop runs entirely in **TypeScript + Three.js
-+ Manifold WebAssembly**. No Python server or export/rebuild handoff is required.
-KiCad/PCB generation stays in the existing offline v4 pipeline.
+
+- Manifold WebAssembly**. No Python server or export/rebuild handoff is required.
+  KiCad/PCB generation stays in the existing offline v4 pipeline.
 
 The editor edits the **key layout**; the chassis is generated from it. The
 construction is the swept Skeletyl shape chosen from the
@@ -35,12 +36,12 @@ whole hand is tented (`geometry.tent_deg`, a rotation about Y) and lifted
 
 **Finger columns** (`geometry.columns`, inner to pinky). Each column has:
 
-| Parameter | Meaning |
-|---|---|
-| `heights_mm` | Heights of the top, home and bottom keys. Each key tilts along the column to follow the parabola through the three heights. |
-| `offset_mm` | `[X offset, stagger, 0]`. Keys sit `column_pitch_mm` apart in X and `row_pitch_mm` apart in Y; the stagger moves the whole column in Y. |
-| `roll_deg` | Sideways tilt: the slope across the column. Positive rises toward the pinky. |
-| `rotation_deg` | Turns each key about its own centre; `[0,0,a]` splays the column by `a`. |
+| Parameter      | Meaning                                                                                                                                 |
+| -------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `heights_mm`   | Heights of the top, home and bottom keys. Each key tilts along the column to follow the parabola through the three heights.             |
+| `offset_mm`    | `[X offset, stagger, 0]`. Keys sit `column_pitch_mm` apart in X and `row_pitch_mm` apart in Y; the stagger moves the whole column in Y. |
+| `roll_deg`     | Sideways tilt: the slope across the column. Positive rises toward the pinky.                                                            |
+| `rotation_deg` | Turns each key about its own centre; `[0,0,a]` splays the column by `a`.                                                                |
 
 The default heights and tilts reproduce the previous paraboloid surface, so the
 finger keys sit where the Python generator put them.
@@ -48,13 +49,13 @@ finger keys sit where the Python generator put them.
 **Thumb clusters** (`geometry.thumb`, and the optional `geometry.thumb_extra`, the
 pair tucked in front of it). The keys fan along an arc:
 
-| Parameter | Meaning |
-|---|---|
-| `position_mm` | The cluster's centre: the middle of the arc. |
-| `rotation_deg` | `[tilt about X, tilt about Y, angle]`. The angle turns the cluster in plan. |
-| `arc.radius_mm`, `arc.step_deg` | The arc's radius and the angle between neighbouring keys. Key spacing is about `2 × radius × sin(step / 2)`. |
-| `arc.well_deg` | Each key tilts toward the middle of the cluster by this much per key step, rising so it stays on a circle (a well, as in the finger columns). |
-| `keys` | Key names in order along the arc, each with an optional `offset_mm` and `rotation_deg` (the middle thumb key is turned 90° for its 1.5u cap). |
+| Parameter                       | Meaning                                                                                                                                       |
+| ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `position_mm`                   | The cluster's centre: the middle of the arc.                                                                                                  |
+| `rotation_deg`                  | `[tilt about X, tilt about Y, angle]`. The angle turns the cluster in plan.                                                                   |
+| `arc.radius_mm`, `arc.step_deg` | The arc's radius and the angle between neighbouring keys. Key spacing is about `2 × radius × sin(step / 2)`.                                  |
+| `arc.well_deg`                  | Each key tilts toward the middle of the cluster by this much per key step, rising so it stays on a circle (a well, as in the finger columns). |
+| `keys`                          | Key names in order along the arc, each with an optional `offset_mm` and `rotation_deg` (the middle thumb key is turned 90° for its 1.5u cap). |
 
 `trackpad.position_mm` and `rotation_deg` place the Cirque pod. `chassis` holds
 the construction's dimensions: plate thickness and margin, wall thickness, the
@@ -130,11 +131,14 @@ default, or `"solid"`).
   are joined. A cap with no wall beside it closes the round only down to the
   plate's underside, leaving the tile pocket open.
 - **Tile rests** (prototype; `chassis.tile_rests: false` turns them off): pressing
-  a switch into its hotswap socket pushes the tile down. A web 12 mm wide hangs
-  from the plate between neighbouring keys in each column and thumb row, and just
-  past each row's end keys. A foot 1.5 mm thick at its bottom reaches 1.5 mm
-  under each tile's edge, 0.1 mm below it, cut back around the tile's parts. The
-  tile slides in sideways onto the feet before its switch goes in.
+  a switch into its hotswap socket pushes the tile down. In each finger row a
+  bridge 12 mm wide joins neighbouring columns' plates under their side edges;
+  on the inner and pinky columns' outer sides a bar crosses the wall cutout,
+  hung from the plate just past the tile pocket at each end. In the thumb rows
+  the rests hang between neighbouring keys along the row and past its end keys.
+  A foot 1.5 mm thick at the bottom of each rest reaches 1.5 mm under the tile's
+  edge, 0.1 mm below it, cut back around the tile's parts. The wall check looks
+  for each cutout's hole above the bar.
 - Ribs 6 mm tall join along the base: both ends of the main thumb row to the
   fingers' front, and, when the rows are close, the ends of the two thumb rows to
   each other.

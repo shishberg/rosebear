@@ -124,6 +124,8 @@ const SIZES = {
   restGap: 0.1,
   /** A rest past a ladder's end key hangs from this far past its tile pocket. */
   restEndStem: 1.6,
+  /** A foot across an outer column's wall cutout hangs from the plate this far past the tile pocket at each end. */
+  restBarPast: 2,
 } as const;
 
 /** A plan vector or direction, [x, y] in world coordinates. */
@@ -249,6 +251,10 @@ export function buildChassis(
     tile.size_mm[2] +
     Math.max(0, ...tile.components.map((c) => c.size_mm[2] / 2 - c.center_mm[2])) +
     tile.component_clearance_mm;
+  // PROTOTYPE tile rests: the top and bottom of the foot under a tile.
+  const restsOn = (chassis as { tile_rests?: boolean }).tile_rests !== false;
+  const restTop = -(tile.plate_top_to_pcb_top_mm + tile.size_mm[2]) - SIZES.restGap;
+  const restBottom = restTop - SIZES.restThickness;
   const pocketHalf: HalfWidths = [
     tile.size_mm[0] / 2 + tile.clearance_mm,
     tile.size_mm[1] / 2 + tile.clearance_mm,
@@ -393,8 +399,12 @@ export function buildChassis(
       solid: M.hull(across.flatMap((c) => profile.map(([a, z]) => at(a, c, z)))),
       /** The tile pocket's shape through the wall, wallPocketGap larger, without the round bottom. */
       square: M.hull(across.flatMap((c) => box.map(([a, z]) => at(a, c, z)))),
-      /** The cutout's centre, in the middle of the wall. */
-      centre: at(0, plateHalf[axis] - wallThickness / 2, -(plateThickness + pocketDepth) / 2),
+      /** The cutout's centre, in the middle of the wall (above the foot across it, with tile rests). */
+      centre: at(
+        0,
+        plateHalf[axis] - wallThickness / 2,
+        restsOn ? (restTop - plateThickness) / 2 : -(plateThickness + pocketDepth) / 2,
+      ),
       /**
        * The lowest points the wall must stay clear of, within the wall's
        * thickness: the tile pocket's lower corners and, where the wall reaches
@@ -726,13 +736,11 @@ export function buildChassis(
   ];
 
   // PROTOTYPE tile rests. Pressing a switch into its hotswap socket pushes the
-  // tile down, and nothing else holds it. A web hangs from the plate between
-  // neighbouring keys in a ladder, and past each ladder's end keys, down past the
-  // tiles; a foot at its bottom reaches under each tile's edge. The tile slides
-  // in sideways onto the feet before its switch goes in.
+  // tile down, and nothing else holds it. A web hangs from the plate beside
+  // each tile, down past it; a foot at its bottom reaches under the tile's edge.
+  // In the finger columns the webs bridge neighbouring columns under the keys'
+  // side edges; in the thumb rows they hang between keys along the row.
   const tileRests = () => {
-    const restTop = -(tile.plate_top_to_pcb_top_mm + tile.size_mm[2]) - SIZES.restGap;
-    const restBottom = restTop - SIZES.restThickness;
     /** Key n's share of a rest under its edge facing dir: from inside the plate, `reach` past the pocket, down to the foot. */
     const restSide = (n: string, dir: Plan, reach: number) => {
       const edge = edgeFacing(n, dir);
@@ -756,19 +764,47 @@ export function buildChassis(
         }),
       );
     };
+    /**
+     * A foot under key n's walled edge facing dir: a bar across its wall
+     * cutout, hung from the plate at each end, just past the tile pocket.
+     */
+    const wallBar = (n: string, dir: Plan) => {
+      const edge = edgeFacing(n, dir);
+      const axis = facingAxis(edge);
+      const side = edge[0][axis];
+      const box = (along: number[], zs: number[]) =>
+        M.hull(
+          along.flatMap((a) =>
+            [pocketHalf[axis] - SIZES.restUnder, plateHalf[axis]].flatMap((c) =>
+              zs.map((z) => {
+                const v: Vec3 = [0, 0, z];
+                v[1 - axis] = a;
+                v[axis] = side * c;
+                return point(frames[n], v);
+              }),
+            ),
+          ),
+        );
+      const end = pocketHalf[1 - axis] + SIZES.restBarPast;
+      return M.union([
+        box([-end, end], [restTop, restBottom]),
+        ...[-1, 1].map((a) =>
+          box([a * pocketHalf[1 - axis], a * end], [-plateThickness / 2, restBottom]),
+        ),
+      ]);
+    };
     const rests: Manifold[] = [];
     const clear = (n: string) => {
-      // The tile, from the plate down to the foot, its components with their
+      // The tile, from the plate's underside down to the foot (a rest overlaps
+      // the plate rather than sharing its edge face), its components with their
       // clearance, and the switch body.
       const c = tile.component_clearance_mm;
       const tileTop = -tile.plate_top_to_pcb_top_mm;
       return place(
         M.union([
-          M.cube([2 * pocketHalf[0], 2 * pocketHalf[1], -restTop], true).translate([
-            0,
-            0,
-            restTop / 2,
-          ]),
+          M.cube([2 * pocketHalf[0], 2 * pocketHalf[1], -plateThickness - restTop], true).translate(
+            [0, 0, (restTop - plateThickness) / 2],
+          ),
           ...tile.components.map((p) =>
             M.cube(p.size_mm.map((x) => x + 2 * c) as Vec3, true).translate([
               p.center_mm[0],
@@ -785,8 +821,25 @@ export function buildChassis(
         frames[n],
       );
     };
-    const rows = [...columns.map(columnKeys), thumbRow, extraRow].filter((r) => r.length);
-    for (const ns of rows) {
+    // Finger columns: a bridge between neighbouring columns' keys in each row,
+    // under the tiles' side edges, and a rest outside each outer column.
+    for (const r of ROWS) {
+      const ns = columns.map((c) => `matrix_${c}_${r}`);
+      for (let i = 0; i + 1 < ns.length; i++)
+        rests.push(
+          M.hull([
+            ...restSide(ns[i], planToward(ns[i], ns[i + 1]), 0),
+            ...restSide(ns[i + 1], planToward(ns[i + 1], ns[i]), 0),
+          ]),
+        );
+      for (const [end, next] of [
+        [ns[0], ns[1]],
+        [ns.at(-1)!, ns.at(-2)!],
+      ])
+        rests.push(wallBar(end, planToward(next, end)));
+    }
+    // Thumb rows: rests between neighbouring keys along the row and past its ends.
+    for (const ns of [thumbRow, extraRow].filter((r) => r.length)) {
       for (let i = 0; i + 1 < ns.length; i++)
         rests.push(
           M.hull([
@@ -1263,9 +1316,7 @@ export function buildChassis(
   }
 
   const built = M.union(parts);
-  const cleared = built
-    .subtract(pockets)
-    .add((chassis as { tile_rests?: boolean }).tile_rests !== false ? tileRests() : M.union([]));
+  const cleared = built.subtract(pockets).add(restsOn ? tileRests() : M.union([]));
   // Base plate: the footprint of everything built, holes filled, so it is flush with the walls.
   const signedArea = (p: [number, number][]) =>
     p.reduce((t, q, i) => {
