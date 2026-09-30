@@ -10,159 +10,67 @@
     "columns": [
       {
         "name": "inner",
-        "offset_mm": [
-          0,
-          0,
-          0
-        ],
-        "heights_mm": [
-          8.0798,
-          4.232,
-          8.0798
-        ],
+        "offset_mm": [0, 0, 0],
+        "heights_mm": [8.0798, 4.232, 8.0798],
         "roll_deg": -10.4258,
-        "rotation_deg": [
-          0,
-          0,
-          0
-        ]
+        "rotation_deg": [0, 0, 0]
       },
       {
         "name": "index",
-        "offset_mm": [
-          0,
-          0,
-          0
-        ],
-        "heights_mm": [
-          4.9058,
-          1.058,
-          4.9058
-        ],
+        "offset_mm": [0, 0, 0],
+        "heights_mm": [4.9058, 1.058, 4.9058],
         "roll_deg": -5.2564,
-        "rotation_deg": [
-          0,
-          0,
-          0
-        ]
+        "rotation_deg": [0, 0, 0]
       },
       {
         "name": "middle",
-        "offset_mm": [
-          0,
-          3,
-          0
-        ],
-        "heights_mm": [
-          4.8478,
-          0.0577,
-          2.9631
-        ],
+        "offset_mm": [0, 3, 0],
+        "heights_mm": [4.8478, 0.0577, 2.9631],
         "roll_deg": 0.0,
-        "rotation_deg": [
-          0,
-          0,
-          0
-        ]
+        "rotation_deg": [0, 0, 0]
       },
       {
         "name": "ring",
-        "offset_mm": [
-          0,
-          0,
-          0
-        ],
-        "heights_mm": [
-          4.9058,
-          1.058,
-          4.9058
-        ],
+        "offset_mm": [0, 0, 0],
+        "heights_mm": [4.9058, 1.058, 4.9058],
         "roll_deg": 5.2564,
-        "rotation_deg": [
-          0,
-          0,
-          0
-        ]
+        "rotation_deg": [0, 0, 0]
       },
       {
         "name": "pinky",
-        "offset_mm": [
-          0,
-          -6,
-          0
-        ],
-        "heights_mm": [
-          6.4259,
-          4.4628,
-          10.1951
-        ],
+        "offset_mm": [0, -6, 0],
+        "heights_mm": [6.4259, 4.4628, 10.1951],
         "roll_deg": 10.4258,
-        "rotation_deg": [
-          0,
-          0,
-          0
-        ]
+        "rotation_deg": [0, 0, 0]
       }
     ],
     "key_overrides": {
       "matrix_inner_bottom": {
-        "rotation_deg": [
-          0,
-          0,
-          180
-        ]
+        "rotation_deg": [0, 0, 180]
       },
       "matrix_index_bottom": {
-        "rotation_deg": [
-          0,
-          0,
-          180
-        ]
+        "rotation_deg": [0, 0, 180]
       },
       "matrix_middle_bottom": {
-        "rotation_deg": [
-          0,
-          0,
-          180
-        ]
+        "rotation_deg": [0, 0, 180]
       },
       "matrix_ring_bottom": {
-        "rotation_deg": [
-          0,
-          0,
-          180
-        ]
+        "rotation_deg": [0, 0, 180]
       },
       "matrix_pinky_bottom": {
-        "rotation_deg": [
-          0,
-          0,
-          180
-        ]
+        "rotation_deg": [0, 0, 180]
       }
     },
     "thumb": {
-      "position_mm": [
-        -42.56,
-        -60.704,
-        0
-      ],
-      "rotation_deg": [
-        5,
-        -24,
-        15
-      ],
+      "position_mm": [-42.56, -60.704, 0],
+      "rotation_deg": [5, -24, 15],
       "keys": [
         {
           "name": "far"
         },
         {
           "name": "home",
-          "rotation_deg": [
-            0,
-            0,
-            -90
-          ]
+          "rotation_deg": [0, 0, -90]
         },
         {
           "name": "near"
@@ -175,16 +83,8 @@
       }
     },
     "thumb_extra": {
-      "position_mm": [
-        -34.046,
-        -84.128,
-        -7.607
-      ],
-      "rotation_deg": [
-        -2.443,
-        -9.7,
-        14.207
-      ],
+      "position_mm": [-34.046, -84.128, -7.607],
+      "rotation_deg": [-2.443, -9.7, 14.207],
       "keys": [
         {
           "name": "x1"
@@ -201,37 +101,19 @@
     }
   },
   "switch": {
-    "cutout_mm": [
-      14,
-      14
-    ],
+    "cutout_mm": [14, 14],
     "cutout_clearance_mm": 0.15,
     "clip_land_thickness_mm": 1.5,
-    "seat_outer_mm": [
-      15.8,
-      15.8
-    ],
+    "seat_outer_mm": [15.8, 15.8],
     "clip_width_mm": 5,
     "clip_relief_depth_mm": 1.2,
-    "body_mm": [
-      14,
-      14,
-      5
-    ],
+    "body_mm": [14, 14, 5],
     "body_below_plate_mm": 5,
-    "keycap_mm": [
-      18,
-      18,
-      9
-    ],
+    "keycap_mm": [18, 18, 9],
     "keycap_bottom_above_plate_mm": 6,
     "travel_mm": 4,
     "keycap_overrides_mm": {
-      "thumb_home": [
-        27.525,
-        18,
-        9
-      ]
+      "thumb_home": [27.525, 18, 9]
     },
     "keycap_clearance_mm": 0.3,
     "keycap_clearance_overrides_mm": {
@@ -243,53 +125,25 @@
   },
   "tile": {
     "provisional": true,
-    "size_mm": [
-      19,
-      19,
-      1.6
-    ],
+    "size_mm": [19, 19, 1.6],
     "plate_top_to_pcb_top_mm": 5,
     "clearance_mm": 0.35,
     "component_clearance_mm": 0.3,
     "components": [
       {
         "name": "hotswap socket",
-        "size_mm": [
-          16,
-          6,
-          2.5
-        ],
-        "center_mm": [
-          0,
-          4,
-          -2.85
-        ]
+        "size_mm": [16, 6, 2.5],
+        "center_mm": [0, 4, -2.85]
       },
       {
         "name": "RGB LED",
-        "size_mm": [
-          3.5,
-          3.5,
-          1.6
-        ],
-        "center_mm": [
-          0,
-          -4.5,
-          -2.4
-        ]
+        "size_mm": [3.5, 3.5, 1.6],
+        "center_mm": [0, -4.5, -2.4]
       },
       {
         "name": "diode",
-        "size_mm": [
-          3.6,
-          1.8,
-          1.3
-        ],
-        "center_mm": [
-          -5,
-          -4.5,
-          -2.25
-        ]
+        "size_mm": [3.6, 1.8, 1.3],
+        "center_mm": [-5, -4.5, -2.25]
       }
     ],
     "support_width_mm": 1.6,
@@ -300,21 +154,9 @@
   },
   "adapter": {
     "provisional": true,
-    "position_mm": [
-      -76,
-      -30,
-      -17
-    ],
-    "rotation_deg": [
-      0,
-      0,
-      -90
-    ],
-    "board_mm": [
-      30,
-      16,
-      1.6
-    ],
+    "position_mm": [-76, -30, -17],
+    "rotation_deg": [0, 0, -90],
+    "board_mm": [30, 16, 1.6],
     "component_height_mm": 4,
     "solder_clearance_mm": 4,
     "clearance_mm": 0.5,
@@ -323,16 +165,8 @@
   "trackpad": {
     "provisional": true,
     "description": "Cirque TM040040 in a printed pod on the inner side",
-    "position_mm": [
-      -83.878,
-      -30,
-      -0.389
-    ],
-    "rotation_deg": [
-      0,
-      -30,
-      0
-    ],
+    "position_mm": [-83.878, -30, -0.389],
+    "rotation_deg": [0, -30, 0],
     "diameter_mm": 40,
     "thickness_mm": 1,
     "top_below_rim_mm": 0.4,

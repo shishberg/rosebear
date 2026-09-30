@@ -8,7 +8,7 @@
     "test": "node --import tsx --test tests/geometry.test.ts",
     "test:browser": "playwright test",
     "test:fit": "node --import tsx tests/fit-check.ts",
-    "format": "npx --yes prettier@3 --write \"src/**/*.ts\" \"tests/**/*.ts\"",
+    "format": "npx --yes prettier@3 --write \"src/**/*.ts\" \"src/**/*.json\" \"tests/**/*.ts\"",
     "fingerprint": "node --import tsx tests/fingerprint.ts"
   },
   "dependencies": {
