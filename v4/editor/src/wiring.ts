@@ -421,8 +421,6 @@ interface Obstacle {
   /** World bounding box. */
   wlo: number[];
   whi: number[];
-  /** Round in plan: an upright cylinder of this radius, centred in the box. */
-  round?: number;
 }
 
 export function wiring(cfg: Config, frames = componentFrames(cfg)): Wiring {
@@ -485,25 +483,6 @@ export function wiring(cfg: Config, frames = componentFrames(cfg)): Wiring {
         [sx > 0 ? hx + 3 : -hx + WIRING.restIn, to, padZ],
       );
   }
-  // The socket posts, upright from the bottom plate up to their tops.
-  const r = SOCKET_POST.diameter / 2;
-  for (const post of socketPosts(cfg, frames)) {
-    const [x, y, z] = post.top;
-    // The top is tilted with the tile: its highest point, across the post.
-    const n = post.frame.elements;
-    const rise = (r * Math.hypot(n[8], n[9])) / Math.max(n[10], 0.1);
-    const lo: V3 = [x - r, y - r, 0];
-    const hi: V3 = [x + r, y + r, z + rise];
-    obstacles.push({
-      name: `${post.key} socket post`,
-      inverse: new Matrix4(),
-      lo,
-      hi,
-      wlo: lo,
-      whi: hi,
-      round: r,
-    });
-  }
   /** Whether a wire's segment comes within r of an obstacle. */
   const blocked = (a: V3, b: V3, r: number) => {
     const lo = [0, 1, 2].map((k) => Math.min(a[k], b[k]) - r);
@@ -524,12 +503,6 @@ export function wiring(cfg: Config, frames = componentFrames(cfg)): Wiring {
           const x = la[k] + (lb[k] - la[k]) * t;
           const g = Math.max(o.lo[k] - x, 0, x - o.hi[k]);
           d += g * g;
-        }
-        if (o.round) {
-          const p = [0, 1].map((k) => la[k] + (lb[k] - la[k]) * t - (o.lo[k] + o.hi[k]) / 2);
-          const z = la[2] + (lb[2] - la[2]) * t;
-          const gz = Math.max(o.lo[2] - z, 0, z - o.hi[2]);
-          d = Math.max(Math.hypot(p[0], p[1]) - o.round, 0) ** 2 + gz * gz;
         }
         if (d < limit) {
           return true;
@@ -1173,9 +1146,6 @@ export function wiring(cfg: Config, frames = componentFrames(cfg)): Wiring {
     // the best of the tries.
     let order = specs.map((_, i) => i);
     let best: { left: number; choice: number[] } | undefined;
-    // The rest follow in a shuffled order, the same on every run.
-    let seed = 1;
-    const random = () => ((seed = (seed * 16807) % 2147483647) - 1) / 2147483646;
     for (let attempt = 0; attempt <= (wide ? WIRING.restarts : 0); attempt++) {
       negotiate(order);
       repairAll();
@@ -1183,12 +1153,7 @@ export function wiring(cfg: Config, frames = componentFrames(cfg)): Wiring {
       if (!best || meeting.length < best.left) best = { left: meeting.length, choice: [...choice] };
       if (!meeting.length) break;
       const first = new Set(meeting);
-      const rest = order.filter((i) => !first.has(i));
-      for (let i = rest.length - 1; i > 0; i--) {
-        const j = Math.floor(random() * (i + 1));
-        [rest[i], rest[j]] = [rest[j], rest[i]];
-      }
-      order = [...meeting, ...rest];
+      order = [...meeting, ...order.filter((i) => !first.has(i))];
     }
     return { left: best!.left, paths: best!.choice.map((k, i) => options[i][k].tube.points) };
   };
@@ -1290,36 +1255,6 @@ export function ribbonPath(cfg: Config) {
     [landing.to - r.outside_mm, 0, onLanding],
   );
   return points;
-}
-
-/**
- * PROTOTYPE socket posts. A tile that slides forward onto its rests (the
- * bottom row, see slideToward) has its feet under the front of its side
- * edges, so nothing in the body is under its socket, and pressing a switch in
- * would lever the tile's back end down about them. A post on the bottom plate
- * stands under the middle of each such tile's socket instead, the parts'
- * clearance below it: upright, from the plate's top up to a top parallel to
- * the tile. Each is its top's centre, in world coordinates, and the key's
- * frame. None without tile rests.
- */
-export const SOCKET_POST = { diameter: 3 };
-export function socketPosts(cfg: Config, frames = componentFrames(cfg)) {
-  const tile = cfg.tile;
-  const socket = tile.components.find((p) => p.name === 'hotswap socket');
-  if (!socket || (cfg.chassis as { tile_rests?: boolean }).tile_rests === false) return [];
-  const below =
-    -tile.plate_top_to_pcb_top_mm +
-    socket.center_mm[2] -
-    socket.size_mm[2] / 2 -
-    tile.component_clearance_mm;
-  return Object.keys(frames)
-    .filter((key) => key.startsWith('matrix_') && slideToward(key) < 0)
-    .map((key) => ({
-      key,
-      frame: frames[key],
-      local: [socket.center_mm[0], socket.center_mm[1], below] as V3,
-      top: point(frames[key], [socket.center_mm[0], socket.center_mm[1], below]),
-    }));
 }
 
 /**

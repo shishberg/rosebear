@@ -33,7 +33,7 @@ import type { Manifold, ManifoldToplevel, Vec3 } from 'manifold-3d';
 import { Matrix4 } from 'three';
 import { point, ROWS, slideToward, type Config } from './geometry';
 import { seatSettings } from './seats';
-import { landingBox, SOCKET_POST, socketPosts, wirePort } from './wiring';
+import { landingBox, wirePort } from './wiring';
 
 export const isKey = (name: string) => name.startsWith('thumb_') || name.startsWith('matrix_');
 export const capSize = (c: Config, n: string) =>
@@ -1547,28 +1547,8 @@ export function buildChassis(
       .filter((p) => signedArea(p as [number, number][]) > 0)
       .map((p) => new CS([p])),
   );
-  // A post under each bottom-row tile's socket (see socketPosts): a thin disc
-  // under the socket, hulled with one reaching into the plate below it.
-  const posts = socketPosts(cfg, frames).map(({ frame, local, top }) =>
-    M.hull([
-      place(
-        M.cylinder(0.01, SOCKET_POST.diameter / 2, SOCKET_POST.diameter / 2, 32).translate([
-          local[0],
-          local[1],
-          local[2] - 0.01,
-        ]),
-        frame,
-      ),
-      M.cylinder(0.5, SOCKET_POST.diameter / 2, SOCKET_POST.diameter / 2, 32).translate([
-        top[0],
-        top[1],
-        chassis.base_thickness_mm - 0.5,
-      ]),
-    ]),
-  );
   const base = footprint
     .extrude(chassis.base_thickness_mm)
-    .add(M.union(posts))
     .add(adapterMount(wasm, cfg, frames))
     .subtract(landingTunnels(wasm, cfg, frames));
   // The plate's half-widths toward a corner, out to the face of a wall beside it.
