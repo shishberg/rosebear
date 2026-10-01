@@ -135,8 +135,11 @@ export const SIZES = {
   restPathClear: 0.3,
   /** A foot reaches this far past the tile pocket into its web or wall. */
   restFootOut: 0.5,
-  /** A tile's way in is cut this far clear of the tile, above it (the foot is restGap below). */
-  restPathAbove: 0.3,
+  /**
+   * A tile's way in is cut this far clear of the tile, above it (the foot is
+   * restGap below), and a finger tile's lids are this far above it.
+   */
+  restPathAbove: 0.2,
   /** A foot ends this far short of a soldering iron's way to a pad. */
   padClear: 0.2,
   /** A pad within this distance of a tile's edge is along that edge. */
@@ -279,6 +282,7 @@ export function buildChassis(
   const restsOn = (chassis as { tile_rests?: boolean }).tile_rests !== false;
   const restTop = -(tile.plate_top_to_pcb_top_mm + tile.size_mm[2]) - SIZES.restGap;
   const restBottom = restTop - SIZES.restThickness;
+  const lidBottom = -tile.plate_top_to_pcb_top_mm + SIZES.restPathAbove;
   const pocketHalf: HalfWidths = [
     tile.size_mm[0] / 2 + tile.clearance_mm,
     tile.size_mm[1] / 2 + tile.clearance_mm,
@@ -824,6 +828,21 @@ export function buildChassis(
           [pocketHalf[axis] - SIZES.restUnder, restBottom],
         ]),
       );
+    /**
+     * A lid over key n's edge facing dir, from `from` to `to` along it, from the
+     * plate down to just above the tile, reaching `out` past the pocket. With the
+     * foot below, it holds the tile's edge in a slot, so the tile cannot tip
+     * about its feet when a switch is pressed into it.
+     */
+    const lid = (n: string, dir: Plan, from: number, to: number, out: number) =>
+      M.hull(
+        edgePoints(n, dir, [from, to], (axis) => [
+          [pocketHalf[axis] + out, -plateThickness / 2],
+          [pocketHalf[axis] + out, lidBottom],
+          [pocketHalf[axis] - SIZES.restUnder, lidBottom],
+          [pocketHalf[axis] - SIZES.restUnder, -plateThickness / 2],
+        ]),
+      );
     // A finger tile goes up restSlide to one side of its place and slides onto
     // its feet, so they can only be under the far end of its side edges, where
     // nothing was above them on its way up: the back (under the socket), or the
@@ -876,6 +895,7 @@ export function buildChassis(
         ),
       );
     const rests: Manifold[] = [];
+    const lids: Manifold[] = [];
     const clear = (n: string) => {
       // The tile, from the plate's underside down to the foot (a rest overlaps
       // the plate rather than sharing its edge face), its components with their
@@ -907,19 +927,22 @@ export function buildChassis(
     // and feet hung from the outer columns' walls.
     for (const r of ROWS) {
       const ns = columns.map((c) => `matrix_${c}_${r}`);
-      for (let i = 0; i + 1 < ns.length; i++)
-        rests.push(
-          web(ns[i], ns[i + 1]),
-          ...[
-            [ns[i], ns[i + 1]],
-            [ns[i + 1], ns[i]],
-          ].map(([n, other]) => foot(n, planToward(n, other), ...feetAlong(n), SIZES.restFootOut)),
-        );
+      for (let i = 0; i + 1 < ns.length; i++) {
+        rests.push(web(ns[i], ns[i + 1]));
+        for (const [n, other] of [
+          [ns[i], ns[i + 1]],
+          [ns[i + 1], ns[i]],
+        ]) {
+          rests.push(foot(n, planToward(n, other), ...feetAlong(n), SIZES.restFootOut));
+          lids.push(lid(n, planToward(n, other), ...feetAlong(n), SIZES.restFootOut));
+        }
+      }
       for (const [end, next] of [
         [ns[0], ns[1]],
         [ns.at(-1)!, ns.at(-2)!],
       ]) {
         rests.push(foot(end, planToward(next, end), ...feetAlong(end), SIZES.restFootOut));
+        lids.push(lid(end, planToward(next, end), ...feetAlong(end), SIZES.restFootOut));
       }
     }
     // Thumb rows: rests between neighbouring keys along the row and past its
@@ -980,7 +1003,10 @@ export function buildChassis(
           );
       }
     }
-    return M.union(rests).subtract(M.union(keyNames.map(clear)));
+    // The lids stand above the tiles, where clear() keeps the rests out.
+    return M.union(rests)
+      .subtract(M.union(keyNames.map(clear)))
+      .add(M.union(lids));
   };
   /**
    * A sliding finger tile's way back onto its feet: the tile and its parts,

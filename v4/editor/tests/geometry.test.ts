@@ -124,6 +124,12 @@ test('default chassis passes: one piece on one footprint, clear of the tile pock
               b = new Vector3(side * 8, y, -0.5).applyMatrix4(m).toArray();
             const first = (s: typeof mounted) =>
               Math.min(99, ...s.rayCast(a, b).map((h) => h.distance));
+            // Where the plate runs on into a bridge to the next column, the ray
+            // starts inside both bodies and there is no edge to compare; one
+            // mesh may still have an internal seam there that the other lacks.
+            const probe = wasm.Manifold.cube([0.1, 0.1, 0.1], true).translate(a);
+            const inside = [mounted, chassis].every((s) => s.intersect(probe).volume() > 5e-4);
+            if (inside) continue;
             assert(Math.abs(first(mounted) - first(chassis)) < 1e-3, `${name} ${side} ${y}`);
           }
   } finally {
