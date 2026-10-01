@@ -150,7 +150,7 @@ default, or `"solid"`).
   row faces the same way as the others, but the front swept end leaves no room
   in front of it, so its tiles go up behind their place and slide forward onto
   feet under the front of the side edges. Those feet are not under the socket,
-  so pressing a switch in levers the tile's back end down about them. In each
+  so a **socket post** on the bottom plate holds that end instead (below). In each
   row a web joins neighbouring columns' plates along their feet; in the outer
   columns the feet under the walled edge hang from the wall. Where the wall
   between two keys comes inside a tile's way in, the way is cut out of it. In
@@ -181,6 +181,13 @@ default, or `"solid"`).
   two mounting holes, beside the connector, and two rests under its solder-hole
   end. Between the connector and the inner wall is the ribbon's **landing**, a
   block with two tunnels across it for cable ties that pass over the ribbon.
+- **Socket posts** (prototype, with the tile rests): a Ø3 post stands upright on
+  the bottom plate under the middle of each bottom-row tile's socket, its top
+  parallel to the tile and 0.3 mm (the parts' clearance) under the socket.
+  Without it, pressing a switch into the socket would lever the tile's back end
+  down about its front feet. The posts go in with the bottom plate, after the
+  tiles are wired, so fit the bottom plate before pressing switches into the
+  bottom row. The wiring is routed around them.
 - **Ribbon notch**: the main ribbon leaves through a notch in the inner wall's
   base strip, just above the bottom plate.
 - **Wire port**: the thumb wires reach the finger columns through a round hole

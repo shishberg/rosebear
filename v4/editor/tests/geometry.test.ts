@@ -5,7 +5,7 @@ import { Vector3 } from 'three';
 import { defaults, clone, componentFrames, slideToward, validateProject } from '../src/geometry';
 import { buildSolid, checkWalls } from '../src/solid';
 import { buildChassis, SIZES } from '../src/chassis';
-import { crossings, holes, nets, wiring } from '../src/wiring';
+import { crossings, holes, nets, socketPosts, SOCKET_POST, wiring } from '../src/wiring';
 import ref from './python-reference.json';
 const pos = (m: { elements: number[] }) => new Vector3(...m.elements.slice(12, 15));
 const normal = (m: { elements: number[] }) => new Vector3(...m.elements.slice(8, 11));
@@ -271,6 +271,40 @@ test('every finger tile has a clear way in past its tile rests', async () => {
     const p = path(n, [0, from, -rise], [0, from, 0], [0, 0, 0]);
     assert(p.intersect(body).volume() < 0.01, `${n} hits the chassis`);
     assert(p.intersect(others).volume() < 0.01, `${n} hits another tile`);
+  }
+});
+test('a post on the bottom plate stands under each bottom-row socket, clear of the body', async () => {
+  const wasm = await Module();
+  wasm.setup();
+  const M = wasm.Manifold;
+  const cfg = clone(defaults.config);
+  const f = componentFrames(cfg);
+  const { body, base } = buildChassis(wasm, cfg, f);
+  const posts = socketPosts(cfg, f);
+  assert.deepEqual(
+    posts.map((p) => p.key),
+    ['inner', 'index', 'middle', 'ring', 'pinky'].map((c) => `matrix_${c}_bottom`),
+  );
+  for (const p of posts) {
+    // Solid just under the post's top, nothing just above it.
+    const probe = (dz: number) =>
+      M.cube([0.2, 0.2, 0.2], true)
+        .translate([p.local[0], p.local[1], p.local[2] + dz])
+        .transform(p.frame.elements as never)
+        .intersect(base)
+        .volume();
+    assert(probe(-0.2) > 0.007, `${p.key} has a post`);
+    assert.equal(probe(0.2), 0, `${p.key} post stops under the socket`);
+    const room = M.cylinder(
+      p.top[2],
+      SOCKET_POST.diameter / 2 + 0.2,
+      SOCKET_POST.diameter / 2 + 0.2,
+      24,
+    );
+    assert(
+      room.translate([p.top[0], p.top[1], 0]).intersect(body).volume() < 0.01,
+      `${p.key} post is clear of the body`,
+    );
   }
 });
 test("the wiring joins each net's pads and adapter hole, for a 4 × 5 matrix", () => {
