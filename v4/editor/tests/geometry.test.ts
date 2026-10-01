@@ -5,7 +5,7 @@ import { Vector3 } from 'three';
 import { defaults, clone, componentFrames, validateProject } from '../src/geometry';
 import { buildSolid, checkWalls } from '../src/solid';
 import { buildChassis, SIZES } from '../src/chassis';
-import { holes, nets, wiring } from '../src/wiring';
+import { crossings, holes, nets, wiring } from '../src/wiring';
 import ref from './python-reference.json';
 const pos = (m: { elements: number[] }) => new Vector3(...m.elements.slice(12, 15));
 const normal = (m: { elements: number[] }) => new Vector3(...m.elements.slice(8, 11));
@@ -286,7 +286,8 @@ test("the wiring joins each net's pads and adapter hole, for a 4 × 5 matrix", (
   assert.equal(new Set(w.matrix.map((m) => m.column)).size, 5);
   assert.equal(new Set(w.matrix.map((m) => `${m.row} ${m.column}`)).size, 20);
   const hole = holes(cfg, frames);
-  const near = (a: number[], b: number[]) => Math.hypot(...a.map((x, i) => x - b[i])) < 1e-6;
+  // Two wires on one pad or hole sit side by side on it, up to 0.5 mm off its centre.
+  const near = (a: number[], b: number[]) => Math.hypot(...a.map((x, i) => x - b[i])) < 0.51;
   for (const net of nets(cfg)) {
     const wires = w.wires.filter((x) => x.net === net.name);
     // Each pad named for the net, and the hole, is an end of some wire.
@@ -304,6 +305,14 @@ test("the wiring joins each net's pads and adapter hole, for a 4 × 5 matrix", (
     assert.equal(wires.filter((x) => x.feed).length, net.chains?.length ?? 1, net.name);
   }
   assert.equal(w.wires.length, 100);
+  // No wire runs into another.
+  assert.deepEqual(
+    crossings(w.wires).map(
+      ([a, b]) =>
+        `${w.wires[a].net} ${w.wires[a].from}-${w.wires[a].to} × ${w.wires[b].net} ${w.wires[b].from}-${w.wires[b].to}`,
+    ),
+    [],
+  );
   assert.equal(
     w.nets.reduce((s, n) => s + n.joints, 0),
     200,

@@ -2,7 +2,7 @@ import type { Manifold, ManifoldToplevel, Mat4 } from 'manifold-3d';
 import { Matrix4 } from 'three';
 import { seatSettings } from './seats';
 import { buildChassis, capSize, isKey, trackpadPart, type WallWindow } from './chassis';
-import { adapterParts, padParts, wiring } from './wiring';
+import { adapterParts, crossings, padParts, wiring, type Wiring } from './wiring';
 import { componentFrames, validateProject, type V3, type MeshData, type Project } from './geometry';
 export { capSize, isKey };
 /** Sizes and limits for the seats and the clearance checks, in mm (volumes in mm³, areas in mm²). */
@@ -158,6 +158,8 @@ export interface Report {
   housing: { pieces: number; fit: number; slide: number };
   /** The whole hand's wiring: wire count, solder joints and cut length (mm). */
   wiring: { wires: number; joints: number; length: number };
+  /** Pairs of wires that run into each other, named together. */
+  crossings: string[];
   openings: { name: string; removed: number; covered: number; blocked: number }[];
   walls: WallCheck[];
   volume: number;
@@ -195,6 +197,8 @@ export interface BuildResult {
   housing: MeshData;
   report: Report;
   highlights: Highlight[];
+  /** The routed wiring, which the editor draws with the chassis it was checked against. */
+  wiring: Wiring;
 }
 function meshData(solid: Manifold): MeshData {
   const raw = solid.getMesh();
@@ -625,6 +629,13 @@ export function buildSolid(wasm: ManifoldToplevel, project: Project): BuildResul
       both,
       'wire',
     );
+    // Wires that run into each other, shown where they overlap.
+    const crossed = crossings(wired.wires).map(([a, b]) => {
+      const [x, y] = [wired.wires[a], wired.wires[b]];
+      const name = `${wireName(x)} and ${wireName(y)}`;
+      collision(tube(x.points, x.diameter), tube(y.points, y.diameter), name, 'wire');
+      return name;
+    });
     // A soldering iron's way to each pad, with the bottom plate off: straight
     // down from it along its key's normal, through the open bottom of the tile
     // pocket.
@@ -723,6 +734,7 @@ export function buildSolid(wasm: ManifoldToplevel, project: Project): BuildResul
       capGaps.every((c) => c.gap > 0) &&
       openings.every((o) => o.removed > CHECKS.empty && o.covered === 9 && o.blocked === 0) &&
       wires.length === 0 &&
+      crossed.length === 0 &&
       solder.length === 0 &&
       housingPieces === 1 &&
       fit <= CHECKS.overlap &&
@@ -733,6 +745,7 @@ export function buildSolid(wasm: ManifoldToplevel, project: Project): BuildResul
       trackpad: meshData(keep(trackpadPart(wasm, cfg, nodes))),
       housing: meshData(housing),
       highlights,
+      wiring: wired,
       report: {
         seats,
         passed,
@@ -751,6 +764,7 @@ export function buildSolid(wasm: ManifoldToplevel, project: Project): BuildResul
           joints: wired.nets.reduce((t, n) => t + n.joints, 0),
           length: wired.nets.reduce((t, n) => t + n.length, 0),
         },
+        crossings: crossed,
         openings,
         walls: walls.checks,
         volume: result.volume(),

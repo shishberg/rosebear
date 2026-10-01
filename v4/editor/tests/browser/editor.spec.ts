@@ -181,9 +181,27 @@ test('the wiring panel lists the matrix and cut list, and the wiring follows the
   const before = (await wiring()).pads.find((p: any) => p.key === 'matrix_middle_top').at;
   await page.locator('[data-view="Front"]').click();
   await dragHandle(page, 'key:matrix_middle_top', 0, -30);
+  // The worker routes the wires with the chassis, so they follow on the rebuild.
+  await rebuilt(page);
   const after = (await wiring()).pads.find((p: any) => p.key === 'matrix_middle_top').at;
   expect(after[2]).toBeGreaterThan(before[2] + 3);
   await page.locator('#wires').uncheck();
   await page.locator('#wires').check();
+  // The adapter and ribbons hide on their own, leaving the wiring and pads.
+  const shown = (group: string) =>
+    page.evaluate(
+      (group) =>
+        (window as any).rosebearEditor
+          .getHardware()
+          .filter((p: any) => p.group === group)
+          .every((p: any) => p.visible),
+      group,
+    );
+  await page.locator('#adapter').uncheck();
+  expect(await shown('adapter')).toBe(false);
+  expect(await shown('ribbon')).toBe(false);
+  expect(await shown('pads')).toBe(true);
+  await page.locator('#adapter').check();
+  expect(await shown('adapter')).toBe(true);
   await rebuilt(page);
 });

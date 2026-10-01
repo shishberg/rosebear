@@ -37,6 +37,7 @@ for (const x of report.hardware)
   if (x.group !== 'keycaps') console.log(`${x.name}: ${x.volume.toFixed(3)} mm³ hardware overlap`);
 for (const w of report.wires)
   console.log(`${w.name}: wire runs ${w.volume.toFixed(3)} mm³ into the chassis`);
+for (const c of report.crossings) console.log(`${c} run into each other`);
 for (const p of report.solder)
   console.log(`${p.name}: soldering iron's way blocked, ${p.volume.toFixed(3)} mm³`);
 const h = report.housing;

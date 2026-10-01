@@ -85,9 +85,11 @@ default, or `"solid"`).
 - **Export review STL** exports the chassis without the bottom plate. It is a
   review export, not a claim that the model is mechanically qualified.
   **Export trackpad housing STL** exports the trackpad housing, a separate print.
-- **Wiring, adapter and ribbons** shows the wires as tubes coloured by net group,
-  the pads, the adapter and both ribbons. The **Wiring** panel lists each key's
-  row and column, and a cut list per net.
+- **Wiring and pads** shows the wires as tubes coloured by net group, and the
+  pads. The wires are routed with each chassis build, so while you edit they
+  stay as last built. **Adapter and ribbons** shows the adapter and both
+  ribbons; turn it off to see the wiring behind them. The **Wiring** panel
+  lists each key's row and column, and a cut list per net.
 - Projects saved before the wiring was added load with the default adapter,
   ribbon, pads and wiring.
 
@@ -180,7 +182,7 @@ default, or `"solid"`).
 - **Ribbon notch**: the main ribbon leaves through a notch in the inner wall's
   base strip, just above the bottom plate.
 - **Wire port**: the thumb wires reach the finger columns through a round hole
-  (`wiring.port_diameter_mm`, 4 mm) along the slot between the inner and index
+  (`wiring.port_diameter_mm`, 5 mm) along the slot between the inner and index
   columns' front swept ends, at the height of the slot's round bottom, and on
   through the thumb row's back wall.
 
@@ -206,18 +208,34 @@ default, or `"solid"`).
   `wiring.led_order` (the thumbs, then the columns in alternating directions);
   +5 V and GND daisy-chain every tile. Each chain has one **feed**, a wire from
   its nearer end to its adapter hole.
-- **Paths**: a wire drops `drop_mm` (3.5 mm) straight below its pad along the
-  key's normal, then 1 mm lower, and runs across at the lower end's height, so the
-  higher end is reached from straight below. Thumb wires reach the fingers
-  through the wire port. Feeds run down to a **loom** 10 mm above the bottom
-  plate, then across to the adapter.
+- **Paths**: wires run close under the tiles. Each end leaves its tile by a
+  **leg**, in the key's frame: 0.6 mm down from the pad, an optional shift
+  sideways, down to the leg's depth, then straight out to the tile edge facing
+  where the wire goes. A leg over the pad's own edge runs 0.6 mm below the tile;
+  one along the row of pads runs from 2.7 mm down, 0.9 mm deeper for each pad it
+  passes under; one across the tile runs just under its parts. A wire between
+  two tiles joins its two legs with a straight run.
+- **Wire port**: thumb wires reach the fingers through the wire port. Each takes
+  its own place in a hexagonal grid across the port, 1.02 mm apart, chosen to
+  suit the directions its two ends lie in. A thumb's wires gather just off its
+  edge facing the port, each offset as its place, so they run to the port side
+  by side. Feeds run down to a **loom** 10 mm above the bottom plate, then
+  across to the adapter.
+- **Routing**: each wire has many candidate routes (depths, shifts, the other
+  pad of the same name for +5 V and GND, port places and loom levels). Routes
+  that run into a tile, its parts or its rests, or that shift out past the
+  tile's pocket, are dropped. The wires then negotiate: each takes its cheapest
+  route given the others, and routes that meet another wire cost more each
+  round until none meet. Pairs that still meet are repaired together with the
+  wires most in their way. Routing runs in the build worker, so the wires
+  follow an edit when the chassis rebuilds.
 - **Wire**: 30 AWG (0.6 mm) for signals, 26 AWG (0.9 mm) for power and ground.
 - **Cut length**: each wire's path plus 5 mm at each end. A feed also has a
   40 mm **service loop**: spare wire left slack so the bottom plate, with the
   adapter on it, can be lifted off and set beside the body without pulling on a
   solder joint.
 
-The default hand has 100 wires, 200 solder joints and about 6.4 m of wire.
+The default hand has 100 wires, 200 solder joints and about 6 m of wire.
 
 The **main ribbon** is a 24-way 0.5 mm FFC, 12.5 mm wide. From the adapter's
 connector it makes a half loop of radius 4 mm, lies on the landing where it is
@@ -241,8 +259,8 @@ checks the result:
   latch room, and the main ribbon must not overlap the chassis or the bottom
   plate. The trackpad, its parts and its cable must also miss the housing.
 - **Wires**: each wire, as a tube of its diameter, must miss the chassis, the
-  bottom plate and the trackpad housing. Wires that hit are listed and
-  highlighted cyan.
+  bottom plate, the trackpad housing and every other wire (wires may touch).
+  Wires that hit are listed and highlighted cyan.
 - **Solder access**: with the bottom plate off, a 2 mm round iron's way 8 mm
   straight down from each pad, along the key's normal, must miss the chassis.
   Blocked pads are listed and highlighted cyan.
