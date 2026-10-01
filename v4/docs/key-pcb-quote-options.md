@@ -166,27 +166,34 @@ Open `handwiring.svg` beside this document. It separates three independent
 systems so that crossed wires are not mistaken for electrical connections.
 Dots indicate joins; undotted crossings are not joined.
 
-1. Each half has three rows and six columns. Five columns contain the fingers;
-   the three thumbs form column C5: far on RT, home on RH, near on RB.
+1. Each half is a **4 × 5 matrix**: the three finger rows RT, RH and RB, plus
+   the thumb row RX, over the five finger columns. Each of the five thumbs sits
+   on a finger column: x2 on C0 pinky, near on C1 ring, x1 on C2 middle, home on
+   C3 index, far on C4 inner. A thumb's column wire runs to its column's
+   breakout pad, not along the finger column, so two wires share each column
+   pad. (Earlier revisions had three thumbs as a sixth column, C5.)
 2. Join each tile's **R** pad to its row bus and **C** pad to its column bus.
    On the PCB: COL → switch → diode anode, diode cathode → ROW. Use COL2ROW
    matrix scanning. The thumb boards can be physically rotated independently.
 3. RGB is a separate serial chain: breakout RGB → first DI; DO → next DI;
-   continue through all 18 keys. Leave the final DO unconnected. Snake through
-   columns in alternating directions, then the thumbs, to keep runs short.
+   continue through all 20 keys. Leave the final DO unconnected. Start with the
+   thumbs, then snake through the columns in alternating directions, to keep
+   runs short.
 4. All LEDs connect to the same +5 V and GND buses, electrically in parallel.
    The two `+` pads are connected on each tile; the two `G` pads are connected.
    These allow one incoming and one outgoing power wire without a splice.
-5. The right trackball connects to 3V3, GND, UP, DOWN, LEFT, RIGHT and BTN at
-   the breakout. Its optional LED terminals remain unused. Leave these six
-   trackball-specific signal/supply pads unused on the left breakout.
+5. The Cirque trackpad has its own 12-way FFC to the pod and does not use the
+   hand ribbon, so pins 14–19 are spare.
 
 ### Effort and physical feasibility
 
-Per half, with individual jumpers: 12 column links + 15 row links + 9 matrix
-feeds = 36 matrix wires; 17 RGB links + one feed = 18 data wires; two buses
-with 17 links + one feed each = 36 power wires. Total **90 wire segments and
-180 soldered ends per half**. The right trackball adds seven wires/14 ends.
+Per half, with individual jumpers: 10 column links + 16 row links + 14 matrix
+feeds (one per finger column, one per finger row, one for RX, and one per
+thumb) = 40 matrix wires; 19 RGB links + one feed = 20 data wires; two buses
+with 19 links + one feed each = 40 power wires. Total **100 wire segments and
+200 soldered ends per half**. The chassis editor's **Wiring** panel lists them
+with provisional cut lengths (about 6.4 m per half, including a 40 mm service
+loop on each feed so the bottom plate and its adapter can be lifted off).
 Continuous stripped row/column buses can reduce the number of separate pieces.
 
 The 1 mm wire holes can be used for thin insulated matrix/data wire; check
@@ -218,10 +225,10 @@ from the connector names. This is a removable interconnect, not a hot-plug desig
 | 2 | RGB data, buffered to 5 V at pod |
 | 3 | GND |
 | 4, 5, 6 | RT, RH, RB |
-| 7, 8, 9, 10, 11, 12 | C0 pinky, C1 ring, C2 middle, C3 index, C4 inner, C5 thumbs |
+| 7, 8, 9, 10, 11 | C0 pinky, C1 ring, C2 middle, C3 index, C4 inner |
+| 12 | RX, the thumb row (was C5) |
 | 13 | GND |
-| 14 | 3V3 for trackball |
-| 15, 16, 17, 18, 19 | Trackball UP, DOWN, LEFT, RIGHT, BTN (right only); a Cirque trackpad would use these for SDA, SCL and data-ready |
+| 14–19 | Spare. They were the trackball's 3V3 and signals; the Cirque trackpad now has its own cable to the pod |
 | 20 | GND |
 | 21, 22, 23 | +5 V LED power, connected in parallel |
 | 24 | GND |

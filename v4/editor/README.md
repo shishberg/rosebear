@@ -9,10 +9,10 @@ The editor edits the **key layout**; the chassis is generated from it. The
 construction is the swept Skeletyl shape chosen from the
 [shape prototypes](src/prototype-shapes/) (see [design status](../docs/design-status.md)).
 
-The trackpad pod and the `adapter` are placeholders. The Cirque TM040040 dimensions
-are provisional. The provisional 30 × 16 mm adapter with a 26 mm, 4 mm tall
-connector is smaller than the designed 36 × 33 mm breakout, and the swept chassis
-doesn't place it yet: it sits where the old shell had it, and no ribbon opening is cut.
+The wiring, the tile pads, the FFC adapter, the ribbons and the Cirque TM040040
+dimensions are **provisional**: the pads are read from a photo of the bought
+tiles, and the adapter is a generic 24-way FFC breakout on perfboard. Each is
+marked `provisional` in the configuration. See [Wiring](#wiring).
 
 ## Run
 
@@ -71,7 +71,7 @@ default, or `"solid"`).
   - **Gold**, one per finger key: up and down sets that key's height; along the
     column sets the column's stagger. Move a column sideways with its X offset field.
   - **Cyan**: a thumb cluster's centre. **Pink**: turns a thumb cluster about its centre.
-  - **Purple**: the trackpad pod.
+  - **Purple**: the trackpad.
 - Clicking a handle shows every parameter of its column, cluster or pod as number
   fields. **All configuration** shows and edits the full JSON.
 - Drag empty space to orbit, right-drag to pan, wheel to zoom.
@@ -84,6 +84,12 @@ default, or `"solid"`).
   cage-based editor (version 1) are not accepted.
 - **Export review STL** exports the chassis without the bottom plate. It is a
   review export, not a claim that the model is mechanically qualified.
+  **Export trackpad housing STL** exports the trackpad housing, a separate print.
+- **Wiring, adapter and ribbons** shows the wires as tubes coloured by net group,
+  the pads, the adapter and both ribbons. The **Wiring** panel lists each key's
+  row and column, and a cut list per net.
+- Projects saved before the wiring was added load with the default adapter,
+  ribbon, pads and wiring.
 
 ## Construction
 
@@ -146,15 +152,79 @@ default, or `"solid"`).
   between two keys comes inside a tile's way in, the way is cut out of it. In
   the thumb rows the rests hang between
   neighbouring keys along the row and past its end keys.
+  A foot stops short of a soldering iron's way to a back-edge pad beside it
+  (see Wiring). A thumb key turned across its row (the home thumb) would have
+  pads along the row, so it has no rest there; two short hangers under each of
+  its other two edges hold it instead.
 - Ribs 6 mm tall join along the base: both ends of the main thumb row to the
   fingers' front, and, when the rows are close, the ends of the two thumb rows to
   each other.
 - Above each plate the chassis is kept clear of the switch housing's rim (the
   seat footprint, up to the keycap's lowest point) and of the keycap's travel.
-- The Cirque pod hangs from the far thumb key on a bracket fixed to the plate's
-  two nearest corners, out to the wall's face where a wall is beside them.
+- **Trackpad housing**, a separate print: a round cup with a recess the pad sits
+  in, a cavity under the pad for its 4.1 mm of back-side parts (the pad rests on
+  its part-free outer ring), a slot in the floor for its 12-way cable, and a
+  dovetail tongue. It is symmetric about the plane through the tongue, and the
+  pad is turned so its connector lies on that plane, so the mirrored left hand's
+  mount takes the same housing. The tongue points at the far thumb key
+  (`trackpad.mount_toward`). A **mount** block on the body, joined to that key's
+  two nearest plate corners, has the matching slot, open at the top: the housing
+  slides down into it along the pad's normal, and a screw up through the mount's
+  floor holds the tongue.
 - The bottom plate is the footprint of everything above, 2 mm thick, and is a
-  separate print. The editor hides it by default; **Bottom plate** shows it.
+  separate print. The editor hides it by default; **Bottom plate** shows it. It
+  carries the **adapter mount**: a boss with a peg through each of the adapter's
+  two mounting holes, beside the connector, and two rests under its solder-hole
+  end. Between the connector and the inner wall is the ribbon's **landing**, a
+  block with two tunnels across it for cable ties that pass over the ribbon.
+- **Ribbon notch**: the main ribbon leaves through a notch in the inner wall's
+  base strip, just above the bottom plate.
+- **Wire port**: the thumb wires reach the finger columns through a round hole
+  (`wiring.port_diameter_mm`, 4 mm) along the slot between the inner and index
+  columns' front swept ends, at the height of the slot's round bottom, and on
+  through the thumb row's back wall.
+
+## Wiring
+
+`wiring.ts` models the hand wiring from these provisional assumptions:
+
+- **Tile pads**: four on each of the tile's edges parallel to its socket, at
+  x = −7, −2.5, 2.5 and 7 mm, 1.2 × 1.8 mm, on the underside. Back edge: C, G, +,
+  DO. Front edge: R, G, +, DI. The two G pads are joined on the tile, and so are
+  the two + pads.
+- **Matrix**: each hand is 4 rows × 5 columns. The finger rows are RT, RH and RB
+  (ribbon pins 4–6); the five thumbs are row RX (pin 12). Columns C0–C4 (pins
+  7–11) run pinky to inner. Each thumb sits on a finger column: x2 on C0, near on
+  C1, x1 on C2, home on C3, far on C4. A thumb's column wire goes to its
+  column's adapter hole, so two wires share each column hole. Pins 14–19 are
+  spare.
+- **Ribbon pins**: 1, 3, 13, 20 and 24 GND; 2 LED data; 21–23 +5 V. The adapter
+  has 2 × 12 holes at 2.54 mm; pin n is in column ⌊(n − 1) / 2⌋, even pins on the
+  row nearest the board edge.
+- **Chains**: each finger column chains its C pads top → home → bottom; each row
+  chains its R pads across the columns; LED data runs DO → DI through
+  `wiring.led_order` (the thumbs, then the columns in alternating directions);
+  +5 V and GND daisy-chain every tile. Each chain has one **feed**, a wire from
+  its nearer end to its adapter hole.
+- **Paths**: a wire drops `drop_mm` (3.5 mm) straight below its pad along the
+  key's normal, then 1 mm lower, and runs across at the lower end's height, so the
+  higher end is reached from straight below. Thumb wires reach the fingers
+  through the wire port. Feeds run down to a **loom** 10 mm above the bottom
+  plate, then across to the adapter.
+- **Wire**: 30 AWG (0.6 mm) for signals, 26 AWG (0.9 mm) for power and ground.
+- **Cut length**: each wire's path plus 5 mm at each end. A feed also has a
+  40 mm **service loop**: spare wire left slack so the bottom plate, with the
+  adapter on it, can be lifted off and set beside the body without pulling on a
+  solder joint.
+
+The default hand has 100 wires, 200 solder joints and about 6.4 m of wire.
+
+The **main ribbon** is a 24-way 0.5 mm FFC, 12.5 mm wide. From the adapter's
+connector it makes a half loop of radius 4 mm, lies on the landing where it is
+tied down, and leaves through the notch. The **trackpad cable** is a separate
+12-way FFC, 6.5 mm wide, from the pad's connector down through the housing's
+floor slot.
+
 
 ## Clearance checks
 
@@ -167,7 +237,17 @@ checks the result:
   Seats are checked for a complete plate ring, material outside their planes and
   clip obstructions.
 - Each opening is probed at nine points.
-- Tiles, tile components, the trackpad and the FFC adapter must not overlap the chassis.
+- Tiles, tile components, the pads, the FFC adapter with its connector and
+  latch room, and the main ribbon must not overlap the chassis or the bottom
+  plate. The trackpad, its parts and its cable must also miss the housing.
+- **Wires**: each wire, as a tube of its diameter, must miss the chassis, the
+  bottom plate and the trackpad housing. Wires that hit are listed and
+  highlighted cyan.
+- **Solder access**: with the bottom plate off, a 2 mm round iron's way 8 mm
+  straight down from each pad, along the key's normal, must miss the chassis.
+  Blocked pads are listed and highlighted cyan.
+- **Trackpad housing**: one piece, clear of the body and the bottom plate where
+  it sits, and clear of the body as it slides up off its mount.
 - Keycaps at rest and over their full travel plus clearance must not touch it.
   The middle thumb uses its **27.525 × 18 × 9 mm** cap, **4 mm travel** and
   **2.5 mm clearance**. The keycap bottom at full press is set 2 mm above the seat.
@@ -200,7 +280,7 @@ checks the result:
 
 Failures are highlighted in the viewport: red for at-rest or hardware overlap,
 orange for the keycap travel envelope and for chassis cut away by a keycap's room, pink for opening, seat or loose-piece
-defects. Click a result to isolate it, or **Show all failures**.
+defects, cyan for wires and blocked solder access. Click a result to isolate it, or **Show all failures**.
 
 Envelopes are conservative boxes, not measured parts. PCB retainers, minimum wall
 thickness and global self-intersections are not checked. Passing does not qualify
