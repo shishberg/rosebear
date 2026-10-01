@@ -15,7 +15,7 @@
 //  slack loop  the arch the ribbon makes between the connector and the landing,
 //           so a pull held by the ties never reaches the connector.
 import { Matrix4, Vector3 } from 'three';
-import { componentFrames, point, type Config, type V3 } from './geometry';
+import { componentFrames, point, slideToward, type Config, type V3 } from './geometry';
 import { seatSettings } from './seats';
 import type { Part } from './solid';
 
@@ -94,7 +94,7 @@ export const WIRING = {
   /** Sideways shifts of a feed's run to the adapter, in plan, to get past other wires. */
   asides: [0, 1, -1, 2, -2],
   /** Shifts along the tile edge a wire crosses to the next tile. */
-  edgeAsides: [0, 0.9, -0.9, 1.6, -1.6],
+  edgeAsides: [0, 0.9, -0.9, 1.6, -1.6, 0.45, -0.45],
   /**
    * Negotiating the routes: rounds at most (and without fewer wires meeting),
    * the cost of meeting another wire
@@ -108,7 +108,7 @@ export const WIRING = {
   penalty: 4,
   penaltyGrowth: 1.3,
   historyCost: 1,
-  blockerOptions: 12,
+  blockerOptions: 24,
   blockerCost: 0.5,
   optionLimit: 3000,
   /**
@@ -139,8 +139,8 @@ export const WIRING = {
   /**
    * The tile rests' room, kept clear of wires, in the key's frame: under the
    * side edges from this far in from the tile's edge, down this far below the
-   * tile, and (in the finger columns) from restFrom forward of the centre to
-   * the back edge.
+   * tile, and (in the finger columns) from restFrom off the centre to the end
+   * of the tile its feet are under (see slideToward).
    */
   restIn: 1.7,
   restDepth: 2.1,
@@ -473,11 +473,14 @@ export function wiring(cfg: Config, frames = componentFrames(cfg)): Wiring {
         p.center_mm.map((x, k) => x + (k === 2 ? tileTop : 0) - p.size_mm[k] / 2 - c) as V3,
         p.center_mm.map((x, k) => x + (k === 2 ? tileTop : 0) + p.size_mm[k] / 2 + c) as V3,
       );
-    const from = isThumb(key) ? -hy : WIRING.restFrom;
+    const ahead = slideToward(key);
+    const [from, to] = isThumb(key)
+      ? [-hy, hy]
+      : [ahead * WIRING.restFrom, ahead * hy].sort((x, y) => x - y);
     for (const sx of [-1, 1])
       box(
         [sx > 0 ? hx - WIRING.restIn : -hx - 3, from, padZ - WIRING.restDepth],
-        [sx > 0 ? hx + 3 : -hx + WIRING.restIn, hy, padZ],
+        [sx > 0 ? hx + 3 : -hx + WIRING.restIn, to, padZ],
       );
   }
   /** Whether a wire's segment comes within r of an obstacle. */

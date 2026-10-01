@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import Module from 'manifold-3d';
 import { Vector3 } from 'three';
-import { defaults, clone, componentFrames, validateProject } from '../src/geometry';
+import { defaults, clone, componentFrames, slideToward, validateProject } from '../src/geometry';
 import { buildSolid, checkWalls } from '../src/solid';
 import { buildChassis, SIZES } from '../src/chassis';
 import { crossings, holes, nets, wiring } from '../src/wiring';
@@ -11,11 +11,8 @@ const pos = (m: { elements: number[] }) => new Vector3(...m.elements.slice(12, 1
 const normal = (m: { elements: number[] }) => new Vector3(...m.elements.slice(8, 11));
 test('default column heights reproduce the Python reference finger poses', () => {
   // The heights and sideways tilts were taken from the old paraboloid surface, so
-  // the finger keys sit where the Python generator put them. (The default turns
-  // the bottom row's keys about their centres; the reference doesn't.)
-  const unturned = clone(defaults.config);
-  (unturned.geometry as { key_overrides: object }).key_overrides = {};
-  for (const [key, m] of Object.entries(componentFrames(unturned)))
+  // the finger keys sit where the Python generator put them.
+  for (const [key, m] of Object.entries(componentFrames(defaults.config)))
     if (key.startsWith('matrix_'))
       m.elements.forEach((x, i) =>
         assert(Math.abs(x - (ref.frames as Record<string, number[]>)[key][i]) < 1e-3, key),
@@ -269,8 +266,9 @@ test('every finger tile has a clear way in past its tile rests', async () => {
         .filter((k) => k !== n)
         .map((k) => M.union(parts([0, 0, 0])).transform(f[k].elements as never)),
     );
-    // Each tile comes up restRise from below, restSlide in front of its place, and slides back.
-    const p = path(n, [0, -s, -rise], [0, -s, 0], [0, 0, 0]);
+    // Each tile comes up restRise from below, restSlide to one side of its place, and slides onto its feet.
+    const from = -slideToward(n) * s;
+    const p = path(n, [0, from, -rise], [0, from, 0], [0, 0, 0]);
     assert(p.intersect(body).volume() < 0.01, `${n} hits the chassis`);
     assert(p.intersect(others).volume() < 0.01, `${n} hits another tile`);
   }

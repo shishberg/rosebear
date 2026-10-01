@@ -31,7 +31,7 @@
 // axis. "Plan" means the world XY plane.
 import type { Manifold, ManifoldToplevel, Vec3 } from 'manifold-3d';
 import { Matrix4 } from 'three';
-import { point, ROWS, type Config } from './geometry';
+import { point, ROWS, slideToward, type Config } from './geometry';
 import { seatSettings } from './seats';
 import { landingBox, wirePort } from './wiring';
 
@@ -824,23 +824,30 @@ export function buildChassis(
           [pocketHalf[axis] - SIZES.restUnder, restBottom],
         ]),
       );
-    // A finger tile goes up restSlide in front of its place and slides back, so
-    // its feet can only be under the back of its side edges, where nothing was
-    // above them on its way up; that is also under the socket.
+    // A finger tile goes up restSlide to one side of its place and slides onto
+    // its feet, so they can only be under the far end of its side edges, where
+    // nothing was above them on its way up: the back (under the socket), or the
+    // front in the bottom row. `ahead` is that end's sign along the key's y axis.
     const backFrom = tile.size_mm[1] / 2 - SIZES.restSlide + SIZES.restPathClear;
-    // A foot ends short of the soldering iron's way straight down to any back
-    // pad beside it.
+    // A foot ends short of the soldering iron's way straight down to any pad
+    // beside it at that end.
     const [access] = cfg.wiring.solder_access_mm;
-    const backTo = Math.min(
-      pocketHalf[1],
-      ...tile.pads.list
-        .filter(
-          (p) =>
-            p.at_mm[1] > backFrom &&
-            Math.abs(p.at_mm[0]) + access / 2 > pocketHalf[0] - SIZES.restUnder,
-        )
-        .map((p) => p.at_mm[1] - access / 2 - SIZES.padClear),
-    );
+    const backTo = (ahead: number) =>
+      Math.min(
+        pocketHalf[1],
+        ...tile.pads.list
+          .filter(
+            (p) =>
+              ahead * p.at_mm[1] > backFrom &&
+              Math.abs(p.at_mm[0]) + access / 2 > pocketHalf[0] - SIZES.restUnder,
+          )
+          .map((p) => ahead * p.at_mm[1] - access / 2 - SIZES.padClear),
+      );
+    /** Key n's feet along its side edges, as distances along its y axis. */
+    const feetAlong = (n: string) => {
+      const ahead = slideToward(n);
+      return [ahead * backFrom, ahead * backTo(ahead)] as const;
+    };
     /** Whether key n's edge facing dir has pads along it: a rest there would cover them. */
     const padded = (n: string, dir: Plan) => {
       const edge = edgeFacing(n, dir);
@@ -857,10 +864,15 @@ export function buildChassis(
           [a, b],
           [b, a],
         ].flatMap(([n, other]) =>
-          edgePoints(n, planToward(n, other), [backFrom, pocketHalf[1]], (axis) => [
-            [pocketHalf[axis] - SIZES.restFootOut, -plateThickness / 2],
-            [pocketHalf[axis], restBottom],
-          ]),
+          edgePoints(
+            n,
+            planToward(n, other),
+            [feetAlong(n)[0], slideToward(n) * pocketHalf[1]],
+            (axis) => [
+              [pocketHalf[axis] - SIZES.restFootOut, -plateThickness / 2],
+              [pocketHalf[axis], restBottom],
+            ],
+          ),
         ),
       );
     const rests: Manifold[] = [];
@@ -901,13 +913,13 @@ export function buildChassis(
           ...[
             [ns[i], ns[i + 1]],
             [ns[i + 1], ns[i]],
-          ].map(([n, other]) => foot(n, planToward(n, other), backFrom, backTo, SIZES.restFootOut)),
+          ].map(([n, other]) => foot(n, planToward(n, other), ...feetAlong(n), SIZES.restFootOut)),
         );
       for (const [end, next] of [
         [ns[0], ns[1]],
         [ns.at(-1)!, ns.at(-2)!],
       ]) {
-        rests.push(foot(end, planToward(next, end), backFrom, backTo, SIZES.restFootOut));
+        rests.push(foot(end, planToward(next, end), ...feetAlong(end), SIZES.restFootOut));
       }
     }
     // Thumb rows: rests between neighbouring keys along the row and past its
@@ -973,8 +985,8 @@ export function buildChassis(
   /**
    * A sliding finger tile's way back onto its feet: the tile and its parts,
    * restPathClear larger (only restPathAbove above the tile, so the feet stay),
-   * coming up restRise from below, restSlide in front of its place, and swept
-   * back. It is cut only in the walled columns, where it shaves the inside of
+   * coming up restRise from below, restSlide to one side of its place, and swept
+   * onto its feet (see slideToward). It is cut only in the walled columns, where it shaves the inside of
    * the wall between two keys.
    */
   const slidePaths = () => {
@@ -997,10 +1009,11 @@ export function buildChassis(
           const b = M.cube(size as Vec3, true);
           const at = (dy: number, dz: number) =>
             b.translate([centre[0], centre[1] + dy, centre[2] + dz]);
+          const from = -slideToward(n) * SIZES.restSlide;
           return place(
             M.union([
-              M.hull([at(-SIZES.restSlide, -SIZES.restRise), at(-SIZES.restSlide, 0)]),
-              M.hull([at(-SIZES.restSlide, 0), at(0, 0)]),
+              M.hull([at(from, -SIZES.restRise), at(from, 0)]),
+              M.hull([at(from, 0), at(0, 0)]),
             ]),
             frames[n],
           );

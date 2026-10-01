@@ -147,14 +147,16 @@ default, or `"solid"`).
   tile's parts. In the finger columns, most tiles go up 7.5 mm in front of their
   place and slide back onto their feet, so the feet are only under the back of
   the side edges, from 2.3 mm behind the centre: under the socket. The bottom
-  row's keys are turned 180° (`geometry.key_overrides`), so their sockets face
-  the front and their tiles slide forward, clear of the front swept end. In each
+  row faces the same way as the others, but the front swept end leaves no room
+  in front of it, so its tiles go up behind their place and slide forward onto
+  feet under the front of the side edges. Those feet are not under the socket,
+  so pressing a switch in levers the tile's back end down about them. In each
   row a web joins neighbouring columns' plates along their feet; in the outer
   columns the feet under the walled edge hang from the wall. Where the wall
   between two keys comes inside a tile's way in, the way is cut out of it. In
   the thumb rows the rests hang between
   neighbouring keys along the row and past its end keys.
-  A foot stops short of a soldering iron's way to a back-edge pad beside it
+  A foot stops short of a soldering iron's way to a pad beside it
   (see Wiring). A thumb key turned across its row (the home thumb) would have
   pads along the row, so it has no rest there; two short hangers under each of
   its other two edges hold it instead.

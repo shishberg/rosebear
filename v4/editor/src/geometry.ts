@@ -108,6 +108,13 @@ export function clusterFrames(c: Cluster) {
       .multiply(frame(key.offset_mm, key.rotation_deg));
   });
 }
+/**
+ * Which way a finger tile slides onto its tile rests, as a sign along its key's
+ * y axis: back (+1), toward the socket, except in the bottom row, which has no
+ * room in front for that past the front swept end and slides forward (-1).
+ */
+export const slideToward = (key: string) =>
+  key.startsWith('matrix_') && key.endsWith('_bottom') ? -1 : 1;
 export function componentFrames(cfg: Config) {
   const g = cfg.geometry,
     n: Record<string, Matrix4> = {};

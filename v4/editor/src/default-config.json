@@ -44,23 +44,7 @@
         "rotation_deg": [0, 0, 0]
       }
     ],
-    "key_overrides": {
-      "matrix_inner_bottom": {
-        "rotation_deg": [0, 0, 180]
-      },
-      "matrix_index_bottom": {
-        "rotation_deg": [0, 0, 180]
-      },
-      "matrix_middle_bottom": {
-        "rotation_deg": [0, 0, 180]
-      },
-      "matrix_ring_bottom": {
-        "rotation_deg": [0, 0, 180]
-      },
-      "matrix_pinky_bottom": {
-        "rotation_deg": [0, 0, 180]
-      }
-    },
+    "key_overrides": {},
     "thumb": {
       "position_mm": [-42.56, -60.704, 0],
       "rotation_deg": [5, -24, 15],
