@@ -33,6 +33,17 @@ for (const w of report.walls)
     console.log(
       `${w.name}: ${w.gaps.length} gaps through the wall (${w.gaps.map((a) => a.toFixed(2)).join(', ')} mm²), ${w.blindCutouts} blind cutouts`,
     );
-for (const h of report.hardware)
-  if (h.group !== 'keycaps') console.log(`${h.name}: ${h.volume.toFixed(3)} mm³ hardware overlap`);
+for (const x of report.hardware)
+  if (x.group !== 'keycaps') console.log(`${x.name}: ${x.volume.toFixed(3)} mm³ hardware overlap`);
+for (const w of report.wires)
+  console.log(`${w.name}: wire runs ${w.volume.toFixed(3)} mm³ into the chassis`);
+for (const p of report.solder)
+  console.log(`${p.name}: soldering iron's way blocked, ${p.volume.toFixed(3)} mm³`);
+const h = report.housing;
+if (h.pieces !== 1) console.log(`trackpad housing is ${h.pieces} pieces`);
+if (h.fit > 0.05) console.log(`trackpad housing overlaps the chassis by ${h.fit.toFixed(3)} mm³`);
+if (h.slide > 0.05)
+  console.log(`trackpad housing hits the chassis by ${h.slide.toFixed(3)} mm³ as it slides off`);
+const wr = report.wiring;
+console.log(`wiring: ${wr.wires} wires, ${wr.joints} joints, ${(wr.length / 1000).toFixed(2)} m`);
 process.exitCode = report.passed ? 0 : 1;

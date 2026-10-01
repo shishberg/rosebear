@@ -2,3 +2,4 @@
 
 #fit-legend .rest{color:#ff7881}#fit-legend .travel{color:#ffb74e}#fit-legend .opening{color:#f695e2}#fit-list{padding-left:0;list-style:none}#fit-list button{text-align:left;width:100%;font-size:12px;line-height:1.5;margin:0}#fit-list button[aria-pressed=true]{border-color:#ffb74e;background:#473b29}#fit-focus{color:#ffce87;font-size:12px}
 .params{display:grid;grid-template-columns:1fr 1fr;gap:0 8px}.params label{font-size:12px;margin:5px 0}.params input[type=number]{width:100%}#selection strong{text-transform:capitalize}
+#fit-legend .wire{color:#40e0ff}#wiring-summary small{margin:0}aside table{font-size:12px;border-collapse:collapse;width:100%}aside th,aside td{text-align:left;padding:2px 4px;border-bottom:1px solid #30434a}aside th{color:#b7ccce;font-weight:600}

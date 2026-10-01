@@ -33,6 +33,7 @@ import type { Manifold, ManifoldToplevel, Vec3 } from 'manifold-3d';
 import { Matrix4 } from 'three';
 import { point, ROWS, type Config } from './geometry';
 import { seatSettings } from './seats';
+import { landingBox, wirePort } from './wiring';
 
 export const isKey = (name: string) => name.startsWith('thumb_') || name.startsWith('matrix_');
 export const capSize = (c: Config, n: string) =>
@@ -40,7 +41,9 @@ export const capSize = (c: Config, n: string) =>
 export interface ChassisResult {
   body: Manifold;
   base: Manifold;
+  /** The trackpad housing, a separate print, and the way it slides up off its mount. */
   pod: Manifold;
+  podSweep: Manifold;
   pocketCut: Manifold;
   /** For each key, the chassis its keycap's room (and the switch rim's) had to remove. */
   roomCuts: { name: string; cut: Manifold }[];
@@ -113,15 +116,13 @@ export const SIZES = {
   /** Heights cut above the plate: the switch hole's and the keycap room's. */
   switchHoleHeight: 20,
   keycapRoomHeight: 60,
-  /** A trackpad bracket: its centre this far below the pod's rim, its ends this far inside the pod's outer radius, and this deep. */
-  podBracketBelowRim: 4,
-  podBracketInset: 2.5,
-  podBracketDepth: 4,
   /** PROTOTYPE tile rests: a thumb rest's width along the plate edge, how far a foot reaches under the tile, its thickness and its gap below the tile. */
   restWidth: 12,
   restUnder: 1.5,
   restThickness: 1.5,
   restGap: 0.1,
+  /** A crossways thumb key's rests start this far either side of its edge's middle. */
+  crosswaysFrom: 2,
   /** A rest past a thumb row's end key hangs from this far past its tile pocket. */
   restEndStem: 1.6,
   /**
@@ -136,6 +137,19 @@ export const SIZES = {
   restFootOut: 0.5,
   /** A tile's way in is cut this far clear of the tile, above it (the foot is restGap below). */
   restPathAbove: 0.3,
+  /** A foot ends this far short of a soldering iron's way to a pad. */
+  padClear: 0.2,
+  /** A pad within this distance of a tile's edge is along that edge. */
+  padEdge: 2,
+  /** The adapter's rests stand this far in from its hole edge. */
+  adapterRestIn: 7,
+  /** Tie tunnels: their centres this far in from the landing's ends, and their tops this far under its top. */
+  tieIn: 2.75,
+  tieBridge: 1,
+  /** The ribbon notch reaches this far out from the landing. */
+  notchLength: 40,
+  /** The housing must slide this far up off its mount, along the pad's normal, without touching the body. */
+  housingSlide: 30,
 } as const;
 
 /** A plan vector or direction, [x, y] in world coordinates. */
@@ -814,6 +828,28 @@ export function buildChassis(
     // its feet can only be under the back of its side edges, where nothing was
     // above them on its way up; that is also under the socket.
     const backFrom = tile.size_mm[1] / 2 - SIZES.restSlide + SIZES.restPathClear;
+    // A foot ends short of the soldering iron's way straight down to any back
+    // pad beside it.
+    const [access] = cfg.wiring.solder_access_mm;
+    const backTo = Math.min(
+      pocketHalf[1],
+      ...tile.pads.list
+        .filter(
+          (p) =>
+            p.at_mm[1] > backFrom &&
+            Math.abs(p.at_mm[0]) + access / 2 > pocketHalf[0] - SIZES.restUnder,
+        )
+        .map((p) => p.at_mm[1] - access / 2 - SIZES.padClear),
+    );
+    /** Whether key n's edge facing dir has pads along it: a rest there would cover them. */
+    const padded = (n: string, dir: Plan) => {
+      const edge = edgeFacing(n, dir);
+      const axis = facingAxis(edge);
+      const side = edge[0][axis];
+      return tile.pads.list.some(
+        (p) => side * p.at_mm[axis] > tile.size_mm[axis] / 2 - SIZES.padEdge,
+      );
+    };
     /** The web between two keys' facing side edges, along their feet, from inside the plate (so it overlaps the plate rather than sharing its edge face) down to the feet. */
     const web = (a: string, b: string) =>
       M.hull(
@@ -865,34 +901,72 @@ export function buildChassis(
           ...[
             [ns[i], ns[i + 1]],
             [ns[i + 1], ns[i]],
-          ].map(([n, other]) =>
-            foot(n, planToward(n, other), backFrom, pocketHalf[1], SIZES.restFootOut),
-          ),
+          ].map(([n, other]) => foot(n, planToward(n, other), backFrom, backTo, SIZES.restFootOut)),
         );
       for (const [end, next] of [
         [ns[0], ns[1]],
         [ns.at(-1)!, ns.at(-2)!],
       ]) {
-        rests.push(foot(end, planToward(next, end), backFrom, pocketHalf[1], SIZES.restFootOut));
+        rests.push(foot(end, planToward(next, end), backFrom, backTo, SIZES.restFootOut));
       }
     }
-    // Thumb rows: rests between neighbouring keys along the row and past its ends.
+    // Thumb rows: rests between neighbouring keys along the row and past its
+    // ends. A key whose edge along the row has pads (a key turned across the
+    // row) has no rest there; it hangs from the plate under its other two
+    // edges instead.
+    const crossways = new Set<string>();
+    const side = (n: string, dir: Plan, reach: number) => {
+      if (!padded(n, dir)) return restSide(n, dir, reach);
+      crossways.add(n);
+      return [];
+    };
     for (const ns of [thumbRow, extraRow].filter((r) => r.length)) {
-      for (let i = 0; i + 1 < ns.length; i++)
-        rests.push(
-          M.hull([
-            ...restSide(ns[i], planToward(ns[i], ns[i + 1]), 0),
-            ...restSide(ns[i + 1], planToward(ns[i + 1], ns[i]), 0),
-          ]),
+      for (let i = 0; i + 1 < ns.length; i++) {
+        const pair = [
+          [ns[i], ns[i + 1]],
+          [ns[i + 1], ns[i]],
+        ];
+        // Without its neighbour's share, a rest stands just outside the
+        // pocket, as one past a row's end does, so the tile clearance does
+        // not part it from the plate.
+        const lone = pair.some(([n, other]) => padded(n, planToward(n, other)));
+        const ps = pair.flatMap(([n, other]) =>
+          side(n, planToward(n, other), lone ? SIZES.restEndStem : 0),
         );
+        if (ps.length) rests.push(M.hull(ps));
+      }
       if (ns.length > 1)
         for (const [end, next] of [
           [ns[0], ns[1]],
           [ns.at(-1)!, ns.at(-2)!],
         ]) {
           const [x, y] = planToward(next, end);
-          rests.push(M.hull(restSide(end, [x, y], SIZES.restEndStem)));
+          const ps = side(end, [x, y], SIZES.restEndStem);
+          if (ps.length) rests.push(M.hull(ps));
         }
+    }
+    // A crossways key hangs from its plate under each of its other two edges,
+    // either side of the middle, where its wall's U cutout is: into the wall
+    // like a finger foot, or on a stem just outside the pocket.
+    for (const n of crossways) {
+      const e = frames[n].elements;
+      for (const sign of [-1, 1]) {
+        const dir: Plan = [sign * e[0], sign * e[1]];
+        if (padded(n, dir)) continue;
+        const out = walled(n, dir) ? SIZES.restFootOut : SIZES.restEndStem;
+        for (const s of [-1, 1])
+          rests.push(
+            M.hull(
+              edgePoints(n, dir, [s * SIZES.crosswaysFrom, (s * SIZES.restWidth) / 2], (axis) => [
+                [pocketHalf[axis] - SIZES.restFootOut, -plateThickness / 2],
+                [pocketHalf[axis] + out, -plateThickness / 2],
+                [pocketHalf[axis] + out, restBottom],
+                [pocketHalf[axis] - SIZES.restUnder, restTop],
+                [pocketHalf[axis] - SIZES.restUnder, restBottom],
+              ]),
+            ),
+          );
+      }
     }
     return M.union(rests).subtract(M.union(keyNames.map(clear)));
   };
@@ -1460,7 +1534,10 @@ export function buildChassis(
       .filter((p) => signedArea(p as [number, number][]) > 0)
       .map((p) => new CS([p])),
   );
-  const base = footprint.extrude(chassis.base_thickness_mm);
+  const base = footprint
+    .extrude(chassis.base_thickness_mm)
+    .add(adapterMount(wasm, cfg, frames))
+    .subtract(landingTunnels(wasm, cfg, frames));
   // The plate's half-widths toward a corner, out to the face of a wall beside it.
   const toWallFace = (n: string, [sx, sy]: Corner): HalfWidths => {
     const past = (edge: Edge) => (walled(n, edgeDirection(n, edge)) ? wallThickness : 0);
@@ -1477,9 +1554,15 @@ export function buildChassis(
         ]),
     ];
   };
-  const pod = trackpadPod(wasm, cfg, frames, keyPoint, seatHalf, toWallFace);
-  const pocketCut = built.add(pod).intersect(pockets);
-  const uncarved = cleared.add(pod);
+  const mount = trackpadMount(wasm, cfg, frames, keyPoint, toWallFace);
+  const { housing: pod, sweep: podSweep } = trackpadHousing(wasm, cfg, frames);
+  const pocketCut = built.add(mount).intersect(pockets);
+  // The ribbon leaves through a notch in the wall it crosses.
+  const notch = ribbonNotch(wasm, cfg, frames);
+  // The thumb wires pass into the finger columns through a round port.
+  const port = portHole(wasm, cfg, frames);
+  wallOpenings.push(notch, port);
+  const uncarved = cleared.add(mount).subtract(notch).subtract(port);
   let body = uncarved;
   // Room above each plate: the switch hole, the switch housing's rim up to the
   // keycap's lowest point, and the keycap with its clearance above that. What the
@@ -1519,6 +1602,7 @@ export function buildChassis(
     body,
     base,
     pod,
+    podSweep,
     pocketCut,
     roomCuts,
     wallWindows,
@@ -1526,30 +1610,117 @@ export function buildChassis(
   };
 }
 
-// Cirque trackpad in a printed pod on the inner side, held by a bracket to the
-// two corners of the far thumb key nearest to it. The bracket takes in the
-// plate's full thickness at each corner, above the tile pocket.
-function trackpadPod(
+/**
+ * The Cirque trackpad's housing, a separate print: a round cup with a recess
+ * the pad sits in, a cavity under the pad for its parts (it rests on its
+ * part-free outer ring), a slot in the floor for its cable, and a dovetail
+ * tongue along its frame's +x axis. All of it is symmetric about the frame's
+ * xz plane, so the mirrored left hand's mount takes the same housing. The
+ * housing slides down onto the mount along the pad's normal and is held by a
+ * screw up through the mount's floor into the tongue.
+ */
+export function trackpadHousing(
+  wasm: ManifoldToplevel,
+  cfg: Config,
+  frames: Record<string, Matrix4>,
+) {
+  const M = wasm.Manifold;
+  const t = cfg.trackpad;
+  const g = housingSizes(wasm, cfg);
+  const cavity = t.parts_diameter_mm / 2 + t.cavity_clearance_mm;
+  const recess = t.thickness_mm + t.top_below_rim_mm;
+  const cavityDepth = recess + t.parts_depth_mm + t.cavity_clearance_mm;
+  const [slotX, slotY] = t.cable_slot_mm;
+  const housing = M.cylinder(t.pod_depth_mm, g.radius, g.radius, 96)
+    .translate([0, 0, -t.pod_depth_mm])
+    .add(g.tongue(0))
+    .subtract(M.cylinder(recess + 1, g.padRadius, g.padRadius, 96).translate([0, 0, -recess]))
+    .subtract(M.cylinder(cavityDepth + 1, cavity, cavity, 96).translate([0, 0, -cavityDepth]))
+    .subtract(
+      M.cube([slotX, slotY, t.pod_depth_mm + 2], true).translate([
+        -t.connector_from_centre_mm,
+        0,
+        -t.pod_depth_mm / 2,
+      ]),
+    )
+    .subtract(
+      M.cylinder(
+        t.pod_depth_mm,
+        t.mount.screw_hole_mm / 2,
+        t.mount.screw_hole_mm / 2,
+        24,
+      ).translate([g.screwX, 0, -t.pod_depth_mm - 0.5]),
+    );
+  // The way it slides up off its mount, along the pad's normal: the cup's and
+  // the tongue's outlines swept up.
+  const sweep = M.union(
+    [
+      M.cylinder(t.pod_depth_mm, g.radius, g.radius, 96).translate([0, 0, -t.pod_depth_mm]),
+      g.tongue(0),
+    ].map((x) => M.hull([x, x.translate([0, 0, SIZES.housingSlide])])),
+  );
+  return {
+    housing: housing.transform(frames.trackpad.elements as never),
+    sweep: sweep.transform(frames.trackpad.elements as never),
+  };
+}
+
+/** Housing and mount sizes, in the trackpad's frame. */
+function housingSizes(wasm: ManifoldToplevel, cfg: Config) {
+  const t = cfg.trackpad;
+  const m = t.mount;
+  const padRadius = t.diameter_mm / 2 + t.clearance_mm;
+  const radius = padRadius + t.pod_wall_mm;
+  // The tongue reaches back into the cup's wall, where its side faces are inside the cup.
+  const root = Math.sqrt(radius ** 2 - (m.tongue_root_mm / 2) ** 2) - 1;
+  const tip = radius + m.tongue_length_mm;
+  return {
+    padRadius,
+    radius,
+    tip,
+    screwX: radius + m.tongue_length_mm / 2,
+    /** The dovetail tongue, grown by `grow` on its sides and bottom, and carried `up` above the rim. */
+    tongue: (grow: number, up = 0) => {
+      const w = (x: number) => (x - root) / (tip - root);
+      const half = (x: number) =>
+        (m.tongue_root_mm / 2) * (1 - w(x)) + (m.tongue_tip_mm / 2) * w(x) + grow;
+      const xs = [root - grow, tip + grow];
+      return new wasm.CrossSection([
+        xs
+          .map((x) => [x, -half(x)] as [number, number])
+          .concat([...xs].reverse().map((x) => [x, half(x)] as [number, number])),
+      ])
+        .extrude(t.pod_depth_mm + grow + up)
+        .translate([0, 0, -t.pod_depth_mm - grow]);
+    },
+  };
+}
+/**
+ * The housing's mount on the body: a block beside the housing with the
+ * dovetail slot, open at the top, and a floor with a screw hole, joined to the
+ * two corners of the key it is mounted to nearest the block.
+ */
+function trackpadMount(
   wasm: ManifoldToplevel,
   cfg: Config,
   frames: Record<string, Matrix4>,
   keyPoint: (n: string, corner: Corner, z: number, half: HalfWidths) => Vec3,
-  seatHalf: HalfWidths,
   toWallFace: (n: string, corner: Corner) => HalfWidths,
 ) {
   const M = wasm.Manifold;
   const t = cfg.trackpad;
+  const m = t.mount;
+  const g = housingSizes(wasm, cfg);
   const f = frames.trackpad;
-  const padRadius = t.diameter_mm / 2 + t.clearance_mm;
-  const podRadius = padRadius + t.pod_wall_mm;
+  const key = t.mount_toward;
   const plateThickness = cfg.chassis.plate_thickness_mm;
-  // The pod's rim top is the frame's origin; the pad sits on the recess floor.
-  const recess = t.thickness_mm + t.top_below_rim_mm;
-  const pod = M.cylinder(t.pod_depth_mm, podRadius, podRadius, 64)
-    .translate([0, 0, -t.pod_depth_mm])
-    .subtract(M.cylinder(recess + 1, padRadius, padRadius, 64).translate([0, 0, -recess]))
-    .transform(f.elements as never);
-  const centre = point(f, [0, 0, -SIZES.podBracketBelowRim]);
+  const c = m.slot_clearance_mm;
+  const bottom = -t.pod_depth_mm - c - m.floor_mm;
+  const half = m.tongue_tip_mm / 2 + c + m.wall_mm;
+  const block = [g.radius + c, g.tip + c + m.wall_mm].flatMap((x) =>
+    [-half, half].flatMap((y) => [0, bottom].map((z) => point(f, [x, y, z]))),
+  );
+  const centre = point(f, [g.screwX, 0, bottom / 2]);
   const nearest = (
     [
       [-1, -1],
@@ -1558,27 +1729,97 @@ function trackpadPod(
       [-1, 1],
     ] as Corner[]
   )
-    .map((corner) => ({ corner, p: keyPoint('thumb_far', corner, 0, seatHalf) }))
+    .map((corner) => ({ corner, p: keyPoint(key, corner, 0, toWallFace(key, corner)) }))
     .sort((a, b) => planDistance(a.p, centre) - planDistance(b.p, centre))
     .slice(0, 2);
-  const rim = nearest.map(({ p }) => {
-    const d = [p[0] - centre[0], p[1] - centre[1]];
-    const l = Math.hypot(d[0], d[1]);
-    return [
-      centre[0] + (d[0] / l) * (podRadius - SIZES.podBracketInset),
-      centre[1] + (d[1] / l) * (podRadius - SIZES.podBracketInset),
-      centre[2],
-    ] as Vec3;
-  });
-  return pod.add(
-    M.hull([
-      ...rim.flatMap((p) => [p, [p[0], p[1], p[2] - SIZES.podBracketDepth] as Vec3]),
-      ...nearest.flatMap(({ corner }) => [
-        keyPoint('thumb_far', corner, 0, toWallFace('thumb_far', corner)),
-        keyPoint('thumb_far', corner, -plateThickness, toWallFace('thumb_far', corner)),
-      ]),
+  const solid = M.hull([
+    ...block,
+    ...nearest.flatMap(({ corner }) => [
+      keyPoint(key, corner, 0, toWallFace(key, corner)),
+      keyPoint(key, corner, -plateThickness, toWallFace(key, corner)),
     ]),
-  );
+  ]);
+  const up = 40;
+  const clear = M.union([
+    g.tongue(c, up),
+    M.cylinder(t.pod_depth_mm + c + up, g.radius + c, g.radius + c, 96).translate([
+      0,
+      0,
+      -t.pod_depth_mm - c,
+    ]),
+    M.cylinder(m.floor_mm + 2, m.screw_clearance_mm / 2, m.screw_clearance_mm / 2, 24).translate([
+      g.screwX,
+      0,
+      bottom - 1,
+    ]),
+  ]).transform(f.elements as never);
+  return solid.subtract(clear);
+}
+
+/**
+ * The adapter's mount on the bottom plate: a boss with a peg through each of
+ * its mounting holes, two rests under its other end, and the ribbon's landing.
+ * Each reaches half a millimetre into the plate.
+ */
+function adapterMount(wasm: ManifoldToplevel, cfg: Config, frames: Record<string, Matrix4>) {
+  const M = wasm.Manifold;
+  const a = cfg.adapter;
+  const [bx, by, bz] = a.board_mm;
+  const into = 0.5;
+  const post = (x: number, y: number, d: number, top: number) =>
+    M.cylinder(top + a.standoff_mm + into, d / 2, d / 2, 32).translate([
+      x,
+      y,
+      -a.standoff_mm - into,
+    ]);
+  const landing = landingBox(cfg);
+  return M.union([
+    ...a.mounting_holes_mm.flatMap(([x, y]) => [
+      post(x, y, a.boss_diameter_mm, 0),
+      post(x, y, a.peg_diameter_mm, bz + a.peg_above_mm),
+    ]),
+    ...[-1, 1].map((s) =>
+      post(bx / 2 - SIZES.adapterRestIn, s * (by / 2 - 2), a.rest_diameter_mm, 0),
+    ),
+    M.cube(
+      [landing.from - landing.to, landing.width, landing.top - landing.bottom + into],
+      false,
+    ).translate([landing.to, -landing.width / 2, landing.bottom - into]),
+  ]).transform(frames.adapter.elements as never);
+}
+
+/** Two tunnels across the landing for cable ties, which pass over the ribbon. */
+function landingTunnels(wasm: ManifoldToplevel, cfg: Config, frames: Record<string, Matrix4>) {
+  const landing = landingBox(cfg);
+  const [w, h] = cfg.ribbon.tie_slot_mm;
+  return wasm.Manifold.union(
+    [landing.from - SIZES.tieIn, landing.to + SIZES.tieIn].map((x) =>
+      wasm.Manifold.cube([w, landing.width + 2, h], true).translate([
+        x,
+        0,
+        landing.top - SIZES.tieBridge - h / 2,
+      ]),
+    ),
+  ).transform(frames.adapter.elements as never);
+}
+
+/** The notch the ribbon leaves through: from the landing outward, low over the bottom plate. */
+function ribbonNotch(wasm: ManifoldToplevel, cfg: Config, frames: Record<string, Matrix4>) {
+  const r = cfg.ribbon;
+  const landing = landingBox(cfg);
+  const width = r.width_mm + 2 * r.notch_clearance_mm;
+  const top = landing.top + r.thickness_mm + r.notch_clearance_mm;
+  const bottom = landing.bottom - cfg.chassis.base_thickness_mm - 1;
+  return wasm.Manifold.cube([SIZES.notchLength, width, top - bottom], false)
+    .translate([landing.to - SIZES.notchLength, -width / 2, bottom])
+    .transform(frames.adapter.elements as never);
+}
+
+/** The round hole the thumb wires pass through into the finger columns. */
+function portHole(wasm: ManifoldToplevel, cfg: Config, frames: Record<string, Matrix4>) {
+  const port = wirePort(cfg, frames);
+  const ball = wasm.Manifold.sphere(port.diameter / 2, 24);
+  return wasm.Manifold.hull([port.inside, port.outside].map((p) => ball.translate(p as Vec3)));
 }
 
 /** The trackpad itself, for display. */

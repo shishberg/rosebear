@@ -2,6 +2,7 @@ import type { Manifold, ManifoldToplevel, Mat4 } from 'manifold-3d';
 import { Matrix4 } from 'three';
 import { seatSettings } from './seats';
 import { buildChassis, capSize, isKey, trackpadPart, type WallWindow } from './chassis';
+import { adapterParts, padParts, wiring } from './wiring';
 import { componentFrames, validateProject, type V3, type MeshData, type Project } from './geometry';
 export { capSize, isKey };
 /** Sizes and limits for the seats and the clearance checks, in mm (volumes in mm³, areas in mm²). */
@@ -41,6 +42,8 @@ const CHECKS = {
   wallSliver: 0.01,
   /** A blind cutout is highlighted by a rod this radius through its centre. */
   blindCutoutMarker: 1.5,
+  /** Wire tubes: sides per segment's end sphere. */
+  wireSides: 8,
 } as const;
 export interface Part {
   name: string;
@@ -49,6 +52,8 @@ export interface Part {
   center: V3;
   matrix: number[];
   cylinder?: number;
+  /** Round holes through a box along its z axis: centres in its x and y. */
+  holes?: { at: number[]; diameter: number }[];
 }
 export function hardware(project: Project, nodes = componentFrames(project.config)): Part[] {
   const cfg = project.config;
@@ -97,15 +102,25 @@ export function hardware(project: Project, nodes = componentFrames(project.confi
     nodes.trackpad,
     pad.diameter_mm / 2,
   );
-  const adapter = cfg.adapter;
-  add('FFC PCB', 'adapter', adapter.board_mm, [0, 0, -adapter.board_mm[2] / 2], nodes.adapter);
+  // The pad's parts and its connector, under the pad: the connector on the
+  // housing's symmetry plane, on the side away from the mount.
+  const padBottom = -pad.top_below_rim_mm - pad.thickness_mm;
   add(
-    'FFC connector',
-    'adapter',
-    [adapter.board_mm[0] - 4, adapter.board_mm[1] / 2, adapter.component_height_mm],
-    [0, 0, adapter.component_height_mm / 2],
-    nodes.adapter,
+    'Trackpad parts',
+    'trackpad parts',
+    [pad.parts_diameter_mm, pad.parts_diameter_mm, pad.parts_depth_mm],
+    [0, 0, padBottom - pad.parts_depth_mm / 2],
+    nodes.trackpad,
+    pad.parts_diameter_mm / 2,
   );
+  add(
+    'Trackpad connector',
+    'trackpad parts',
+    pad.connector_mm,
+    [-pad.connector_from_centre_mm, 0, padBottom - pad.connector_mm[2] / 2],
+    nodes.trackpad,
+  );
+  parts.push(...adapterParts(cfg, nodes), ...padParts(cfg, nodes));
   return parts;
 }
 export interface Clearance {
@@ -135,6 +150,14 @@ export interface Report {
   /** Keys whose keycap room had to remove chassis, and how much (mm³). */
   roomCuts: { name: string; volume: number }[];
   hardware: { name: string; group: string; volume: number }[];
+  /** Wires that run into the chassis, the bottom plate or the trackpad housing, and how far (mm³). */
+  wires: { name: string; volume: number }[];
+  /** Pads a soldering iron cannot reach straight from below. */
+  solder: { name: string; volume: number }[];
+  /** The trackpad housing: its pieces, its overlap with the body and plate, and with the body as it slides up off its mount. */
+  housing: { pieces: number; fit: number; slide: number };
+  /** The whole hand's wiring: wire count, solder joints and cut length (mm). */
+  wiring: { wires: number; joints: number; length: number };
   openings: { name: string; removed: number; covered: number; blocked: number }[];
   walls: WallCheck[];
   volume: number;
@@ -151,13 +174,25 @@ export interface WallCheck {
 }
 export interface Highlight {
   name: string;
-  kind: 'rest' | 'travel' | 'room' | 'hardware' | 'opening' | 'seat' | 'loose' | 'wall';
+  kind:
+    | 'rest'
+    | 'travel'
+    | 'room'
+    | 'hardware'
+    | 'opening'
+    | 'seat'
+    | 'loose'
+    | 'wall'
+    | 'wire'
+    | 'solder'
+    | 'housing';
   mesh: MeshData;
 }
 export interface BuildResult {
   mesh: MeshData;
   base: MeshData;
   trackpad: MeshData;
+  housing: MeshData;
   report: Report;
   highlights: Highlight[];
 }
@@ -324,6 +359,7 @@ export function buildSolid(wasm: ManifoldToplevel, project: Project): BuildResul
     keep(chassis.body);
     keep(chassis.base);
     keep(chassis.pod);
+    keep(chassis.podSweep);
     keep(chassis.pocketCut);
     for (const r of chassis.roomCuts) keep(r.cut);
     let body = chassis.body;
@@ -507,19 +543,120 @@ export function buildSolid(wasm: ManifoldToplevel, project: Project): BuildResul
       });
     }
     const overlaps: Report['hardware'] = [];
+    const housing = chassis.pod;
+    const both = keep(result.add(housing));
+    // The trackpad and its parts and cable are checked against the housing
+    // too; everything else against the chassis and its bottom plate.
+    const against: Record<string, Manifold> = {
+      pcb: result,
+      components: result,
+      adapter: result,
+      ribbon: result,
+      trackpad: both,
+      'trackpad parts': both,
+      'trackpad cable': both,
+    };
     for (const p of hardware(project, nodes))
-      if (['pcb', 'components', 'trackpad', 'adapter'].includes(p.group)) {
-        const shape = p.cylinder
+      if (against[p.group]) {
+        let shape = p.cylinder
           ? keep(keep(M.cylinder(p.size[2], p.cylinder, p.cylinder, 64, true)).translate(p.center))
           : box(p.size, p.center);
+        for (const h of p.holes ?? [])
+          shape = keep(
+            shape.subtract(
+              keep(
+                keep(M.cylinder(p.size[2] + 2, h.diameter / 2, h.diameter / 2, 32, true)).translate(
+                  [h.at[0], h.at[1], p.center[2]],
+                ),
+              ),
+            ),
+          );
         const v = collision(
-          result,
+          against[p.group],
           place(shape, new Matrix4().fromArray(p.matrix)),
           p.name,
           'hardware',
         );
         if (v > CHECKS.overlap) overlaps.push({ name: p.name, group: p.group, volume: v });
       }
+    // Every wire as a tube, against the chassis, its plate and the housing.
+    const wired = wiring(cfg, nodes);
+    const tube = (points: number[][], d: number) =>
+      keep(
+        M.union(
+          points
+            .slice(1)
+            .map((q, i) =>
+              keep(
+                M.hull(
+                  [points[i], q].map((c) =>
+                    keep(keep(M.sphere(d / 2, CHECKS.wireSides)).translate(c as V3)),
+                  ),
+                ),
+              ),
+            ),
+        ),
+      );
+    /**
+     * Shapes that must miss `target`: intersect their union with it once, and
+     * only when that hits, find which of them do.
+     */
+    const misses = (
+      shapes: { name: string; solid: Manifold }[],
+      target: Manifold,
+      kind: Highlight['kind'],
+    ) => {
+      const out: { name: string; volume: number }[] = [];
+      if (
+        !shapes.length ||
+        volume(keep(M.union(shapes.map((x) => x.solid))), target) <= CHECKS.overlap
+      )
+        return out;
+      for (const x of shapes) {
+        const v = collision(target, x.solid, x.name, kind);
+        if (v > CHECKS.overlap) out.push({ name: x.name, volume: v });
+      }
+      return out;
+    };
+    const wireName = (w: (typeof wired.wires)[number]) =>
+      `${w.net}: ${w.from.replace(/^(matrix|thumb)_/, '')} to ${w.to.replace(/^(matrix|thumb)_/, '')}`;
+    const wires = misses(
+      wired.wires.map((w) => ({ name: wireName(w), solid: tube(w.points, w.diameter) })),
+      both,
+      'wire',
+    );
+    // A soldering iron's way to each pad, with the bottom plate off: straight
+    // down from it along its key's normal, through the open bottom of the tile
+    // pocket.
+    const [access, reach] = cfg.wiring.solder_access_mm;
+    const padZ = -(cfg.tile.plate_top_to_pcb_top_mm + cfg.tile.size_mm[2]);
+    const solder = misses(
+      keyNodes.flatMap(([name, m]) =>
+        cfg.tile.pads.list.map((p) => ({
+          name: `${name}: ${p.name} pad, ${p.at_mm[1] > 0 ? 'back' : 'front'} edge`,
+          solid: place(
+            keep(
+              keep(M.cylinder(reach, access / 2, access / 2, 24)).translate([
+                p.at_mm[0],
+                p.at_mm[1],
+                padZ - reach - 0.01,
+              ]),
+            ),
+            m,
+          ),
+        })),
+      ),
+      cut,
+      'solder',
+    );
+    // The housing: one piece, clear of the body and plate where it sits, and
+    // as it slides up off its mount.
+    const housingPieces = housing
+      .decompose()
+      .map(keep)
+      .filter((p) => p.volume() > CHECKS.minPiece).length;
+    const fit = collision(result, housing, 'trackpad housing', 'housing');
+    const slide = collision(cut, chassis.podSweep, 'trackpad housing slide', 'housing');
     const keycaps: Clearance[] = [];
     const rests: Record<string, Manifold> = {};
     for (const [name, m] of keyNodes) {
@@ -584,11 +721,17 @@ export function buildSolid(wasm: ManifoldToplevel, project: Project): BuildResul
       roomCuts.length === 0 &&
       walls.checks.every((w) => w.passed) &&
       capGaps.every((c) => c.gap > 0) &&
-      openings.every((o) => o.removed > CHECKS.empty && o.covered === 9 && o.blocked === 0);
+      openings.every((o) => o.removed > CHECKS.empty && o.covered === 9 && o.blocked === 0) &&
+      wires.length === 0 &&
+      solder.length === 0 &&
+      housingPieces === 1 &&
+      fit <= CHECKS.overlap &&
+      slide <= CHECKS.overlap;
     return {
       mesh,
       base: meshData(chassis.base),
       trackpad: meshData(keep(trackpadPart(wasm, cfg, nodes))),
+      housing: meshData(housing),
       highlights,
       report: {
         seats,
@@ -600,6 +743,14 @@ export function buildSolid(wasm: ManifoldToplevel, project: Project): BuildResul
         pocketCut,
         roomCuts: roomCuts.map(({ name, volume }) => ({ name, volume })),
         hardware: overlaps,
+        wires,
+        solder,
+        housing: { pieces: housingPieces, fit, slide },
+        wiring: {
+          wires: wired.wires.length,
+          joints: wired.nets.reduce((t, n) => t + n.joints, 0),
+          length: wired.nets.reduce((t, n) => t + n.length, 0),
+        },
         openings,
         walls: walls.checks,
         volume: result.volume(),

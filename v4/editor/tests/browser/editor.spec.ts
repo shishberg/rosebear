@@ -123,6 +123,11 @@ test('a newer edit supersedes an in-flight build; invalid imports leave the proj
   const solid = await stl;
   const bytes = await fs.readFile((await solid.path())!);
   expect(bytes.length).toBe(84 + 50 * bytes.readUInt32LE(80));
+  const housingStl = page.waitForEvent('download');
+  await page.locator('#stl-housing').click();
+  const housingBytes = await fs.readFile((await (await housingStl).path())!);
+  expect(housingBytes.readUInt32LE(80)).toBeGreaterThan(100);
+  expect(housingBytes.length).toBe(84 + 50 * housingBytes.readUInt32LE(80));
   const initial = await project(page);
   await page.locator('#file').setInputFiles({
     name: 'invalid.json',
@@ -139,7 +144,7 @@ test('clearance overlays isolate collisions, toggle, and clear on edit', async (
   const bottom = page.locator('#bottom-out'),
     cfg = JSON.parse(await page.locator('#config').inputValue());
   cfg.switch.keycap_bottom_above_plate_mm = cfg.switch.travel_mm - 2;
-  await page.locator('details summary').click();
+  await page.getByText('All configuration').click();
   await page.locator('#config').fill(JSON.stringify(cfg));
   await page.locator('#apply-config').click();
   await rebuilt(page);
@@ -165,4 +170,20 @@ test('clearance overlays isolate collisions, toggle, and clear on edit', async (
   await rebuilt(page);
   await expect(page.locator('#fit-badge')).toHaveText('Clearance checks PASS');
   expect(errors).toEqual([]);
+});
+test('the wiring panel lists the matrix and cut list, and the wiring follows the keys', async ({
+  page,
+}) => {
+  await expect(page.locator('#wiring-summary')).toContainText('100 wires, 200 solder joints');
+  await expect(page.locator('#matrix-table tr')).toHaveCount(21);
+  await expect(page.locator('#fit-list')).toContainText('All 100 wires are clear of the chassis.');
+  const wiring = () => page.evaluate(() => (window as any).rosebearEditor.getWiring());
+  const before = (await wiring()).pads.find((p: any) => p.key === 'matrix_middle_top').at;
+  await page.locator('[data-view="Front"]').click();
+  await dragHandle(page, 'key:matrix_middle_top', 0, -30);
+  const after = (await wiring()).pads.find((p: any) => p.key === 'matrix_middle_top').at;
+  expect(after[2]).toBeGreaterThan(before[2] + 3);
+  await page.locator('#wires').uncheck();
+  await page.locator('#wires').check();
+  await rebuilt(page);
 });

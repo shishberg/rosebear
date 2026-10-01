@@ -2,6 +2,7 @@ import * as T from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { toCreasedNormals } from 'three/addons/utils/BufferGeometryUtils.js';
 import { STLExporter } from 'three/addons/exporters/STLExporter.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import {
   defaults,
   clone,
@@ -15,15 +16,17 @@ import {
   type Cluster,
 } from './geometry';
 import { hardware, type BuildResult, type Report, type Highlight } from './solid';
+import { wiring } from './wiring';
 import './style.css';
 const $ = <E extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as E;
 const STORAGE = 'rosebear-chassis-editor:v2';
 $('app').innerHTML =
   `<header><div><h1>Rosebear / chassis editor</h1><p>Right hand · swept Skeletyl chassis · Cirque trackpad</p></div><span id="save-state">Local project</span></header><main><aside>
 <section><h2>Key layout</h2><label><input id="edit" type="checkbox" checked> Show handles</label><small>Drag a handle parallel to the view: the Top view moves things in plan, the Front and Inner views change heights. Gold: a finger key. Up and down sets that key's height; along the column moves the column's stagger. Move a column sideways with its X offset field. Cyan: a thumb cluster's centre. Pink: turns a thumb cluster. Purple: the trackpad. Drag empty space to orbit; right-drag to pan; wheel to zoom.</small><div id="selection" aria-live="polite"><small>Click a handle to edit its numbers.</small></div><small>Values are in layout coordinates, before the whole hand is tented: +X toward the pinky, +Y away from you, +Z up.</small><button id="undo">Undo</button><button id="redo">Redo</button><button id="reset">Reset model</button></section>
-<section><h2>View</h2><label><input id="caps" type="checkbox"> Keycaps (actual configured sizes)</label><label><input id="parts" type="checkbox" checked> Tiles and components</label><label><input id="base" type="checkbox"> Bottom plate</label><label>Chassis opacity<input id="opacity" type="range" min="0.1" max="1" step="0.05" value="1"></label><button id="rebuild">Rebuild & check</button><small>Handles and parts update while dragging. The previous chassis stays visible until rebuilding finishes.</small></section>
-<section><h2>Clearance checks</h2><label>Keycap bottom at full press (mm) <input id="bottom-out" type="number" min="0" max="20" step="0.1"></label><small>Height above the flat switch seating plane.</small><label><input id="show-failures" type="checkbox" checked> Highlight failures in 3D</label><small id="fit-legend"><span class="rest">Red: at-rest / hardware collision</span><br><span class="travel">Orange: travel + clearance collision</span><br><span class="opening">Pink: opening / switch-seat defect / loose piece</span><br>Highlights show through the chassis. Click a result to isolate it.</small><button id="all-failures">Show all failures</button><div id="fit-focus" aria-live="polite"></div><div id="fit-badge">Starting geometry engine…</div><ul id="fit-list"></ul><small>Passing clearance alone does not qualify the chassis for manufacture.</small><button id="report" disabled>Save report</button></section>
-<section><h2>Project</h2><button class="primary" id="export">Save project</button><button id="import">Open project</button><input id="file" type="file" accept=".json,application/json" hidden><button id="stl" disabled>Export review STL</button><small>Autosaved in this browser. Save a project file for backup or another browser.</small><div id="load-error"></div><details><summary>All configuration</summary><small>Every layout, chassis and component dimension. The handles and fields above edit the same values.</small><textarea id="config" aria-label="Configuration"></textarea><button id="apply-config">Apply configuration</button></details></section></aside>
+<section><h2>View</h2><label><input id="caps" type="checkbox"> Keycaps (actual configured sizes)</label><label><input id="parts" type="checkbox" checked> Tiles and components</label><label><input id="wires" type="checkbox" checked> Wiring, adapter and ribbons</label><label><input id="base" type="checkbox"> Bottom plate</label><label>Chassis opacity<input id="opacity" type="range" min="0.1" max="1" step="0.05" value="1"></label><button id="rebuild">Rebuild & check</button><small>Handles and parts update while dragging. The previous chassis stays visible until rebuilding finishes.</small></section>
+<section><h2>Clearance checks</h2><label>Keycap bottom at full press (mm) <input id="bottom-out" type="number" min="0" max="20" step="0.1"></label><small>Height above the flat switch seating plane.</small><label><input id="show-failures" type="checkbox" checked> Highlight failures in 3D</label><small id="fit-legend"><span class="rest">Red: at-rest / hardware collision</span><br><span class="travel">Orange: travel + clearance collision</span><br><span class="opening">Pink: opening / switch-seat defect / loose piece</span><br><span class="wire">Cyan: wire into the chassis / blocked soldering access</span><br>Highlights show through the chassis. Click a result to isolate it.</small><button id="all-failures">Show all failures</button><div id="fit-focus" aria-live="polite"></div><div id="fit-badge">Starting geometry engine…</div><ul id="fit-list"></ul><small>Passing clearance alone does not qualify the chassis for manufacture.</small><button id="report" disabled>Save report</button></section>
+<section><h2>Wiring</h2><small>Provisional: tile pads from a photo, a generic FFC adapter. Each hand is a 4 × 5 matrix; the thumbs are row RX.</small><div id="wiring-summary"></div><details><summary>Matrix and ribbon pins</summary><table id="matrix-table"></table></details><details><summary>Cut list</summary><table id="cut-list"></table></details></section>
+<section><h2>Project</h2><button class="primary" id="export">Save project</button><button id="import">Open project</button><input id="file" type="file" accept=".json,application/json" hidden><button id="stl" disabled>Export review STL</button><button id="stl-housing" disabled>Export trackpad housing STL</button><small>Autosaved in this browser. Save a project file for backup or another browser.</small><div id="load-error"></div><details><summary>All configuration</summary><small>Every layout, chassis and component dimension. The handles and fields above edit the same values.</small><textarea id="config" aria-label="Configuration"></textarea><button id="apply-config">Apply configuration</button></details></section></aside>
 <div id="viewport"><div id="viewbar">${['3D', 'Top', 'Underside', 'Front', 'Inner'].map((v) => `<button data-view="${v}">${v}</button>`).join('')}</div><div id="view-state">Loading model…</div></div></main>`;
 let project = clone(defaults),
   loadProblem = '';
@@ -82,8 +85,12 @@ const pad = new T.Mesh(
   new T.MeshStandardMaterial({ color: 0x3d474c, roughness: 0.35 }),
 );
 scene.add(pad);
+const housing = new T.Mesh(new T.BufferGeometry(), material);
+scene.add(housing);
 const parts = new T.Group();
 scene.add(parts);
+const wires = new T.Group();
+scene.add(wires);
 const failures = new T.Group();
 scene.add(failures);
 let focusedFailure: string | undefined;
@@ -109,7 +116,9 @@ function updateFailures(items: Highlight[]) {
             item.kind === 'loose' ||
             item.kind === 'wall'
           ? 0xf16bd8
-          : 0xff303e;
+          : item.kind === 'wire' || item.kind === 'solder'
+            ? 0x40e0ff
+            : 0xff303e;
     const mesh = new T.Mesh(
       geometry(item.mesh, false),
       new T.MeshBasicMaterial({
@@ -408,6 +417,7 @@ function setShell(r: BuildResult) {
   setMesh(shell, r.mesh);
   setMesh(basePlate, r.base);
   setMesh(pad, r.trackpad);
+  setMesh(housing, r.housing);
   originalIndices = (shell.geometry.getIndex()!.array as Uint32Array).slice();
   render();
 }
@@ -479,18 +489,36 @@ const colors: Record<string, number> = {
   switch: 0x667e86,
   keycaps: 0xd7d8bd,
   trackpad: 0x3d474c,
-  adapter: 0xd1a443,
+  'trackpad parts': 0x5b4f7a,
+  'trackpad cable': 0xd9b45a,
+  adapter: 0x2f6f4f,
+  ribbon: 0xd9b45a,
+  pads: 0xd8c27a,
 };
-function updateHardware() {
-  for (const o of [...parts.children]) {
-    parts.remove(o);
+/** Wire colours by net group. */
+const wireColors: Record<string, number> = {
+  row: 0x4aa3ff,
+  column: 0x5ee08a,
+  data: 0xf7f7f7,
+  power: 0xff4d4d,
+  ground: 0x222222,
+};
+const WIRING_GROUPS = ['adapter', 'ribbon', 'pads', 'trackpad cable'];
+function clearGroup(g: T.Group) {
+  for (const o of [...g.children]) {
+    g.remove(o);
     const m = o as T.Mesh;
     m.geometry.dispose();
     (m.material as T.Material).dispose();
   }
+}
+function updateHardware() {
+  clearGroup(parts);
   for (const p of hardware(project)) {
     if (p.group === 'trackpad') continue;
-    const g = new T.BoxGeometry(...p.size),
+    const g = p.cylinder
+        ? new T.CylinderGeometry(p.cylinder, p.cylinder, p.size[2], 48).rotateX(Math.PI / 2)
+        : new T.BoxGeometry(...p.size),
       o = new T.Mesh(g, new T.MeshStandardMaterial({ color: colors[p.group], roughness: 0.8 }));
     g.translate(...p.center);
     o.applyMatrix4(new T.Matrix4().fromArray(p.matrix));
@@ -498,7 +526,65 @@ function updateHardware() {
     o.name = p.name;
     parts.add(o);
   }
+  updateWiring();
   visibility();
+}
+/** Each wire as a tube: a cylinder along each segment and a ball at each bend, merged by colour. */
+function updateWiring() {
+  clearGroup(wires);
+  const w = wiring(project.config);
+  const pieces: Record<string, T.BufferGeometry[]> = {};
+  const up = new T.Vector3(0, 1, 0);
+  for (const wire of w.wires) {
+    const r = wire.diameter / 2,
+      list = (pieces[wire.group] ??= []);
+    wire.points.forEach((p, i) => {
+      list.push(new T.SphereGeometry(r, 6, 4).translate(...p));
+      if (!i) return;
+      const a = new T.Vector3(...wire.points[i - 1]),
+        b = new T.Vector3(...p),
+        d = b.clone().sub(a);
+      list.push(
+        new T.CylinderGeometry(r, r, d.length(), 6, 1, true)
+          .applyQuaternion(new T.Quaternion().setFromUnitVectors(up, d.clone().normalize()))
+          .translate(...a.add(b).multiplyScalar(0.5).toArray()),
+      );
+    });
+  }
+  for (const [group, list] of Object.entries(pieces)) {
+    const g = mergeGeometries(list.map((x) => x.toNonIndexed()));
+    list.forEach((x) => x.dispose());
+    const o = new T.Mesh(
+      g,
+      new T.MeshStandardMaterial({ color: wireColors[group] ?? 0xffffff, roughness: 0.6 }),
+    );
+    o.name = group + ' wires';
+    wires.add(o);
+  }
+  showWiring(w);
+}
+function showWiring(w: ReturnType<typeof wiring>) {
+  const total = w.wires.reduce((t, x) => t + x.length, 0);
+  $('wiring-summary').innerHTML =
+    `<small>${w.wires.length} wires, ${w.nets.reduce((t, n) => t + n.joints, 0)} solder joints, ${(total / 1000).toFixed(2)} m cut length per hand, including ${project.config.wiring.service_loop_mm} mm service loop on each feed and ${project.config.wiring.end_allowance_mm} mm at each end.</small>`;
+  const nice = (k: string) => k.replace(/^(matrix|thumb)_/, '').replace('_', ' ');
+  const pin = (net: string) => w.nets.find((n) => n.name === net)?.pin ?? '';
+  $('matrix-table').innerHTML =
+    '<tr><th>Key</th><th>Row</th><th>Column</th></tr>' +
+    w.matrix
+      .map(
+        (m) =>
+          `<tr><td>${nice(m.key)}</td><td>${m.row} (pin ${pin(m.row)})</td><td>${m.column} (pin ${pin(m.column)})</td></tr>`,
+      )
+      .join('');
+  $('cut-list').innerHTML =
+    '<tr><th>Net</th><th>Pin</th><th>Wires</th><th>Joints</th><th>Cut m</th></tr>' +
+    w.nets
+      .map(
+        (n) =>
+          `<tr><td>${n.name}</td><td>${n.pin}</td><td>${n.wires}</td><td>${n.joints}</td><td>${(n.length / 1000).toFixed(2)}</td></tr>`,
+      )
+      .join('');
 }
 function visibility() {
   for (const o of parts.children)
@@ -507,7 +593,10 @@ function visibility() {
         ? $('caps').matches(':checked')
         : o.userData.group === 'switch'
           ? false
-          : $('parts').matches(':checked');
+          : WIRING_GROUPS.includes(o.userData.group)
+            ? $('wires').matches(':checked')
+            : $('parts').matches(':checked');
+  wires.visible = $('wires').matches(':checked');
   basePlate.visible = $('base').matches(':checked');
   handleGroup.visible = $('edit').matches(':checked');
   render();
@@ -536,6 +625,7 @@ function markStale() {
   solidRevision = -1;
   report = undefined;
   $<HTMLButtonElement>('stl').disabled = true;
+  $<HTMLButtonElement>('stl-housing').disabled = true;
   $<HTMLButtonElement>('report').disabled = true;
   $('fit-badge').className = '';
   $('fit-badge').textContent = 'Not checked for this edit';
@@ -596,6 +686,7 @@ function startWorker() {
         solidRevision = revision;
         showReport(report);
         $<HTMLButtonElement>('stl').disabled = false;
+        $<HTMLButtonElement>('stl-housing').disabled = false;
         $<HTMLButtonElement>('report').disabled = false;
         $('view-state').textContent =
           `Chassis rebuilt in ${(report.milliseconds / 1000).toFixed(2)} s`;
@@ -720,6 +811,26 @@ function showReport(r: Report) {
       );
   for (const h of r.hardware)
     add(`${h.name}: ${h.volume.toFixed(2)} mm³ ${h.group}/chassis overlap`, h.name);
+  add(
+    r.wires.length
+      ? `${r.wires.length} wires run into the chassis.`
+      : `All ${r.wiring.wires} wires are clear of the chassis.`,
+  );
+  for (const w of r.wires) add(`${w.name}: ${w.volume.toFixed(2)} mm³ into the chassis`, w.name);
+  add(
+    r.solder.length
+      ? `${r.solder.length} pads cannot be reached with a soldering iron.`
+      : 'Every pad can be reached with a soldering iron from below.',
+  );
+  for (const p of r.solder)
+    add(`${p.name.replaceAll('_', ' ')}: soldering iron's way blocked`, p.name);
+  const h = r.housing;
+  add(
+    h.pieces === 1 && h.fit <= 0.05 && h.slide <= 0.05
+      ? 'The trackpad housing is one piece and slides onto its mount.'
+      : `Trackpad housing: ${h.pieces} pieces, ${h.fit.toFixed(2)} mm³ overlap where it sits, ${h.slide.toFixed(2)} mm³ in its way off the mount.`,
+    h.fit > 0.05 ? 'trackpad housing' : h.slide > 0.05 ? 'trackpad housing slide' : undefined,
+  );
   for (const o of r.openings)
     if (o.covered < 9 || o.blocked || o.removed < 0.001)
       add(`${o.name}: incomplete opening (${o.covered}/9 probes, ${o.blocked} blocked)`, o.name);
@@ -751,7 +862,7 @@ $('reset').onclick = () => {
   refreshInputs();
   edited();
 };
-for (const id of ['edit', 'caps', 'parts', 'base']) $(id).onchange = visibility;
+for (const id of ['edit', 'caps', 'parts', 'wires', 'base']) $(id).onchange = visibility;
 $('opacity').oninput = () => {
   material.opacity = Number($<HTMLInputElement>('opacity').value);
   material.transparent = material.opacity < 1;
@@ -808,6 +919,14 @@ $('stl').onclick = () => {
   download(
     'rosebear-right-review.stl',
     new STLExporter().parse(shell, { binary: true }) as DataView<ArrayBuffer>,
+    'application/octet-stream',
+  );
+};
+$('stl-housing').onclick = () => {
+  if (solidRevision !== revision) return;
+  download(
+    'rosebear-trackpad-housing.stl',
+    new STLExporter().parse(housing, { binary: true }) as DataView<ArrayBuffer>,
     'application/octet-stream',
   );
 };
@@ -981,6 +1100,7 @@ Object.assign(window, {
       if (!h) throw Error('No handle ' + id);
       return screen(h.at);
     },
+    getWiring: () => wiring(project.config),
     getHardware: () =>
       parts.children.map((o) => ({
         name: o.name,

@@ -5,6 +5,7 @@ import { Vector3 } from 'three';
 import { defaults, clone, componentFrames, validateProject } from '../src/geometry';
 import { buildSolid, checkWalls } from '../src/solid';
 import { buildChassis, SIZES } from '../src/chassis';
+import { holes, nets, wiring } from '../src/wiring';
 import ref from './python-reference.json';
 const pos = (m: { elements: number[] }) => new Vector3(...m.elements.slice(12, 15));
 const normal = (m: { elements: number[] }) => new Vector3(...m.elements.slice(8, 11));
@@ -61,7 +62,7 @@ test('thumb clusters fan on an arc and tilt into a well', () => {
   delete (none.config.geometry as { thumb_extra?: unknown }).thumb_extra;
   assert(!componentFrames(none.config).thumb_x1);
 });
-test('default chassis passes: one piece on one footprint, clear of the tile pockets, flat seats, clear keycaps and hardware', async () => {
+test('default chassis passes: one piece on one footprint, clear of the tile pockets, flat seats, clear keycaps, hardware and wires, reachable pads and a fitting trackpad housing', async () => {
   const wasm = await Module();
   wasm.setup();
   const r = buildSolid(wasm, clone(defaults));
@@ -78,6 +79,9 @@ test('default chassis passes: one piece on one footprint, clear of the tile pock
   assert(r.report.pocketCut <= 0.01, `tile pockets cut ${r.report.pocketCut} mm³`);
   assert.deepEqual(r.report.roomCuts, []);
   assert.deepEqual(r.report.hardware, []);
+  assert.deepEqual(r.report.wires, []);
+  assert.deepEqual(r.report.solder, []);
+  assert.deepEqual(r.report.housing, { pieces: 1, fit: 0, slide: 0 });
   assert(r.report.keycaps.every((k) => k.passed));
   assert(r.report.capGaps.every((g) => g.gap > 0));
   assert(r.report.openings.every((o) => o.removed > 0 && o.covered === 9 && o.blocked === 0));
@@ -270,4 +274,50 @@ test('every finger tile has a clear way in past its tile rests', async () => {
     assert(p.intersect(body).volume() < 0.01, `${n} hits the chassis`);
     assert(p.intersect(others).volume() < 0.01, `${n} hits another tile`);
   }
+});
+test("the wiring joins each net's pads and adapter hole, for a 4 × 5 matrix", () => {
+  const cfg = defaults.config;
+  const frames = componentFrames(cfg);
+  const w = wiring(cfg, frames);
+  const keys = Object.keys(frames).filter((n) => n.startsWith('matrix_') || n.startsWith('thumb_'));
+  assert.equal(keys.length, 20);
+  // Every key sits on one of four rows and one of five columns, each pair once.
+  assert.equal(new Set(w.matrix.map((m) => m.row)).size, 4);
+  assert.equal(new Set(w.matrix.map((m) => m.column)).size, 5);
+  assert.equal(new Set(w.matrix.map((m) => `${m.row} ${m.column}`)).size, 20);
+  const hole = holes(cfg, frames);
+  const near = (a: number[], b: number[]) => Math.hypot(...a.map((x, i) => x - b[i])) < 1e-6;
+  for (const net of nets(cfg)) {
+    const wires = w.wires.filter((x) => x.net === net.name);
+    // Each pad named for the net, and the hole, is an end of some wire.
+    const ends = wires.flatMap((x) => [x.points[0], x.points.at(-1)!]);
+    const pads = w.pads.filter((p) => net.pads.includes(p.name));
+    const used = pads.filter((p) => ends.some((e) => near(e, p.at)));
+    const perKey = new Set(used.map((p) => p.key));
+    assert.equal(perKey.size, net.chains ? net.chains.flat().length : 20, net.name);
+    assert(
+      ends.some((e) => near(e, hole[net.pin])),
+      `${net.name} reaches pin ${net.pin}`,
+    );
+    // A tree over the keys and the hole: a link between neighbours in each chain, and a feed per chain.
+    assert.equal(wires.length, perKey.size, net.name);
+    assert.equal(wires.filter((x) => x.feed).length, net.chains?.length ?? 1, net.name);
+  }
+  assert.equal(w.wires.length, 100);
+  assert.equal(
+    w.nets.reduce((s, n) => s + n.joints, 0),
+    200,
+  );
+});
+test('a project saved before the wiring loads with the default adapter, ribbon and wiring', () => {
+  const p = clone(defaults);
+  const c = p.config as Record<string, any>;
+  delete c.schema;
+  delete c.ribbon;
+  delete c.wiring;
+  delete c.tile.pads;
+  delete c.trackpad.mount;
+  c.adapter = { position_mm: [0, 0], rotation_deg: 0, board_mm: [30, 16, 1.6] };
+  validateProject(p);
+  assert.deepEqual(p.config, defaults.config);
 });

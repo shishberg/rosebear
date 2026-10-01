@@ -120,11 +120,52 @@ export function componentFrames(cfg: Config) {
   );
   for (const c of [g.thumb, (g as { thumb_extra?: Cluster }).thumb_extra])
     if (c) clusterFrames(c).forEach((m, i) => (n['thumb_' + c.keys[i].name] = m));
-  for (const key of ['trackpad', 'adapter'] as const)
-    n[key] = frame(cfg[key].position_mm, cfg[key].rotation_deg);
+  n.trackpad = frame(cfg.trackpad.position_mm, cfg.trackpad.rotation_deg);
   const tent = tentFrame(cfg);
   for (const key in n) n[key].premultiply(tent);
+  // The trackpad housing is symmetric about its frame's xz plane, and its mount
+  // tongue points along +x: turn the frame about the pad's normal so +x points
+  // at the key it is mounted to, seen along that normal.
+  const toward = n[cfg.trackpad.mount_toward];
+  if (toward) {
+    const f = n.trackpad,
+      local = new Vector3().setFromMatrixPosition(toward).applyMatrix4(f.clone().invert());
+    f.multiply(frame([0, 0, 0], [0, 0, (Math.atan2(local.y, local.x) * 180) / Math.PI]));
+  }
+  // The adapter lies on the bottom plate, so it is placed in world coordinates.
+  const a = cfg.adapter;
+  n.adapter = frame(
+    [a.position_mm[0], a.position_mm[1], cfg.chassis.base_thickness_mm + a.standoff_mm],
+    [0, 0, a.rotation_deg],
+  );
   return n;
+}
+/**
+ * Bring a project saved by an earlier editor up to date: sections added since
+ * are filled in from the defaults, and the adapter, which changed meaning in
+ * schema 2, is replaced.
+ */
+export function migrate(c: Record<string, any>) {
+  const d = defaultConfig as Record<string, any>;
+  if (!(c.schema >= 2)) {
+    c.adapter = clone(d.adapter);
+    c.schema = 2;
+  }
+  const fill = (to: Record<string, any>, from: Record<string, any>) => {
+    for (const [k, v] of Object.entries(from))
+      if (!(k in to)) to[k] = clone(v);
+      else if (
+        v &&
+        typeof v === 'object' &&
+        !Array.isArray(v) &&
+        to[k] &&
+        typeof to[k] === 'object'
+      )
+        fill(to[k], v);
+  };
+  for (const k of ['tile', 'adapter', 'ribbon', 'trackpad', 'wiring', 'chassis'])
+    if (!c[k]) c[k] = clone(d[k]);
+    else fill(c[k], d[k]);
 }
 export function validateProject(p: unknown): asserts p is Project {
   const a = p as Project;
@@ -136,6 +177,7 @@ export function validateProject(p: unknown): asserts p is Project {
     if (x && typeof x === 'object') Object.values(x).forEach(check);
   };
   check(a.config);
+  migrate(a.config);
   const c = a.config;
   if (!c.geometry || !c.switch || !c.tile || !c.trackpad || !c.adapter)
     throw Error('Missing component configuration');
