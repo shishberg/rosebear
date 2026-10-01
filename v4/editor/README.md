@@ -149,11 +149,13 @@ default, or `"solid"`).
   the side edges, from 2.3 mm behind the centre: under the socket. The bottom
   row faces the same way as the others, but the front swept end leaves no room
   in front of it, so its tiles go up behind their place and slide forward onto
-  feet under the front of the side edges. Over each foot a lid comes down from
-  the plate to 0.2 mm above the tile, so the tile's edge runs in a slot. The
-  bottom row's feet are not under the socket, and pressing a switch in would
-  otherwise lever the tile's back end down about them; the lids stop it
-  tipping. In each
+  feet under the front of the side edges. Those feet are not under the socket,
+  so pressing a switch in would lever the tile's back end down about them. A
+  lid from the plate to 0.2 mm above each side edge, past the feet (from 6.5 mm
+  in front of the centre to the tile's front end), holds the front end down and
+  stops it tipping. The feet stop 1.5 mm short of the lids (at 5 mm), so with
+  the body printed on its base nothing stands under a lid: there is no slot to
+  fill with support, and the lid's underside is clear down to the bed. In each
   row a web joins neighbouring columns' plates along their feet; in the outer
   columns the feet under the walled edge hang from the wall. Where the wall
   between two keys comes inside a tile's way in, the way is cut out of it. In

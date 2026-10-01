@@ -140,6 +140,17 @@ export const SIZES = {
    * restGap below), and a finger tile's lids are this far above it.
    */
   restPathAbove: 0.2,
+  /**
+   * Where a tile's feet are not under its socket (the bottom row), a lid over
+   * each side edge, from this far from the centre to the tile's end, stops it
+   * tipping about them.
+   */
+  lidFrom: 6.5,
+  /**
+   * The feet stop this far short of a lid, so that, printed on its base,
+   * nothing stands under a lid: its underside is clear down to the bed.
+   */
+  lidApart: 1.5,
   /** A foot ends this far short of a soldering iron's way to a pad. */
   padClear: 0.2,
   /** A pad within this distance of a tile's edge is along that edge. */
@@ -830,9 +841,9 @@ export function buildChassis(
       );
     /**
      * A lid over key n's edge facing dir, from `from` to `to` along it, from the
-     * plate down to just above the tile, reaching `out` past the pocket. With the
-     * foot below, it holds the tile's edge in a slot, so the tile cannot tip
-     * about its feet when a switch is pressed into it.
+     * plate down to just above the tile, reaching `out` past the pocket. Beyond
+     * the feet, it holds the tile's end down, so the tile cannot tip about its
+     * feet when a switch is pressed into it.
      */
     const lid = (n: string, dir: Plan, from: number, to: number, out: number) =>
       M.hull(
@@ -865,8 +876,16 @@ export function buildChassis(
     /** Key n's feet along its side edges, as distances along its y axis. */
     const feetAlong = (n: string) => {
       const ahead = slideToward(n);
-      return [ahead * backFrom, ahead * backTo(ahead)] as const;
+      const to = lidded(n)
+        ? Math.min(backTo(ahead), SIZES.lidFrom - SIZES.lidApart)
+        : backTo(ahead);
+      return [ahead * backFrom, ahead * to] as const;
     };
+    /** Whether key n's feet are not under its socket, so it has lids. */
+    const lidded = (n: string) => slideToward(n) < 0;
+    /** Key n's lids along its side edges, as distances along its y axis. */
+    const lidsAlong = (n: string) =>
+      [slideToward(n) * SIZES.lidFrom, slideToward(n) * pocketHalf[1]] as const;
     /** Whether key n's edge facing dir has pads along it: a rest there would cover them. */
     const padded = (n: string, dir: Plan) => {
       const edge = edgeFacing(n, dir);
@@ -934,7 +953,8 @@ export function buildChassis(
           [ns[i + 1], ns[i]],
         ]) {
           rests.push(foot(n, planToward(n, other), ...feetAlong(n), SIZES.restFootOut));
-          lids.push(lid(n, planToward(n, other), ...feetAlong(n), SIZES.restFootOut));
+          if (lidded(n))
+            lids.push(lid(n, planToward(n, other), ...lidsAlong(n), SIZES.restFootOut));
         }
       }
       for (const [end, next] of [
@@ -942,7 +962,8 @@ export function buildChassis(
         [ns.at(-1)!, ns.at(-2)!],
       ]) {
         rests.push(foot(end, planToward(next, end), ...feetAlong(end), SIZES.restFootOut));
-        lids.push(lid(end, planToward(next, end), ...feetAlong(end), SIZES.restFootOut));
+        if (lidded(end))
+          lids.push(lid(end, planToward(next, end), ...lidsAlong(end), SIZES.restFootOut));
       }
     }
     // Thumb rows: rests between neighbouring keys along the row and past its
