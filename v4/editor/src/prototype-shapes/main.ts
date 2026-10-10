@@ -200,7 +200,7 @@ async function show() {
       frames = thumbLayout(project, componentFrames(project.config), ex, tk);
       const kit: Kit = { wasm, cfg: project.config, frames };
       m = v.build(kit);
-      pad = cirquePad(kit);
+      pad = v.noPad ? undefined : cirquePad(kit);
     }
     const slab = wasm.Manifold.cube([2000, 2000, 3], true).translate([0, 0, 0.5]);
     // Pieces above the base: more than one means something only touches the removable plate.
@@ -317,6 +317,7 @@ async function show() {
     group.add(new T.Mesh(c.pad, new T.MeshStandardMaterial({ color: 0x4a5358, roughness: 0.35 })));
   for (const part of hardware(c.project, c.frames)) {
     if (['trackpad', 'adapter'].includes(part.group)) continue;
+    if (v.noPad && part.group.startsWith('trackpad')) continue;
     if (part.group === 'switch') continue;
     const mesh = new T.Mesh(
       new T.BoxGeometry(...part.size),

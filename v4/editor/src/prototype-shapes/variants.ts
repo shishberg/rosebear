@@ -20,6 +20,8 @@ export interface Variant {
   // Shell and keycap colours, where a shape wants its own.
   color?: number;
   capColor?: number;
+  // No trackpad: the viewer leaves the pad out too.
+  noPad?: boolean;
 }
 
 const T = 3; // plate thickness
@@ -1380,7 +1382,7 @@ function fillet(pts: [number, number][], r: number[], seg = 12): [number, number
 // through the key plates, a bullnose front edge, a rounded underside at the
 // front, a rear chamfer with grill grooves running out through both ends, a
 // parting line all round, and the keys in a rectilinear well with a shallow
-// moat (a stepped ledge) round it. The trackpad gets its own well, as the
+// moat (a thin trough) round it. The trackpad gets its own well, as the
 // C64's function keys do.
 interface Bin {
   keys: string[];
@@ -1505,14 +1507,21 @@ function breadbin(k0: Kit, o: Bin): BinParts {
     prism = (cs: CrossSection) => cs.extrude(400).translate([0, 0, -1]),
     slab = (z0: number, z1: number) =>
       M.cube([x1 - x0 + 40, yB - yF + 40, z1 - z0]).translate([x0 - 20, yF - 20, z0]);
-  // Moat: a 1.5 mm step down, 3.5 mm wide, round each well.
-  const moat = prism(
-    CS.union([keyWell.offset(3.5, 'Miter'), padWell.offset(3.5, 'Miter')]).subtract(wells),
-  ).intersect(skin(1.5));
   // Grill: grooves across the back, out through both ends and over the chamfer.
   const grooves: CrossSection[] = [];
-  for (let y = yB - 3.4; y > wb.max[1] + 5; y -= 3.6)
+  let yG = yB;
+  for (let y = yB - 3.4; y > wb.max[1] + 5; y -= 3.6) {
     grooves.push(CS.square([x1 - x0 + 4, 1.6]).translate([x0 - 2, y]));
+    yG = y;
+  }
+  // Moat: a thin trough, 0.8 mm wide and 1 mm deep, following the case outline
+  // on the deck: 2 mm in from the ends, just behind the bullnose, just in front of the grill.
+  const ring = (d: number) =>
+      CS.square([x1 - x0 - 4 - 2 * d, yG - 1.5 - (yF + o.nose + 1) - 2 * d])
+        .translate([x0 + 2 + d, yF + o.nose + 1 + d])
+        .offset(-Math.max(0.1, o.corner - 2 - d), 'Round', 2, 32)
+        .offset(Math.max(0.1, o.corner - 2 - d), 'Round', 2, 32),
+    moat = prism(ring(0).subtract(ring(0.8))).intersect(skin(1));
   const grill = prism(CS.union(grooves)).intersect(skin(1.2));
   // Parting line between the top and bottom halves, 0.8 mm deep.
   const parting = shell.subtract(body(0.8)).intersect(slab(9.4, 10.6));
@@ -1781,12 +1790,11 @@ export const variants: Variant[] = [
     key: 'c64',
     name: 'Commodore 64 breadbin',
     blurb:
-      "The C64's case on the Rosebear key poses: a rectangular wedge whose deck tilts to follow the key plates, with a big bullnose along the front edge, a rounded underside at the front, and a parting line all round. The keys sit in one stepped, squared-off well with a shallow moat round it; the trackpad gets its own well beside it, like the C64's function keys. Grill grooves run across the back and out through both ends.",
+      "The C64's case on the Rosebear key poses: a rectangular wedge whose deck tilts to follow the key plates, with a big bullnose along the front edge, a rounded underside at the front, and a parting line all round. The keys sit in one stepped, squared-off well with a thin trough on the deck following the case outline. No trackpad. Grill grooves run across the back and out through both ends.",
     build: (k) => {
       const m = c64(k, [
         {
           keys: keys(k.frames),
-          pad: true,
           side: 10,
           front: 16,
           back: 32,
@@ -1799,22 +1807,23 @@ export const variants: Variant[] = [
     },
     color: 0xd8ccae,
     capColor: 0x4b3a2e,
+    noPad: true,
   },
   {
     key: 'c64-clusters',
     name: 'C64 breadbins, one per cluster',
     blurb:
-      "The C64 styling at the current chassis's footprint: the finger keys, the thumb row and the trackpad each get their own small breadbin, cut tight round the well, each with its own deck tilted to its keys, bullnose front, grill grooves across the back and out through the ends, parting line and moated well. The thumb bin is turned to run along the thumb row. Where bins overlap they merge, and every bin's well is cut through the others.",
+      "The C64 styling at the current chassis's footprint: the finger keys and the thumb row each get their own small breadbin, cut tight round the well, each with its own deck tilted to its keys, bullnose front, grill grooves across the back and out through the ends, parting line and a thin trough on the deck following its outline. No trackpad. The thumb bin is turned to run along the thumb row. Where bins overlap they merge, and every bin's well is cut through the others.",
     build: (k) => {
-      const tight = { side: 4, front: 9, back: 13, nose: 7, chamfer: 7, corner: 4 },
+      const tight = { side: 4.5, front: 10.5, back: 13, nose: 7, chamfer: 7, corner: 4 },
         m = c64(k, [
           { keys: fingerKeys(k), ...tight },
           { keys: thumbKeys(k), angle: thumbAngle(k), ...tight },
-          { keys: [], pad: true, ...tight, back: 9, front: 7 },
         ]);
       return noCut ? m : cutKeys(k, m);
     },
     color: 0xd8ccae,
     capColor: 0x4b3a2e,
+    noPad: true,
   },
 ];
