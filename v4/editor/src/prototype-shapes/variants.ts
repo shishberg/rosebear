@@ -1392,10 +1392,13 @@ interface Bin {
   angle?: number;
   side: number; // case past the wells at each end
   front: number; // case past the wells at the front, bullnose included
-  back: number; // case past the wells at the grill (the back, or the left end)
+  back: number; // case past the wells at the back, where the grill is
   corner: number; // corner radius of the trough in plan
-  // Where the grill goes: across the back (as on the C64) or down the left end.
-  grill?: 'back' | 'left';
+  // No grill grooves across the back.
+  noGrill?: boolean;
+  // Curve the deck to follow the keys (a quadratic surface through the key
+  // plates) instead of a flat plane.
+  curved?: boolean;
 }
 // Height of the parting line between the top case and the bottom section.
 const PART = 10;
@@ -1407,6 +1410,39 @@ interface BinParts {
   cavity: Manifold; // the case's hollow, before anything is kept back from it
   keep: Manifold; // kept solid inside the hollow: well walls, floor and pedestal walls
   open: Manifold; // opened through what is kept: inside each pedestal, down to the bottom
+}
+// Least-squares quadratic z = f(x, y) through the points, centred on (xc, yc),
+// raised by lift. The curvature terms are lightly damped so a single row of
+// keys (no spread across it) still gives a sensible surface.
+function curvedDeck(P: Vec3[], xc: number, yc: number, lift: number) {
+  const basis = (x: number, y: number) => {
+      const u = (x - xc) / 50,
+        w = (y - yc) / 50;
+      return [1, u, w, u * u, u * w, w * w];
+    },
+    A = [0, 1, 2, 3, 4, 5].map((i) =>
+      [0, 0, 0, 0, 0, 0, 0].map((_, j) => (i === j && i > 2 ? 0.05 : 0)),
+    );
+  for (const [x, y, z] of P) {
+    const r = basis(x, y);
+    for (let i = 0; i < 6; i++) {
+      for (let j = 0; j < 6; j++) A[i][j] += r[i] * r[j];
+      A[i][6] += r[i] * z;
+    }
+  }
+  // Gauss-Jordan with partial pivoting on the augmented normal equations.
+  for (let i = 0; i < 6; i++) {
+    let p = i;
+    for (let j = i + 1; j < 6; j++) if (Math.abs(A[j][i]) > Math.abs(A[p][i])) p = j;
+    [A[i], A[p]] = [A[p], A[i]];
+    for (let j = 0; j < 6; j++) {
+      if (j === i) continue;
+      const f = A[j][i] / A[i][i];
+      for (let m = i; m < 7; m++) A[j][m] -= f * A[i][m];
+    }
+  }
+  const q = A.map((row, i) => row[6] / row[i]);
+  return (x: number, y: number) => basis(x, y).reduce((t, r, i) => t + r * q[i], lift);
 }
 function breadbin(k0: Kit, o: Bin): BinParts {
   const ang = o.angle ?? 0,
@@ -1461,24 +1497,45 @@ function breadbin(k0: Kit, o: Bin): BinParts {
   // at the gutter, the top one raked 7.2 degrees forward, the bottom one
   // vertical. The well's size sets the proportions; the bin's depth and height
   // follow it, not the photo.
-  const left = o.grill === 'left',
+  const grilled = !o.noGrill,
     PX = PART / 118, // mm per px
     RAKE = Math.tan((7.2 * Math.PI) / 180),
-    x0 = wb.min[0] - (left ? o.back : o.side),
+    x0 = wb.min[0] - o.side,
     x1 = wb.max[0] + o.side,
     xr = (x0 + x1) / 2,
     // The deck pivots about the well's middle so the keys keep their depth there.
     ym = (wb.min[1] + wb.max[1]) / 2,
     rise = Math.max(c, Math.tan((5 * Math.PI) / 180)),
-    deck = (y: number) => a + b * xr + c * ym + rise * (y - ym) + LIFT,
+    plane = (x: number, y: number) => a + b * x + c * ym + rise * (y - ym) + LIFT,
+    yF = wb.min[1] - o.front,
+    yC = wb.max[1] + (grilled ? o.back : o.side),
+    // Where the bullnose meets the deck.
+    yNose = yF + (104 * PX) / Math.hypot(1, rise),
+    // A curved deck follows the keys over the well and out to the ends. In
+    // front of the well it eases back onto the fitted bullnose, so the front
+    // angles forward as the C64's does; behind the well it ramps (over RAMP)
+    // to the flat deck, raised to clear the curve, so the grill top stays flat.
+    curve = o.curved ? curvedDeck(P, xr, ym, LIFT) : undefined,
+    RAMP = 6,
+    ramp = (y: number) => {
+      const step = (t: number) => {
+        const s = Math.min(1, Math.max(0, t));
+        return 1 - s * s * (3 - 2 * s);
+      };
+      return step((y - wb.max[1]) / RAMP) * step((wb.min[1] - y) / (wb.min[1] - yNose));
+    },
+    edge: [number, number][] = [];
+  for (let i = 0; i <= 40; i++)
+    for (let j = 0; j <= 4; j++) edge.push([x0 + ((x1 - x0) * i) / 40, wb.max[1] + (RAMP * j) / 4]);
+  const raise = curve ? Math.max(0, ...edge.map(([x, y]) => curve(x, y) - plane(x, y))) : 0,
+    deck = (y: number) => plane(xr, y) + raise,
     dl = Math.hypot(1, rise),
     along: [number, number] = [1 / dl, rise / dl],
-    yF = wb.min[1] - o.front,
-    // The back's top corner, the flat top over the grill in front of it, and
-    // where the flat meets the deck: just behind the well, or further forward
-    // when there's no grill and the flat is no longer than its two roundings.
-    yC = wb.max[1] + (left ? o.side : o.back),
-    yG = Math.min(wb.max[1] + 2, yC - 81 * PX),
+    // The flat top over the grill, in front of the back's top corner (yC),
+    // meets the deck just behind the well (past the ramp on a curved deck), or
+    // further forward when there's no grill and the flat is no longer than
+    // its two roundings.
+    yG = Math.min(wb.max[1] + (curve ? RAMP : 2), yC - 81 * PX),
     zG = deck(yG),
     yR = yC + (zG - PART) * RAKE,
     bk = Math.hypot(RAKE, 1),
@@ -1550,7 +1607,16 @@ function breadbin(k0: Kit, o: Bin): BinParts {
         hulls: Manifold[] = [M.hull([...endL[6], ...endR[6]])];
       for (let i = 0; i < 6; i++)
         hulls.push(M.hull([...endL[i], ...endL[i + 1]]), M.hull([...endR[i], ...endR[i + 1]]));
-      return M.union(hulls);
+      const m = M.union(hulls);
+      if (!curve) return m;
+      // Move the deck onto the curve, the bullnose with it in proportion to
+      // its height above the parting line; nothing past the ramp moves.
+      return m.refineToLength(2.5).warp((v) => {
+        const w = ramp(v[1]);
+        if (v[2] <= PART || !w) return;
+        const flat = (deck(v[1]) - PART) * (1 + tent * (v[0] - xr));
+        v[2] += ((v[2] - PART) / flat) * w * (curve(v[0], v[1]) - PART - flat);
+      });
     };
   const shell = body(0),
     skin = (d: number) => shell.subtract(shell.translate([0, 0, -d])),
@@ -1558,21 +1624,16 @@ function breadbin(k0: Kit, o: Bin): BinParts {
     slab = (z0: number, z1: number) =>
       M.cube([x1 - x0 + 40, yR - yF + 40, z1 - z0]).translate([x0 - 20, yF - 20, z0]);
   // Grill: grooves across the flat top between its two roundings, out through
-  // both ends; or down the left end, out through the front and back.
+  // both ends.
   const grooves: CrossSection[] = [];
-  let gEnd = x0;
-  if (left)
-    for (let x = x0 + 3.4; x < wb.min[0] - 5; x += 3.6) {
-      grooves.push(CS.square([1.6, yR - yF + 4]).translate([x - 1.6, yF - 2]));
-      gEnd = x;
-    }
-  else
+  if (grilled)
     for (let y = yC - rounds[2][3] - 0.4; y - 1.2 > yG + rounds[1][5] + 0.4; y -= 2.4)
       grooves.push(CS.square([x1 - x0 + 4, 1.2]).translate([x0 - 2, y - 1.2]));
-  const grill = prism(CS.union(grooves)).intersect(skin(1.2));
+  // (An empty cut would empty the whole result, so a bin without grooves skips it.)
+  const grill = grooves.length ? prism(CS.union(grooves)).intersect(skin(1.2)) : undefined;
   // Trough: 0.8 mm wide and 1 mm deep, following the case outline on the deck:
   // in from the ends, just behind the bullnose, between the well and the flat top.
-  const rx0 = left ? gEnd + 1.5 : x0 + END + 1,
+  const rx0 = x0 + END + 1,
     ry0 = yN + 1,
     rx1 = x1 - END - 1,
     ry1 = wb.max[1] + 1.6,
@@ -1615,7 +1676,7 @@ function breadbin(k0: Kit, o: Bin): BinParts {
     ]);
   const back = (m: Manifold) => m.rotate([0, 0, ang]);
   return {
-    shell: back(shell.subtract(trough).subtract(grill).subtract(parting)),
+    shell: back((grill ? shell.subtract(grill) : shell).subtract(trough).subtract(parting)),
     wells: back(prism(keyWell)),
     inside: back(
       M.union([
@@ -1894,7 +1955,25 @@ export const variants: Variant[] = [
       const tight = { side: 6, front: 13, back: 16, corner: 2 },
         m = c64(k, [
           { keys: fingerKeys(k), ...tight },
-          { keys: thumbKeys(k), angle: thumbAngle(k), ...tight, grill: 'left' },
+          { keys: thumbKeys(k), angle: thumbAngle(k), ...tight, noGrill: true },
+        ]);
+      return noCut ? m : cutKeys(k, m);
+    },
+    color: 0xd8ccae,
+    capColor: 0x4b3a2e,
+    noPad: true,
+    split: PART,
+  },
+  {
+    key: 'c64-curved',
+    name: 'C64 breadbins, curved deck',
+    blurb:
+      "The per-cluster C64 breadbins with each deck curved to follow its keys: a quadratic surface fitted through the key plates instead of a flat plane, so the deck dishes and rolls with the columns. Only the deck and bullnose follow the curve: just behind the well (or past the thumb well's outer end) the deck ramps back to a flat top, raised to clear the curve, so the grill top and the back stay flat. The well floor follows the curve too.",
+    build: (k) => {
+      const tight = { side: 6, front: 13, back: 20, corner: 2, curved: true },
+        m = c64(k, [
+          { keys: fingerKeys(k), ...tight },
+          { keys: thumbKeys(k), angle: thumbAngle(k), ...tight, noGrill: true },
         ]);
       return noCut ? m : cutKeys(k, m);
     },
