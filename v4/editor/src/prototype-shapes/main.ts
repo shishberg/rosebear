@@ -114,7 +114,10 @@ const renderer = new T.WebGLRenderer({ antialias: true });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 document.body.prepend(renderer.domElement);
 const controls = new OrbitControls(camera, renderer.domElement);
-controls.target.set(-10, -15, 15);
+// ?look=x,y,z: the point the camera orbits and looks at (cam is then its position).
+controls.target.set(
+  ...((params.get('look')?.split(',').map(Number) ?? [-10, -15, 15]) as [number, number, number]),
+);
 controls.update();
 scene.add(new T.HemisphereLight(0xdfeef0, 0x39464b, 1.6));
 const sun = new T.DirectionalLight(0xffffff, 2.2);

@@ -1399,6 +1399,14 @@ interface Bin {
   // Curve the deck to follow the keys (a quadratic surface through the key
   // plates) instead of a flat plane.
   curved?: boolean;
+  // Curved deck only: how the flat top behind the well meets the curve.
+  // 'level': one height for the whole bin, the highest the deck reaches
+  // (default); 'dish': each section's own height, so the top dips along the
+  // bin with the keys; 'mid': one height halfway between the lowest and highest.
+  backTop?: 'level' | 'dish' | 'mid';
+  // Curved deck only: how far behind the well's back edge (+3 mm) the deck
+  // takes to rise into the flat top (default 6).
+  ramp?: number;
 }
 // Height of the parting line between the top case and the bottom section.
 const PART = 10;
@@ -1410,6 +1418,87 @@ interface BinParts {
   cavity: Manifold; // the case's hollow, before anything is kept back from it
   keep: Manifold; // kept solid inside the hollow: well walls, floor and pedestal walls
   open: Manifold; // opened through what is kept: inside each pedestal, down to the bottom
+}
+// A corner where two straight runs meet, rounded by a cubic: [corner, unit
+// direction back along the previous run, unit direction along the next run,
+// handle lengths and fractions along each].
+type Round = [[number, number], [number, number], [number, number], number, number, number, number];
+// A cubic Bézier through four control points, sampled at 13 points.
+function bezier(P: [number, number][]): [number, number][] {
+  const out: [number, number][] = [];
+  for (let i = 0; i <= 12; i++) {
+    const t = i / 12,
+      w = [(1 - t) ** 3, 3 * t * (1 - t) ** 2, 3 * t * t * (1 - t), t ** 3];
+    out.push([0, 1].map((j) => w.reduce((q, wi, m) => q + wi * P[m][j], 0)) as [number, number]);
+  }
+  return out;
+}
+// A closed solid through (y, z) outlines standing at stations along x: each
+// outline is resampled to the same number of points, evenly by length from
+// the point nearest anchor, consecutive outlines are joined point to point,
+// and the first and last are capped.
+function loft(
+  k: Kit,
+  rings: { x: number; outline: CrossSection }[],
+  anchor: [number, number],
+  n = 320,
+) {
+  const verts: number[] = [],
+    tris: number[] = [],
+    area = (q: [number, number][]) =>
+      q.reduce((t, p, i) => {
+        const r = q[(i + 1) % q.length];
+        return t + p[0] * r[1] - r[0] * p[1];
+      }, 0),
+    rs = rings.map(({ x, outline }) => {
+      const poly = outline
+          .toPolygons()
+          .map((q) => q.map(([y, z]) => [y, z] as [number, number]))
+          .reduce((p, q) => (area(q) > area(p) ? q : p)),
+        d = poly.map((p) => (p[0] - anchor[0]) ** 2 + (p[1] - anchor[1]) ** 2),
+        i0 = d.indexOf(Math.min(...d)),
+        pts = [...poly.slice(i0), ...poly.slice(0, i0)],
+        m = pts.length,
+        cum = [0];
+      for (let i = 1; i <= m; i++) {
+        const p = pts[i - 1],
+          q = pts[i % m];
+        cum.push(cum[i - 1] + Math.hypot(q[0] - p[0], q[1] - p[1]));
+      }
+      const out: [number, number][] = [];
+      for (let s = 0, j = 0; s < n; s++) {
+        const t = (s / n) * cum[m];
+        while (cum[j + 1] < t) j++;
+        const p = pts[j],
+          q = pts[(j + 1) % m],
+          f = (t - cum[j]) / (cum[j + 1] - cum[j] || 1);
+        out.push([p[0] + (q[0] - p[0]) * f, p[1] + (q[1] - p[1]) * f]);
+      }
+      for (const [y, z] of out) verts.push(x, y, z);
+      return out;
+    });
+  // Outlines run counter-clockwise in (y, z), so these face outwards.
+  for (let i = 0; i + 1 < rs.length; i++)
+    for (let j = 0; j < n; j++) {
+      const a = i * n + j,
+        b = i * n + ((j + 1) % n),
+        c = b + n,
+        d = a + n;
+      tris.push(a, b, c, a, c, d);
+    }
+  const last = (rs.length - 1) * n;
+  for (const [p, q, r] of k.wasm.triangulate([rs[0]])) tris.push(p, r, q);
+  for (const [p, q, r] of k.wasm.triangulate([rs[rs.length - 1]]))
+    tris.push(last + p, last + q, last + r);
+  const m = new k.wasm.Manifold(
+    new k.wasm.Mesh({
+      numProp: 3,
+      vertProperties: new Float32Array(verts),
+      triVerts: new Uint32Array(tris),
+    }),
+  );
+  if (m.status() !== 'NoError') throw new Error(`loft: ${m.status()}`);
+  return m;
 }
 // Least-squares quadratic z = f(x, y) through the points, centred on (xc, yc),
 // raised by lift. The curvature terms are lightly damped so a single row of
@@ -1500,97 +1589,73 @@ function breadbin(k0: Kit, o: Bin): BinParts {
   const grilled = !o.noGrill,
     PX = PART / 118, // mm per px
     RAKE = Math.tan((7.2 * Math.PI) / 180),
+    bk = Math.hypot(RAKE, 1),
+    END = 4,
     x0 = wb.min[0] - o.side,
     x1 = wb.max[0] + o.side,
     xr = (x0 + x1) / 2,
     // The deck pivots about the well's middle so the keys keep their depth there.
     ym = (wb.min[1] + wb.max[1]) / 2,
-    rise = Math.max(c, Math.tan((5 * Math.PI) / 180)),
-    plane = (x: number, y: number) => a + b * x + c * ym + rise * (y - ym) + LIFT,
     yF = wb.min[1] - o.front,
-    yC = wb.max[1] + (grilled ? o.back : o.side),
-    // Where the bullnose meets the deck.
-    yNose = yF + (104 * PX) / Math.hypot(1, rise),
-    // A curved deck follows the keys over the well and out to the ends. In
-    // front of the well it eases back onto the fitted bullnose, so the front
-    // angles forward as the C64's does; behind the well it ramps (over RAMP)
-    // to the flat deck, raised to clear the curve, so the grill top stays flat.
-    curve = o.curved ? curvedDeck(P, xr, ym, LIFT) : undefined,
-    RAMP = 6,
-    ramp = (y: number) => {
-      const step = (t: number) => {
-        const s = Math.min(1, Math.max(0, t));
-        return 1 - s * s * (3 - 2 * s);
-      };
-      return step((y - wb.max[1]) / RAMP) * step((wb.min[1] - y) / (wb.min[1] - yNose));
+    yC = wb.max[1] + (grilled || o.curved ? o.back : o.side),
+    // A rounded corner: [corner, towards previous run, towards next run,
+    // handle lengths, handle fractions], drawn as a cubic.
+    round = ([C, u, v, L0, f0, L1, f1]: Round) => {
+      const P = [L0, f0 * L0, f1 * L1, L1].map((l, i) => {
+        const d = i < 2 ? u : v;
+        return [C[0] + d[0] * l, C[1] + d[1] * l] as [number, number];
+      });
+      return bezier(P);
     },
-    edge: [number, number][] = [];
-  for (let i = 0; i <= 40; i++)
-    for (let j = 0; j <= 4; j++) edge.push([x0 + ((x1 - x0) * i) / 40, wb.max[1] + (RAMP * j) / 4]);
-  const raise = curve ? Math.max(0, ...edge.map(([x, y]) => curve(x, y) - plane(x, y))) : 0,
-    deck = (y: number) => plane(xr, y) + raise,
-    dl = Math.hypot(1, rise),
-    along: [number, number] = [1 / dl, rise / dl],
-    // The flat top over the grill, in front of the back's top corner (yC),
-    // meets the deck just behind the well (past the ramp on a curved deck), or
+    // The back's top corner, the back foot and the rounded underside at the
+    // front: the same for every bin, given the grill top's height.
+    backAndUnder = (zG: number, yR: number): [number, number][] => [
+      ...round([[yC, zG], [-1, 0], [RAKE / bk, -1 / bk], 60 * PX, 0.45, 68 * PX, 0.37]),
+      [yR, PART],
+      ...round([[yR, 0], [0, 1], [-1, 0], 69 * PX, 0.23, 41 * PX, 0.22]),
+      ...round([[yF, 0], [1, 0], [0, 1], 113 * PX, 0.43, 116 * PX, 0.31]),
+    ];
+  // yN: where the bullnose meets the deck (the furthest back, on a curved
+  // deck); flatStart: where the flat top over the grill begins.
+  // On a curved deck with backTop 'dish', zG and yR are the highest section's.
+  let yG: number, zG: number, yR: number, yN: number, flatStart: number;
+  let body: (inset: number) => Manifold;
+  if (!o.curved) {
+    const rise = Math.max(c, Math.tan((5 * Math.PI) / 180)),
+      deck = (y: number) => a + b * xr + c * ym + rise * (y - ym) + LIFT,
+      dl = Math.hypot(1, rise),
+      along: [number, number] = [1 / dl, rise / dl];
+    // The flat top over the grill meets the deck just behind the well, or
     // further forward when there's no grill and the flat is no longer than
     // its two roundings.
-    yG = Math.min(wb.max[1] + (curve ? RAMP : 2), yC - 81 * PX),
-    zG = deck(yG),
-    yR = yC + (zG - PART) * RAKE,
-    bk = Math.hypot(RAKE, 1),
-    // [corner, towards previous run, towards next run, handle lengths, handle fractions]
-    rounds: [
-      [number, number],
-      [number, number],
-      [number, number],
-      number,
-      number,
-      number,
-      number,
-    ][] = [
-      // Bullnose, no lower than the gutter.
-      [[yF, deck(yF)], [0, -1], along, Math.min(93 * PX, deck(yF) - PART), 0.41, 104 * PX, 0.3],
-      // Deck into the flat top over the grill.
-      [[yG, zG], [-along[0], -along[1]], [1, 0], 81 * PX, 0.3, 16 * PX, 0.19],
-      // Flat top over the back face.
-      [[yC, zG], [-1, 0], [RAKE / bk, -1 / bk], 60 * PX, 0.45, 68 * PX, 0.37],
-    ],
-    under: typeof rounds = [
-      // Back foot.
-      [[yR, 0], [0, 1], [-1, 0], 69 * PX, 0.23, 41 * PX, 0.22],
-      // Rounded underside at the front, up to the gutter.
-      [[yF, 0], [1, 0], [0, 1], 113 * PX, 0.43, 116 * PX, 0.31],
-    ],
-    round = ([C, u, v, L0, f0, L1, f1]: (typeof rounds)[number]) => {
-      const P = [L0, f0 * L0, f1 * L1, L1].map((l, i) => {
-          const d = i < 2 ? u : v;
-          return [C[0] + d[0] * l, C[1] + d[1] * l];
-        }),
-        out: [number, number][] = [];
-      for (let i = 0; i <= 12; i++) {
-        const t = i / 12,
-          w = [(1 - t) ** 3, 3 * t * (1 - t) ** 2, 3 * t * t * (1 - t), t ** 3];
-        out.push(
-          [0, 1].map((j) => w.reduce((q, wi, m) => q + wi * P[m][j], 0)) as [number, number],
-        );
-      }
-      return out;
-    },
-    yN = yF + rounds[0][5] * along[0],
-    tent = b / (deck((yF + yR) / 2) - PART),
-    // Clockwise in (y, z) from the front gutter; CrossSection keeps only
-    // counter-clockwise outlines, so it's reversed.
-    prof: [number, number][] = [
-      [yF, PART],
-      ...rounds.flatMap(round),
-      [yR, PART],
-      ...under.flatMap(round),
-    ],
-    outline = new CS([prof.reverse()]);
-  // The profile run across the bin, its top section tented to follow the keys, its ends
-  // rounded all round: slices shrink in towards each end along a quarter circle.
-  const END = 4,
+    yG = Math.min(wb.max[1] + 2, yC - 81 * PX);
+    zG = deck(yG);
+    yR = yC + (zG - PART) * RAKE;
+    yN = yF + 104 * PX * along[0];
+    flatStart = yG + 16 * PX + 0.4;
+    const tent = b / (deck((yF + yR) / 2) - PART),
+      // Clockwise in (y, z) from the front gutter; CrossSection keeps only
+      // counter-clockwise outlines, so it's reversed.
+      prof: [number, number][] = [
+        [yF, PART],
+        // Bullnose, no lower than the gutter.
+        ...round([
+          [yF, deck(yF)],
+          [0, -1],
+          along,
+          Math.min(93 * PX, deck(yF) - PART),
+          0.41,
+          104 * PX,
+          0.3,
+        ]),
+        // Deck into the flat top over the grill.
+        ...round([[yG, zG], [-along[0], -along[1]], [1, 0], 81 * PX, 0.3, 16 * PX, 0.19]),
+        ...backAndUnder(zG, yR),
+      ],
+      outline = new CS([prof.reverse()]);
+    // The profile run across the bin, its top section tented to follow the
+    // keys, its ends rounded all round: slices shrink in towards each end
+    // along a quarter circle; consecutive (convex) slices are hulled.
     body = (inset: number) => {
       const ri = END - inset,
         slice = (x: number, off: number) => {
@@ -1601,23 +1666,115 @@ function breadbin(k0: Kit, o: Bin): BinParts {
             .flat()
             .map(([u, w]) => [x, u, w > PART ? PART + (w - PART) * f : w] as Vec3);
         },
-        steps = [0, 1, 2, 3, 4, 5, 6].map((i) => (i / 6) * (Math.PI / 2)),
+        N = 14,
+        steps = Array.from({ length: N + 1 }, (_, i) => (i / N) * (Math.PI / 2)),
         endL = steps.map((p) => slice(x0 + END - ri * Math.cos(p), END - ri * Math.sin(p))),
         endR = steps.map((p) => slice(x1 - END + ri * Math.cos(p), END - ri * Math.sin(p))),
-        hulls: Manifold[] = [M.hull([...endL[6], ...endR[6]])];
-      for (let i = 0; i < 6; i++)
+        hulls: Manifold[] = [M.hull([...endL[N], ...endR[N]])];
+      for (let i = 0; i < N; i++)
         hulls.push(M.hull([...endL[i], ...endL[i + 1]]), M.hull([...endR[i], ...endR[i + 1]]));
-      const m = M.union(hulls);
-      if (!curve) return m;
-      // Move the deck onto the curve, the bullnose with it in proportion to
-      // its height above the parting line; nothing past the ramp moves.
-      return m.refineToLength(2.5).warp((v) => {
-        const w = ramp(v[1]);
-        if (v[2] <= PART || !w) return;
-        const flat = (deck(v[1]) - PART) * (1 + tent * (v[0] - xr));
-        v[2] += ((v[2] - PART) / flat) * w * (curve(v[0], v[1]) - PART - flat);
-      });
+      return M.union(hulls);
     };
+  } else {
+    // Curved deck: every section across the bin is one continuous outline.
+    // Across the well the deck is the key surface (a quadratic fitted through
+    // the plates) along that section; in front of it the deck angles down
+    // into the photo's bullnose; behind it a cubic carries the deck up into the flat top
+    // over the grill, which with the back and the underside is the same in
+    // every section. Sections past the well's ends repeat the end section.
+    const fitted = curvedDeck(P, xr, ym, LIFT),
+      at = (x: number) => {
+        const xc = Math.min(wb.max[0], Math.max(wb.min[0], x));
+        return {
+          z: (y: number) => fitted(xc, y),
+          s: (y: number) => (fitted(xc, y + 0.01) - fitted(xc, y - 0.01)) / 0.02,
+        };
+      },
+      // The deck runs 3 mm past the well (room for the trough), then rises
+      // into the flat top, which starts before the back corner's rounding.
+      yB = wb.max[1] + 3,
+      xs = Array.from({ length: 41 }, (_, i) => wb.min[0] + ((wb.max[0] - wb.min[0]) * i) / 40);
+    yG = Math.min(yB + (o.ramp ?? 6), yC - 60 * PX - 1);
+    // Each section's own flat-top height: where its deck would reach on its
+    // own slope (over at most 6 mm), so it doesn't have to dip to meet it.
+    const own = (x: number) => at(x).z(yB) + Math.max(0, at(x).s(yB)) * Math.min(yG - yB, 6),
+      heights = xs.map(own),
+      hi = Math.max(...heights),
+      lo = Math.min(...heights),
+      top = (x: number) =>
+        o.backTop === 'dish' ? own(x) : o.backTop === 'mid' ? (hi + lo) / 2 : hi;
+    zG = o.backTop === 'mid' ? (hi + lo) / 2 : hi;
+    yR = yC + (zG - PART) * RAKE;
+    flatStart = yG + 0.4;
+    // In front of the well the deck angles down towards the front at the
+    // C64's own deck angle (7.5 degrees) from the well's front edge, rolling
+    // over the photo's bullnose into the vertical front face; a 2 mm rounding
+    // at the well's edge joins it to the key surface.
+    const FRONT = Math.tan((7.5 * Math.PI) / 180),
+      lF = Math.hypot(1, FRONT),
+      fwd: [number, number] = [1 / lF, FRONT / lF],
+      yW = wb.min[1],
+      section = (x: number): [number, number][] => {
+        const d = at(x),
+          zT = top(x),
+          W: [number, number] = [yW, d.z(yW)],
+          C: [number, number] = [yF, W[1] - FRONT * (yW - yF)],
+          sW = d.s(yW),
+          lW = Math.hypot(1, sW),
+          deck: [number, number][] = [];
+        for (let y = yW + 2 / lW + 1; y < yB; y += 1) deck.push([y, d.z(y)]);
+        const B: [number, number] = [yB, d.z(yB)],
+          sB = d.s(yB),
+          h = 0.4 * (yG - yB),
+          lB = Math.hypot(1, sB),
+          rampUp = bezier([B, [yB + h / lB, B[1] + (h * sB) / lB], [yG - h, zT], [yG, zT]]);
+        // Clockwise from the front gutter; reversed below.
+        return [
+          [yF, PART],
+          ...round([C, [0, -1], fwd, Math.min(93 * PX, C[1] - PART), 0.41, 104 * PX, 0.3]),
+          ...round([W, [-fwd[0], -fwd[1]], [1 / lW, sW / lW], 2, 0.5, 2, 0.5]),
+          ...deck,
+          ...rampUp,
+          ...backAndUnder(zT, yC + (zT - PART) * RAKE),
+        ];
+      };
+    yN = yF + 104 * PX * fwd[0];
+    // Sections for inspection (prototype-shapes.html exposes them as __sections).
+    ((globalThis as { __sections?: unknown[] }).__sections ??= []).push({
+      keys: o.keys.length,
+      yF,
+      PART,
+      PX,
+      sections: [wb.min[0], xr, wb.max[0], (wb.min[0] + xr) / 2, (xr + wb.max[0]) / 2].map((x) => ({
+        x,
+        pts: section(x),
+      })),
+    });
+    body = (inset: number) => {
+      const ri = END - inset,
+        stations: [number, number][] = [],
+        N = 14;
+      for (let i = 0; i <= N; i++) {
+        const p = (i / N) * (Math.PI / 2);
+        stations.push([x0 + END - ri * Math.cos(p), END - ri * Math.sin(p)]);
+      }
+      const mid = Math.ceil((x1 - x0 - 2 * END) / 2);
+      for (let i = 1; i < mid; i++)
+        stations.push([x0 + END + ((x1 - x0 - 2 * END) * i) / mid, inset]);
+      for (let i = N; i >= 0; i--) {
+        const p = (i / N) * (Math.PI / 2);
+        stations.push([x1 - END + ri * Math.cos(p), END - ri * Math.sin(p)]);
+      }
+      return loft(
+        k,
+        stations.map(([x, off]) => ({
+          x,
+          outline: new CS([section(x).reverse()]).offset(-off, 'Round', 2, 24),
+        })),
+        [yR, PART],
+      );
+    };
+  }
   const shell = body(0),
     skin = (d: number) => shell.subtract(shell.translate([0, 0, -d])),
     prism = (cs: CrossSection) => cs.extrude(400).translate([0, 0, -1]),
@@ -1627,7 +1784,7 @@ function breadbin(k0: Kit, o: Bin): BinParts {
   // both ends.
   const grooves: CrossSection[] = [];
   if (grilled)
-    for (let y = yC - rounds[2][3] - 0.4; y - 1.2 > yG + rounds[1][5] + 0.4; y -= 2.4)
+    for (let y = yC - 60 * PX - 0.4; y - 1.2 > flatStart; y -= 2.4)
       grooves.push(CS.square([x1 - x0 + 4, 1.2]).translate([x0 - 2, y - 1.2]));
   // (An empty cut would empty the whole result, so a bin without grooves skips it.)
   const grill = grooves.length ? prism(CS.union(grooves)).intersect(skin(1.2)) : undefined;
@@ -1695,8 +1852,20 @@ function c64(k: Kit, bins: Bin[]) {
     hollow = M.union(parts.map((p) => p.cavity))
       .subtract(M.union(parts.map((p) => p.keep)))
       .add(M.union(parts.map((p) => p.open)));
+  // Each bin stops at the outline of the bins before it (the thumb bin at the
+  // finger bin's walls), so its deck, trough and grill don't run on through them.
+  const CS = k.wasm.CrossSection,
+    shells = parts.map((p, i) =>
+      i
+        ? p.shell.subtract(
+            CS.union(parts.slice(0, i).map((q) => q.shell.project()))
+              .extrude(400)
+              .translate([0, 0, -1]),
+          )
+        : p.shell,
+    );
   return M.union([
-    M.union(parts.map((p) => p.shell))
+    M.union(shells)
       .subtract(M.union(parts.map((p) => p.wells)))
       .add(M.union(parts.map((p) => p.inside)))
       .subtract(hollow),
@@ -1944,7 +2113,7 @@ export const variants: Variant[] = [
     color: 0xd8ccae,
     capColor: 0x4b3a2e,
     noPad: true,
-    split: PART,
+    split: PART - 0.6, // the bottom of the parting groove
   },
   {
     key: 'c64-clusters',
@@ -1962,24 +2131,57 @@ export const variants: Variant[] = [
     color: 0xd8ccae,
     capColor: 0x4b3a2e,
     noPad: true,
-    split: PART,
+    split: PART - 0.6, // the bottom of the parting groove
   },
-  {
-    key: 'c64-curved',
-    name: 'C64 breadbins, curved deck',
-    blurb:
-      "The per-cluster C64 breadbins with each deck curved to follow its keys: a quadratic surface fitted through the key plates instead of a flat plane, so the deck dishes and rolls with the columns. Only the deck and bullnose follow the curve: just behind the well (or past the thumb well's outer end) the deck ramps back to a flat top, raised to clear the curve, so the grill top and the back stay flat. The well floor follows the curve too.",
+  ...(
+    [
+      [
+        'c64-curved',
+        'C64 breadbins, curved deck, level top',
+        'Behind the well the deck rises into a flat top that is level along the whole bin, at the height of its highest section, so where the keys dish lowest the deck climbs almost straight up behind the well.',
+        {},
+      ],
+      [
+        'c64-curved-dish',
+        'C64 breadbins, curved deck, top follows the dish',
+        "Behind the well each section's deck carries on into its own flat top, so the top is flat front to back but dips along the bin with the keys, and there's no wall behind the well.",
+        { backTop: 'dish' },
+      ],
+      [
+        'c64-curved-deep',
+        'C64 breadbins, curved deck, deeper back',
+        'The level flat top, with the back 18 mm deeper so the deck has about 24 mm to climb into it instead of 6.',
+        { ramp: 24, deeper: 18 },
+      ],
+      [
+        'c64-curved-mid',
+        'C64 breadbins, curved deck, mid-height top',
+        'The flat top is level along the bin at a height halfway between the lowest and highest sections, so the low middle of the deck rises into it and the high ends slope down into it.',
+        { backTop: 'mid' },
+      ],
+    ] as [string, string, string, { backTop?: Bin['backTop']; ramp?: number; deeper?: number }][]
+  ).map(([key, name, back, { deeper = 0, ...opt }]): Variant => ({
+    key,
+    name,
+    blurb: `The per-cluster C64 breadbins with each deck curved to follow its keys: every section across the bin is one continuous outline, the key surface (a quadratic fitted through the key plates) across the well, angling forward into the C64 bullnose in front. ${back} The back and underside are the C64's. The thumb bin has no grill.`,
     build: (k) => {
-      const tight = { side: 6, front: 13, back: 20, corner: 2, curved: true },
+      const tight = { side: 6, front: 13, corner: 2, curved: true, ...opt },
         m = c64(k, [
-          { keys: fingerKeys(k), ...tight },
-          { keys: thumbKeys(k), angle: thumbAngle(k), ...tight, noGrill: true },
+          { keys: fingerKeys(k), ...tight, back: 20 + deeper },
+          {
+            keys: thumbKeys(k),
+            angle: thumbAngle(k),
+            ...tight,
+            back: 12 + deeper,
+            ...(opt.ramp ? { ramp: opt.ramp - 3 } : {}),
+            noGrill: true,
+          },
         ]);
       return noCut ? m : cutKeys(k, m);
     },
     color: 0xd8ccae,
     capColor: 0x4b3a2e,
     noPad: true,
-    split: PART,
-  },
+    split: PART - 0.6, // the bottom of the parting groove
+  })),
 ];
