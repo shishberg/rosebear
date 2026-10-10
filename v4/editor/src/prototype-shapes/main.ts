@@ -289,7 +289,7 @@ async function show() {
   if (all[vi] !== v || Object.keys(extras)[ti] !== tk) return;
   group.clear();
   const shellMat = new T.MeshStandardMaterial({
-    color: 0x8f9ea4,
+    color: v.color ?? 0x8f9ea4,
     roughness: 0.65,
     metalness: 0.05,
     side: T.DoubleSide,
@@ -320,7 +320,10 @@ async function show() {
     if (part.group === 'switch') continue;
     const mesh = new T.Mesh(
       new T.BoxGeometry(...part.size),
-      new T.MeshStandardMaterial({ color: colors[part.group] ?? 0x888888, roughness: 0.8 }),
+      new T.MeshStandardMaterial({
+        color: (part.group === 'keycaps' && v.capColor) || (colors[part.group] ?? 0x888888),
+        roughness: 0.8,
+      }),
     );
     mesh.position.set(...part.center);
     mesh.applyMatrix4(new T.Matrix4().fromArray(part.matrix));

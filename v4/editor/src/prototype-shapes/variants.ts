@@ -17,6 +17,9 @@ export interface Variant {
   name: string;
   blurb: string;
   build: (k: Kit) => Manifold;
+  // Shell and keycap colours, where a shape wants its own.
+  color?: number;
+  capColor?: number;
 }
 
 const T = 3; // plate thickness
@@ -1343,6 +1346,163 @@ function machined(k: Kit) {
   return M.union([body, plates(k), cirque(k)]);
 }
 
+// Rounds each corner of a closed polygon with its own radius (0 keeps it sharp).
+function fillet(pts: [number, number][], r: number[], seg = 12): [number, number][] {
+  const out: [number, number][] = [],
+    unit = (x: number, y: number): [number, number] => {
+      const l = Math.hypot(x, y);
+      return [x / l, y / l];
+    };
+  pts.forEach((p, i) => {
+    const a = pts[(i + pts.length - 1) % pts.length],
+      b = pts[(i + 1) % pts.length];
+    if (!r[i]) return void out.push(p);
+    const u = unit(a[0] - p[0], a[1] - p[1]),
+      v = unit(b[0] - p[0], b[1] - p[1]),
+      th = Math.acos(Math.max(-1, Math.min(1, u[0] * v[0] + u[1] * v[1]))) / 2,
+      t = r[i] / Math.tan(th),
+      w = unit(u[0] + v[0], u[1] + v[1]),
+      c = [p[0] + (w[0] * r[i]) / Math.sin(th), p[1] + (w[1] * r[i]) / Math.sin(th)],
+      a1 = Math.atan2(p[1] + u[1] * t - c[1], p[0] + u[0] * t - c[0]),
+      a2 = Math.atan2(p[1] + v[1] * t - c[1], p[0] + v[0] * t - c[0]);
+    let d = a2 - a1;
+    while (d > Math.PI) d -= 2 * Math.PI;
+    while (d < -Math.PI) d += 2 * Math.PI;
+    for (let j = 0; j <= seg; j++)
+      out.push([
+        c[0] + r[i] * Math.cos(a1 + (d * j) / seg),
+        c[1] + r[i] * Math.sin(a1 + (d * j) / seg),
+      ]);
+  });
+  return out;
+}
+// Commodore 64 "breadbin": a rectangular wedge whose deck follows a plane fitted
+// through the key plates, a bullnose front edge, a rounded underside at the
+// front, a rear chamfer with grill grooves running out through both ends, a
+// parting line all round, and the keys in a rectilinear well with a shallow
+// moat (a stepped ledge) round it. The trackpad gets its own well beside it,
+// as the C64's function keys do.
+function c64(k: Kit) {
+  const M = k.wasm.Manifold,
+    CS = k.wasm.CrossSection,
+    names = keys(k.frames);
+  // Least-squares plane z = a + bx + cy through the plate centres.
+  const P = names.map((n) => at(k, n, 0, 0)),
+    S = [0, 0, 0, 0, 0, 0, 0, 0, 0],
+    R = [0, 0, 0];
+  for (const [x, y, z] of P) {
+    const r = [1, x, y];
+    for (let i = 0; i < 3; i++) {
+      R[i] += r[i] * z;
+      for (let j = 0; j < 3; j++) S[i * 3 + j] += r[i] * r[j];
+    }
+  }
+  const det = (m: number[]) =>
+      m[0] * (m[4] * m[8] - m[5] * m[7]) -
+      m[1] * (m[3] * m[8] - m[5] * m[6]) +
+      m[2] * (m[3] * m[7] - m[4] * m[6]),
+    [a, b, c] = [0, 1, 2].map((i) => {
+      const m = [...S];
+      for (let j = 0; j < 3; j++) m[j * 3 + i] = R[j];
+      return det(m) / det(S);
+    }),
+    LIFT = 3; // deck above the fitted plate plane: below the keycaps' lowest travel
+  // Wells: axis-aligned boxes round each key's cap travel, merged and closed
+  // across the gaps between them so the outline steps like the C64's.
+  const box = (cs: CrossSection) => {
+      const bb = cs.bounds();
+      return CS.square([bb.max[0] - bb.min[0], bb.max[1] - bb.min[1]]).translate(bb.min);
+    },
+    square = (cs: CrossSection, close: number, r: number) =>
+      cs
+        .offset(close, 'Miter')
+        .offset(-close, 'Miter')
+        .offset(-r, 'Round', 2, 24)
+        .offset(r, 'Round', 2, 24),
+    keyWell = square(
+      CS.union(names.map((n) => box(capSweep(k, n).project()).offset(1.2, 'Miter'))),
+      11,
+      2,
+    ),
+    pod = cirque(k, 'none'),
+    padWell = square(box(pod.project()).offset(2.5, 'Miter'), 0, 3),
+    wells = CS.union([keyWell, padWell]),
+    wb = wells.bounds();
+  // Case extents: side margins, room at the front for the bullnose, a grill band at the back.
+  const x0 = wb.min[0] - 10,
+    x1 = wb.max[0] + 10,
+    yF = wb.min[1] - 16,
+    yB = wb.max[1] + 32,
+    yR = yB - 13,
+    xr = (x0 + x1) / 2,
+    ym = (yF + yB) / 2,
+    deck = (y: number) => a + b * xr + c * y + LIFT,
+    tent = b / deck(ym);
+  // Side profile in (y, z), at the case's mid-width; tented across x below.
+  const zR = deck(yR),
+    prof: [number, number][] = [
+      [yB, 0],
+      [yF, 0],
+      [yF, deck(yF)],
+      [yR, zR],
+      [yB, zR - 13 * Math.tan((22 * Math.PI) / 180)],
+    ],
+    radii = [1, 5, 13, 12, 3],
+    // Listed clockwise in (y, z); CrossSection keeps only counter-clockwise outlines.
+    outline = fillet(prof, radii).reverse();
+  const body = (inset: number) => {
+    const plan = CS.square([x1 - x0, yB - yF])
+      .translate([x0, yF])
+      .offset(-6, 'Round', 2, 32)
+      .offset(6 - inset, 'Round', 2, 32);
+    return new CS([outline])
+      .offset(-inset, 'Round', 2, 32)
+      .extrude(x1 - x0 + 2)
+      .warp((v) => {
+        const [u, w, e] = v,
+          x = x0 - 1 + e;
+        v[0] = x;
+        v[1] = u;
+        v[2] = w * (1 + tent * (x - xr));
+      })
+      .intersect(plan.extrude(400).translate([0, 0, -1]));
+  };
+  const shell = body(0),
+    skin = (d: number) => shell.subtract(shell.translate([0, 0, -d])),
+    prism = (cs: CrossSection) => cs.extrude(400).translate([0, 0, -1]),
+    slab = (z0: number, z1: number) =>
+      M.cube([x1 - x0 + 40, yB - yF + 40, z1 - z0]).translate([x0 - 20, yF - 20, z0]);
+  // Moat: a 1.5 mm step down, 3.5 mm wide, round each well.
+  const moat = prism(
+    CS.union([keyWell.offset(3.5, 'Miter'), padWell.offset(3.5, 'Miter')]).subtract(wells),
+  ).intersect(skin(1.5));
+  // Grill: grooves across the back, out through both ends and over the chamfer.
+  const grooves: CrossSection[] = [];
+  for (let y = wb.max[1] + 9; y < yB - 2.5; y += 3.6)
+    grooves.push(CS.square([x1 - x0 + 4, 1.6]).translate([x0 - 2, y]));
+  const grill = prism(CS.union(grooves)).intersect(skin(1.2));
+  // Parting line between the top and bottom halves, 0.8 mm deep.
+  const parting = shell.subtract(body(0.8)).intersect(slab(9.4, 10.6));
+  // Inside the key well: a floor 14 mm under the deck, and each key on its own
+  // pedestal rising out of it, as the C64's keys rise out of the dark well.
+  const pedestals = M.union(
+      names.map((n) => M.hull(corners(k, n).flatMap((p) => [p, at(k, n, 0, 0, -T), down(p, 0)]))),
+    ),
+    // Trackpad well: filled up to the pod's underside, the pod's rim standing on that.
+    f = k.frames.trackpad.clone().multiply(new Matrix4().makeTranslation(0, 0, -0.5)),
+    padBed = M.union([
+      M.hull([pod, pod.project().extrude(1)]),
+      padWell.extrude(pod.boundingBox().min[2]),
+    ]).subtract(place(M.cylinder(80, 20.4, 20.4, 64).translate([0, 0, -0.5]), f));
+  return M.union([
+    shell.subtract(moat).subtract(grill).subtract(parting).subtract(prism(wells)),
+    shell.translate([0, 0, -14]).intersect(prism(keyWell)),
+    pedestals.intersect(prism(keyWell)),
+    padBed.intersect(prism(padWell)),
+    plates(k),
+  ]);
+}
+
 export const variants: Variant[] = [
   {
     key: 'skeletyl',
@@ -1555,5 +1715,14 @@ export const variants: Variant[] = [
       parts.push(cirque(k));
       return M.union(parts);
     },
+  },
+  {
+    key: 'c64',
+    name: 'Commodore 64 breadbin',
+    blurb:
+      "The C64's case on the Rosebear key poses: a rectangular wedge whose deck tilts to follow the key plates, with a big bullnose along the front edge, a rounded underside at the front, and a parting line all round. The keys sit in one stepped, squared-off well with a shallow moat round it; the trackpad gets its own well beside it, like the C64's function keys. Grill grooves run across the back and out through both ends.",
+    build: (k) => (noCut ? c64(k) : cutKeys(k, c64(k))),
+    color: 0xd8ccae,
+    capColor: 0x4b3a2e,
   },
 ];
