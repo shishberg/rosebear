@@ -1402,8 +1402,10 @@ interface Bin {
   // Curved deck only: how the flat top behind the well meets the curve.
   // 'level': one height for the whole bin, the highest the deck reaches
   // (default); 'dish': each section's own height, so the top dips along the
-  // bin with the keys; 'mid': one height halfway between the lowest and highest.
-  backTop?: 'level' | 'dish' | 'mid';
+  // bin with the keys; 'mid': one height halfway between the lowest and highest;
+  // 'tilt': a straight line along the bin from one end section's height to
+  // the other's.
+  backTop?: 'level' | 'dish' | 'mid' | 'tilt';
   // Curved deck only: how far behind the well's back edge (+3 mm) the deck
   // takes to rise into the flat top (default 6).
   ramp?: number;
@@ -1701,9 +1703,20 @@ function breadbin(k0: Kit, o: Bin): BinParts {
       heights = xs.map(own),
       hi = Math.max(...heights),
       lo = Math.min(...heights),
+      [l, r] = [own(wb.min[0]), own(wb.max[0])],
+      tilt = (x: number) =>
+        l +
+        ((r - l) * (Math.min(wb.max[0], Math.max(wb.min[0], x)) - wb.min[0])) /
+          (wb.max[0] - wb.min[0]),
       top = (x: number) =>
-        o.backTop === 'dish' ? own(x) : o.backTop === 'mid' ? (hi + lo) / 2 : hi;
-    zG = o.backTop === 'mid' ? (hi + lo) / 2 : hi;
+        o.backTop === 'dish'
+          ? own(x)
+          : o.backTop === 'mid'
+            ? (hi + lo) / 2
+            : o.backTop === 'tilt'
+              ? tilt(x)
+              : hi;
+    zG = o.backTop === 'mid' ? (hi + lo) / 2 : o.backTop === 'tilt' ? Math.max(l, r) : hi;
     yR = yC + (zG - PART) * RAKE;
     flatStart = yG + 0.4;
     // In front of the well the deck angles down towards the front at the
@@ -2148,32 +2161,31 @@ export const variants: Variant[] = [
         { backTop: 'dish' },
       ],
       [
-        'c64-curved-deep',
-        'C64 breadbins, curved deck, deeper back',
-        'The level flat top, with the back 18 mm deeper so the deck has about 24 mm to climb into it instead of 6.',
-        { ramp: 24, deeper: 18 },
-      ],
-      [
         'c64-curved-mid',
         'C64 breadbins, curved deck, mid-height top',
         'The flat top is level along the bin at a height halfway between the lowest and highest sections, so the low middle of the deck rises into it and the high ends slope down into it.',
         { backTop: 'mid' },
       ],
-    ] as [string, string, string, { backTop?: Bin['backTop']; ramp?: number; deeper?: number }][]
-  ).map(([key, name, back, { deeper = 0, ...opt }]): Variant => ({
+      [
+        'c64-curved-tilt',
+        'C64 breadbins, curved deck, tilted top',
+        "The flat top is straight along the bin but tilted, running from the outermost keys' height at one end to the outermost keys' height at the other, so each end meets its keys and the deck between rises into the line.",
+        { backTop: 'tilt' },
+      ],
+    ] as [string, string, string, { backTop?: Bin['backTop']; ramp?: number }][]
+  ).map(([key, name, back, opt]): Variant => ({
     key,
     name,
     blurb: `The per-cluster C64 breadbins with each deck curved to follow its keys: every section across the bin is one continuous outline, the key surface (a quadratic fitted through the key plates) across the well, angling forward into the C64 bullnose in front. ${back} The back and underside are the C64's. The thumb bin has no grill.`,
     build: (k) => {
       const tight = { side: 6, front: 13, corner: 2, curved: true, ...opt },
         m = c64(k, [
-          { keys: fingerKeys(k), ...tight, back: 20 + deeper },
+          { keys: fingerKeys(k), ...tight, back: 20 },
           {
             keys: thumbKeys(k),
             angle: thumbAngle(k),
             ...tight,
-            back: 12 + deeper,
-            ...(opt.ramp ? { ramp: opt.ramp - 3 } : {}),
+            back: 12,
             noGrill: true,
           },
         ]);
