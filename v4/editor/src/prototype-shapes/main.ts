@@ -68,7 +68,7 @@ document.body.style.cssText =
 document.getElementById('app')!.innerHTML =
   `<div id="info" style="position:fixed;top:12px;left:12px;max-width:380px;background:#0009;padding:10px 14px;border-radius:8px;line-height:1.4">
 <div style="font-size:11px;letter-spacing:.08em;color:#f5b94a">PROTOTYPE · THROWAWAY · SAME KEY POSES IN EVERY SHAPE</div><h2 id="name" style="margin:6px 0 4px;font-size:18px"></h2><p id="blurb" style="margin:0 0 6px"></p><div id="stats" style="color:#9fb3b8;font-size:12px"></div>
-<label style="display:block;margin-top:6px;font-size:12px"><input id="caps" type="checkbox" ${params.get('caps') === '0' ? '' : 'checked'}> keycaps</label><label style="display:block;font-size:12px"><input id="plate" type="checkbox" ${params.get('plate') === '0' ? '' : 'checked'}> bottom plate (lowest 2 mm)</label></div>
+<label style="display:block;margin-top:6px;font-size:12px"><input id="caps" type="checkbox" ${params.get('caps') === '0' ? '' : 'checked'}> keycaps</label><label style="display:block;font-size:12px"><input id="plate" type="checkbox" ${params.get('plate') === '0' ? '' : 'checked'}> bottom plate / bottom section</label></div>
 <div id="bar" style="position:fixed;bottom:18px;left:50%;transform:translateX(-50%);display:flex;flex-direction:column;gap:6px;align-items:center"></div>`;
 const bar = document.getElementById('bar')!;
 function pill(id: string, onStep: (d: number) => void) {
@@ -202,7 +202,8 @@ async function show() {
       m = v.build(kit);
       pad = v.noPad ? undefined : cirquePad(kit);
     }
-    const slab = wasm.Manifold.cube([2000, 2000, 3], true).translate([0, 0, 0.5]);
+    const split = v.split ?? 2,
+      slab = wasm.Manifold.cube([2000, 2000, split + 1], true).translate([0, 0, (split - 1) / 2]);
     // Pieces above the base: more than one means something only touches the removable plate.
     const above = m.subtract(slab),
       pieces = above
