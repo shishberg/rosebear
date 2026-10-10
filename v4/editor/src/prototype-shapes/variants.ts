@@ -1388,24 +1388,26 @@ function fillet(pts: [number, number][], r: number[], seg = 12): [number, number
 // C64's function keys do.
 interface Bin {
   keys: string[];
-  pad?: boolean;
   // Plan rotation of the bin about z, degrees; its front faces local -y.
   angle?: number;
   side: number; // case past the wells at each end
   front: number; // case past the wells at the front, bullnose included
-  back: number; // case past the wells at the back: the grill band
-  nose: number; // bullnose radius
-  chamfer: number; // length of the rear chamfer
-  corner: number; // plan corner radius
+  back: number; // grill band past the wells (at the back, or the left end)
+  nose: number; // how far back the bullnose runs before it meets the deck
+  corner: number; // corner radius of the trough in plan
   // Where the grill goes: across the back (as on the C64) or down the left end.
   grill?: 'back' | 'left';
 }
 // Height of the parting line between the top case and the bottom section.
 const PART = 10;
+const WALL = 2; // case wall, deck and floor thickness
 interface BinParts {
-  shell: Manifold; // case with moat, grill and parting line cut, wells not yet cut
+  shell: Manifold; // solid case with trough, grill and parting line cut, wells not yet cut
   wells: Manifold; // well prisms, cut from every bin's shell
-  inside: Manifold; // well floors, key pedestals and the trackpad bed
+  inside: Manifold; // well floors and key pedestals, solid
+  cavity: Manifold; // the case's hollow, before anything is kept back from it
+  keep: Manifold; // kept solid inside the hollow: well walls, floor and pedestal walls
+  open: Manifold; // opened through what is kept: inside each pedestal, down to the bottom
 }
 function breadbin(k0: Kit, o: Bin): BinParts {
   const ang = o.angle ?? 0,
@@ -1416,18 +1418,9 @@ function breadbin(k0: Kit, o: Bin): BinParts {
     k: Kit = { ...k0, frames },
     M = k.wasm.Manifold,
     CS = k.wasm.CrossSection,
-    names = o.keys,
-    pod = o.pad ? cirque(k, 'none') : undefined,
-    f = k.frames.trackpad.clone().multiply(new Matrix4().makeTranslation(0, 0, -0.5));
-  // Least-squares plane z = a + bx + cy through the plate corners (and the pad's rim).
-  const P = [
-      ...names.flatMap((n) => corners(k, n)),
-      ...(pod
-        ? [0, 1, 2, 3, 4, 5].map((i) =>
-            point(f, [20 * Math.cos(i * 1.047), 20 * Math.sin(i * 1.047), 0]),
-          )
-        : []),
-    ],
+    names = o.keys;
+  // Least-squares plane z = a + bx + cy through the plate corners.
+  const P = names.flatMap((n) => corners(k, n)),
     S = [0, 0, 0, 0, 0, 0, 0, 0, 0],
     R = [0, 0, 0];
   for (const [x, y, z] of P) {
@@ -1447,161 +1440,166 @@ function breadbin(k0: Kit, o: Bin): BinParts {
       return det(m) / det(S);
     }),
     LIFT = 3; // deck above the fitted plate plane: below the keycaps' lowest travel
-  // Wells: axis-aligned boxes round each key's cap travel, merged and closed
+  // Well: axis-aligned boxes round each key's cap travel, merged and closed
   // across the gaps between them so the outline steps like the C64's.
   const box = (cs: CrossSection) => {
       const bb = cs.bounds();
       return CS.square([bb.max[0] - bb.min[0], bb.max[1] - bb.min[1]]).translate(bb.min);
     },
-    square = (cs: CrossSection, close: number, r: number) =>
-      cs
-        .offset(close, 'Miter')
-        .offset(-close, 'Miter')
-        .offset(-r, 'Round', 2, 24)
-        .offset(r, 'Round', 2, 24),
-    keyWell = names.length
-      ? square(
-          CS.union(names.map((n) => box(capSweep(k, n).project()).offset(1.2, 'Miter'))),
-          11,
-          2,
-        )
-      : CS.union([]),
-    padWell = pod ? square(box(pod.project()).offset(2.5, 'Miter'), 0, 3) : CS.union([]),
-    wells = CS.union([keyWell, padWell]),
-    wb = wells.bounds();
-  // Case extents: side margins, room at the front for the bullnose, and a
-  // grill band at the back or the left end.
+    keyWell = CS.union(names.map((n) => box(capSweep(k, n).project()).offset(1.2, 'Miter')))
+      .offset(11, 'Miter')
+      .offset(-11, 'Miter')
+      .offset(-2, 'Round', 2, 24)
+      .offset(2, 'Round', 2, 24),
+    wb = keyWell.bounds();
+  // Side profile, after the C64's: a vertical front face that rolls into the
+  // deck in a long elliptical bullnose, a straight deck rising to the back, a
+  // rounded top back corner and a raked back face whose foot stands further back.
   const left = o.grill === 'left',
+    RAKE = Math.tan((14 * Math.PI) / 180),
     x0 = wb.min[0] - (left ? o.back : o.side),
     x1 = wb.max[0] + o.side,
-    yF = wb.min[1] - o.front,
-    yB = wb.max[1] + (left ? o.side : o.back),
-    yR = yB - o.chamfer,
     xr = (x0 + x1) / 2,
-    ym = (yF + yB) / 2,
-    deck = (y: number) => a + b * xr + c * y + LIFT,
-    tent = b / deck(ym),
-    slope = Math.tan((22 * Math.PI) / 180);
-  // Side profile in (y, z), at the case's mid-width; tented across x below.
-  const zR = deck(yR),
-    prof: [number, number][] = left
-      ? [
-          [yB, 0],
-          [yF, 0],
-          [yF, deck(yF)],
-          [yB, deck(yB)],
-        ]
-      : [
-          [yB, 0],
-          [yF, 0],
-          [yF, deck(yF)],
-          [yR, zR],
-          [yB, zR - o.chamfer * slope],
-        ],
-    radii = left ? [1, 5, o.nose, 3] : [1, 5, o.nose, 10, 3],
+    // The deck rises to the back at 5 degrees at least, as the C64's does,
+    // pivoting about the well's middle so the keys keep their depth there.
+    ym = (wb.min[1] + wb.max[1]) / 2,
+    rise = Math.max(c, Math.tan((5 * Math.PI) / 180)),
+    deck = (y: number) => a + b * xr + c * ym + rise * (y - ym) + LIFT,
+    yF = wb.min[1] - o.front,
+    yN = yF + o.nose,
+    // The deck's back edge, then the foot of the raked back face behind it.
+    yT = wb.max[1] + (left ? o.side : o.back),
+    yB = yT + deck(yT) * RAKE,
+    tent = b / deck((yF + yB) / 2),
+    zN = deck(yN),
+    h1 = Math.max(PART + 3, 0.6 * zN),
+    dl = Math.hypot(1, rise),
+    // Bullnose: a cubic from the top of the front face (heading straight up)
+    // to the deck (heading along it), shaped like a quarter ellipse.
+    bez: [number, number][] = [
+      [yF, h1],
+      [yF, h1 + 0.55 * (zN - h1)],
+      [yN - (0.55 * o.nose) / dl, zN - (0.55 * o.nose * rise) / dl],
+      [yN, zN],
+    ],
+    nose: [number, number][] = [];
+  for (let i = 0; i <= 16; i++) {
+    const t = i / 16,
+      w = [(1 - t) ** 3, 3 * t * (1 - t) ** 2, 3 * t * t * (1 - t), t ** 3];
+    nose.push([0, 1].map((j) => w.reduce((q, wi, m) => q + wi * bez[m][j], 0)) as [number, number]);
+  }
+  const prof: [number, number][] = [[yB, 0], [yF, 0], ...nose, [yT, deck(yT)]],
+    radii = [2, 3, ...nose.map(() => 0), 5],
     // Listed clockwise in (y, z); CrossSection keeps only counter-clockwise outlines.
-    outline = fillet(prof, radii).reverse();
-  // How far the top comes down near the ends: a slight round on both top end
-  // edges, and with the grill on the left, a chamfer there that rolls in from the deck.
+    outline = new CS([fillet(prof, radii).reverse()]);
+  // The profile run across the bin, tented to follow the keys, its ends
+  // rounded all round: slices shrink in towards each end along a quarter circle.
   const END = 4,
-    round = (d: number) => {
-      d = Math.max(0, d);
-      return d < END ? END - Math.sqrt(END * END - (END - d) * (END - d)) : 0;
-    },
-    drop = (x: number) => {
-      const sx = Math.max(0, 1 - (x - x0) / o.chamfer);
-      return round(x - x0) + round(x1 - x) + (left ? o.chamfer * slope * sx * sx : 0);
+    body = (inset: number) => {
+      const ri = END - inset,
+        slice = (x: number, off: number) => {
+          const f = 1 + tent * (x - xr);
+          return outline
+            .offset(-off, 'Round', 2, 24)
+            .toPolygons()
+            .flat()
+            .map(([u, w]) => [x, u, w * f] as Vec3);
+        },
+        steps = [0, 1, 2, 3, 4, 5, 6].map((i) => (i / 6) * (Math.PI / 2)),
+        endL = steps.map((p) => slice(x0 + END - ri * Math.cos(p), END - ri * Math.sin(p))),
+        endR = steps.map((p) => slice(x1 - END + ri * Math.cos(p), END - ri * Math.sin(p))),
+        hulls: Manifold[] = [M.hull([...endL[6], ...endR[6]])];
+      for (let i = 0; i < 6; i++)
+        hulls.push(M.hull([...endL[i], ...endL[i + 1]]), M.hull([...endR[i], ...endR[i + 1]]));
+      return M.union(hulls);
     };
-  const body = (inset: number) => {
-    const plan = CS.square([x1 - x0, yB - yF])
-      .translate([x0, yF])
-      .offset(-o.corner, 'Round', 2, 32)
-      .offset(o.corner - inset, 'Round', 2, 32);
-    return new CS([outline])
-      .offset(-inset, 'Round', 2, 32)
-      .extrude(x1 - x0 + 2, Math.ceil((x1 - x0 + 2) / 0.8))
-      .warp((v) => {
-        const [u, w, e] = v,
-          x = x0 - 1 + e,
-          top = Math.max(deck(Math.min(Math.max(u, yF), yB)), 5);
-        v[0] = x;
-        v[1] = u;
-        // The drop is taken from the top and fades to nothing at the base.
-        v[2] = w * (1 + tent * (x - xr)) * Math.max(0.3, 1 - drop(x) / top);
-      })
-      .intersect(plan.extrude(400).translate([0, 0, -1]));
-  };
   const shell = body(0),
     skin = (d: number) => shell.subtract(shell.translate([0, 0, -d])),
     prism = (cs: CrossSection) => cs.extrude(400).translate([0, 0, -1]),
     slab = (z0: number, z1: number) =>
       M.cube([x1 - x0 + 40, yB - yF + 40, z1 - z0]).translate([x0 - 20, yF - 20, z0]);
-  // Grill: grooves across the back, out through both ends and over the chamfer;
-  // or down the left end, out through the front and back.
+  // Grill: grooves on the deck just in front of the back corner, out through
+  // both ends; or down the left end, out through the front and back.
   const grooves: CrossSection[] = [];
-  let gEnd = left ? x0 : yB;
+  let gEnd = left ? x0 : yT;
   if (left)
     for (let x = x0 + 3.4; x < wb.min[0] - 5; x += 3.6) {
       grooves.push(CS.square([1.6, yB - yF + 4]).translate([x - 1.6, yF - 2]));
       gEnd = x;
     }
   else
-    for (let y = yB - 3.4; y > wb.max[1] + 5; y -= 3.6) {
-      grooves.push(CS.square([x1 - x0 + 4, 1.6]).translate([x0 - 2, y]));
-      gEnd = y;
+    for (let y = yT - 3; y > wb.max[1] + 5; y -= 3.6) {
+      grooves.push(CS.square([x1 - x0 + 4, 1.6]).translate([x0 - 2, y - 1.6]));
+      gEnd = y - 1.6;
     }
-  // Moat: a thin trough, 0.8 mm wide and 1 mm deep, following the case outline
-  // on the deck: 2 mm in from the edges, just behind the bullnose, clear of the grill.
-  const rx0 = left ? gEnd + 1.5 : x0 + 2,
-    ry0 = yF + o.nose + 1,
-    rx1 = x1 - 2,
-    ry1 = left ? yB - 2 : gEnd - 1.5,
+  const grill = prism(CS.union(grooves)).intersect(skin(1.2));
+  // Trough: 0.8 mm wide and 1 mm deep, following the case outline on the deck:
+  // in from the ends, just behind the bullnose, clear of the grill.
+  const rx0 = left ? gEnd + 1.5 : x0 + END + 1,
+    ry0 = yN + 1,
+    rx1 = x1 - END - 1,
+    ry1 = left ? yT - 3 : gEnd - 1.5,
     ring = (d: number) =>
       CS.square([rx1 - rx0 - 2 * d, ry1 - ry0 - 2 * d])
         .translate([rx0 + d, ry0 + d])
-        .offset(-Math.max(0.1, o.corner - 2 - d), 'Round', 2, 32)
-        .offset(Math.max(0.1, o.corner - 2 - d), 'Round', 2, 32),
-    moat = prism(ring(0).subtract(ring(0.8))).intersect(skin(1));
-  const grill = prism(CS.union(grooves)).intersect(skin(1.2));
+        .offset(-Math.max(0.1, o.corner - d), 'Round', 2, 32)
+        .offset(Math.max(0.1, o.corner - d), 'Round', 2, 32),
+    trough = prism(ring(0).subtract(ring(0.8))).intersect(skin(1));
   // Parting line between the top and bottom halves, 0.8 mm deep.
   const parting = shell.subtract(body(0.8)).intersect(slab(PART - 0.6, PART + 0.6));
   // Inside the key well: a floor 14 mm under the deck, and each key on its own
   // pedestal rising out of it, as the C64's keys rise out of the dark well.
-  const pedestals = M.union(
+  const below = shell.translate([0, 0, -14 - WALL]),
+    pedestals = M.union(
       names.map((n) => M.hull(corners(k, n).flatMap((p) => [p, at(k, n, 0, 0, -T), down(p, 0)]))),
     ),
-    // Trackpad well: filled up to the pod's underside, the pod's rim standing on that.
-    padBed = pod
-      ? M.union([
-          M.hull([pod, pod.project().extrude(1)]),
-          padWell.extrude(pod.boundingBox().min[2]),
-        ])
-          .subtract(place(M.cylinder(80, 20.4, 20.4, 64).translate([0, 0, -0.5]), f))
-          .intersect(prism(padWell))
-      : undefined;
-  const back = (m: Manifold) => m.rotate([0, 0, ang]);
-  return {
-    shell: back(shell.subtract(moat).subtract(grill).subtract(parting)),
-    wells: back(prism(wells)),
-    inside: back(
-      M.union(
-        names.length
-          ? [
-              shell.translate([0, 0, -14]).intersect(prism(keyWell)),
-              pedestals.intersect(prism(keyWell)),
-              ...(padBed ? [padBed] : []),
-            ]
-          : [padBed!],
+    // Each pedestal's inside, from under its plate down through the floor.
+    bores = M.union(
+      names.map((n) =>
+        M.hull(
+          [
+            [-1, -1],
+            [1, -1],
+            [1, 1],
+            [-1, 1],
+          ].flatMap(([sx, sy]) => {
+            const p = at(k, n, sx, sy, -T, -1.6);
+            return [p, down(p, WALL)];
+          }),
+        ),
       ),
     ),
+    // Solid in the hollow: the well's wall and floor, and the pedestal walls.
+    keep = M.union([
+      prism(keyWell.offset(WALL, 'Miter')).subtract(below),
+      pedestals.intersect(prism(keyWell)).subtract(below),
+    ]);
+  const back = (m: Manifold) => m.rotate([0, 0, ang]);
+  return {
+    shell: back(shell.subtract(trough).subtract(grill).subtract(parting)),
+    wells: back(prism(keyWell)),
+    inside: back(
+      M.union([
+        shell.translate([0, 0, -14]).intersect(prism(keyWell)),
+        pedestals.intersect(prism(keyWell)).subtract(below),
+      ]),
+    ),
+    cavity: back(body(WALL)),
+    keep: back(keep),
+    open: back(bores),
   };
 }
 function c64(k: Kit, bins: Bin[]) {
   const M = k.wasm.Manifold,
-    parts = bins.map((o) => breadbin(k, o));
+    parts = bins.map((o) => breadbin(k, o)),
+    hollow = M.union(parts.map((p) => p.cavity))
+      .subtract(M.union(parts.map((p) => p.keep)))
+      .add(M.union(parts.map((p) => p.open)));
   return M.union([
-    M.union(parts.map((p) => p.shell)).subtract(M.union(parts.map((p) => p.wells))),
-    ...parts.map((p) => p.inside),
+    M.union(parts.map((p) => p.shell))
+      .subtract(M.union(parts.map((p) => p.wells)))
+      .add(M.union(parts.map((p) => p.inside)))
+      .subtract(hollow),
     plates(k),
   ]);
 }
@@ -1836,11 +1834,10 @@ export const variants: Variant[] = [
         {
           keys: keys(k.frames),
           side: 10,
-          front: 16,
-          back: 32,
-          nose: 13,
-          chamfer: 13,
-          corner: 6,
+          front: 22,
+          back: 24,
+          nose: 18,
+          corner: 4,
         },
       ]);
       return noCut ? m : cutKeys(k, m);
@@ -1856,7 +1853,7 @@ export const variants: Variant[] = [
     blurb:
       "The C64 styling at the current chassis's footprint: the finger keys and the thumb row each get their own small breadbin, cut tight round the well, each with its own deck tilted to its keys, bullnose front, slightly rounded top end edges, grill grooves (across the back of the finger bin, down the outer end of the thumb bin), parting line and a thin trough on the deck following its outline. No trackpad. The thumb bin is turned to run along the thumb row. The bottom section is everything below the parting line. Where bins overlap they merge, and every bin's well is cut through the others.",
     build: (k) => {
-      const tight = { side: 4.5, front: 10.5, back: 13, nose: 7, chamfer: 7, corner: 4 },
+      const tight = { side: 6, front: 13, back: 12, nose: 11, corner: 2 },
         m = c64(k, [
           { keys: fingerKeys(k), ...tight },
           { keys: thumbKeys(k), angle: thumbAngle(k), ...tight, grill: 'left' },
