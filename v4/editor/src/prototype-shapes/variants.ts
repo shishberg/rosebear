@@ -1392,8 +1392,7 @@ interface Bin {
   angle?: number;
   side: number; // case past the wells at each end
   front: number; // case past the wells at the front, bullnose included
-  back: number; // grill band past the wells (at the back, or the left end)
-  nose: number; // how far back the bullnose runs before it meets the deck
+  back: number; // case past the wells at the grill (the back, or the left end)
   corner: number; // corner radius of the trough in plan
   // Where the grill goes: across the back (as on the C64) or down the left end.
   grill?: 'back' | 'left';
@@ -1452,47 +1451,87 @@ function breadbin(k0: Kit, o: Bin): BinParts {
       .offset(-2, 'Round', 2, 24)
       .offset(2, 'Round', 2, 24),
     wb = keyWell.bounds();
-  // Side profile, after the C64's: a vertical front face that rolls into the
-  // deck in a long elliptical bullnose, a straight deck rising to the back, a
-  // rounded top back corner and a raked back face whose foot stands further back.
+  // Side profile, fitted to a side-on photo of the C64 and scaled so its gutter
+  // (118 px up the photo) lands on the parting line. Every rounded part keeps
+  // the photo's size and shape: a corner where two straight runs meet, rounded
+  // by a cubic whose handles reach back along each run (handle lengths in px).
+  // The front face is vertical above and below the gutter; the bullnose rolls
+  // it into the deck; the deck rises at the keys' own angle (5 degrees at
+  // least) into a flat top over the grill; the back is two flat faces meeting
+  // at the gutter, the top one raked 7.2 degrees forward, the bottom one
+  // vertical. The well's size sets the proportions; the bin's depth and height
+  // follow it, not the photo.
   const left = o.grill === 'left',
-    RAKE = Math.tan((14 * Math.PI) / 180),
+    PX = PART / 118, // mm per px
+    RAKE = Math.tan((7.2 * Math.PI) / 180),
     x0 = wb.min[0] - (left ? o.back : o.side),
     x1 = wb.max[0] + o.side,
     xr = (x0 + x1) / 2,
-    // The deck rises to the back at 5 degrees at least, as the C64's does,
-    // pivoting about the well's middle so the keys keep their depth there.
+    // The deck pivots about the well's middle so the keys keep their depth there.
     ym = (wb.min[1] + wb.max[1]) / 2,
     rise = Math.max(c, Math.tan((5 * Math.PI) / 180)),
     deck = (y: number) => a + b * xr + c * ym + rise * (y - ym) + LIFT,
-    yF = wb.min[1] - o.front,
-    yN = yF + o.nose,
-    // The deck's back edge, then the foot of the raked back face behind it.
-    yT = wb.max[1] + (left ? o.side : o.back),
-    yB = yT + deck(yT) * RAKE,
-    tent = b / deck((yF + yB) / 2),
-    zN = deck(yN),
-    h1 = Math.max(PART + 3, 0.6 * zN),
     dl = Math.hypot(1, rise),
-    // Bullnose: a cubic from the top of the front face (heading straight up)
-    // to the deck (heading along it), shaped like a quarter ellipse.
-    bez: [number, number][] = [
-      [yF, h1],
-      [yF, h1 + 0.55 * (zN - h1)],
-      [yN - (0.55 * o.nose) / dl, zN - (0.55 * o.nose * rise) / dl],
-      [yN, zN],
+    along: [number, number] = [1 / dl, rise / dl],
+    yF = wb.min[1] - o.front,
+    // The back's top corner, the flat top over the grill in front of it, and
+    // where the flat meets the deck: just behind the well, or further forward
+    // when there's no grill and the flat is no longer than its two roundings.
+    yC = wb.max[1] + (left ? o.side : o.back),
+    yG = Math.min(wb.max[1] + 2, yC - 81 * PX),
+    zG = deck(yG),
+    yR = yC + (zG - PART) * RAKE,
+    bk = Math.hypot(RAKE, 1),
+    // [corner, towards previous run, towards next run, handle lengths, handle fractions]
+    rounds: [
+      [number, number],
+      [number, number],
+      [number, number],
+      number,
+      number,
+      number,
+      number,
+    ][] = [
+      // Bullnose, no lower than the gutter.
+      [[yF, deck(yF)], [0, -1], along, Math.min(93 * PX, deck(yF) - PART), 0.41, 104 * PX, 0.3],
+      // Deck into the flat top over the grill.
+      [[yG, zG], [-along[0], -along[1]], [1, 0], 81 * PX, 0.3, 16 * PX, 0.19],
+      // Flat top over the back face.
+      [[yC, zG], [-1, 0], [RAKE / bk, -1 / bk], 60 * PX, 0.45, 68 * PX, 0.37],
     ],
-    nose: [number, number][] = [];
-  for (let i = 0; i <= 16; i++) {
-    const t = i / 16,
-      w = [(1 - t) ** 3, 3 * t * (1 - t) ** 2, 3 * t * t * (1 - t), t ** 3];
-    nose.push([0, 1].map((j) => w.reduce((q, wi, m) => q + wi * bez[m][j], 0)) as [number, number]);
-  }
-  const prof: [number, number][] = [[yB, 0], [yF, 0], ...nose, [yT, deck(yT)]],
-    radii = [2, 3, ...nose.map(() => 0), 5],
-    // Listed clockwise in (y, z); CrossSection keeps only counter-clockwise outlines.
-    outline = new CS([fillet(prof, radii).reverse()]);
-  // The profile run across the bin, tented to follow the keys, its ends
+    under: typeof rounds = [
+      // Back foot.
+      [[yR, 0], [0, 1], [-1, 0], 69 * PX, 0.23, 41 * PX, 0.22],
+      // Rounded underside at the front, up to the gutter.
+      [[yF, 0], [1, 0], [0, 1], 113 * PX, 0.43, 116 * PX, 0.31],
+    ],
+    round = ([C, u, v, L0, f0, L1, f1]: (typeof rounds)[number]) => {
+      const P = [L0, f0 * L0, f1 * L1, L1].map((l, i) => {
+          const d = i < 2 ? u : v;
+          return [C[0] + d[0] * l, C[1] + d[1] * l];
+        }),
+        out: [number, number][] = [];
+      for (let i = 0; i <= 12; i++) {
+        const t = i / 12,
+          w = [(1 - t) ** 3, 3 * t * (1 - t) ** 2, 3 * t * t * (1 - t), t ** 3];
+        out.push(
+          [0, 1].map((j) => w.reduce((q, wi, m) => q + wi * P[m][j], 0)) as [number, number],
+        );
+      }
+      return out;
+    },
+    yN = yF + rounds[0][5] * along[0],
+    tent = b / (deck((yF + yR) / 2) - PART),
+    // Clockwise in (y, z) from the front gutter; CrossSection keeps only
+    // counter-clockwise outlines, so it's reversed.
+    prof: [number, number][] = [
+      [yF, PART],
+      ...rounds.flatMap(round),
+      [yR, PART],
+      ...under.flatMap(round),
+    ],
+    outline = new CS([prof.reverse()]);
+  // The profile run across the bin, its top section tented to follow the keys, its ends
   // rounded all round: slices shrink in towards each end along a quarter circle.
   const END = 4,
     body = (inset: number) => {
@@ -1503,7 +1542,7 @@ function breadbin(k0: Kit, o: Bin): BinParts {
             .offset(-off, 'Round', 2, 24)
             .toPolygons()
             .flat()
-            .map(([u, w]) => [x, u, w * f] as Vec3);
+            .map(([u, w]) => [x, u, w > PART ? PART + (w - PART) * f : w] as Vec3);
         },
         steps = [0, 1, 2, 3, 4, 5, 6].map((i) => (i / 6) * (Math.PI / 2)),
         endL = steps.map((p) => slice(x0 + END - ri * Math.cos(p), END - ri * Math.sin(p))),
@@ -1517,28 +1556,26 @@ function breadbin(k0: Kit, o: Bin): BinParts {
     skin = (d: number) => shell.subtract(shell.translate([0, 0, -d])),
     prism = (cs: CrossSection) => cs.extrude(400).translate([0, 0, -1]),
     slab = (z0: number, z1: number) =>
-      M.cube([x1 - x0 + 40, yB - yF + 40, z1 - z0]).translate([x0 - 20, yF - 20, z0]);
-  // Grill: grooves on the deck just in front of the back corner, out through
+      M.cube([x1 - x0 + 40, yR - yF + 40, z1 - z0]).translate([x0 - 20, yF - 20, z0]);
+  // Grill: grooves across the flat top between its two roundings, out through
   // both ends; or down the left end, out through the front and back.
   const grooves: CrossSection[] = [];
-  let gEnd = left ? x0 : yT;
+  let gEnd = x0;
   if (left)
     for (let x = x0 + 3.4; x < wb.min[0] - 5; x += 3.6) {
-      grooves.push(CS.square([1.6, yB - yF + 4]).translate([x - 1.6, yF - 2]));
+      grooves.push(CS.square([1.6, yR - yF + 4]).translate([x - 1.6, yF - 2]));
       gEnd = x;
     }
   else
-    for (let y = yT - 3; y > wb.max[1] + 5; y -= 3.6) {
-      grooves.push(CS.square([x1 - x0 + 4, 1.6]).translate([x0 - 2, y - 1.6]));
-      gEnd = y - 1.6;
-    }
+    for (let y = yC - rounds[2][3] - 0.4; y - 1.2 > yG + rounds[1][5] + 0.4; y -= 2.4)
+      grooves.push(CS.square([x1 - x0 + 4, 1.2]).translate([x0 - 2, y - 1.2]));
   const grill = prism(CS.union(grooves)).intersect(skin(1.2));
   // Trough: 0.8 mm wide and 1 mm deep, following the case outline on the deck:
-  // in from the ends, just behind the bullnose, clear of the grill.
+  // in from the ends, just behind the bullnose, between the well and the flat top.
   const rx0 = left ? gEnd + 1.5 : x0 + END + 1,
     ry0 = yN + 1,
     rx1 = x1 - END - 1,
-    ry1 = left ? yT - 3 : gEnd - 1.5,
+    ry1 = wb.max[1] + 1.6,
     ring = (d: number) =>
       CS.square([rx1 - rx0 - 2 * d, ry1 - ry0 - 2 * d])
         .translate([rx0 + d, ry0 + d])
@@ -1836,7 +1873,6 @@ export const variants: Variant[] = [
           side: 10,
           front: 22,
           back: 24,
-          nose: 18,
           corner: 4,
         },
       ]);
@@ -1853,7 +1889,7 @@ export const variants: Variant[] = [
     blurb:
       "The C64 styling at the current chassis's footprint: the finger keys and the thumb row each get their own small breadbin, cut tight round the well, each with its own deck tilted to its keys, bullnose front, slightly rounded top end edges, grill grooves (across the back of the finger bin, down the outer end of the thumb bin), parting line and a thin trough on the deck following its outline. No trackpad. The thumb bin is turned to run along the thumb row. The bottom section is everything below the parting line. Where bins overlap they merge, and every bin's well is cut through the others.",
     build: (k) => {
-      const tight = { side: 6, front: 13, back: 12, nose: 11, corner: 2 },
+      const tight = { side: 6, front: 13, back: 16, corner: 2 },
         m = c64(k, [
           { keys: fingerKeys(k), ...tight },
           { keys: thumbKeys(k), angle: thumbAngle(k), ...tight, grill: 'left' },
