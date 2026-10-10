@@ -295,7 +295,10 @@ async function show() {
     metalness: 0.05,
     side: T.DoubleSide,
   });
-  group.add(new T.Mesh(c.geom, shellMat));
+  // ?top=0 hides everything above the bottom plate / bottom section.
+  const top = new T.Mesh(c.geom, shellMat);
+  top.visible = params.get('top') !== '0';
+  group.add(top);
   const plate = new T.Mesh(c.base, shellMat);
   plate.userData.plate = true;
   plate.visible = (document.getElementById('plate') as HTMLInputElement).checked;

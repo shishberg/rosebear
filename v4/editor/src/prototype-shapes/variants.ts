@@ -1586,7 +1586,9 @@ function breadbin(k0: Kit, o: Bin): BinParts {
   const parting = shell.subtract(body(0.8)).intersect(slab(PART - 0.6, PART + 0.6));
   // Inside the key well: a floor 14 mm under the deck, and each key on its own
   // pedestal rising out of it, as the C64's keys rise out of the dark well.
-  const below = shell.translate([0, 0, -14 - WALL]),
+  // The floor stays above the parting line, so the bottom section is just a tray.
+  const floor = M.union([shell.translate([0, 0, -14]), slab(-1, PART + WALL)]),
+    below = M.union([shell.translate([0, 0, -14 - WALL]), slab(-1, PART)]),
     pedestals = M.union(
       names.map((n) => M.hull(corners(k, n).flatMap((p) => [p, at(k, n, 0, 0, -T), down(p, 0)]))),
     ),
@@ -1617,7 +1619,7 @@ function breadbin(k0: Kit, o: Bin): BinParts {
     wells: back(prism(keyWell)),
     inside: back(
       M.union([
-        shell.translate([0, 0, -14]).intersect(prism(keyWell)),
+        floor.intersect(shell).intersect(prism(keyWell)),
         pedestals.intersect(prism(keyWell)).subtract(below),
       ]),
     ),
