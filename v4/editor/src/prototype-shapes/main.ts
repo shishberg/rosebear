@@ -1,5 +1,5 @@
-// PROTOTYPE, throwaway: flip between chassis shapes (?variant=) and extra
-// thumb-key placements (?thumbs=). Open /prototype-shapes.html on the editor
+// PROTOTYPE, throwaway: the chassis shape (?variant=, one left; the others
+// are in git history) and extra thumb-key placements (?thumbs=). Open /prototype-shapes.html on the editor
 // dev server. Nothing here feeds the real editor; only painted marks are saved
 // (marks.ts).
 import * as T from 'three';
@@ -10,16 +10,7 @@ import wasmUrl from 'manifold-3d/manifold.wasm?url';
 import type { Manifold } from 'manifold-3d';
 import { clone, componentFrames, defaults, frame } from '../geometry';
 import { capSize, hardware } from '../solid';
-import {
-  variants,
-  cirquePad,
-  skelOutside,
-  skelHits,
-  skelHighlight,
-  trim,
-  skelHighlightInfo,
-  type Kit,
-} from './variants';
+import { variants, trim, type Kit } from './variants';
 import { setupMarks } from './marks';
 
 const all = variants;
@@ -191,14 +182,10 @@ const cache = new Map<
   string,
   {
     clear: string[];
-    hl?: T.BufferGeometry;
     trim?: T.BufferGeometry;
-    hlInfo: string[];
-    outside: string[];
     pieces: string[];
     base: T.BufferGeometry;
     geom: T.BufferGeometry;
-    pad?: T.BufferGeometry;
     frames: Record<string, T.Matrix4>;
     project: typeof defaults;
     ms: number;
@@ -224,13 +211,9 @@ async function show() {
       t0 = performance.now(),
       project = clone(defaults);
     v.config?.(project.config);
-    let frames: Record<string, T.Matrix4>, m: Manifold, pad: Manifold | undefined;
-    {
-      frames = thumbLayout(project, componentFrames(project.config), ex, tk);
-      const kit: Kit = { wasm, cfg: project.config, frames };
-      m = v.build(kit);
-      pad = v.noPad ? undefined : cirquePad(kit);
-    }
+    const frames = thumbLayout(project, componentFrames(project.config), ex, tk),
+      kit: Kit = { wasm, cfg: project.config, frames },
+      m: Manifold = v.build(kit);
     const split = v.split ?? 2,
       slab = wasm.Manifold.cube([2000, 2000, split + 1], true).translate([0, 0, (split - 1) / 2]);
     // Pieces above the base: more than one means something only touches the removable plate.
@@ -291,25 +274,16 @@ async function show() {
           }
         }
       clear = [
-        hits.length
-          ? `keycaps hit the chassis: ${hits.join('; ')}${v.key.startsWith('skel') ? ` (parts: ${skelHits.join('; ')})` : ''}`
-          : 'no keycap hits the chassis',
+        hits.length ? `keycaps hit the chassis: ${hits.join('; ')}` : 'no keycap hits the chassis',
         `closest caps: ${gaps.join(', ')}`,
       ];
     }
     cache.set(key, {
       clear,
-      hl:
-        v.key.startsWith('skel') && skelHighlight.length
-          ? toGeom(wasm.Manifold.union(skelHighlight).subtract(slab))
-          : undefined,
-      trim: v.key.startsWith('c64') && trim.length ? toGeom(wasm.Manifold.union(trim)) : undefined,
-      hlInfo: v.key.startsWith('skel') ? [...skelHighlightInfo] : [],
-      outside: v.key.startsWith('skel') ? [...skelOutside] : [],
+      trim: trim.length ? toGeom(wasm.Manifold.union(trim)) : undefined,
       pieces,
       base: toGeom(m.intersect(slab)),
       geom: toGeom(above),
-      pad: pad && toGeom(pad),
       frames,
       project,
       ms: performance.now() - t0,
@@ -335,20 +309,6 @@ async function show() {
   plate.userData.kind = 'plate';
   plate.visible = (document.getElementById('plate') as HTMLInputElement).checked;
   group.add(plate);
-  // Highlighted parts drawn over the shell in orange, slightly inflated by polygon offset so they win the depth test.
-  if (c.hl)
-    group.add(
-      new T.Mesh(
-        c.hl,
-        new T.MeshStandardMaterial({
-          color: 0xff7a1a,
-          roughness: 0.5,
-          polygonOffset: true,
-          polygonOffsetFactor: -2,
-          polygonOffsetUnits: -2,
-        }),
-      ),
-    );
   if (c.trim) {
     const trim = new T.Mesh(
       c.trim,
@@ -357,14 +317,9 @@ async function show() {
     trim.userData.kind = 'trim';
     group.add(trim);
   }
-  if (c.pad) {
-    const pad = new T.Mesh(c.pad, new T.MeshStandardMaterial({ color: 0x4a5358, roughness: 0.35 }));
-    pad.userData.kind = 'trackpad';
-    group.add(pad);
-  }
   for (const part of hardware(c.project, c.frames)) {
     if (['trackpad', 'adapter'].includes(part.group)) continue;
-    if (v.noPad && part.group.startsWith('trackpad')) continue;
+    if (part.group.startsWith('trackpad')) continue;
     if (part.group === 'switch') continue;
     const mesh = new T.Mesh(
       new T.BoxGeometry(...part.size),
@@ -403,7 +358,7 @@ async function show() {
   note(
     stats,
     'stats',
-    `${nk} keys · solid volume ≈ ${c.vol.toFixed(0)} cm³ (walls not hollowed in every shape) · built in ${c.ms.toFixed(0)} ms · ${c.pieces.length === 1 ? 'one piece without the plate' : `${c.pieces.length} loose pieces without the plate (cm³ @ x,y,z: ${c.pieces.join('; ')})`}${c.clear.length ? ` · ${c.clear.join(' · ')}` : ''}${c.outside.length ? ` · outside the rim: ${c.outside.join('; ')}` : ''}${c.hlInfo.length ? ` · ${c.hlInfo.length} parts in orange${params.get('hlinfo') === '1' ? ` (mm: ${c.hlInfo.join('; ')})` : ''}` : ''}`,
+    `${nk} keys · solid volume ≈ ${c.vol.toFixed(0)} cm³ (walls not hollowed in every shape) · built in ${c.ms.toFixed(0)} ms · ${c.pieces.length === 1 ? 'one piece without the plate' : `${c.pieces.length} loose pieces without the plate (cm³ @ x,y,z: ${c.pieces.join('; ')})`}${c.clear.length ? ` · ${c.clear.join(' · ')}` : ''}`,
   );
 }
 document.getElementById('caps')!.onchange = () =>
