@@ -347,74 +347,77 @@ export function buildChassis(
       );
     const clip = well.offset(SIZES.wellInto, 'Miter').extrude(400).translate([0, 0, -1]);
     if (facets) {
-      // Everything under the highest of the keys' planes, dz along their normals.
-      const under = (dz: number) =>
+      // A flat square 0.8 mm past each key's seat, straight strips between
+      // neighbours and a patch where four keys meet; past the outer keys the
+      // strips carry on level out to the well's wall.
+      const cell: Record<string, number[]> = { [ns[0]]: [0, 0] };
+      const todo = [ns[0]];
+      while (todo.length) {
+        const n = todo.pop()!;
+        for (const [a, m, axis, sign] of pairs)
+          if (a === n && !cell[m]) {
+            cell[m] = [...cell[n]];
+            cell[m][axis] += sign;
+            todo.push(m);
+          }
+      }
+      const at = new Map(ns.map((n) => [cell[n].join(','), n]));
+      const lo = [0, 1].map((i) => Math.min(...ns.map((n) => cell[n][i])));
+      const hi = [0, 1].map((i) => Math.max(...ns.map((n) => cell[n][i])));
+      const flatHalf = [seatHalf[0] + 0.8, seatHalf[1] + 0.8];
+      const planDir = (n: string, axis: number) => {
+        const e = frames[n].elements;
+        const l = Math.hypot(e[axis * 4], e[axis * 4 + 1]);
+        return [e[axis * 4] / l, e[axis * 4 + 1] / l];
+      };
+      const OUT = 40;
+      // Corner (sx, sy) of the cell at c, as the floor's top and underside. A
+      // cell past the keys borrows the nearest key's corner facing it, carried
+      // level outwards.
+      const corner = (c: number[], sx: number, sy: number): [Vec3, Vec3] | undefined => {
+        const k = c.map((v, i) => Math.min(hi[i], Math.max(lo[i], v)));
+        const n = at.get(k.join(','));
+        if (!n) return undefined;
+        const o = c.map((v, i) => Math.sign(v - k[i]));
+        const q = [o[0] || sx, o[1] || sy];
+        const push = [0, 1].map(
+          (i) => OUT * (o[0] * planDir(n, 0)[i] + o[1] * planDir(n, 1)[i]),
+        );
+        return [0, -plateThickness].map((z) => {
+          const p = keyPoint(n, q[0] * flatHalf[0], q[1] * flatHalf[1], z);
+          return [p[0] + push[0], p[1] + push[1], p[2]] as Vec3;
+        }) as [Vec3, Vec3];
+      };
+      const pieces: [Vec3, Vec3][][] = [];
+      const add = (ps: ([Vec3, Vec3] | undefined)[]) => {
+        if (ps.every((p) => p)) pieces.push(ps as [Vec3, Vec3][]);
+      };
+      for (let c = lo[0] - 1; c <= hi[0]; c++)
+        for (let r = lo[1] - 1; r <= hi[1]; r++) {
+          const [a, b, d, e] = [[c, r], [c + 1, r], [c, r + 1], [c + 1, r + 1]];
+          if (at.has(a.join(','))) add([corner(a, -1, -1), corner(a, 1, -1), corner(a, 1, 1), corner(a, -1, 1)]);
+          add([corner(a, 1, -1), corner(a, 1, 1), corner(b, -1, 1), corner(b, -1, -1)]);
+          add([corner(a, -1, 1), corner(a, 1, 1), corner(d, 1, -1), corner(d, -1, -1)]);
+          add([corner(a, 1, 1), corner(b, -1, 1), corner(e, -1, -1), corner(d, 1, -1)]);
+        }
+      // Everything under the pieces' tops (or undersides).
+      const beneath = (side: number) =>
         M.union(
-          ns.map((n) => place(M.cube([400, 400, 200], true).translate([0, 0, dz - 100]), frames[n])),
-        );
-      // Each key's face is flat to 0.8 mm past its seat: where a neighbour's
-      // plane stands above it there (by under 0.2 mm, where the ring and
-      // pinky columns meet), it is cut down to it, the cut's sides at 45
-      // degrees so it leaves a bevel rather than a pit.
-      const flats = M.union(
-        ns.map((n) =>
-          M.hull(
-            [0, 20].flatMap((z) =>
-              [-1, 1].flatMap((sx) =>
-                [-1, 1].map((sy) =>
-                  keyPoint(n, sx * (seatHalf[0] + 0.8 + z), sy * (seatHalf[1] + 0.8 + z), z),
-                ),
-              ),
-            ),
-          ),
-        ),
-      );
-      // Between each pair of neighbours, a sloping step: whatever stands above
-      // the face spanning from one's flat area's edge to the other's is cut
-      // down to it, so a neighbour's plane that would stand too high meets
-      // the flat area through one clean slope rather than notches.
-      const flatEdge = (n: string, axis: number, sign: number, z: number) =>
-        [-1, 1].map((t) => {
-          const q = [0, 0];
-          q[axis] = sign * (seatHalf[axis] + 0.8);
-          q[1 - axis] = t * (seatHalf[1 - axis] + 0.8);
-          return keyPoint(n, q[0], q[1], z);
-        });
-      const lift = (ps: Vec3[]) => ps.map((q) => [q[0], q[1], q[2] + 20] as Vec3);
-      const halfBelow = (n: string) =>
-        place(M.cube([400, 400, 200], true).translate([0, 0, -100]), frames[n]);
-      const flatColumn = (n: string) =>
-        place(
-          M.cube([2 * (seatHalf[0] + 0.8), 2 * (seatHalf[1] + 0.8), 20], true).translate([0, 0, 10]),
-          frames[n],
-        );
-      // Only where one's plane really stands above the other's flat area (the
-      // ring and pinky columns); elsewhere the planes already meet cleanly
-      // and a step would only add creases.
-      const stands = (n: string, m: string) =>
-        halfBelow(m).intersect(flatColumn(n)).volume() > 0.005;
-      const steps = M.union(
-        pairs
-          .filter(([n, m]) => n < m)
-          .flatMap(([n, m, axis, sign]) => {
-            const back = across(m, n);
-            if (!back || !(stands(n, m) || stands(m, n))) return [];
-            const ps = [...flatEdge(n, axis, sign, 0), ...flatEdge(m, back[0], back[1], 0)];
-            return [M.hull([...ps, ...lift(ps)])];
+          pieces.map((ps) => {
+            const top = ps.map((p) => p[side]);
+            return M.hull([...top, ...top.map((p) => [p[0], p[1], p[2] - 200] as Vec3)]);
           }),
-      );
-      const floor = under(0)
-        .subtract(under(-plateThickness))
-        .subtract(steps)
-        .subtract(flats)
-        .intersect(clip);
+        );
+      const below = beneath(0).intersect(clip);
+      const underside = beneath(1);
+      const floor = below.subtract(underside);
       return {
         cores: floor,
         rest: floor,
         // Only under the floor: above its underside the room would cut the
         // well's wall away above the floor, leaving a slot.
-        rooms: room(SIZES.underRoom).intersect(under(-plateThickness)),
-        below: under(0).intersect(clip),
+        rooms: room(SIZES.underRoom).intersect(underside),
+        below,
         top: floor,
         skirt: column(PLATES.wellReach, SIZES.skirtInto - plateThickness, SIZES.skirtDepth)
           .intersect(clip)
