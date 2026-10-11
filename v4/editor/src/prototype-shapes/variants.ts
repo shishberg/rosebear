@@ -1401,6 +1401,10 @@ interface Bin {
   corner: number; // corner radius of the trough in plan
   // No grill grooves across the back.
   noGrill?: boolean;
+  // Grilled bins only: a C64 badge set into the grill, centred this far along
+  // the bin from its low end (0 to 1). A pill-shaped recess as tall as the
+  // grooves' band interrupts them, with five raised stripes on its floor.
+  badge?: number;
   ports?: boolean; // a C64 port panel on the low-x end, where the ribbon leaves
   // Curved deck only: carry this other bin's deck (the thumb row's) on in
   // front of the well as part of this bin's sections, out to that bin's front
@@ -2381,12 +2385,58 @@ function breadbin(k0: Kit, o: Bin): BinParts {
       ]);
   // Grill: grooves across the flat top between its two roundings, out through
   // both ends.
-  const grooves: CrossSection[] = [];
+  const grooves: CrossSection[] = [],
+    gTop = yC - 60 * PX - 0.4;
+  let gBottom = gTop;
   if (grilled)
-    for (let y = yC - 60 * PX - 0.4; y - 1.2 > flatStart; y -= 2.4)
+    for (let y = gTop; y - 1.2 > flatStart; y -= 2.4) {
       grooves.push(CS.square([x1 - x0 + 4, 1.2]).translate([x0 - 2, y - 1.2]));
+      gBottom = y - 1.2;
+    }
+  // Badge, as on the C64's top: a pill-shaped recess 1 mm deep, 0.6 mm taller
+  // than the grooves' band at each side, with the grooves stopping 1.2 mm short
+  // of it. On its floor five raised stripes, 0.8 mm wide with 0.6 mm gaps, run
+  // along the pill as slanted parallelograms, each shifted along from the one
+  // in front so their ends line up at the slant; their tops stay 0.2 mm under
+  // the top around them. Floor and stripe tops are the shell lowered, like the
+  // grooves, so no face of the cut lies on the shell's or on another's.
+  let pill: CrossSection | undefined, badge: Manifold | undefined;
+  if (grilled && grooves.length && o.badge !== undefined) {
+    const H = gTop - gBottom + 1.2,
+      L = 25,
+      r = H / 2,
+      bx = x0 + (x1 - x0) * o.badge,
+      by = (gTop + gBottom) / 2,
+      [W, GAP, SLANT] = [0.8, 0.6, 1 / Math.tan((60 * Math.PI) / 180)],
+      pitch = W + GAP,
+      run = L - 2 * r - 2 - 4 * pitch * SLANT - W * SLANT, // each stripe's length
+      sx = bx - (run + 4 * pitch * SLANT + W * SLANT) / 2,
+      sy = by - (4 * pitch + W) / 2,
+      stripes = CS.ofPolygons(
+        [0, 1, 2, 3, 4].map((i) => {
+          const [u, v] = [sx + i * pitch * SLANT, sy + i * pitch];
+          return [
+            [u, v],
+            [u + run, v],
+            [u + run + W * SLANT, v + W],
+            [u + W * SLANT, v + W],
+          ] as [number, number][];
+        }),
+      );
+    pill = CS.hull([
+      CS.circle(r, 32).translate([bx - L / 2 + r, by]),
+      CS.circle(r, 32).translate([bx + L / 2 - r, by]),
+    ]);
+    badge = near(pill, 1).subtract(prism(stripes).intersect(shell.translate([0, 0, -0.2])));
+  }
   // (An empty cut would empty the whole result, so a bin without grooves skips it.)
-  const grill = grooves.length ? near(CS.union(grooves), 1.2) : undefined;
+  const cut = grooves.length
+      ? near(
+          pill ? CS.union(grooves).subtract(pill.offset(1.2, 'Round', 2, 32)) : CS.union(grooves),
+          1.2,
+        )
+      : undefined,
+    grill = cut && badge ? cut.add(badge) : cut;
   // Trough: 0.8 mm wide and 1 mm deep, following the case outline on the deck:
   // in from the ends, just behind the bullnose, between the well and the flat top.
   // (With an apron, round both bins' outlines.)
@@ -2861,11 +2911,22 @@ export const variants: Variant[] = [
     split: PART - 0.6, // the bottom of the parting groove
     config: ribbonToPanel,
   })),
-  {
-    key: 'c64-joined',
-    name: 'C64, thumbs joined into the deck',
+  ...(
+    [
+      ['c64-joined', 'C64, thumbs joined into the deck', '', undefined],
+      [
+        'c64-joined-badge',
+        'C64, thumbs joined, badge on the grill',
+        " A C64 badge interrupts the finger bin's grill towards its outer end: a pill-shaped recess as tall as the grooves' band, with five raised slanted stripes on its floor, staggered like the C64's rainbow, their tops just under the top around them so they can be painted.",
+        0.7,
+      ],
+    ] as [string, string, string, number | undefined][]
+  ).map(([key, name, extra, badge]): Variant => ({
+    key,
+    name,
     blurb:
-      "The curved-deck breadbin with the top following the dish, and the thumb row joined into the finger bin's deck instead of a second bin butting into it. The finger bin's sections carry on forward over the thumb row to the thumb bin's front edge, which runs on to the finger bin's outer end and meets it at a corner. Across each section the thumb surface runs to the thumb well's back edge, then a straight run joins it to the finger surface at the finger well's front edge, with a hard angle at each end. It's all one solid: past the finger bin's inner end the thumb bin's sections carry on alone to the far thumb key, turning to square across the thumb row, and the finger bin's inner end is a face of the same solid, rounded like its other end.",
+      "The curved-deck breadbin with the top following the dish, and the thumb row joined into the finger bin's deck instead of a second bin butting into it. The finger bin's sections carry on forward over the thumb row to the thumb bin's front edge, which runs on to the finger bin's outer end and meets it at a corner. Across each section the thumb surface runs to the thumb well's back edge, then a straight run joins it to the finger surface at the finger well's front edge, with a hard angle at each end. It's all one solid: past the finger bin's inner end the thumb bin's sections carry on alone to the far thumb key, turning to square across the thumb row, and the finger bin's inner end is a face of the same solid, rounded like its other end." +
+      extra,
     build: (k) => {
       const tight = { side: 6, front: 13, corner: 2, curved: true, backTop: 'dish' as const },
         thumb: Bin = {
@@ -2875,7 +2936,10 @@ export const variants: Variant[] = [
           back: 12,
           noGrill: true,
         },
-        m = c64(k, [{ keys: fingerKeys(k), ...tight, back: 20, ports: true, apron: thumb }, thumb]);
+        m = c64(k, [
+          { keys: fingerKeys(k), ...tight, back: 20, ports: true, apron: thumb, badge },
+          thumb,
+        ]);
       return noCut ? m : cutKeys(k, m);
     },
     color: 0xd8ccae,
@@ -2883,5 +2947,5 @@ export const variants: Variant[] = [
     noPad: true,
     split: PART - 0.6, // the bottom of the parting groove
     config: ribbonToPanel,
-  },
+  })),
 ];
