@@ -88,7 +88,11 @@ edges.visible = false;
 scene.add(edges);
 function setEdges() {
   edges.geometry.dispose();
-  edges.geometry = edges.visible ? new T.EdgesGeometry(shell.geometry, 1) : new T.BufferGeometry();
+  // Until the first chassis arrives the case has no geometry to draw edges of.
+  edges.geometry =
+    edges.visible && shell.geometry.getAttribute('position')
+      ? new T.EdgesGeometry(shell.geometry, 1)
+      : new T.BufferGeometry();
 }
 const basePlate = new T.Mesh(
   new T.BufferGeometry(),
