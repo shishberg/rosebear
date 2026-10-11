@@ -1757,6 +1757,14 @@ function apronDeck(
       const [yT, yW] = [back(x), fore(x)],
         rise = Math.abs(own(x, yW) - deck(x, Math.min(yT, yW)));
       return [Math.max(line(vW, x) + 1, yW - Math.max(yW - yT, rise, 1)), yW];
+    },
+    // Where the apron's deck stops at x, at the foot of the wall up to this
+    // bin's top: where the apron's own deck ends (its rise to its flat top
+    // stays under the wall), but not in front of the run's start nor within a
+    // millimetre of this well.
+    foot = (x: number) => {
+      const [yT, yW] = run(x);
+      return Math.min(yW - 1, Math.max(yT, line(wb.max[1] + 3, x)));
     };
   return {
     t,
@@ -1766,7 +1774,8 @@ function apronDeck(
     vW,
     deck,
     front: (x: number) => line(vW - a.front, x),
-    breaks: (x: number) => [line(vW, x), ...run(x)],
+    // The apron well's front edge, the wall's foot and this well's front edge, at x.
+    breaks: (x: number) => [line(vW, x), foot(x), run(x)[1]],
     z: (x: number, y: number) => {
       const [yT, yW] = run(x);
       if (y <= yT) return deck(x, y);
@@ -1959,6 +1968,7 @@ function breadbin(k0: Kit, o: Bin): BinParts {
         if (apron) {
           const yf = apron.front(x),
             z = (y: number) => apron.z(x, y),
+            d0 = at(x),
             // The bullnose ends on the deck 104 px back, along the deck's
             // slope there (the deck isn't straight along an angled section).
             L = 104 * PX,
@@ -1969,23 +1979,44 @@ function breadbin(k0: Kit, o: Bin): BinParts {
             zf = z(yE) - (yE - yf) * s,
             zT = top(x),
             y0 = yE + 0.5,
-            ys = [...apron.breaks(x)];
+            [yA, yc, yW] = apron.breaks(x),
+            // The wall between the decks: the apron's deck stops at its
+            // foot, it rises square to it and rolls over (up to 5 mm round)
+            // onto a strip falling to the front from this well's edge at
+            // the C64's deck angle. Where the decks meet level it's gone.
+            zc = apron.deck(x, yc),
+            zW = d0.z(yW),
+            zS = Math.max(zc, zW - FRONT * (yW - yc)),
+            rise = zS - zc,
+            R = Math.min(5, 0.6 * rise, 0.6 * (yW - yc)),
+            f = Math.min(1, 0.2 * rise),
+            sc = (apron.deck(x, yc + 0.01) - apron.deck(x, yc - 0.01)) / 0.02,
+            lc = Math.hypot(1, sc),
+            lS = Math.hypot(yW - yc, zW - zS),
+            ys = [yA];
           for (let y = y0; y < yB; y += 1) ys.push(y);
           ys.sort((p, q) => p - q);
           const B: [number, number] = [yB, z(yB)],
             sB = at(x).s(yB),
             h = 0.4 * (yG - yB),
-            lB = Math.hypot(1, sB);
-          return [
-            [yf, PART],
-            ...round([[yf, zf], [0, -1], dir, Math.min(93 * PX, zf - PART), 0.41, L, 0.3]),
-            [yE, z(yE)],
-            ...ys
-              .filter((y, i) => i === 0 || y - ys[i - 1] > 0.05)
-              .map((y): [number, number] => [y, z(y)]),
-            ...bezier([B, [yB + h / lB, B[1] + (h * sB) / lB], [yG - h, zT], [yG, zT]]),
-            ...backAndUnder(zT, yC + (zT - PART) * RAKE, yf),
-          ];
+            lB = Math.hypot(1, sB),
+            at2 = (y: number): [number, number] => [y, y < yc ? apron.deck(x, y) : d0.z(y)],
+            pts: [number, number][] = [
+              [yf, PART],
+              ...round([[yf, zf], [0, -1], dir, Math.min(93 * PX, zf - PART), 0.41, L, 0.3]),
+              [yE, z(yE)],
+              ...ys.filter((y) => y < yc - f - 0.05).map(at2),
+              ...round([[yc, zc], [-1 / lc, -sc / lc], [0, 1], f, 0.55, f, 0.55]),
+              ...round([[yc, zS], [0, -1], [(yW - yc) / lS, (zW - zS) / lS], R, 0.55, R, 0.55]),
+              [yW, zW],
+              ...ys.filter((y) => y > yW + 0.05).map(at2),
+              ...bezier([B, [yB + h / lB, B[1] + (h * sB) / lB], [yG - h, zT], [yG, zT]]),
+              ...backAndUnder(zT, yC + (zT - PART) * RAKE, yf),
+            ];
+          // (Without a wall its corners are one point.)
+          return pts.filter(
+            (p, i) => !i || Math.hypot(p[0] - pts[i - 1][0], p[1] - pts[i - 1][1]) > 0.01,
+          );
         }
         const d = at(x),
           zT = top(x),
@@ -2147,10 +2178,12 @@ function breadbin(k0: Kit, o: Bin): BinParts {
         ] as [number, number][];
       },
       // An outline moved inward by e, except along the stretch from a round
-      // (counter-clockwise) to b, which the apron's outline t shares. Off
-      // that stretch the move eases in with the distance from t: never more
-      // than half that distance, so the outline can't cross t. Points are a
-      // few tenths of a millimetre apart first, so the easing is smooth.
+      // (counter-clockwise) to b, which the apron's outline t shares. The
+      // rest moves in the whole way, and where it meets t (near a and near b)
+      // the outline follows t instead: this bin's end rounds in fully and
+      // stops against the apron's surface, as one solid meeting another.
+      // Points are a few tenths of a millimetre apart first, so it moves in
+      // evenly.
       shrinkAway = (
         poly: [number, number][],
         a: [number, number],
@@ -2158,11 +2191,12 @@ function breadbin(k0: Kit, o: Bin): BinParts {
         e: number,
         t: [number, number][],
       ) => {
-        const TAPER = 3 * END,
-          m = poly.length,
-          ia = poly.findIndex((p) => p[0] === a[0] && p[1] === a[1]),
-          ib = poly.findIndex((p) => p[0] === b[0] && p[1] === b[1]),
-          free: [number, number][] = [];
+        type P = [number, number];
+        const m = poly.length,
+          same = (p: P, q: P) => p[0] === q[0] && p[1] === q[1],
+          ia = poly.findIndex((p) => same(p, a)),
+          ib = poly.findIndex((p) => same(p, b)),
+          free: P[] = [];
         // The free stretch, b round to a, made dense.
         for (let k = 0, i = ib; k < (ia - ib + m) % m; k++, i = (i + 1) % m) {
           const p = poly[i],
@@ -2172,40 +2206,60 @@ function breadbin(k0: Kit, o: Bin): BinParts {
             free.push([p[0] + ((q[0] - p[0]) * j) / steps, p[1] + ((q[1] - p[1]) * j) / steps]);
         }
         free.push(poly[ia]);
-        const fromT = ([y, z]: [number, number]) =>
-            Math.min(
-              ...t.map((p, i) => {
-                const q = t[(i + 1) % t.length],
-                  [dy, dz] = [q[0] - p[0], q[1] - p[1]],
-                  l2 = dy * dy + dz * dz,
-                  f = l2 ? Math.min(1, Math.max(0, ((y - p[0]) * dy + (z - p[1]) * dz) / l2)) : 0;
-                return Math.hypot(p[0] + f * dy - y, p[1] + f * dz - z);
-              }),
-            ),
-          ease = (d: number) => {
-            const u = Math.min(1, d / TAPER);
-            return u * u * (3 - 2 * u);
+        // Inward (left, counter-clockwise) normal: the mean of the edges'
+        // either side, lengthened to keep both edges e in (capped at sharp corners).
+        const unit = (u: P, v: P): P => {
+            const l = Math.hypot(v[0] - u[0], v[1] - u[1]);
+            return [-(v[1] - u[1]) / l, (v[0] - u[0]) / l];
           },
-          moved = free.map((p, i): [number, number] => {
-            // (The ends, on t, never move.)
-            const w = i && i < free.length - 1 ? ease(fromT(p)) : 0;
-            if (!w) return p;
-            // Inward (left, counter-clockwise) normal: the mean of the edges'
-            // either side, lengthened to keep both edges e in (capped at sharp corners).
-            const unit = (u: [number, number], v: [number, number]) => {
-                const l = Math.hypot(v[0] - u[0], v[1] - u[1]);
-                return [-(v[1] - u[1]) / l, (v[0] - u[0]) / l];
-              },
-              n1 = unit(free[i - 1], p),
-              n2 = unit(p, free[i + 1]),
-              n = [n1[0] + n2[0], n1[1] + n2[1]],
+          moved = free.map((p, i): P => {
+            const n1 = unit(free[Math.max(0, i - 1)], free[Math.max(1, i)]),
+              n2 = unit(free[Math.min(i, free.length - 2)], free[Math.min(i + 1, free.length - 1)]),
+              n: P = [n1[0] + n2[0], n1[1] + n2[1]],
               c = (n[0] * n1[0] + n[1] * n1[1]) / Math.hypot(...n),
-              k = (e * w) / Math.max(c, 1 / 3) / Math.hypot(...n);
+              k = e / Math.max(c, 1 / 3) / Math.hypot(...n);
             return [p[0] + n[0] * k, p[1] + n[1] * k];
           }),
-          kept: [number, number][] = [];
+          // The apron's outline inside this one: from b round to a.
+          [tb, ta] = [b, a].map((p) => t.findIndex((q) => same(p, q))),
+          inner: P[] = [];
+        for (let i = tb; ; i = (i + 1) % t.length) {
+          inner.push(t[i]);
+          if (i === ta) break;
+        }
+        // Where the moved stretch crosses it: [along moved, along inner, point].
+        const hits: [number, number, P][] = [];
+        for (let i = 0; i + 1 < moved.length; i++)
+          for (let j = 0; j + 1 < inner.length; j++) {
+            const [p, q, r, s2] = [moved[i], moved[i + 1], inner[j], inner[j + 1]],
+              d = (q[0] - p[0]) * (s2[1] - r[1]) - (q[1] - p[1]) * (s2[0] - r[0]);
+            if (!d) continue;
+            const u = ((r[0] - p[0]) * (s2[1] - r[1]) - (r[1] - p[1]) * (s2[0] - r[0])) / d,
+              v = ((r[0] - p[0]) * (q[1] - p[1]) - (r[1] - p[1]) * (q[0] - p[0])) / d;
+            if (u >= 0 && u < 1 && v >= 0 && v < 1)
+              hits.push([i + u, j + v, [p[0] + (q[0] - p[0]) * u, p[1] + (q[1] - p[1]) * u]]);
+          }
+        hits.sort((h, g) => h[0] - g[0]);
+        const [hb, ha] = [hits[0], hits[hits.length - 1]];
+        if (hits.length < 2 || hb[1] > ha[1])
+          throw new Error(`joined: the end's outline meets the apron's ${hits.length} times`);
+        const kept: P[] = [];
         for (let k = 0, i = ia; k <= (ib - ia + m) % m; k++, i = (i + 1) % m) kept.push(poly[i]);
-        return new CS([[...kept, ...moved.slice(1, -1)]]);
+        return {
+          // Where it meets the apron's outline, near a and near b.
+          a: ha[2],
+          b: hb[2],
+          cs: new CS([
+            [
+              ...kept,
+              ...inner.slice(1, Math.floor(hb[1]) + 1),
+              hb[2],
+              ...moved.slice(Math.floor(hb[0]) + 1, Math.floor(ha[0]) + 1),
+              ha[2],
+              ...inner.slice(Math.floor(ha[1]) + 1, -1),
+            ],
+          ]),
+        };
       },
       // Where the apron's outline leaves this bin's (the apron's lies inside
       // it, on it from the deck corner round the front and bottom): the deck
@@ -2271,7 +2325,8 @@ function breadbin(k0: Kit, o: Bin): BinParts {
         // corner round the front and bottom to the base corner) stays put;
         // the rest rounds in.
         const { poly, J, J2, t } = junctions(largest(outline(pts, inset)), outline(T.pts, inset));
-        return { x, outline: shrinkAway(poly, J, J2, off - inset, t), marks: [...marks, J, J2] };
+        const end = shrinkAway(poly, J, J2, off - inset, t);
+        return { x, outline: end.cs, marks: [...marks, end.a, end.b] };
       });
       // The apron bin's planes: through its middle line, square across it at
       // its far end (rounded in there), then turning to square across x at
@@ -2473,7 +2528,28 @@ function breadbin(k0: Kit, o: Bin): BinParts {
         .offset(-d, 'Miter')
         .offset(-Math.max(0.1, o.corner - d), 'Round', 2, 32)
         .offset(Math.max(0.1, o.corner - d), 'Round', 2, 32),
-    trough = near(ring(0).subtract(ring(0.8)), 1);
+    band = ring(0).subtract(ring(0.8)),
+    // With an apron, the trough doesn't run over the wall between the decks
+    // at the inside corner: the apron's stops short of this bin's end, this
+    // bin's on the strip above the wall, both with rounded ends.
+    trough = near(
+      (() => {
+        if (!apronOf) return band;
+        const xe = x0 - 1.6,
+          yE = apronOf.breaks(rx0 + 0.4)[2] - 1.5,
+          yL = front(x0) + 20,
+          mid = (cs: CrossSection) => {
+            const b = cs.bounds();
+            return [(b.min[0] + b.max[0]) / 2, (b.min[1] + b.max[1]) / 2] as [number, number];
+          },
+          ends = [
+            band.intersect(rect(xe - 0.02, xe, yL, yE)),
+            band.intersect(rect(rx0 - 0.5, rx0 + 1.3, yE, yE + 0.02)),
+          ].map((e) => CS.circle(0.4, 16).translate(mid(e)));
+        return band.subtract(rect(xe, rx0 + 2, yL, yE)).add(CS.union(ends));
+      })(),
+      1,
+    );
   // Parting line between the top and bottom halves, 0.8 mm deep. (Cut as the
   // slab outside the inset body, so no face of the cut lies on the shell's.)
   const parting = slab(PART - 0.6, PART + 0.6).subtract(body(0.8));
