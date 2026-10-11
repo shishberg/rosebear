@@ -1482,10 +1482,21 @@ function loft(
           q = pts[i % m];
         cum.push(cum[i - 1] + Math.hypot(q[0] - p[0], q[1] - p[1]));
       }
-      // Each mark's distance round the outline: at the nearest point on it.
+      // Each mark's distance round the outline: at the nearest point on it
+      // (between vertices too: an inset outline's flat runs have none inside).
       const at = marks.map(([y, z]) => {
-        const e = pts.map((p) => (p[0] - y) ** 2 + (p[1] - z) ** 2);
-        return cum[e.indexOf(Math.min(...e))];
+        let best = Infinity,
+          t = 0;
+        for (let i = 0; i < m; i++) {
+          const p = pts[i],
+            q = pts[(i + 1) % m],
+            [dy, dz] = [q[0] - p[0], q[1] - p[1]],
+            l2 = dy * dy + dz * dz,
+            f = l2 ? Math.min(1, Math.max(0, ((y - p[0]) * dy + (z - p[1]) * dz) / l2)) : 0,
+            e = (p[0] + f * dy - y) ** 2 + (p[1] + f * dz - z) ** 2;
+          if (e < best) [best, t] = [e, cum[i] + f * (cum[i + 1] - cum[i])];
+        }
+        return t;
       });
       return { pts, cum, L: [0, ...at.sort((p, q) => p - q), cum[m]] };
     }),
@@ -1630,7 +1641,7 @@ function apronDeck(
     // The world y on the apron's line v (in its own frame) at x.
     line = (v: number, x: number) => (v + x * s) / c,
     vW = wb.min[1],
-    deck = (x: number, y: number) => {
+    base = (x: number, y: number) => {
       const [u, v] = local(x, y);
       return v >= vW ? held(u, v) : held(u, vW) - FRONT * (vW - v);
     },
@@ -1651,18 +1662,33 @@ function apronDeck(
     world = keyWell.rotate(a.angle ?? 0).hull(),
     hull = well.hull(),
     back = (x: number) => span(world, x)?.[1] ?? line(wb.max[1], x),
-    fore = (x: number) => span(hull, x)?.[0] ?? well.bounds().min[1];
+    fore = (x: number) => span(hull, x)?.[0] ?? well.bounds().min[1],
+    // Towards its outer end (from the second-last key's centre to the last's,
+    // and on past it) the apron's deck rises to this well's rim, so the two
+    // decks meet level there.
+    [xa, xb] = a.keys
+      .map((n) => k0.frames[n].elements[12])
+      .sort((p, q) => p - q)
+      .slice(-2),
+    lift = (x: number) => {
+      const t = Math.min(1, Math.max(0, (x - xa) / (xb - xa)));
+      return t * t * (3 - 2 * t) * Math.max(0, own(x, fore(x)) - base(x, back(x)));
+    },
+    deck = (x: number, y: number) => base(x, y) + lift(x),
+    // The run between the wells at x, [from, to]: from the apron well's back
+    // edge to this well's front edge, but never steeper than 45 degrees, so
+    // where the wells come close or overlap (or the apron well has ended) it
+    // starts further forward instead of making a step.
+    run = (x: number) => {
+      const [yT, yW] = [back(x), fore(x)],
+        rise = Math.abs(own(x, yW) - deck(x, Math.min(yT, yW)));
+      return [Math.max(line(vW, x) + 1, yW - Math.max(yW - yT, rise, 1)), yW];
+    };
   return {
     front: (x: number) => line(vW - a.front, x),
-    // (Where the wells overlap, the step between the two surfaces, just either side.)
-    breaks: (x: number) => {
-      const [yT, yW] = [back(x), fore(x)],
-        mid = (yT + yW) / 2;
-      return yT > yW - 0.6 ? [line(vW, x), mid - 0.3, mid + 0.3] : [line(vW, x), yT, yW];
-    },
+    breaks: (x: number) => [line(vW, x), ...run(x)],
     z: (x: number, y: number) => {
-      const [yT, yW] = [back(x), fore(x)];
-      if (yT >= yW) return y < (yT + yW) / 2 ? deck(x, y) : own(x, y);
+      const [yT, yW] = run(x);
       if (y <= yT) return deck(x, y);
       if (y >= yW) return own(x, y);
       const f = (y - yT) / (yW - yT);
@@ -1904,15 +1930,23 @@ function breadbin(k0: Kit, o: Bin): BinParts {
       };
     yN = yF + 104 * PX * fwd[0];
     if (apron) front = apron.front;
-    // With an apron, the hard corners along each section, matched up in the
-    // loft: the bullnose's end, the apron well's front edge, the two ends of
-    // the run between the wells, and the start of the rise to the flat top.
+    // With an apron, the corners along each section, matched up in the loft:
+    // the bullnose's end, the apron well's front edge, the two ends of the run
+    // between the wells, and the start of the rise to the flat top; and, as
+    // the front edge is angled, so each section's front sits further forward,
+    // the front's own: the gutter and the ends of the rounded underside.
     const marks = (x: number) => {
       if (!apron) return undefined;
       const pts = section(x),
+        yf = apron.front(x),
         near = (y: number) =>
           pts.reduce((p, q) => (Math.abs(q[0] - y) < Math.abs(p[0] - y) && q[1] > PART ? q : p));
-      return [apron.front(x) + 104 * PX * 0.99, ...apron.breaks(x), yB].map(near);
+      return [
+        ...[yf + 104 * PX * 0.99, ...apron.breaks(x), yB].map(near),
+        [yf, PART],
+        [yf, 116 * PX],
+        [yf + 113 * PX, 0],
+      ] as [number, number][];
     };
     // Sections for inspection (prototype-shapes.html exposes them as __sections).
     ((globalThis as { __sections?: unknown[] }).__sections ??= []).push({
@@ -1987,8 +2021,9 @@ function breadbin(k0: Kit, o: Bin): BinParts {
         .offset(-Math.max(0.1, o.corner - d), 'Round', 2, 32)
         .offset(Math.max(0.1, o.corner - d), 'Round', 2, 32),
     trough = prism(ring(0).subtract(ring(0.8))).intersect(skin(1));
-  // Parting line between the top and bottom halves, 0.8 mm deep.
-  const parting = shell.subtract(body(0.8)).intersect(slab(PART - 0.6, PART + 0.6));
+  // Parting line between the top and bottom halves, 0.8 mm deep. (Cut as the
+  // slab outside the inset body, so no face of the cut lies on the shell's.)
+  const parting = slab(PART - 0.6, PART + 0.6).subtract(body(0.8));
   // Inside the key well: a floor 14 mm under the deck, and each key on its own
   // pedestal rising out of it, as the C64's keys rise out of the dark well.
   // The floor stays above the parting line, so the bottom section is just a tray.
@@ -2042,14 +2077,20 @@ function c64(k: Kit, bins: Bin[]) {
   // Each bin stops at the outline of the bins before it (the thumb bin at the
   // finger bin's walls), so its deck, trough and grill don't run on through them.
   const CS = k.wasm.CrossSection,
+    // A bin that's another's apron is carried in that bin's deck, so it's cut
+    // off square at that bin's low end instead (its front face lies on the
+    // carrying bin's, and cutting along a shared face leaves slivers).
+    carrier = (i: number) => bins.findIndex((b) => b.apron === bins[i]),
     shells = parts.map((p, i) =>
-      i
-        ? p.shell.subtract(
-            CS.union(parts.slice(0, i).map((q) => q.shell.project()))
-              .extrude(400)
-              .translate([0, 0, -1]),
-          )
-        : p.shell,
+      carrier(i) >= 0
+        ? p.shell.trimByPlane([-1, 0, 0], -parts[carrier(i)].shell.boundingBox().min[0])
+        : i
+          ? p.shell.subtract(
+              CS.union(parts.slice(0, i).map((q) => q.shell.project()))
+                .extrude(400)
+                .translate([0, 0, -1]),
+            )
+          : p.shell,
     );
   const body = M.union([
     M.union(shells)
