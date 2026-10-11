@@ -63,6 +63,16 @@ export function narrowPlates(cfg: Config) {
   return c.plate_style === 'narrow' ? { rim: 0.8, slope: c.plate_slope ?? 60 } : undefined;
 }
 
+/**
+ * PROTOTYPE (?plates=facets): the finger well's plates are one floor, 3 mm
+ * thick, whose top is each key's plate-top plane carried on until it meets its
+ * neighbours' (the highest of them at each point), so each key has its own flat
+ * face with creases between them, out to the well's wall.
+ */
+export function facetFloor(cfg: Config) {
+  return (cfg.chassis as { plate_style?: string }).plate_style === 'facets';
+}
+
 export const SIZES = {
   /** The skirt round each well's edge, under its plates, is this thick (plan), */
   skirt: 1.2,
@@ -195,7 +205,12 @@ export function buildChassis(
   const centre = (n: string): Plan => [frames[n].elements[12], frames[n].elements[13]];
   const keyPoint = (n: string, x: number, y: number, z: number): Vec3 =>
     point(frames[n], [x, y, z]);
-  const sheet = (ns: string[], well: CrossSection, narrow?: ReturnType<typeof narrowPlates>) => {
+  const sheet = (
+    ns: string[],
+    well: CrossSection,
+    narrow?: ReturnType<typeof narrowPlates>,
+    facets = false,
+  ) => {
     const { reach, pairs, across } = plateEdges(cfg, frames, ns);
     const span = (n: string, axis: number) => [
       -plateHalf[axis] - reach[n][axis][0],
@@ -331,6 +346,40 @@ export function buildChassis(
         ),
       );
     const clip = well.offset(SIZES.wellInto, 'Miter').extrude(400).translate([0, 0, -1]);
+    if (facets) {
+      // Everything under the highest of the keys' planes, dz along their normals.
+      const under = (dz: number) =>
+        M.union(
+          ns.map((n) => place(M.cube([400, 400, 200], true).translate([0, 0, dz - 100]), frames[n])),
+        );
+      // Each key's face is flat to 0.8 mm past its seat: where a neighbour's
+      // plane stands above it there (by under 0.2 mm, where the ring and
+      // pinky columns meet), it is cut down to it.
+      const flats = M.union(
+        ns.map((n) =>
+          place(
+            M.cube([seat[0] + 1.6, seat[1] + 1.6, 20], true).translate([0, 0, 10]),
+            frames[n],
+          ),
+        ),
+      );
+      const floor = under(0).subtract(under(-plateThickness)).subtract(flats).intersect(clip);
+      return {
+        cores: floor,
+        rest: floor,
+        rooms: room(SIZES.underRoom),
+        below: under(0).intersect(clip),
+        top: floor,
+        skirt: column(PLATES.wellReach, SIZES.skirtInto - plateThickness, SIZES.skirtDepth)
+          .intersect(clip)
+          .subtract(
+            well
+              .offset(SIZES.wellInto - SIZES.skirt, 'Miter')
+              .extrude(400)
+              .translate([0, 0, -1]),
+          ),
+      };
+    }
     return {
       // The plates alone, and their reaches and joins, thinner.
       cores: M.union(
@@ -367,6 +416,7 @@ export function buildChassis(
       keyNames.filter((n) => n.startsWith('matrix_')),
       fingerWell,
       narrowPlates(cfg),
+      facetFloor(cfg),
     ),
     sheet(
       keyNames.filter((n) => n.startsWith('thumb_')),
