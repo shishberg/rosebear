@@ -2396,10 +2396,10 @@ function breadbin(k0: Kit, o: Bin): BinParts {
   // Badge, as on the C64's top: a pill-shaped recess 1 mm deep, 0.6 mm taller
   // than the grooves' band at each side, with the grooves stopping 1.2 mm short
   // of it. On its floor five raised stripes, 0.8 mm wide with 0.6 mm gaps, run
-  // along the pill as slanted parallelograms, each shifted along from the one
-  // in front so their ends line up at the slant; their tops stay 0.2 mm under
-  // the top around them. Floor and stripe tops are the shell lowered, like the
-  // grooves, so no face of the cut lies on the shell's or on another's.
+  // along the pill's straight stretch with square ends, all lined up; their
+  // tops stay 0.2 mm under the top around them. Floor and stripe tops are the
+  // shell lowered, like the grooves, so no face of the cut lies on the shell's
+  // or on another's.
   let pill: CrossSection | undefined, badge: Manifold | undefined;
   if (grilled && grooves.length && o.badge !== undefined) {
     const H = gTop - gBottom + 1.2,
@@ -2407,19 +2407,18 @@ function breadbin(k0: Kit, o: Bin): BinParts {
       r = H / 2,
       bx = x0 + (x1 - x0) * o.badge,
       by = (gTop + gBottom) / 2,
-      [W, GAP, SLANT] = [0.8, 0.6, 1 / Math.tan((60 * Math.PI) / 180)],
+      [W, GAP] = [0.8, 0.6],
       pitch = W + GAP,
-      run = L - 2 * r - 2 - 4 * pitch * SLANT - W * SLANT, // each stripe's length
-      sx = bx - (run + 4 * pitch * SLANT + W * SLANT) / 2,
+      run = L - 2 * r - 2, // each stripe's length, 1 mm clear of the pill's rounds
       sy = by - (4 * pitch + W) / 2,
       stripes = CS.ofPolygons(
         [0, 1, 2, 3, 4].map((i) => {
-          const [u, v] = [sx + i * pitch * SLANT, sy + i * pitch];
+          const [u, v] = [bx - run / 2, sy + i * pitch];
           return [
             [u, v],
             [u + run, v],
-            [u + run + W * SLANT, v + W],
-            [u + W * SLANT, v + W],
+            [u + run, v + W],
+            [u, v + W],
           ] as [number, number][];
         }),
       );
@@ -2917,7 +2916,7 @@ export const variants: Variant[] = [
       [
         'c64-joined-badge',
         'C64, thumbs joined, badge on the grill',
-        " A C64 badge interrupts the finger bin's grill towards its outer end: a pill-shaped recess as tall as the grooves' band, with five raised slanted stripes on its floor, staggered like the C64's rainbow, their tops just under the top around them so they can be painted.",
+        " A C64 badge interrupts the finger bin's grill towards its outer end: a pill-shaped recess as tall as the grooves' band, with five raised stripes along its floor like the C64's rainbow, their tops just under the top around them so they can be painted.",
         0.7,
       ],
     ] as [string, string, string, number | undefined][]
