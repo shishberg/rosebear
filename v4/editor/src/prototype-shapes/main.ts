@@ -1,6 +1,7 @@
 // PROTOTYPE, throwaway: flip between chassis shapes (?variant=) and extra
 // thumb-key placements (?thumbs=). Open /prototype-shapes.html on the editor
-// dev server. Nothing here is saved or feeds the real editor.
+// dev server. Nothing here feeds the real editor; only painted marks are saved
+// (marks.ts).
 import * as T from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { toCreasedNormals } from 'three/addons/utils/BufferGeometryUtils.js';
@@ -19,6 +20,7 @@ import {
   skelHighlightInfo,
   type Kit,
 } from './variants';
+import { setupMarks } from './marks';
 
 const all = variants;
 // Extra thumb keys: horizontal, lower than the angled thumb plane. World mm.
@@ -146,6 +148,18 @@ function resize() {
 addEventListener('resize', resize);
 resize();
 renderer.setAnimationLoop(() => renderer.render(scene, camera));
+const marks = setupMarks({
+  scene,
+  camera,
+  controls,
+  renderer,
+  targets: () => group.children.map((o) => [o, o.userData.kind ?? 'other']),
+  view: () => ({
+    variant: all[vi].key,
+    thumbs: Object.keys(extras)[ti],
+    query: location.search,
+  }),
+});
 
 const toGeom = (m: Manifold) => {
   const mesh = m.getMesh(),
@@ -314,9 +328,11 @@ async function show() {
   // ?top=0 hides everything above the bottom plate / bottom section.
   const top = new T.Mesh(c.geom, shellMat);
   top.visible = params.get('top') !== '0';
+  top.userData.kind = 'shell';
   group.add(top);
   const plate = new T.Mesh(c.base, shellMat);
   plate.userData.plate = true;
+  plate.userData.kind = 'plate';
   plate.visible = (document.getElementById('plate') as HTMLInputElement).checked;
   group.add(plate);
   // Highlighted parts drawn over the shell in orange, slightly inflated by polygon offset so they win the depth test.
@@ -333,10 +349,19 @@ async function show() {
         }),
       ),
     );
-  if (c.trim)
-    group.add(new T.Mesh(c.trim, new T.MeshStandardMaterial({ color: 0x2a2826, roughness: 0.6 })));
-  if (c.pad)
-    group.add(new T.Mesh(c.pad, new T.MeshStandardMaterial({ color: 0x4a5358, roughness: 0.35 })));
+  if (c.trim) {
+    const trim = new T.Mesh(
+      c.trim,
+      new T.MeshStandardMaterial({ color: 0x2a2826, roughness: 0.6 }),
+    );
+    trim.userData.kind = 'trim';
+    group.add(trim);
+  }
+  if (c.pad) {
+    const pad = new T.Mesh(c.pad, new T.MeshStandardMaterial({ color: 0x4a5358, roughness: 0.35 }));
+    pad.userData.kind = 'trackpad';
+    group.add(pad);
+  }
   for (const part of hardware(c.project, c.frames)) {
     if (['trackpad', 'adapter'].includes(part.group)) continue;
     if (v.noPad && part.group.startsWith('trackpad')) continue;
@@ -351,6 +376,7 @@ async function show() {
     mesh.position.set(...part.center);
     mesh.applyMatrix4(new T.Matrix4().fromArray(part.matrix));
     mesh.userData.caps = part.group === 'keycaps';
+    mesh.userData.kind = part.group;
     mesh.visible =
       !mesh.userData.caps || (document.getElementById('caps') as HTMLInputElement).checked;
     group.add(mesh);
@@ -370,6 +396,7 @@ async function show() {
     camera.position.copy(ctr).addScaledVector(dir, (r / Math.sin(Math.min(v, h))) * 0.9);
     controls.update();
   }
+  marks.shown();
   const nk = Object.keys(c.frames).filter(
     (n) => n.startsWith('thumb_') || n.startsWith('matrix_'),
   ).length;
