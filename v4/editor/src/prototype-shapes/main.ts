@@ -67,9 +67,15 @@ document.body.style.cssText =
   'margin:0;font:14px system-ui,sans-serif;background:#1b2226;color:#e8ecec;overflow:hidden';
 document.getElementById('app')!.innerHTML =
   `<div id="info" style="position:fixed;top:12px;left:12px;max-width:380px;background:#0009;padding:10px 14px;border-radius:8px;line-height:1.4">
-<div style="font-size:11px;letter-spacing:.08em;color:#f5b94a">PROTOTYPE · THROWAWAY · SAME KEY POSES IN EVERY SHAPE</div><h2 id="name" style="margin:6px 0 4px;font-size:18px"></h2><p id="blurb" style="margin:0 0 6px"></p><div id="stats" style="color:#9fb3b8;font-size:12px"></div>
-<label style="display:block;margin-top:6px;font-size:12px"><input id="caps" type="checkbox" ${params.get('caps') === '0' ? '' : 'checked'}> keycaps</label><label style="display:block;font-size:12px"><input id="plate" type="checkbox" ${params.get('plate') === '0' ? '' : 'checked'}> bottom plate / bottom section</label></div>
+<!-- PROTOTYPE · THROWAWAY · SAME KEY POSES IN EVERY SHAPE -->
+<label style="display:block;font-size:12px"><input id="caps" type="checkbox" ${params.get('caps') === '0' ? '' : 'checked'}> keycaps</label><label style="display:block;font-size:12px"><input id="plate" type="checkbox" ${params.get('plate') === '0' ? '' : 'checked'}> bottom plate / bottom section</label></div>
 <div id="bar" style="position:fixed;bottom:18px;left:50%;transform:translateX(-50%);display:flex;flex-direction:column;gap:6px;align-items:center"></div>`;
+// The description and build stats are kept out of the way, as HTML comments
+// in the info panel: readable in the inspector, not over the model.
+const [blurb, stats] = ['blurb', 'stats'].map((n) =>
+  document.getElementById('info')!.appendChild(document.createComment(n)),
+);
+const note = (c: Comment, n: string, text: string) => (c.data = ` ${n}: ${text} `);
 const bar = document.getElementById('bar')!;
 function pill(id: string, onStep: (d: number) => void) {
   const el = document.createElement('div');
@@ -194,9 +200,8 @@ async function show() {
   history.replaceState(null, '', url);
   document.getElementById('vlabel')!.textContent = `${vi + 1}/${all.length} · ${v.name}`;
   document.getElementById('tlabel')!.textContent = `Shift+←/→ · ${ex.name}`;
-  document.getElementById('name')!.textContent = v.name;
-  document.getElementById('blurb')!.textContent = v.blurb;
-  document.getElementById('stats')!.textContent = 'Building…';
+  note(blurb, 'blurb', v.blurb);
+  note(stats, 'stats', 'Building…');
   const key = v.key + '|' + tk;
   if (!cache.has(key)) {
     const wasm = await engine(),
@@ -362,8 +367,11 @@ async function show() {
   const nk = Object.keys(c.frames).filter(
     (n) => n.startsWith('thumb_') || n.startsWith('matrix_'),
   ).length;
-  document.getElementById('stats')!.textContent =
-    `${nk} keys · solid volume ≈ ${c.vol.toFixed(0)} cm³ (walls not hollowed in every shape) · built in ${c.ms.toFixed(0)} ms · ${c.pieces.length === 1 ? 'one piece without the plate' : `${c.pieces.length} loose pieces without the plate (cm³ @ x,y,z: ${c.pieces.join('; ')})`}${c.clear.length ? ` · ${c.clear.join(' · ')}` : ''}${c.outside.length ? ` · outside the rim: ${c.outside.join('; ')}` : ''}${c.hlInfo.length ? ` · ${c.hlInfo.length} parts in orange${params.get('hlinfo') === '1' ? ` (mm: ${c.hlInfo.join('; ')})` : ''}` : ''}`;
+  note(
+    stats,
+    'stats',
+    `${nk} keys · solid volume ≈ ${c.vol.toFixed(0)} cm³ (walls not hollowed in every shape) · built in ${c.ms.toFixed(0)} ms · ${c.pieces.length === 1 ? 'one piece without the plate' : `${c.pieces.length} loose pieces without the plate (cm³ @ x,y,z: ${c.pieces.join('; ')})`}${c.clear.length ? ` · ${c.clear.join(' · ')}` : ''}${c.outside.length ? ` · outside the rim: ${c.outside.join('; ')}` : ''}${c.hlInfo.length ? ` · ${c.hlInfo.length} parts in orange${params.get('hlinfo') === '1' ? ` (mm: ${c.hlInfo.join('; ')})` : ''}` : ''}`,
+  );
 }
 document.getElementById('caps')!.onchange = () =>
   group.children.forEach((o) => {
