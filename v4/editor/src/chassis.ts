@@ -53,9 +53,10 @@ export interface ChassisResult {
  * coordinates unless noted.
  */
 /**
- * PROTOTYPE (?plates=narrow): each finger plate is flat only to rim past its
- * switch seat; past that, on edges facing the well's wall, its top falls away
- * at slope degrees, so the plate meets the wall lower.
+ * PROTOTYPE (?plates=narrow): each finger plate's top is flat only to rim
+ * past its switch seat on edges facing the well's wall, then slopes down at
+ * slope degrees to plate thickness - 1 below it; from there on to the wall,
+ * the plate is only its bottom 1 mm.
  */
 export function narrowPlates(cfg: Config) {
   const c = cfg.chassis as { plate_style?: string; plate_slope?: number };
@@ -200,22 +201,56 @@ export function buildChassis(
       -plateHalf[axis] - reach[n][axis][0],
       plateHalf[axis] + reach[n][axis][1],
     ];
-    const box = (n: string, xs: number[], ys: number[]) =>
-      M.hull(
-        xs.flatMap((x) => ys.flatMap((y) => [0, -plateThickness].map((z) => keyPoint(n, x, y, z)))),
+    const box = (n: string, xs: number[], ys: number[], zs = [0, -plateThickness]) =>
+      M.hull(xs.flatMap((x) => ys.flatMap((y) => zs.map((z) => keyPoint(n, x, y, z)))));
+    // PROTOTYPE narrow plates: the plate's full thickness stands only within
+    // top (at its top) and foot (where its slope ends, drop down); everything
+    // else of the plate and its reaches is its bottom 1 mm, drop down and below.
+    const drop = plateThickness - 1;
+    const run = narrow ? drop / Math.tan((narrow.slope * Math.PI) / 180) : 0;
+    const top = (n: string, axis: number, past = 0) =>
+      [0, 1].map(
+        (i) =>
+          (2 * i - 1) *
+          (narrow && reach[n][axis][i] ? seatHalf[axis] + narrow.rim + past : plateHalf[axis]),
       );
-    const parts = ns.map((n) => box(n, span(n, 0), span(n, 1)));
+    const foot = (n: string, axis: number) => top(n, axis, run);
+    // The raised part, given what it spans across each axis at its top and foot.
+    const raised = (n: string, at: (k: 0 | 1, axis: number) => number[]) =>
+      M.hull(
+        (
+          [
+            [0, 0],
+            [-drop, 1],
+            [-plateThickness, 1],
+          ] as const
+        ).flatMap(([z, k]) => at(k, 0).flatMap((x) => at(k, 1).map((y) => keyPoint(n, x, y, z)))),
+      );
+    const plate = (n: string, xs: number[], ys: number[]) =>
+      narrow
+        ? raised(n, (k, axis) => (k ? foot : top)(n, axis)).add(
+            box(n, xs, ys, [-drop, -plateThickness]),
+          )
+        : box(n, xs, ys);
+    const parts = ns.map((n) => plate(n, span(n, 0), span(n, 1)));
     // Between neighbours: each side's strip from its seat edge to its plate
-    // edge, along the whole edge and its reach, hulled together.
-    const strip = (n: string, axis: number, sign: number) => {
+    // edge, along the whole edge and its reach, hulled together. Narrow, only
+    // the bottom 1 mm runs along the whole edge; above it, the strip spans
+    // only what the plate's raised part does.
+    const strip = (n: string, axis: number, sign: number, upper: boolean) => {
       const acrossEdge = [sign * seatHalf[axis], sign * plateHalf[axis]];
+      if (narrow && upper)
+        return raised(n, (k, a) => (a === axis ? acrossEdge : (k ? foot : top)(n, a)));
       const along = span(n, 1 - axis);
-      return axis ? box(n, along, acrossEdge) : box(n, acrossEdge, along);
+      const zs = narrow ? [-drop, -plateThickness] : undefined;
+      return axis ? box(n, along, acrossEdge, zs) : box(n, acrossEdge, along, zs);
     };
     for (const [n, m, axis, sign] of pairs)
       if (n < m) {
         const back = across(m, n);
-        if (back) parts.push(M.hull([strip(n, axis, sign), strip(m, back[0], back[1])]));
+        if (back)
+          for (const upper of narrow ? [false, true] : [false])
+            parts.push(M.hull([strip(n, axis, sign, upper), strip(m, back[0], back[1], upper)]));
       }
     // Where four keys meet, the hole between their corners filled.
     for (const n of ns) {
@@ -296,57 +331,10 @@ export function buildChassis(
         ),
       );
     const clip = well.offset(SIZES.wellInto, 'Miter').extrude(400).translate([0, 0, -1]);
-    // PROTOTYPE narrow plates: each key's keep, the room its plate's top may
-    // stand in: past its edges facing the wall, flat only to rim past the
-    // seat, then falling at slope degrees by drop; and each pair of
-    // neighbours' keeps hulled together across the gap between them. Near the
-    // wall, everything in the sheet's top drop (straight down) outside every
-    // keep is cut away, so the plates and what joins them meet the wall drop
-    // lower, all along it.
-    let keep: Manifold | undefined;
-    const drop = plateThickness - 1;
-    if (narrow) {
-      const s = Math.tan((narrow.slope * Math.PI) / 180);
-      const own = new Map(
-        ns.map((n) => {
-          // [axis][side]: the keep's half-width at the top, and below drop.
-          const ext = [0, 1].map((axis) =>
-            [0, 1].map((i) => {
-              const f = reach[n][axis][i] ? seatHalf[axis] + narrow.rim : plateHalf[axis];
-              return reach[n][axis][i] ? [f, f + drop / s] : [f, f];
-            }),
-          );
-          const ring = (k: number, z: number) =>
-            [0, 1].flatMap((i) =>
-              [0, 1].map((j) =>
-                keyPoint(n, (2 * i - 1) * ext[0][i][k], (2 * j - 1) * ext[1][j][k], z),
-              ),
-            );
-          // Each point also 3 mm straight down: nothing under what a keep
-          // holds is cut, so no hollow is left sealed under it.
-          const pts = [
-            ...ring(0, 1),
-            ...ring(0, 0),
-            ...ring(1, -drop),
-            ...ring(1, -plateThickness - 0.5),
-          ];
-          return [n, pts.flatMap((p) => [p, [p[0], p[1], p[2] - 3] as Vec3])];
-        }),
-      );
-      keep = M.union([
-        ...ns.map((n) => M.hull(own.get(n)!)),
-        ...pairs
-          .filter(([n, m]) => n < m)
-          .map(([n, m]) => M.hull([...own.get(n)!, ...own.get(m)!])),
-      ]);
-    }
     return {
-      keep,
-      // Within 5 mm of the well's wall.
-      nearWall: clip.subtract(well.offset(-5, 'Miter').extrude(400).translate([0, 0, -1])),
       // The plates alone, and their reaches and joins, thinner.
       cores: M.union(
-        ns.map((n) => box(n, [-plateHalf[0], plateHalf[0]], [-plateHalf[1], plateHalf[1]])),
+        ns.map((n) => plate(n, [-plateHalf[0], plateHalf[0]], [-plateHalf[1], plateHalf[1]])),
       ),
       rest: M.union(parts.slice(ns.length))
         .subtract(offPlate)
@@ -360,7 +348,11 @@ export function buildChassis(
       top: column(PLATES.wellReach, 0).intersect(clip),
       // Round the well's edge, under the sheet: where the sheet stands above
       // what is outside the well, its skirt closes the step.
-      skirt: column(PLATES.wellReach, SIZES.skirtInto - PLATES.reachThickness, SIZES.skirtDepth)
+      skirt: column(
+        PLATES.wellReach,
+        SIZES.skirtInto - (narrow ? plateThickness : PLATES.reachThickness),
+        SIZES.skirtDepth,
+      )
         .intersect(clip)
         .subtract(
           well
@@ -449,22 +441,13 @@ export function buildChassis(
       .filter((p) => p.intersect(sheets).volume() > SIZES.skirtPiece),
   );
   // Neither well's reaches and joins run on in under the other's sheet.
-  const sheetsMade = M.union([
+  const plates = M.union([
     fingers.cores,
     thumbs.cores,
     fingers.rest.subtract(thumbs.below),
     thumbs.rest.subtract(fingers.below),
     skirts,
   ]);
-  // PROTOTYPE narrow plates: the finger sheet's top drop near its wall, outside its keys' keeps.
-  const plates = fingers.keep
-    ? sheetsMade.subtract(
-        sheetsMade
-          .subtract(sheetsMade.translate([0, 0, -(cfg.chassis.plate_thickness_mm - 1)]))
-          .intersect(fingers.nearWall)
-          .subtract(fingers.keep),
-      )
-    : sheetsMade;
   const solid = case_.add(plates);
   const glue = gluePads(cfg);
   const pads = M.union(
