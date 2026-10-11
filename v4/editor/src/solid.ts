@@ -2,6 +2,7 @@ import type { Manifold, ManifoldToplevel, Mat4 } from 'manifold-3d';
 import { Matrix4, Vector3 } from 'three';
 import { seatSettings } from './seats';
 import { buildChassis, capSize, gluePads, isKey } from './chassis';
+import { shell } from './shell';
 import { adapterParts, crossings, padParts, wiring, type Wiring } from './wiring';
 import { componentFrames, validateProject, type V3, type MeshData, type Project } from './geometry';
 export { capSize, isKey };
@@ -222,9 +223,39 @@ export function freeAfter<T>(wasm: ManifoldToplevel, f: () => T): T {
 export function buildSolid(wasm: ManifoldToplevel, project: Project): BuildResult {
   return freeAfter(wasm, () => build(wasm, project));
 }
-function build(wasm: ManifoldToplevel, project: Project): BuildResult {
+/**
+ * The same build, with the wires routed elsewhere (`route`, in another worker)
+ * while the case's shell is lofted here: the two are a second or so each, and
+ * neither needs the other.
+ */
+export async function buildSolidAsync(
+  wasm: ManifoldToplevel,
+  project: Project,
+  route: (cfg: Project['config']) => Promise<Wiring>,
+): Promise<BuildResult> {
+  watch(wasm);
+  if (made) throw Error('A build is already running');
+  made = new Set();
+  try {
+    validateProject(project);
+    const start = performance.now();
+    const cfg = project.config;
+    const routed = route(cfg);
+    const built = shell({ wasm, cfg, frames: componentFrames(cfg) });
+    for (const m of [built.body, built.inside, built.slot]) m.status();
+    return build(wasm, project, { wired: await routed, built, start });
+  } finally {
+    for (const m of made) if (!m.isDeleted()) m.delete();
+    made = undefined;
+  }
+}
+function build(
+  wasm: ManifoldToplevel,
+  project: Project,
+  given: { wired?: Wiring; built?: ReturnType<typeof shell>; start?: number } = {},
+): BuildResult {
   validateProject(project);
-  const start = performance.now();
+  const start = given.start ?? performance.now();
   const cfg = project.config;
   const sw = cfg.switch;
   const nodes = componentFrames(cfg);
@@ -355,8 +386,8 @@ function build(wasm: ManifoldToplevel, project: Project): BuildResult {
     }
   };
   try {
-    const wired = wiring(cfg, nodes);
-    const chassis = buildChassis(wasm, cfg, nodes, wired);
+    const wired = given.wired ?? wiring(cfg, nodes);
+    const chassis = buildChassis(wasm, cfg, nodes, wired, given.built);
     keep(chassis.body);
     keep(chassis.base);
     keep(chassis.trim);

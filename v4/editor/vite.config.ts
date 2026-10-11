@@ -75,4 +75,5 @@ function marks(): Plugin {
   };
 }
 
-export default defineConfig({ plugins: [marks()] });
+// Workers as modules: the build worker starts the wiring worker.
+export default defineConfig({ plugins: [marks()], worker: { format: 'es' } });

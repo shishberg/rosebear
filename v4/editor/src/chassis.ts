@@ -133,8 +133,9 @@ export function buildChassis(
   wasm: ManifoldToplevel,
   cfg: Config,
   frames: Record<string, Matrix4>,
-  // The wires, when the caller has routed them already.
+  // The wires and the shell, when the caller has made them already.
   wired: Wiring = wiring(cfg, frames),
+  built = shell({ wasm, cfg, frames }),
 ): ChassisResult {
   const M = wasm.Manifold;
   const plateThickness = cfg.chassis.plate_thickness_mm;
@@ -178,7 +179,6 @@ export function buildChassis(
     ]),
   );
 
-  const built = shell({ wasm, cfg, frames });
   const [fingerWell, thumbWell] = built.wells;
 
   // The plates, one sheet in each well.

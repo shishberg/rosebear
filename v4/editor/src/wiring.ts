@@ -817,6 +817,34 @@ export function wiring(cfg: Config, frames = componentFrames(cfg)): Wiring {
    */
   const joins = new Map<V3[], Map<V3[], { points: V3[]; stuck: boolean }>>();
   const done = (points: V3[]) => ({ points, stuck: false });
+  // From a higher leg's run out to its tile's edge, the places to climb down
+  // from: along the run, then stepped back toward its key's centre.
+  const CLEAR = 1;
+  const BLOCKED = 2;
+  const climbs = new Map<
+    V3[],
+    { runs: V3[]; tops: V3[]; ups: Uint8Array; downs: Map<number, Uint8Array> }
+  >();
+  const climbOf = (h: V3[], own: V3) => {
+    let c = climbs.get(h);
+    if (c) return c;
+    const [from, to] = [h.at(-2)!, h.at(-1)!];
+    const runs: V3[] = [];
+    const tops: V3[] = [];
+    for (let back = 0; back <= WIRING.climbBack; back += 1)
+      for (let t = 1; t >= 0; t -= 0.05) {
+        const run: V3 = [0, 1, 2].map((k) => from[k] + (to[k] - from[k]) * t) as V3;
+        const d = Math.hypot(own[0] - run[0], own[1] - run[1]) || 1;
+        runs.push(run);
+        tops.push([
+          run[0] + ((own[0] - run[0]) / d) * back,
+          run[1] + ((own[1] - run[1]) / d) * back,
+          run[2],
+        ]);
+      }
+    climbs.set(h, (c = { runs, tops, ups: new Uint8Array(runs.length), downs: new Map() }));
+    return c;
+  };
   const join = (p: V3[], q: V3[], ca: V3, cb: V3): { points: V3[]; stuck: boolean } => {
     // Straight across between the legs' ends, or, where that runs into a
     // tile (a key much higher than its neighbour, beside it), straight down
@@ -831,23 +859,24 @@ export function wiring(cfg: Config, frames = componentFrames(cfg)): Wiring {
     // lower key's tile and plate, or failing that, from a step back in under
     // the higher tile toward its centre; then across.
     const [h, l, own] = pe[2] > qe[2] ? [p, q, cb] : [q, p, ca];
-    const [from, to] = [h.at(-2)!, h.at(-1)!];
     const end = l.at(-1)!;
-    for (let back = 0; back <= WIRING.climbBack; back += 1)
-      for (let t = 1; t >= 0; t -= 0.05) {
-        const run: V3 = [0, 1, 2].map((k) => from[k] + (to[k] - from[k]) * t) as V3;
-        const d = Math.hypot(own[0] - run[0], own[1] - run[1]) || 1;
-        const top: V3 = [
-          run[0] + ((own[0] - run[0]) / d) * back,
-          run[1] + ((own[1] - run[1]) / d) * back,
-          run[2],
-        ];
-        const foot: V3 = [top[0], top[1], end[2]];
-        if (clear(run, top) && clear(top, foot) && clear(foot, end)) {
-          const way = [...h.slice(0, -1), run, top, foot, ...[...l].reverse()];
-          return done(clean(h === p ? way : way.reverse()));
-        }
+    // The places to climb from, and which ways down from them are clear, are
+    // the same for every lower leg the higher one meets: found once.
+    const c = climbOf(h, own);
+    let downs = c.downs.get(end[2]);
+    if (!downs) c.downs.set(end[2], (downs = new Uint8Array(c.runs.length)));
+    for (let i = 0; i < c.runs.length; i++) {
+      const [run, top] = [c.runs[i], c.tops[i]];
+      if (!c.ups[i]) c.ups[i] = clear(run, top) ? CLEAR : BLOCKED;
+      if (c.ups[i] === BLOCKED) continue;
+      const foot: V3 = [top[0], top[1], end[2]];
+      if (!downs[i]) downs[i] = clear(top, foot) ? CLEAR : BLOCKED;
+      if (downs[i] === BLOCKED) continue;
+      if (clear(foot, end)) {
+        const way = [...h.slice(0, -1), run, top, foot, ...[...l].reverse()];
+        return done(clean(h === p ? way : way.reverse()));
       }
+    }
     // Or round a corner in plan, along one key's edge and then the other's.
     const mid = (pe[2] + qe[2]) / 2;
     for (const c of [

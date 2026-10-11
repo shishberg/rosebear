@@ -180,7 +180,8 @@ base thickness. The case's own sizes are named at the top of `shell.ts`.
   tile's pocket, are dropped. The wires then negotiate: each takes its cheapest
   route given the others, and routes that meet another wire cost more each
   round until none meet. Pairs that still meet are repaired together with the
-  wires most in their way. Routing runs in the build worker, so the wires
+  wires most in their way. Routing runs in a worker of its own
+  (`wiring-worker.ts`) while the build worker lofts the shell, so the wires
   follow an edit when the chassis rebuilds.
 - **Wire**: 30 AWG (0.6 mm) for signals, 26 AWG (0.9 mm) for power and ground.
 - **Cut length**: each wire's path plus 5 mm at each end. A feed also has a
@@ -242,7 +243,9 @@ a print.
 `worker.ts` rebuilds outside the UI thread. Results carry revision IDs, so a stale
 result cannot replace a newer edit. A 30-second watchdog stops a stuck worker, and a
 fresh worker takes over every eight builds to release geometry-engine memory.
-A rebuild takes about 10 s. Each build frees every geometry object it made, so
+A rebuild takes about 2.2 s in the browser: about 0.5 s to loft the shell while the
+wires are routed alongside, then about 1.5 s for the chassis and the checks. The checks
+cut each probe against the case near its key, not the whole case. Each build frees every geometry object it made, so
 memory stays flat from one build to the next.
 
 ## Validation
