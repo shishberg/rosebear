@@ -139,6 +139,9 @@ interface BinParts {
 // direction back along the previous run, unit direction along the next run,
 // handle lengths and fractions along each].
 type Round = [[number, number], [number, number], [number, number], number, number, number, number];
+// A bin's section across x; with an apron, round: the ends of the top round
+// of the wall between the decks (one point where there's no wall).
+type Section = [number, number][] & { round?: [number, number][] };
 // A cubic Bézier through four control points, sampled at 13 points.
 function bezier(P: [number, number][]): [number, number][] {
   const out: [number, number][] = [];
@@ -569,7 +572,7 @@ function breadbin(k0: Kit, o: Bin): BinParts {
       // of its own, the world's). In front of the apron's well it falls away
       // to the front at the C64's deck angle, as a bin's own front does.
       apron = o.apron && apronDeck(k0, o.apron, keyWell, (x, y) => at(x).z(y), FRONT),
-      section = (x: number): [number, number][] => {
+      section = (x: number): Section => {
         if (apron) {
           const yf = apron.front(x),
             z = (y: number) => apron.z(x, y),
@@ -619,8 +622,16 @@ function breadbin(k0: Kit, o: Bin): BinParts {
               ...backAndUnder(zT, yC + (zT - PART) * RAKE, yf),
             ];
           // (Without a wall its corners are one point.)
-          return pts.filter(
-            (p, i) => !i || Math.hypot(p[0] - pts[i - 1][0], p[1] - pts[i - 1][1]) > 0.01,
+          return Object.assign(
+            pts.filter(
+              (p, i) => !i || Math.hypot(p[0] - pts[i - 1][0], p[1] - pts[i - 1][1]) > 0.01,
+            ),
+            {
+              round: [
+                [yc, zS - R],
+                [yc + (R * (yW - yc)) / lS, zS + (R * (zW - zS)) / lS],
+              ] as [number, number][],
+            },
           );
         }
         const d = at(x),
@@ -698,7 +709,7 @@ function breadbin(k0: Kit, o: Bin): BinParts {
   function joined(
     A: ReturnType<typeof apronDeck>,
     a: Bin,
-    section: (x: number) => [number, number][],
+    section: (x: number) => Section,
     yB: number,
     yR: number,
   ) {
@@ -908,8 +919,16 @@ function breadbin(k0: Kit, o: Bin): BinParts {
           x0 + END - ri * Math.cos(p),
           i ? END - ri * Math.sin(p) : Math.max(END, inset + 0.5),
         ]),
-        mid = Math.ceil((x1 - x0 - 2 * END) / 5);
-      for (let i = 1; i < mid; i++) fs.push([x0 + END + ((x1 - x0 - 2 * END) * i) / mid, inset]);
+        mid = Math.ceil((x1 - x0 - 2 * END) / 5),
+        // Every millimetre for the first 12 past the low end's rounding: the
+        // wall between the decks is tallest there and changes fastest (this
+        // well's front edge turns its corner), too fast for 5 mm steps.
+        DENSE = 12;
+      for (let d = 1; d < DENSE; d++) fs.push([x0 + END + d, inset]);
+      for (let i = 1; i < mid; i++) {
+        const x = x0 + END + ((x1 - x0 - 2 * END) * i) / mid;
+        if (x >= x0 + END + DENSE) fs.push([x, inset]);
+      }
       for (const p of [...quarter].reverse())
         fs.push([x1 - END + ri * Math.cos(p), END - ri * Math.sin(p)]);
       const fRings = fs.map(([x, off]) => {
@@ -918,7 +937,9 @@ function breadbin(k0: Kit, o: Bin): BinParts {
           br = A.breaks(x),
           near = (y: number) =>
             pts.reduce((p, q) => (Math.abs(q[0] - y) < Math.abs(p[0] - y) && q[1] > PART ? q : p)),
-          marks = [...frontMarks(pts, T.yf, br[0]), near(br[2]), near(yB)];
+          // The wall's top round, from its own ends, so it lines up from one
+          // section to the next.
+          marks = [...frontMarks(pts, T.yf, br[0]), near(br[2]), near(yB), ...pts.round!];
         // Away from the apron (and at the pinky end) the whole outline rounds in.
         if (off <= inset + 1e-6 || x > (x0 + x1) / 2)
           return {
@@ -973,24 +994,30 @@ function breadbin(k0: Kit, o: Bin): BinParts {
             ][],
           };
         });
-      // Points per run: this bin's from a middle section; the apron's runs
-      // along the shared outline the same, the rest at the same spacing.
+      // Points per run, at the spacing n points round a middle section of
+      // this bin gives, each run as many as its longest section needs (the
+      // wall between the decks is tall at the low end and gone in the
+      // middle); the apron's runs along the shared outline the same as
+      // this bin's.
       const n = 240,
         fT = fRings.map((r) => trace(r.outline, [yR, PART], r.marks)),
         tT = tRings.map((r) => trace(r.outline, [r.T.wR, PART], r.marks)),
         ref = fT[Math.floor(fT.length / 2)],
-        perF = shares(ref.L, n),
+        step = ref.L[ref.L.length - 1] / n,
+        most = (ts: Trace[]) =>
+          ts[0].L.slice(1).map((_, i) =>
+            Math.max(2, ...ts.map((t) => Math.round((t.L[i + 1] - t.L[i]) / step))),
+          ),
+        perF = most(fT),
         // A run's index from its starting mark's: marks are sorted round from
-        // the anchor, so it's one more than the number of marks before it.
-        run = (t: Trace, m: number) => 1 + t.L.slice(1, -1).filter((l) => l < t.at[m]).length,
-        [fj, fj2] = [run(ref, 5 + 2), run(ref, 5 + 3)],
+        // the anchor, so it's the number of marks up to and at it (where the
+        // wall between the decks is gone, its marks fall on the same spot as
+        // its foot's, and the run starts after them all).
+        run = (t: Trace, m: number) => t.L.slice(1, -1).filter((l) => l <= t.at[m]).length,
+        nm = fRings[0].marks.length,
+        [fj, fj2] = [run(ref, nm - 2), run(ref, nm - 1)],
         [tj, tj2] = [run(tT[tT.length - 1], 5), run(tT[tT.length - 1], 6)],
-        last = tT[tT.length - 1],
-        perT = last.L.slice(1).map((l, i) =>
-          i >= tj && i < tj2
-            ? perF[fj + i - tj]
-            : Math.max(2, Math.round((n * (l - last.L[i])) / ref.L[ref.L.length - 1])),
-        );
+        perT = most(tT).map((c, i) => (i >= tj && i < tj2 ? perF[fj + i - tj] : c));
       if (fj2 - fj !== tj2 - tj) throw new Error('joined: shared runs differ');
       const start = (per: number[], r: number) => per.slice(0, r).reduce((t, c) => t + c, 0),
         [sF, sF2, sT, sT2] = [start(perF, fj), start(perF, fj2), start(perT, tj), start(perT, tj2)],
@@ -1137,8 +1164,9 @@ function breadbin(k0: Kit, o: Bin): BinParts {
     // With an apron, the trough doesn't run over the wall between the decks
     // at the inside corner: the apron's runs into the wall and stops flush
     // with it (cut back to the wall's outline a little above the deck, past
-    // its foot's rounding), this bin's stops on the strip above the wall with
-    // a rounded end.
+    // its foot's rounding), this bin's runs on over the strip above the wall
+    // to the wall's foot, so it falls off the wall's rounded top edge as the
+    // grill does off the ends.
     trough = near(
       (() => {
         if (!apronOf) return band;
@@ -1146,12 +1174,8 @@ function breadbin(k0: Kit, o: Bin): BinParts {
           yL = front(x0) + 20,
           yc = apronOf.breaks(x0)[1],
           wall = shell.slice(apronOf.deck(x0, yc) + 1.3).intersect(rect(x0, rx0, yL, yE)),
-          b = band.intersect(rect(rx0 - 0.5, rx0 + 1.3, yE, yE + 0.02)).bounds(),
-          end = CS.circle(0.4, 16).translate([(b.min[0] + b.max[0]) / 2, yE]);
-        return band
-          .subtract(wall)
-          .subtract(rect(rx0, rx0 + 2, yL, yE))
-          .add(end);
+          yF = apronOf.breaks(rx0 + 0.4)[1] + 0.1;
+        return band.subtract(wall).subtract(rect(rx0, rx0 + 2, yL, yF));
       })(),
       1,
     );
