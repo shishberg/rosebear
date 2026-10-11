@@ -71,6 +71,8 @@ base thickness. The case's own sizes are named at the top of `shell.ts`.
 - Clicking a handle shows every parameter of its column or cluster as number
   fields. **All configuration** shows and edits the full JSON.
 - Drag empty space to orbit, right-drag to pan, wheel to zoom.
+- The view, the View checkboxes and the chassis opacity are remembered in this
+  browser across reloads (a `?mark=` link still sets its own view).
 - Parts and keycaps follow while dragging. The previous chassis stays visible
   until the rebuild after release finishes. Stale results are labelled;
   STL/report export is disabled until the chassis is current.
