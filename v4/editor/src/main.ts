@@ -725,11 +725,13 @@ function requestBuild() {
   $('fit-badge').className = '';
   $('fit-badge').textContent = 'Building chassis & checking fit…';
   buildRequests++;
-  // PROTOTYPE: ?plates=narrow[&slope=deg] (chassis.ts narrowPlates).
+  // PROTOTYPE: ?plates=narrow[&slope=deg] (chassis.ts narrowPlates), ?recess=mm.
   const sent = clone(project),
     q = new URLSearchParams(location.search);
   if (q.get('plates')) (sent.config.chassis as { plate_style?: string }).plate_style = q.get('plates')!;
   if (q.get('slope')) (sent.config.chassis as { plate_slope?: number }).plate_slope = +q.get('slope')!;
+  // PROTOTYPE: ?recess=mm, the finger deck this far above the plates' tops (shell.ts Bin.lift).
+  if (q.get('recess')) (sent.config.chassis as { deck_lift?: number }).deck_lift = +q.get('recess')!;
   worker.postMessage({ id, project: sent });
   timeout = setTimeout(() => {
     worker.terminate();

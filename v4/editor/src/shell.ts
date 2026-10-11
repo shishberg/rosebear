@@ -82,6 +82,9 @@ interface Bin {
   // this bin's low end the other bin's sections carry on alone, turning to
   // square across it towards its far end.
   apron?: Bin;
+  // PROTOTYPE ?recess=mm: the deck this far above the fitted key surface
+  // instead of LIFT, the well's wall reaching down as much further.
+  lift?: number;
 }
 // Height of the parting line between the top case and the bottom section.
 const PART = 10;
@@ -314,7 +317,8 @@ function curvedDeck(P: Vec3[], xc: number, yc: number, lift: number) {
 }
 // A bin's own frame (turned by its angle, so its well runs along x) and its
 // well: axis-aligned boxes round each key's cap travel, merged and closed
-// across the gaps between them so the outline steps like the C64's.
+// across the gaps between them so the outline steps like the C64's, its
+// corners square like the C64's.
 function binWell(k0: Kit, o: Bin) {
   const rot = new Matrix4().makeRotationZ((-(o.angle ?? 0) * Math.PI) / 180),
     k: Kit = {
@@ -330,9 +334,7 @@ function binWell(k0: Kit, o: Bin) {
     },
     keyWell = CS.union(o.keys.map((n) => box(capSweep(k, n).project()).offset(1.2, 'Miter')))
       .offset(11, 'Miter')
-      .offset(-11, 'Miter')
-      .offset(-2, 'Round', 2, 24)
-      .offset(2, 'Round', 2, 24);
+      .offset(-11, 'Miter');
   return { k, keyWell, wb: keyWell.bounds(), P: o.keys.flatMap((n) => corners(k, n)) };
 }
 const LIFT = 3; // deck above the fitted key surface: below the keycaps' lowest travel
@@ -344,7 +346,7 @@ const LIFT = 3; // deck above the fitted key surface: below the keycaps' lowest 
 // well is cut out of the deck, so this only shapes the rim round it.)
 function binSurface(k0: Kit, o: Bin) {
   const { k, wb, P } = binWell(k0, o),
-    fitted = curvedDeck(P, (wb.min[0] + wb.max[0]) / 2, (wb.min[1] + wb.max[1]) / 2, LIFT),
+    fitted = curvedDeck(P, (wb.min[0] + wb.max[0]) / 2, (wb.min[1] + wb.max[1]) / 2, o.lift ?? LIFT),
     cs = o.keys.map((n) =>
       corners(k, n).reduce((t, p) => [t[0] + p[0] / 4, t[1] + p[1] / 4], [0, 0]),
     ),
@@ -1181,7 +1183,7 @@ function breadbin(k0: Kit, o: Bin): BinParts {
   const parting = slab(PART - 0.6, PART + 0.6).subtract(body(0.8));
   // The well is open down through the case to the foot of its wall, which
   // reaches WELL_WALL down from the deck (and stops short of the parting line).
-  const below = M.union([shell.translate([0, 0, -WELL_WALL]), slab(-1, PART + 3)]),
+  const below = M.union([shell.translate([0, 0, -WELL_WALL - (o.lift ?? LIFT) + LIFT]), slab(-1, PART + 3)]),
     keep = prism(keyWell.offset(WALL, 'Miter')).subtract(below);
   const back = (m: Manifold) => m.rotate([0, 0, ang]);
   return {
@@ -1323,15 +1325,25 @@ function thumbAngle(k: Kit) {
  */
 export function shell(k: Kit) {
   const tight = { side: 6, front: 13, corner: 2 },
+    lift = (k.cfg.chassis as { deck_lift?: number }).deck_lift,
     thumb: Bin = {
       keys: thumbs(k),
       angle: thumbAngle(k),
       ...tight,
       back: 12,
       noGrill: true,
+      lift,
     };
   return c64(k, [
-    { keys: fingerKeys(k), ...tight, back: 20, ports: true, apron: thumb, badge: 0.7 },
+    {
+      keys: fingerKeys(k),
+      ...tight,
+      back: 20,
+      ports: true,
+      apron: thumb,
+      badge: 0.7,
+      lift,
+    },
     thumb,
   ]);
 }
