@@ -158,10 +158,14 @@ const colors: Record<string, number> = {
   ball: 0xc35451,
   adapter: 0xd1a443,
 };
-const engine = Module({ locateFile: () => wasmUrl }).then((m) => {
-  m.setup();
-  return m;
-});
+// A fresh manifold instance per build: manifold's objects live in wasm memory
+// that is never collected, so one shared instance runs out after a few big
+// builds. Dropping the whole instance frees everything it made.
+const engine = () =>
+  Module({ locateFile: () => wasmUrl }).then((m) => {
+    m.setup();
+    return m;
+  });
 const cache = new Map<
   string,
   {
@@ -195,7 +199,7 @@ async function show() {
   document.getElementById('stats')!.textContent = 'Building…';
   const key = v.key + '|' + tk;
   if (!cache.has(key)) {
-    const wasm = await engine,
+    const wasm = await engine(),
       t0 = performance.now(),
       project = clone(defaults);
     let frames: Record<string, T.Matrix4>, m: Manifold, pad: Manifold | undefined;

@@ -1443,7 +1443,7 @@ function loft(
   k: Kit,
   rings: { x: number; outline: CrossSection }[],
   anchor: [number, number],
-  n = 320,
+  n = 240,
 ) {
   const verts: number[] = [],
     tris: number[] = [],
@@ -1766,12 +1766,12 @@ function breadbin(k0: Kit, o: Bin): BinParts {
     body = (inset: number) => {
       const ri = END - inset,
         stations: [number, number][] = [],
-        N = 14;
+        N = 8;
       for (let i = 0; i <= N; i++) {
         const p = (i / N) * (Math.PI / 2);
         stations.push([x0 + END - ri * Math.cos(p), END - ri * Math.sin(p)]);
       }
-      const mid = Math.ceil((x1 - x0 - 2 * END) / 2);
+      const mid = Math.ceil((x1 - x0 - 2 * END) / 5);
       for (let i = 1; i < mid; i++)
         stations.push([x0 + END + ((x1 - x0 - 2 * END) * i) / mid, inset]);
       for (let i = N; i >= 0; i--) {
