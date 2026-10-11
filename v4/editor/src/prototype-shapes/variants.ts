@@ -1683,19 +1683,22 @@ function breadbin(k0: Kit, o: Bin): BinParts {
     // the plates) along that section; in front of it the deck angles down
     // into the photo's bullnose; behind it a cubic carries the deck up into the flat top
     // over the grill, which with the back and the underside is the same in
-    // every section. Sections past the well's ends repeat the end section.
+    // every section. Sections past the end columns repeat the end column's section.
     const fitted = curvedDeck(P, xr, ym, LIFT),
-      // In front of the front row's key centres and behind the back row's the
-      // surface holds level, rather than climbing on with the fit into a raised
-      // front lip and back top. (The well is cut out of the deck, so this only
-      // shapes the rim round it.)
-      cy = names.map((n) => corners(k, n).reduce((t, p) => t + p[1], 0) / 4),
-      [py0, py1] = [Math.min(...cy), Math.max(...cy)],
+      // Past the outermost key centres (in front of the front row, behind the
+      // back row, beyond the end columns) the surface holds level, rather than
+      // climbing on with the fit into a raised lip, back top or end. (The well
+      // is cut out of the deck, so this only shapes the rim round it.)
+      cs = names.map((n) =>
+        corners(k, n).reduce((t, p) => [t[0] + p[0] / 4, t[1] + p[1] / 4], [0, 0]),
+      ),
+      [px0, px1] = [Math.min(...cs.map((c) => c[0])), Math.max(...cs.map((c) => c[0]))],
+      [py0, py1] = [Math.min(...cs.map((c) => c[1])), Math.max(...cs.map((c) => c[1]))],
       // Front and back hold at the same height: the lower of the two rows'.
       held = (x: number, y: number) =>
         Math.min(fitted(x, Math.min(py1, Math.max(py0, y))), fitted(x, py0), fitted(x, py1)),
       at = (x: number) => {
-        const xc = Math.min(wb.max[0], Math.max(wb.min[0], x));
+        const xc = Math.min(px1, Math.max(px0, x));
         return {
           z: (y: number) => held(xc, y),
           s: (y: number) => (held(xc, y + 0.01) - held(xc, y - 0.01)) / 0.02,
