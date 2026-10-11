@@ -30,7 +30,7 @@ import { capSize, isKey, point, type Config } from './geometry';
 import { seatSettings } from './seats';
 import { PLATES, plateEdges, plateHalfWidths, type HalfWidths } from './plates';
 import { shell } from './shell';
-import { landingBox, wiring } from './wiring';
+import { landingBox, wiring, type Wiring } from './wiring';
 
 export { capSize, isKey };
 export interface ChassisResult {
@@ -133,6 +133,8 @@ export function buildChassis(
   wasm: ManifoldToplevel,
   cfg: Config,
   frames: Record<string, Matrix4>,
+  // The wires, when the caller has routed them already.
+  wired: Wiring = wiring(cfg, frames),
 ): ChassisResult {
   const M = wasm.Manifold;
   const plateThickness = cfg.chassis.plate_thickness_mm;
@@ -340,15 +342,6 @@ export function buildChassis(
       );
     }),
   );
-  // The wires' ways, with clearance: the skirts are notched where they pass.
-  const wireWays = M.union(
-    wiring(cfg, frames).wires.flatMap((w) => {
-      const r = w.diameter / 2 + SIZES.skirtWireClear;
-      return w.points
-        .slice(1)
-        .map((q, i) => M.hull([w.points[i], q].map((c) => M.sphere(r, 8).translate(c as Vec3))));
-    }),
-  );
   // Skirts stop short of the parting line, as the walls round the wells do.
   const aboveFoot = M.cube([1000, 1000, 400]).translate([
     -500,
@@ -366,12 +359,34 @@ export function buildChassis(
     M.union([fingers.rooms, thumbs.rooms]).intersect(aboveSplit).intersect(built.inside),
   );
   const sheets = M.union([fingers.cores, thumbs.cores, fingers.rest, thumbs.rest, case_]);
-  // Each skirt stops on the other sheet; any piece of one the notches leave
-  // standing on its own is dropped.
+  // Each skirt stops on the other sheet, is notched where the wires pass (with
+  // clearance), and any piece of one the notches leave standing on its own is
+  // dropped.
+  const unnotched = M.union([
+    fingers.skirt.subtract(thumbs.top),
+    thumbs.skirt.subtract(fingers.top),
+  ])
+    .intersect(aboveFoot)
+    .subtract(keepClear);
+  // Only the wires' segments that come near a skirt notch it: a union of every
+  // segment would cost more than everything else here.
+  const near = unnotched.decompose().map((p) => p.boundingBox());
+  const wireWays = M.union(
+    wired.wires.flatMap((w) => {
+      const r = w.diameter / 2 + SIZES.skirtWireClear;
+      return w.points.slice(1).flatMap((q, i) => {
+        const p = w.points[i];
+        const reaches = near.some((b) =>
+          [0, 1, 2].every(
+            (k) => Math.min(p[k], q[k]) - r <= b.max[k] && Math.max(p[k], q[k]) + r >= b.min[k],
+          ),
+        );
+        return reaches ? [M.hull([p, q].map((c) => M.sphere(r, 8).translate(c as Vec3)))] : [];
+      });
+    }),
+  );
   const skirts = M.union(
-    M.union([fingers.skirt.subtract(thumbs.top), thumbs.skirt.subtract(fingers.top)])
-      .intersect(aboveFoot)
-      .subtract(keepClear)
+    unnotched
       .subtract(wireWays)
       .decompose()
       .filter((p) => p.intersect(sheets).volume() > SIZES.skirtPiece),
@@ -398,7 +413,7 @@ export function buildChassis(
   // built where a keycap goes.
   const capLowest = Math.max(0, sw.keycap_bottom_above_plate_mm - sw.travel_mm);
   const roomCuts: { name: string; cut: Manifold }[] = [];
-  let whole = uncarved;
+  const cutters: Manifold[] = [];
   for (const n of keyNames) {
     const cap = capSize(cfg, n);
     const clearance =
@@ -423,10 +438,13 @@ export function buildChassis(
         : undefined;
     const keycapRoom = rim ? room.add(rim) : room;
     roomCuts.push({ name: n, cut: uncarved.intersect(keycapRoom) });
-    whole = whole
-      .subtract(place(M.cube([...sw.cutout_mm, SIZES.switchHoleHeight] as Vec3, true), frames[n]))
-      .subtract(keycapRoom);
+    cutters.push(
+      place(M.cube([...sw.cutout_mm, SIZES.switchHoleHeight] as Vec3, true), frames[n]),
+      keycapRoom,
+    );
   }
+  // All at once: one boolean against the whole case, not two per key.
+  const whole = uncarved.subtract(M.union(cutters));
   // The case above the parting groove's bottom, and the bottom section below
   // it with the adapter's mount, less the tie tunnels and the ribbon's slot.
   const bb = whole.boundingBox();

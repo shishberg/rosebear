@@ -6,7 +6,7 @@ import Module from 'manifold-3d';
 import { createHash } from 'node:crypto';
 import { componentFrames, defaults, clone, type Config } from '../src/geometry';
 import { buildChassis } from '../src/chassis';
-import { buildSolid } from '../src/solid';
+import { buildSolid, freeAfter } from '../src/solid';
 
 type Layout = { roll_deg?: number };
 const variants: Record<string, (c: Config) => void> = {
@@ -56,17 +56,19 @@ wasm.setup();
 for (const [name, change] of Object.entries(variants)) {
   const cfg = clone(defaults.config);
   change(cfg);
-  const chassis = buildChassis(wasm, cfg, componentFrames(cfg));
-  const solid = buildSolid(wasm, { version: 2, config: cfg });
-  console.log(
-    name.padEnd(8),
-    'body',
-    describe(chassis.body),
-    '| base',
-    describe(chassis.base),
-    '| solid',
-    solid.report.volume.toFixed(4),
-    hash(solid.mesh.positions),
-    solid.report.passed,
-  );
+  freeAfter(wasm, () => {
+    const chassis = buildChassis(wasm, cfg, componentFrames(cfg));
+    const solid = buildSolid(wasm, { version: 2, config: cfg });
+    console.log(
+      name.padEnd(8),
+      'body',
+      describe(chassis.body),
+      '| base',
+      describe(chassis.base),
+      '| solid',
+      solid.report.volume.toFixed(4),
+      hash(solid.mesh.positions),
+      solid.report.passed,
+    );
+  });
 }

@@ -408,6 +408,8 @@ interface Obstacle {
   /** World bounding box. */
   wlo: number[];
   whi: number[];
+  /** The last search that tested it. */
+  seen?: number;
 }
 
 export function wiring(cfg: Config, frames = componentFrames(cfg)): Wiring {
@@ -496,29 +498,109 @@ export function wiring(cfg: Config, frames = componentFrames(cfg)): Wiring {
       );
   }
   /** Whether a wire's segment comes within r of an obstacle. */
+  // The obstacles in a grid of square cells in plan, each in every cell its
+  // box overlaps, so a segment is only tested against those near it.
+  const GRID = 6;
+  type Grid = { x0: number; y0: number; nx: number; ny: number; cells: Obstacle[][] };
+  const grids = new Map<Obstacle[], Grid>();
+  let stamp = 0;
+  const gridOf = (list: Obstacle[]) => {
+    let g = grids.get(list);
+    if (g) return g;
+    const x0 = Math.min(...list.map((o) => o.wlo[0]));
+    const y0 = Math.min(...list.map((o) => o.wlo[1]));
+    const nx = Math.floor((Math.max(...list.map((o) => o.whi[0])) - x0) / GRID) + 1;
+    const ny = Math.floor((Math.max(...list.map((o) => o.whi[1])) - y0) / GRID) + 1;
+    const cells: Obstacle[][] = Array.from({ length: nx * ny }, () => []);
+    for (const o of list)
+      for (let i = Math.floor((o.wlo[0] - x0) / GRID); i <= Math.floor((o.whi[0] - x0) / GRID); i++)
+        for (
+          let j = Math.floor((o.wlo[1] - y0) / GRID);
+          j <= Math.floor((o.whi[1] - y0) / GRID);
+          j++
+        )
+          cells[i * ny + j].push(o);
+    grids.set(list, (g = { x0, y0, nx, ny, cells }));
+    return g;
+  };
+  // Called millions of times while routing: no arrays or closures in it.
+  const la = [0, 0, 0];
+  const lb = [0, 0, 0];
   const blocked = (a: V3, b: V3, r: number, among = obstacles) => {
-    const lo = [0, 1, 2].map((k) => Math.min(a[k], b[k]) - r);
-    const hi = [0, 1, 2].map((k) => Math.max(a[k], b[k]) + r);
+    const lo0 = Math.min(a[0], b[0]) - r;
+    const lo1 = Math.min(a[1], b[1]) - r;
+    const lo2 = Math.min(a[2], b[2]) - r;
+    const hi0 = Math.max(a[0], b[0]) + r;
+    const hi1 = Math.max(a[1], b[1]) + r;
+    const hi2 = Math.max(a[2], b[2]) + r;
     const steps = Math.max(1, Math.ceil(distance(a, b) / WIRING.sample));
     const limit = (r - WIRING.touch) ** 2;
-    for (const o of among) {
-      if ([0, 1, 2].some((k) => lo[k] > o.whi[k] || hi[k] < o.wlo[k])) continue;
+    const reach = Math.sqrt(limit);
+    const g = gridOf(among);
+    const i0 = Math.max(0, Math.floor((lo0 - g.x0) / GRID));
+    const i1 = Math.min(g.nx - 1, Math.floor((hi0 - g.x0) / GRID));
+    const j0 = Math.max(0, Math.floor((lo1 - g.y0) / GRID));
+    const j1 = Math.min(g.ny - 1, Math.floor((hi1 - g.y0) / GRID));
+    stamp++;
+    for (let ci = i0; ci <= i1; ci++)
+      for (let cj = j0; cj <= j1; cj++)
+        for (const o of g.cells[ci * g.ny + cj]) {
+          if (o.seen === stamp) continue;
+          o.seen = stamp;
+          if (hit(o, a, b, lo0, lo1, lo2, hi0, hi1, hi2, steps, limit, reach)) return true;
+        }
+    return false;
+  };
+  const hit = (
+    o: Obstacle,
+    a: V3,
+    b: V3,
+    lo0: number,
+    lo1: number,
+    lo2: number,
+    hi0: number,
+    hi1: number,
+    hi2: number,
+    steps: number,
+    limit: number,
+    reach: number,
+  ) => {
+    {
+      const { wlo, whi } = o;
+      if (
+        lo0 > whi[0] ||
+        hi0 < wlo[0] ||
+        lo1 > whi[1] ||
+        hi1 < wlo[1] ||
+        lo2 > whi[2] ||
+        hi2 < wlo[2]
+      )
+        return false;
       const e = o.inverse.elements;
-      const local = (p: V3) =>
-        [0, 1, 2].map((k) => e[k] * p[0] + e[4 + k] * p[1] + e[8 + k] * p[2] + e[12 + k]);
-      const la = local(a);
-      const lb = local(b);
+      for (let k = 0; k < 3; k++) {
+        la[k] = e[k] * a[0] + e[4 + k] * a[1] + e[8 + k] * a[2] + e[12 + k];
+        lb[k] = e[k] * b[0] + e[4 + k] * b[1] + e[8 + k] * b[2] + e[12 + k];
+      }
+      const { lo, hi } = o;
+      // No sample can come nearer than the gap on any one axis.
+      if (
+        Math.min(la[0], lb[0]) - hi[0] >= reach ||
+        lo[0] - Math.max(la[0], lb[0]) >= reach ||
+        Math.min(la[1], lb[1]) - hi[1] >= reach ||
+        lo[1] - Math.max(la[1], lb[1]) >= reach ||
+        Math.min(la[2], lb[2]) - hi[2] >= reach ||
+        lo[2] - Math.max(la[2], lb[2]) >= reach
+      )
+        return false;
       for (let i = 0; i <= steps; i++) {
         const t = i / steps;
         let d = 0;
         for (let k = 0; k < 3; k++) {
           const x = la[k] + (lb[k] - la[k]) * t;
-          const g = Math.max(o.lo[k] - x, 0, x - o.hi[k]);
+          const g = Math.max(lo[k] - x, 0, x - hi[k]);
           d += g * g;
         }
-        if (d < limit) {
-          return true;
-        }
+        if (d < limit) return true;
       }
     }
     return false;
@@ -661,21 +743,35 @@ export function wiring(cfg: Config, frames = componentFrames(cfg)): Wiring {
    * `aside` along the edge it heads for (axis, sign), down to `depth`, then
    * straight out to that edge.
    */
-  const leg = (p: Pad, [axis, sign]: [0 | 1, number], depth: number, aside = 0): V3[] => {
+  const makeLeg = (p: Pad, [axis, sign]: [0 | 1, number], depth: number, aside: number) => {
     // Shift aside just under the tile first, so the wire's way down is clear
     // of the pad's line, where other wires run past.
     const hop = Math.min(depth, WIRING.hopDepth);
     const start: V3 = [p.xy[0], p.xy[1], padZ - hop];
     const shifted: V3 = [...start];
     shifted[1 - axis] += aside;
-    if (Math.abs(shifted[1 - axis]) > half[1 - axis] - keep) strayed = true;
+    const stray = Math.abs(shifted[1 - axis]) > half[1 - axis] - keep;
     const down: V3 = [shifted[0], shifted[1], padZ - depth];
     const out: V3 = [...down];
     out[axis] = sign * half[axis];
     // A shift in toward the tile's parts waits until the wire is below them.
     const inward = axis === 0 && aside * Math.sign(p.xy[1]) < 0;
     const turn: V3 = inward ? [start[0], start[1], padZ - depth] : shifted;
-    return [p.at, ...[start, turn, down, out].map((x) => point(frames[p.key], x))];
+    const points = [p.at, ...[start, turn, down, out].map((x) => point(frames[p.key], x))];
+    return { points, stray };
+  };
+  // Many lanes share a leg: each is made once, so routes share its points
+  // (and what is known about the segments between them). Callers copy before
+  // changing one.
+  const legs = new Map<Pad, Map<string, { points: V3[]; stray: boolean }>>();
+  const leg = (p: Pad, edge: [0 | 1, number], depth: number, aside = 0): V3[] => {
+    let mine = legs.get(p);
+    if (!mine) legs.set(p, (mine = new Map()));
+    const key = `${edge[0]} ${edge[1]} ${depth} ${aside} ${keep}`;
+    let made = mine.get(key);
+    if (!made) mine.set(key, (made = makeLeg(p, edge, depth, aside)));
+    if (made.stray) strayed = true;
+    return made.points;
   };
   /** A pad's own edge: the one it sits beside. */
   const ownEdge = (p: Pad): [0 | 1, number] => [1, Math.sign(p.xy[1]) || 1];
@@ -715,6 +811,61 @@ export function wiring(cfg: Config, frames = componentFrames(cfg)): Wiring {
       place[2],
     ]);
   };
+  /**
+   * The way between two keys' legs: straight across, or where that runs into a
+   * tile or plate, down from the higher one first.
+   */
+  const joins = new Map<V3[], Map<V3[], { points: V3[]; stuck: boolean }>>();
+  const done = (points: V3[]) => ({ points, stuck: false });
+  const join = (p: V3[], q: V3[], ca: V3, cb: V3): { points: V3[]; stuck: boolean } => {
+    // Straight across between the legs' ends, or, where that runs into a
+    // tile (a key much higher than its neighbour, beside it), straight down
+    // from the higher end first, then across.
+    const [pe, qe] = [p.at(-1)!, q.at(-1)!];
+    const r = w.power_wire_mm / 2;
+    const clear = (a: V3, b: V3) => !blocked(a, b, r) && !blocked(a, b, r, plates);
+    const qr = [...q].reverse();
+    if (clear(pe, qe)) return done(clean([...p, ...qr]));
+    // Down from the higher key's leg as it heads out under its tile: from
+    // the last place along its run to the edge where the way down misses the
+    // lower key's tile and plate, or failing that, from a step back in under
+    // the higher tile toward its centre; then across.
+    const [h, l, own] = pe[2] > qe[2] ? [p, q, cb] : [q, p, ca];
+    const [from, to] = [h.at(-2)!, h.at(-1)!];
+    const end = l.at(-1)!;
+    for (let back = 0; back <= WIRING.climbBack; back += 1)
+      for (let t = 1; t >= 0; t -= 0.05) {
+        const run: V3 = [0, 1, 2].map((k) => from[k] + (to[k] - from[k]) * t) as V3;
+        const d = Math.hypot(own[0] - run[0], own[1] - run[1]) || 1;
+        const top: V3 = [
+          run[0] + ((own[0] - run[0]) / d) * back,
+          run[1] + ((own[1] - run[1]) / d) * back,
+          run[2],
+        ];
+        const foot: V3 = [top[0], top[1], end[2]];
+        if (clear(run, top) && clear(top, foot) && clear(foot, end)) {
+          const way = [...h.slice(0, -1), run, top, foot, ...[...l].reverse()];
+          return done(clean(h === p ? way : way.reverse()));
+        }
+      }
+    // Or round a corner in plan, along one key's edge and then the other's.
+    const mid = (pe[2] + qe[2]) / 2;
+    for (const c of [
+      [pe[0], qe[1], mid],
+      [qe[0], pe[1], mid],
+    ] as V3[])
+      if (clear(pe, c) && clear(c, qe)) return done(clean([...p, c, ...qr]));
+    // Or under both ends: down from each, and across below them.
+    for (let d = 1; d <= WIRING.climbUnder; d += 1) {
+      const z = Math.max(Math.min(pe[2], qe[2]) - d, loomZ);
+      const [a, b]: V3[] = [
+        [pe[0], pe[1], z],
+        [qe[0], qe[1], z],
+      ];
+      if (clear(pe, a) && clear(a, b) && clear(b, qe)) return done(clean([...p, a, b, ...qr]));
+    }
+    return { points: clean([...p, ...qr]), stuck: true };
+  };
   /** A route for a wire in `lane`, through the wire port at `place`. */
   const route = (a: Pad | V3, b: Pad, lane: Lane, place: V3): V3[] => {
     if (Array.isArray(a)) {
@@ -730,60 +881,20 @@ export function wiring(cfg: Config, frames = componentFrames(cfg)): Wiring {
       const cb = point(frames[a.key], [0, 0, 0]);
       const p = leg(a, edgeToward(a.key, ca), lane.da, lane.aside);
       const q = leg(b, edgeToward(b.key, cb), lane.db, lane.asideB ?? lane.aside);
-      // Straight across between the legs' ends, or, where that runs into a
-      // tile (a key much higher than its neighbour, beside it), straight down
-      // from the higher end first, then across.
-      const [pe, qe] = [p.at(-1)!, q.at(-1)!];
-      const r = w.power_wire_mm / 2;
-      const clear = (a: V3, b: V3) => !blocked(a, b, r) && !blocked(a, b, r, plates);
-      if (clear(pe, qe)) return clean([...p, ...q.reverse()]);
-      // Down from the higher key's leg as it heads out under its tile: from
-      // the last place along its run to the edge where the way down misses the
-      // lower key's tile and plate, or failing that, from a step back in under
-      // the higher tile toward its centre; then across.
-      const [h, l, own] = pe[2] > qe[2] ? [p, q, cb] : [q, p, ca];
-      const [from, to] = [h.at(-2)!, h.at(-1)!];
-      const end = l.at(-1)!;
-      for (let back = 0; back <= WIRING.climbBack; back += 1)
-        for (let t = 1; t >= 0; t -= 0.05) {
-          const run: V3 = [0, 1, 2].map((k) => from[k] + (to[k] - from[k]) * t) as V3;
-          const d = Math.hypot(own[0] - run[0], own[1] - run[1]) || 1;
-          const top: V3 = [
-            run[0] + ((own[0] - run[0]) / d) * back,
-            run[1] + ((own[1] - run[1]) / d) * back,
-            run[2],
-          ];
-          const foot: V3 = [top[0], top[1], end[2]];
-          if (clear(run, top) && clear(top, foot) && clear(foot, end)) {
-            const way = [...h.slice(0, -1), run, top, foot, ...[...l].reverse()];
-            return clean(h === p ? way : way.reverse());
-          }
-        }
-      // Or round a corner in plan, along one key's edge and then the other's.
-      const mid = (pe[2] + qe[2]) / 2;
-      for (const c of [
-        [pe[0], qe[1], mid],
-        [qe[0], pe[1], mid],
-      ] as V3[])
-        if (clear(pe, c) && clear(c, qe)) return clean([...p, c, ...q.reverse()]);
-      // Or under both ends: down from each, and across below them.
-      for (let d = 1; d <= WIRING.climbUnder; d += 1) {
-        const z = Math.max(Math.min(pe[2], qe[2]) - d, loomZ);
-        const [a, b]: V3[] = [
-          [pe[0], pe[1], z],
-          [qe[0], qe[1], z],
-        ];
-        if (clear(pe, a) && clear(a, b) && clear(b, qe)) return clean([...p, a, b, ...q.reverse()]);
-      }
-      stuck = true;
-      return clean([...p, ...q.reverse()]);
+      // Many lanes share the same two legs, and the way between them.
+      let mine = joins.get(p);
+      if (!mine) joins.set(p, (mine = new Map()));
+      let joined = mine.get(q);
+      if (!joined) mine.set(q, (joined = join(p, q, ca, cb)));
+      if (joined.stuck) stuck = true;
+      return joined.points;
     }
     // The lane's first depth and aside are for a's leg, the second for b's.
     const [t, f] = isThumb(a.key) ? [a, b] : [b, a];
     const [dt, df] = t === a ? [lane.da, lane.db] : [lane.db, lane.da];
     const [st, sf] = t === a ? [lane.aside, lane.asideB] : [lane.asideB, lane.aside];
     const path = throughPort(t, { ...lane, da: dt }, place, st);
-    const q = leg(f, edgeToward(f.key, port.inside), df, sf).reverse();
+    const q = [...leg(f, edgeToward(f.key, port.inside), df, sf)].reverse();
     const points = clean([...path, beyondPort(place, q[0][2] > place[2] + port.inside[2]), ...q]);
     return isThumb(a.key) ? points : points.reverse();
   };
@@ -791,12 +902,16 @@ export function wiring(cfg: Config, frames = componentFrames(cfg)): Wiring {
     typeof s.a === 'number' ? isThumb(s.b.key) : isThumb(s.a.key) !== isThumb(s.b.key);
   /** Whether a route runs into a tile or its parts (its drops at the pads excepted). */
   // Many routes share segments (their legs), so each segment is tested once.
-  const tested = new Map<string, boolean>();
+  const tested = new Map<number, Map<V3, Map<V3, boolean>>>();
   const hitsTiles = (points: V3[], r: number) => {
+    let byR = tested.get(r);
+    if (!byR) tested.set(r, (byR = new Map()));
     for (let i = 2; i < points.length - 1; i++) {
-      const key = `${points[i - 1]} ${points[i]} ${r}`;
-      let hit = tested.get(key);
-      if (hit === undefined) tested.set(key, (hit = blocked(points[i - 1], points[i], r)));
+      const [p, q] = [points[i - 1], points[i]];
+      let from = byR.get(p);
+      if (!from) byR.set(p, (from = new Map()));
+      let hit = from.get(q);
+      if (hit === undefined) from.set(q, (hit = blocked(p, q, r)));
       if (hit) return true;
     }
     return false;

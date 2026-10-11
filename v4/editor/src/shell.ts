@@ -354,6 +354,14 @@ function binSurface(k0: Kit, o: Bin) {
 }
 // The width over which a bin's key surface eases from its fit to level.
 const HOLD = 10;
+// An outline's polygons, read out of WebAssembly once: the loft asks for them
+// at every sample along it.
+const polygons = new WeakMap<CrossSection, ReturnType<CrossSection['toPolygons']>>();
+const polygonsOf = (cs: CrossSection) => {
+  let p = polygons.get(cs);
+  if (!p) polygons.set(cs, (p = cs.toPolygons()));
+  return p;
+};
 // The deck of a bin carrying another bin's (its apron's) deck in front of its
 // well, in world coordinates (the carrying bin has no angle). own: the
 // carrying bin's surface. front: the apron's front edge at x. breaks: where the
@@ -381,7 +389,7 @@ function apronDeck(
     // Where the vertical line at x crosses a well's outline, lowest and highest.
     span = (cs: CrossSection, x: number) => {
       const ys: number[] = [];
-      for (const poly of cs.toPolygons())
+      for (const poly of polygonsOf(cs))
         poly.forEach((p, i) => {
           const q = poly[(i + 1) % poly.length];
           if ((p[0] - x) * (q[0] - x) <= 0 && p[0] !== q[0])

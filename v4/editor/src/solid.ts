@@ -1,5 +1,5 @@
 import type { Manifold, ManifoldToplevel, Mat4 } from 'manifold-3d';
-import { Matrix4 } from 'three';
+import { Matrix4, Vector3 } from 'three';
 import { seatSettings } from './seats';
 import { buildChassis, capSize, gluePads, isKey } from './chassis';
 import { adapterParts, crossings, padParts, wiring, type Wiring } from './wiring';
@@ -33,6 +33,13 @@ const CHECKS = {
   capGapSearch: 40,
   /** Wire tubes: sides per segment's end sphere. */
   wireSides: 8,
+  /**
+   * The chassis round each key that its checks test against: past the
+   * largest of its keycap with clearance, tile and seat by this much, and this
+   * far above and below the plate.
+   */
+  regionMargin: 3,
+  regionHeight: 30,
 } as const;
 export interface Part {
   name: string;
@@ -200,15 +207,20 @@ function watch(wasm: ManifoldToplevel) {
     wrap(c);
   for (const p of protos) wrap(p);
 }
-export function buildSolid(wasm: ManifoldToplevel, project: Project): BuildResult {
+/** Runs `f`, then frees every Manifold and CrossSection made while it ran. */
+export function freeAfter<T>(wasm: ManifoldToplevel, f: () => T): T {
   watch(wasm);
+  if (made) return f();
   made = new Set();
   try {
-    return build(wasm, project);
+    return f();
   } finally {
     for (const m of made) if (!m.isDeleted()) m.delete();
     made = undefined;
   }
+}
+export function buildSolid(wasm: ManifoldToplevel, project: Project): BuildResult {
+  return freeAfter(wasm, () => build(wasm, project));
 }
 function build(wasm: ManifoldToplevel, project: Project): BuildResult {
   validateProject(project);
@@ -230,8 +242,99 @@ function build(wasm: ManifoldToplevel, project: Project): BuildResult {
     sw.clip_relief_depth_mm + CHECKS.clipReliefIntoHole + CHECKS.clipReliefPastDepth;
   const clipY = hole[1] / 2 - CHECKS.clipReliefIntoHole + clipDepth / 2;
   const highlights: Highlight[] = [];
+  // A boolean costs as much as its larger mesh, however small the other is,
+  // and most checks test a small shape against the whole chassis. So each
+  // key's surroundings are cut from the chassis once, and a shape that lies
+  // within them is tested against that piece: the same result, from a mesh a
+  // fraction of the size.
+  // The extra thumbs' names, so each thumb row is a group of its own.
+  const extraThumbs = new Set(
+    ((cfg.geometry as { thumb_extra?: { keys: { name: string }[] } }).thumb_extra?.keys ?? []).map(
+      (k) => 'thumb_' + k.name,
+    ),
+  );
+  const groups = new Map<string, { lo: number[]; hi: number[]; pieces: Map<Manifold, Manifold> }>();
+  const regions = keyNodes.map(([name, m]) => {
+    const cap = capSize(cfg, name);
+    const margin =
+      (sw.keycap_clearance_overrides_mm as Record<string, number>)[name] ?? sw.keycap_clearance_mm;
+    const half = [0, 1].map(
+      (k) =>
+        Math.max(cap[k] / 2 + margin, cfg.tile.size_mm[k] / 2, seatSettings(cfg).outer[k] / 2) +
+        CHECKS.regionMargin,
+    );
+    // Cutting a piece costs as much as what it is cut from, so each key's is
+    // cut from its column's (or thumb row's), cut from the whole once.
+    const id = name.startsWith('matrix_')
+      ? name.slice(0, name.lastIndexOf('_'))
+      : extraThumbs.has(name)
+        ? 'extra thumbs'
+        : 'thumbs';
+    let group = groups.get(id);
+    if (!group)
+      groups.set(
+        id,
+        (group = {
+          lo: [Infinity, Infinity, Infinity],
+          hi: [-Infinity, -Infinity, -Infinity],
+          pieces: new Map(),
+        }),
+      );
+    for (let i = 0; i < 8; i++) {
+      const c = new Vector3(
+        i & 1 ? half[0] : -half[0],
+        i & 2 ? half[1] : -half[1],
+        i & 4 ? CHECKS.regionHeight : -CHECKS.regionHeight,
+      ).applyMatrix4(m);
+      c.toArray().forEach((x, k) => {
+        group.lo[k] = Math.min(group.lo[k], x - 0.1);
+        group.hi[k] = Math.max(group.hi[k], x + 0.1);
+      });
+    }
+    return { m, inverse: m.clone().invert(), half, group, pieces: new Map<Manifold, Manifold>() };
+  });
+  // Cut now: left lazy, each test's intersect would fold into this one and
+  // run against the whole chassis again.
+  const cutOut = (target: Manifold, region: Manifold) =>
+    keep(keep(target.intersect(region)).asOriginal());
+  const within = (target: Manifold, envelope: Manifold) => {
+    // Its corners, not its bounding box's: a tilted key's shapes are tilted too.
+    const { vertProperties: v, numProp } = envelope.getMesh();
+    const p = new Vector3();
+    for (const r of regions) {
+      let inside = true;
+      for (let i = 0; inside && i < v.length; i += numProp) {
+        p.set(v[i], v[i + 1], v[i + 2]).applyMatrix4(r.inverse);
+        inside =
+          Math.abs(p.x) <= r.half[0] &&
+          Math.abs(p.y) <= r.half[1] &&
+          Math.abs(p.z) <= CHECKS.regionHeight;
+      }
+      if (!inside) continue;
+      let piece = r.pieces.get(target);
+      if (!piece) {
+        const g = r.group;
+        let chunk = g.pieces.get(target);
+        if (!chunk) {
+          const size = g.hi.map((h, k) => h - g.lo[k]);
+          chunk = cutOut(
+            target,
+            box(
+              size,
+              g.lo.map((l, k) => l + size[k] / 2),
+            ),
+          );
+          g.pieces.set(target, chunk);
+        }
+        const region = place(box([...r.half.map((h) => 2 * h), 2 * CHECKS.regionHeight]), r.m);
+        r.pieces.set(target, (piece = cutOut(chunk, region)));
+      }
+      return piece;
+    }
+    return target;
+  };
   const collision = (body: Manifold, envelope: Manifold, name: string, kind: Highlight['kind']) => {
-    const hit = body.intersect(envelope);
+    const hit = within(body, envelope).intersect(envelope);
     try {
       const v = Math.max(0, hit.volume());
       if (v > CHECKS.overlap) highlights.push({ name, kind, mesh: meshData(hit) });
@@ -244,7 +347,7 @@ function build(wasm: ManifoldToplevel, project: Project): BuildResult {
     keep(keep(M.cube(size as V3, true)).translate(center as V3));
   const place = (m: Manifold, pose: Matrix4) => keep(m.transform(pose.elements as Mat4));
   const volume = (a: Manifold, b: Manifold) => {
-    const hit = a.intersect(b);
+    const hit = within(a, b).intersect(b);
     try {
       return Math.max(0, hit.volume());
     } finally {
@@ -252,7 +355,8 @@ function build(wasm: ManifoldToplevel, project: Project): BuildResult {
     }
   };
   try {
-    const chassis = buildChassis(wasm, cfg, nodes);
+    const wired = wiring(cfg, nodes);
+    const chassis = buildChassis(wasm, cfg, nodes, wired);
     keep(chassis.body);
     keep(chassis.base);
     keep(chassis.trim);
@@ -307,7 +411,7 @@ function build(wasm: ManifoldToplevel, project: Project): BuildResult {
       for (const x of [-size[0] / 2 + inset, 0, size[0] / 2 - inset])
         for (const y of [-size[1] / 2 + inset, 0, size[1] / 2 - inset]) {
           const probe = place(box([0.3, 0.3, 24], [x, y, 0]), pose);
-          const hit = keep(body.intersect(probe));
+          const hit = keep(within(body, probe).intersect(probe));
           if (hit.volume() > CHECKS.empty) {
             covered++;
             const punch = place(box([0.4, 0.4, top - bottom], [x, y, (top + bottom) / 2]), pose);
@@ -380,7 +484,7 @@ function build(wasm: ManifoldToplevel, project: Project): BuildResult {
           place(box([...hole, 10]), m),
         ),
       );
-      const missingSolid = keep(ring.subtract(result));
+      const missingSolid = keep(ring.subtract(within(result, ring)));
       const missing = Math.max(0, missingSolid.volume());
       const outside = keep(
         place(
@@ -447,7 +551,6 @@ function build(wasm: ManifoldToplevel, project: Project): BuildResult {
         if (v > CHECKS.overlap) overlaps.push({ name: p.name, group: p.group, volume: v });
       }
     // Every wire as a tube, against the chassis and its bottom section.
-    const wired = wiring(cfg, nodes);
     const tube = (points: number[][], d: number) =>
       keep(
         M.union(
