@@ -21,6 +21,9 @@ import { setupMarks } from './marks';
 import './style.css';
 const $ = <E extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as E;
 const STORAGE = 'rosebear-chassis-editor:v2';
+// The view, view toggles and opacity: browser conveniences, kept apart from the project.
+const VIEW_STORAGE = 'rosebear-chassis-editor:view';
+const TOGGLES = ['edit', 'caps', 'parts', 'wires', 'adapter', 'base', 'bounds', 'edges'];
 $('app').innerHTML =
   `<header><div><h1>Rosebear / chassis editor</h1><p>Right hand · C64 chassis</p></div><span id="save-state">Local project</span></header><main><aside>
 <section><h2>Key layout</h2><label><input id="edit" type="checkbox" checked> Show handles</label><small>Drag a handle parallel to the view: the Top view moves things in plan, the Front and Inner views change heights. Gold: a finger key. Up and down sets that key's height; along the column moves the column's stagger. Move a column sideways with its X offset field. Cyan: a thumb cluster's centre. Pink: turns a thumb cluster. Drag empty space to orbit; right-drag to pan; wheel to zoom.</small><div id="selection" aria-live="polite"><small>Click a handle to edit its numbers.</small></div><small>Values are in layout coordinates, before the whole hand is tented: +X toward the pinky, +Y away from you, +Z up.</small><button id="undo">Undo</button><button id="redo">Redo</button><button id="reset">Reset model</button></section>
@@ -869,15 +872,80 @@ $('reset').onclick = () => {
   refreshInputs();
   edited();
 };
-for (const id of ['edit', 'caps', 'parts', 'wires', 'adapter', 'base', 'bounds', 'edges'])
-  $(id).onchange = visibility;
+for (const id of TOGGLES)
+  $(id).onchange = () => {
+    visibility();
+    saveView();
+  };
 $('opacity').oninput = () => {
   material.opacity = Number($<HTMLInputElement>('opacity').value);
   material.transparent = material.opacity < 1;
   material.depthWrite = !material.transparent;
   material.needsUpdate = true;
   render();
+  saveView();
 };
+let viewTimer: ReturnType<typeof setTimeout> | undefined;
+controls.addEventListener('change', () => {
+  clearTimeout(viewTimer);
+  viewTimer = setTimeout(saveView, 300);
+});
+function saveView() {
+  try {
+    localStorage.setItem(
+      VIEW_STORAGE,
+      JSON.stringify({
+        camera: {
+          position: camera.position.toArray(),
+          target: controls.target.toArray(),
+          up: camera.up.toArray(),
+          zoom: camera.zoom,
+        },
+        toggles: Object.fromEntries(TOGGLES.map((id) => [id, $<HTMLInputElement>(id).checked])),
+        opacity: Number($<HTMLInputElement>('opacity').value),
+      }),
+    );
+  } catch {}
+}
+// Restores what saveView stored, skipping anything malformed. A mark in the URL
+// sets its own camera, so the stored one is left alone then.
+function restoreView() {
+  let v: any;
+  try {
+    v = JSON.parse(localStorage.getItem(VIEW_STORAGE) ?? 'null');
+  } catch {
+    return;
+  }
+  if (!v || typeof v !== 'object') return;
+  const vec = (a: unknown) =>
+    Array.isArray(a) && a.length === 3 && a.every((n) => Number.isFinite(n));
+  const c = v.camera;
+  if (
+    !new URLSearchParams(location.search).has('mark') &&
+    c &&
+    vec(c.position) &&
+    vec(c.target) &&
+    vec(c.up) &&
+    Number.isFinite(c.zoom)
+  ) {
+    camera.up.fromArray(c.up);
+    camera.position.fromArray(c.position);
+    controls.target.fromArray(c.target);
+    camera.zoom = Math.min(controls.maxZoom, Math.max(controls.minZoom, c.zoom));
+    camera.lookAt(controls.target);
+    camera.updateProjectionMatrix();
+    controls.update();
+  }
+  if (v.toggles && typeof v.toggles === 'object')
+    for (const id of TOGGLES)
+      if (typeof v.toggles[id] === 'boolean') $<HTMLInputElement>(id).checked = v.toggles[id];
+  visibility();
+  const o = v.opacity;
+  if (Number.isFinite(o) && o >= 0.1 && o <= 1) {
+    $<HTMLInputElement>('opacity').value = String(o);
+    $('opacity').dispatchEvent(new Event('input'));
+  }
+}
 $('rebuild').onclick = requestBuild;
 $('bottom-out').onchange = () => {
   const n = Number($<HTMLInputElement>('bottom-out').value);
@@ -1154,6 +1222,7 @@ const marks = !import.meta.env.DEV
       view: () => ({ variant: 'chassis', thumbs: 'editor', query: location.search }),
       render,
     });
+restoreView();
 historyButtons();
 refreshInputs();
 preview();
