@@ -5,17 +5,17 @@ import { defineConfig, type Plugin } from 'vite';
 
 const root = fileURLToPath(new URL('.', import.meta.url));
 
-// PROTOTYPE: artifact marks painted on prototype-shapes.html, one JSON file and
-// one screenshot per mark in prototype-marks/. Dev server only.
+// Artifact marks painted on the editor (src/marks.ts), one JSON file and one
+// screenshot per mark in marks/. Dev server only.
 //   GET /__marks          every mark (without screenshots)
 //   POST /__marks         save a mark: JSON with `shot` as a PNG data URL
 //   DELETE /__marks/<id>  remove a mark
 //   DELETE /__marks       remove every mark
-function prototypeMarks(): Plugin {
-  const dir = root + 'prototype-marks/';
+function marks(): Plugin {
+  const dir = root + 'marks/';
   const git = (...a: string[]) => execFileSync('git', a, { cwd: root, encoding: 'utf8' }).trim();
   return {
-    name: 'prototype-marks',
+    name: 'marks',
     apply: 'serve',
     config: () => ({ server: { watch: { ignored: [dir + '**'] } } }),
     configureServer(server) {
@@ -75,4 +75,4 @@ function prototypeMarks(): Plugin {
   };
 }
 
-export default defineConfig({ plugins: [prototypeMarks()] });
+export default defineConfig({ plugins: [marks()] });

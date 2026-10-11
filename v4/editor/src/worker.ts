@@ -16,8 +16,7 @@ self.onmessage = async (e: MessageEvent<{ id: number; project: Project }>) => {
         transfer: [
           result.mesh,
           result.base,
-          result.trackpad,
-          result.housing,
+          result.trim,
           ...result.highlights.map((h) => h.mesh),
         ].flatMap((m) => [m.positions.buffer as ArrayBuffer, m.indices.buffer as ArrayBuffer]),
       },

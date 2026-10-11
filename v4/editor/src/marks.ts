@@ -1,9 +1,9 @@
-// PROTOTYPE, throwaway: paint marks on the model where something looks wrong.
+// Marks: paint on the model where something looks wrong, for review.
 // M toggles paint mode: drag to draw on the model (hold Alt to orbit). Each
 // sample is the screen point and, where the ray hits the model, the world point
 // and normal on it. Save sends the strokes, the camera, a note and a screenshot
-// to the dev server, which writes them to prototype-marks/ (see vite.config.ts).
-// Delete all removes every saved mark, for all variants.
+// to the dev server, which writes them to marks/ (see vite.config.ts).
+// Delete all removes every saved mark, for all views.
 // ?mark=<id> opens on a saved mark's view; ?marks=0 hides the saved marks.
 import * as T from 'three';
 import type { OrbitControls } from 'three/addons/controls/OrbitControls.js';
@@ -17,7 +17,7 @@ type Mark = {
   variant: string;
   thumbs: string;
   note: string;
-  camera: { position: number[]; target: number[]; up: number[]; fov: number };
+  camera: { position: number[]; target: number[]; up: number[]; fov?: number; zoom?: number };
   strokes: Stroke[];
 };
 
@@ -25,14 +25,17 @@ const r1 = (v: number) => Math.round(v * 100) / 100;
 
 export function setupMarks(o: {
   scene: T.Scene;
-  camera: T.PerspectiveCamera;
+  camera: T.PerspectiveCamera | T.OrthographicCamera;
   controls: OrbitControls;
   renderer: T.WebGLRenderer;
   // The model's meshes, and what each is (shell, keycaps…).
   targets: () => [T.Object3D, string][];
-  // The variant and thumb layout on screen, and the URL query that shows them.
+  // What is on screen (a variant and thumb layout), and the URL query that shows it.
   view: () => { variant: string; thumbs: string; query: string };
+  // Draws the scene again, where it isn't drawn every frame.
+  render?: () => void;
 }) {
+  const render = o.render ?? (() => {});
   const { scene, camera, controls, renderer } = o;
   const canvas = renderer.domElement;
   const current = new T.Group(),
@@ -45,7 +48,7 @@ export function setupMarks(o: {
 
   const panel = document.createElement('div');
   panel.style.cssText =
-    'position:fixed;top:12px;right:12px;width:260px;background:#0009;padding:10px 12px;border-radius:8px;font-size:12px;line-height:1.5';
+    'position:fixed;top:95px;right:12px;width:260px;background:#0009;padding:10px 12px;border-radius:8px;font-size:12px;line-height:1.5';
   panel.innerHTML = `<div style="display:flex;gap:6px;align-items:center"><button id="mk-paint">✎ Paint (M)</button><span id="mk-mode" style="color:#9aa"></span></div>
 <div id="mk-edit" style="display:none;margin-top:6px"><textarea id="mk-note" rows="3" placeholder="What's wrong here (optional)" style="width:100%;box-sizing:border-box;font:12px system-ui"></textarea>
 <div style="display:flex;gap:6px;margin-top:4px"><button id="mk-save">Save mark</button><button id="mk-undo">Undo stroke</button><button id="mk-clear">Clear</button></div></div>
@@ -79,6 +82,7 @@ export function setupMarks(o: {
   const redraw = () => {
     current.clear();
     strokes.forEach((s) => draw(s, 0xff2a2a, current));
+    render();
   };
   function showSaved() {
     saved.clear();
@@ -96,6 +100,7 @@ export function setupMarks(o: {
           .join('')
       : '<div style="color:#9aa;margin-top:4px">No saved marks.</div>';
     $('mk-all').style.display = marks.length ? '' : 'none';
+    render();
   }
   async function load() {
     marks = await fetch('/__marks').then((r) => r.json());
@@ -103,11 +108,13 @@ export function setupMarks(o: {
   }
   function go(m: Mark) {
     camera.up.set(...(m.camera.up as [number, number, number]));
-    camera.fov = m.camera.fov;
+    if ('fov' in camera && m.camera.fov) camera.fov = m.camera.fov;
+    if (!('fov' in camera) && m.camera.zoom) camera.zoom = m.camera.zoom;
     camera.position.set(...(m.camera.position as [number, number, number]));
     controls.target.set(...(m.camera.target as [number, number, number]));
     camera.updateProjectionMatrix();
     controls.update();
+    render();
   }
 
   function setPaint(on: boolean) {
@@ -156,6 +163,7 @@ export function setupMarks(o: {
     renderer.render(scene, camera);
     const shot = canvas.toDataURL('image/png');
     saved.visible = was;
+    render();
     const v = o.view(),
       hits = strokes.flatMap((s) => s.hits).filter((h): h is NonNullable<Hit> => !!h),
       box = new T.Box3().setFromPoints(hits.map((h) => new T.Vector3(...h.p)));
@@ -168,7 +176,7 @@ export function setupMarks(o: {
         position: camera.position.toArray().map(r1),
         target: controls.target.toArray().map(r1),
         up: camera.up.toArray(),
-        fov: camera.fov,
+        ...('fov' in camera ? { fov: camera.fov } : { zoom: camera.zoom }),
       },
       viewport: { width: canvas.clientWidth, height: canvas.clientHeight },
       // Where the hits are, world mm: a quick handle on the place.
@@ -250,6 +258,7 @@ export function setupMarks(o: {
     if (m) go(m);
   });
   return {
+    painting: () => painting,
     // After the model changes: drop unsaved strokes, redraw the saved marks for it.
     shown() {
       strokes = [];

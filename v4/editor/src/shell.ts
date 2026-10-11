@@ -1,43 +1,31 @@
-// PROTOTYPE, throwaway: the C64-styled chassis for the right hand, on the key
-// poses from the default config (componentFrames). The other shapes tried are
-// in this file's git history. Visual only: no tile pockets, no wiring space,
-// not printable as-is.
+// The C64-styled shell for the right hand, on the key poses: a "breadbin"
+// whose deck follows the keys, with the finger keys in one well and the thumb
+// row's deck carried on in front of it as part of the same solid, a grill and
+// badge across the back, a parting line all round and a port panel on the
+// inner end where the ribbon leaves. The case is hollow; the keys' wells are
+// open through it, each with a wall down from the deck round it. The plates
+// the switches clip into are added by chassis.ts.
 import type { CrossSection, Manifold, ManifoldToplevel, Vec3 } from 'manifold-3d';
 import { Matrix4 } from 'three';
-import { point, type Config } from '../geometry';
-import { capSize, isKey } from '../solid';
-import { landingBox } from '../wiring';
+import { capSize, isKey, point, type Config } from './geometry';
+import { landingBox } from './wiring';
 
 export interface Kit {
   wasm: ManifoldToplevel;
   cfg: Config;
   frames: Record<string, Matrix4>;
 }
-export interface Variant {
-  key: string;
-  name: string;
-  blurb: string;
-  build: (k: Kit) => Manifold;
-  // Shell and keycap colours, where a shape wants its own.
-  color?: number;
-  capColor?: number;
-  // Height of the split between the case and its bottom section (default: the lowest 2 mm).
-  split?: number;
-  // Changes to the hardware config (such as where the ribbon runs) for this shape.
-  config?: (c: Config) => void;
-}
-
-const T = 3; // plate thickness
 const keys = (f: Record<string, Matrix4>) => Object.keys(f).filter(isKey);
 const thumbs = (k: Kit) =>
   keys(k.frames)
     .filter((n) => n.startsWith('thumb_'))
     .sort((a, b) => k.frames[a].elements[12] - k.frames[b].elements[12]);
+// A key's half-widths for fitting the deck: the cap's, plus 0.75 mm.
 const half = (k: Kit, n: string, grow = 0) => {
   const c = capSize(k.cfg, n);
   return [c[0] / 2 + 0.75 + grow, c[1] / 2 + 0.75 + grow];
 };
-// World point on a key plate: sx,sy in -1..1 across the plate, z along the normal.
+// World point on a key: sx,sy in -1..1 across it (see half), z along the normal.
 const at = (k: Kit, n: string, sx: number, sy: number, z = 0, grow = 0): Vec3 => {
   const [hx, hy] = half(k, n, grow);
   return point(k.frames[n], [sx * hx, sy * hy, z]);
@@ -50,7 +38,6 @@ const corners = (k: Kit, n: string, grow = 0) =>
     [-1, 1],
   ].map(([x, y]) => at(k, n, x, y, 0, grow));
 const place = (m: Manifold, f: Matrix4) => m.transform(f.elements as never);
-const down = (p: Vec3, z = 0): Vec3 => [p[0], p[1], z];
 // A keycap's travel envelope, as the editor's clearance check builds it: the cap
 // plus its margin, from rest down by the travel.
 const capSweep = (k: Kit, n: string) => {
@@ -67,33 +54,6 @@ const capSweep = (k: Kit, n: string) => {
   );
 };
 
-// Plate with a 14 mm switch cutout, in the key's frame.
-function plate(k: Kit, n: string, grow = 0) {
-  const M = k.wasm.Manifold,
-    [hx, hy] = half(k, n, grow);
-  const body = M.cube([hx * 2, hy * 2, T], true)
-    .translate([0, 0, -T / 2])
-    .subtract(M.cube([14, 14, T * 4], true));
-  return place(body, k.frames[n]);
-}
-const plates = (k: Kit, grow = 0) =>
-  k.wasm.Manifold.union(keys(k.frames).map((n) => plate(k, n, grow)));
-function cutKeys(k: Kit, m: Manifold) {
-  const M = k.wasm.Manifold;
-  for (const n of keys(k.frames)) {
-    const [hx, hy] = half(k, n, -0.25);
-    m = m
-      .subtract(place(M.cube([14, 14, 20], true), k.frames[n]))
-      .subtract(place(M.cube([hx * 2, hy * 2, 60], true).translate([0, 0, 30]), k.frames[n]));
-  }
-  return m;
-}
-// Debug: ?nocut=1 skips recutting keys.
-const qp =
-  typeof location === 'undefined' ? new URLSearchParams() : new URLSearchParams(location.search);
-// Dark inserts (the C64 port panel) drawn in their own colour, from the last build.
-export let trim: Manifold[] = [];
-const noCut = qp.get('nocut') === '1';
 // Commodore 64 "breadbin": a wedge whose deck follows a surface fitted
 // through the key plates, a bullnose front edge, a rounded underside at the
 // front, a rear chamfer with grill grooves running out through both ends, a
@@ -126,13 +86,14 @@ interface Bin {
 // Height of the parting line between the top case and the bottom section.
 const PART = 10;
 const WALL = 2; // case wall, deck and floor thickness
+// How far the wall round a well reaches down from the deck.
+const WELL_WALL = 16;
 interface BinParts {
   shell: Manifold; // solid case with trough, grill and parting line cut, wells not yet cut
-  wells: Manifold; // well prisms, cut from every bin's shell
-  inside: Manifold; // well floors and key pedestals, solid
+  wells: Manifold; // the wells, cut from every bin's shell down to the foot of their walls
+  well: CrossSection; // the well's outline in plan (world)
   cavity: Manifold; // the case's hollow, before anything is kept back from it
-  keep: Manifold; // kept solid inside the hollow: well walls, floor and pedestal walls
-  open: Manifold; // opened through what is kept: inside each pedestal, down to the bottom
+  keep: Manifold; // kept solid inside the hollow: the wall round the well
   x0: number; // the low end face (of an unturned bin)
 }
 // A corner where two straight runs meet, rounded by a cubic: [corner, unit
@@ -498,8 +459,7 @@ function breadbin(k0: Kit, o: Bin): BinParts {
   const ang = o.angle ?? 0,
     { k, keyWell, wb } = binWell(k0, o),
     M = k.wasm.Manifold,
-    CS = k.wasm.CrossSection,
-    names = o.keys;
+    CS = k.wasm.CrossSection;
   // Side profile, fitted to a side-on photo of the C64 and scaled so its gutter
   // (118 px up the photo) lands on the parting line. Every rounded part keeps
   // the photo's size and shape: a corner where two straight runs meet, rounded
@@ -517,7 +477,6 @@ function breadbin(k0: Kit, o: Bin): BinParts {
     END = 2, // rounding of the ends, all round
     x0 = wb.min[0] - o.side,
     x1 = wb.max[0] + o.side,
-    xr = (x0 + x1) / 2,
     yF = wb.min[1] - o.front,
     yC = wb.max[1] + o.back,
     // A rounded corner: [corner, towards previous run, towards next run,
@@ -669,17 +628,6 @@ function breadbin(k0: Kit, o: Bin): BinParts {
       };
     yN = yF + 104 * PX * fwd[0];
     if (apron) front = apron.front;
-    // Sections for inspection (prototype-shapes.html exposes them as __sections).
-    ((globalThis as { __sections?: unknown[] }).__sections ??= []).push({
-      keys: o.keys.length,
-      yF,
-      PART,
-      PX,
-      sections: [wb.min[0], xr, wb.max[0], (wb.min[0] + xr) / 2, (xr + wb.max[0]) / 2].map((x) => ({
-        x,
-        pts: section(x),
-      })),
-    });
     body = (inset: number) => {
       const ri = END - inset,
         stations: [number, number][] = [],
@@ -1192,60 +1140,44 @@ function breadbin(k0: Kit, o: Bin): BinParts {
   // Parting line between the top and bottom halves, 0.8 mm deep. (Cut as the
   // slab outside the inset body, so no face of the cut lies on the shell's.)
   const parting = slab(PART - 0.6, PART + 0.6).subtract(body(0.8));
-  // Inside the key well: a floor 14 mm under the deck, and each key on its own
-  // pedestal rising out of it, as the C64's keys rise out of the dark well.
-  // The floor stays above the parting line, so the bottom section is just a tray.
-  const floor = M.union([shell.translate([0, 0, -14]), slab(-1, PART + WALL)]),
-    below = M.union([shell.translate([0, 0, -14 - WALL]), slab(-1, PART)]),
-    pedestals = M.union(
-      names.map((n) => M.hull(corners(k, n).flatMap((p) => [p, at(k, n, 0, 0, -T), down(p, 0)]))),
-    ),
-    // Each pedestal's inside, from under its plate down through the floor.
-    bores = M.union(
-      names.map((n) =>
-        M.hull(
-          [
-            [-1, -1],
-            [1, -1],
-            [1, 1],
-            [-1, 1],
-          ].flatMap(([sx, sy]) => {
-            const p = at(k, n, sx, sy, -T, -1.6);
-            return [p, down(p, WALL)];
-          }),
-        ),
-      ),
-    ),
-    // Solid in the hollow: the well's wall and floor, and the pedestal walls.
-    keep = M.union([
-      prism(keyWell.offset(WALL, 'Miter')).subtract(below),
-      pedestals.intersect(prism(keyWell)).subtract(below),
-    ]);
+  // The well is open down through the case to the foot of its wall, which
+  // reaches WELL_WALL down from the deck (and stops short of the parting line).
+  const below = M.union([shell.translate([0, 0, -WELL_WALL]), slab(-1, PART + 3)]),
+    keep = prism(keyWell.offset(WALL, 'Miter')).subtract(below);
   const back = (m: Manifold) => m.rotate([0, 0, ang]);
   return {
     shell: back((grill ? shell.subtract(grill) : shell).subtract(trough).subtract(parting)),
-    wells: back(prism(keyWell)),
-    inside: back(
-      M.union([
-        floor.intersect(shell).intersect(prism(keyWell)),
-        pedestals.intersect(prism(keyWell)).subtract(below),
-      ]),
-    ),
+    wells: back(prism(keyWell).subtract(below)),
+    well: keyWell.rotate(ang),
     cavity: back(body(WALL)),
     keep: back(keep),
-    open: back(bores),
     x0,
   };
 }
-function c64(k: Kit, bins: Bin[]) {
+export interface Shell {
+  // The case, hollow, with the wells open through it and the port panel cut.
+  body: Manifold;
+  // The port panel's dark insert, a separate part.
+  trim: Manifold;
+  // The ribbon's slot through the port panel.
+  slot: Manifold;
+  // Each well's outline in plan.
+  wells: CrossSection[];
+  // The parting line's groove bottom: the case above it, the bottom section below.
+  split: number;
+  // Inside the case's skin: its hollow and its wells, with the walls round
+  // the wells, which room under the plates may cut back.
+  inside: Manifold;
+}
+function c64(k: Kit, bins: Bin[]): Shell {
   const M = k.wasm.Manifold,
     parts = bins.map((o) => breadbin(k, o)),
     // A bin that's another's apron is part of that bin's solid: only its
-    // well and what's in it are its own.
+    // well is its own.
     carried = (i: number) => bins.some((b) => b.apron === bins[i]),
-    hollow = M.union(parts.filter((_, i) => !carried(i)).map((p) => p.cavity))
-      .subtract(M.union(parts.map((p) => p.keep)))
-      .add(M.union(parts.map((p) => p.open)));
+    hollow = M.union(parts.filter((_, i) => !carried(i)).map((p) => p.cavity)).subtract(
+      M.union(parts.map((p) => p.keep)),
+    );
   // Each bin stops at the outline of the bins before it (the thumb bin at the
   // finger bin's walls), so its deck, trough and grill don't run on through them.
   const CS = k.wasm.CrossSection,
@@ -1260,28 +1192,17 @@ function c64(k: Kit, bins: Bin[]) {
             )
           : p.shell,
     );
-  const body = M.union([
-    M.union(shells)
-      .subtract(M.union(parts.map((p) => p.wells)))
-      .add(M.union(parts.map((p) => p.inside)))
-      .subtract(hollow),
-    plates(k),
-  ]);
-  // Plan outlines for inspection (prototype-shapes.html exposes them as __plan).
-  (globalThis as { __plan?: unknown }).__plan = {
-    bins: parts.map((p) => p.shell.project().toPolygons()),
-    wells: parts.map((p) => p.wells.project().toPolygons()),
-    caps: Object.keys(k.frames)
-      .filter(isKey)
-      .map((n) => [n, capSweep(k, n).project().toPolygons()]),
-  };
-  trim = [];
-  const i = bins.findIndex((o) => o.ports);
-  if (i < 0) return body;
-  // Port panel, as on the C64's right side: a rounded recess in the end face
-  // with a dark insert at its back, straddling the parting line, with the
-  // ribbon's slot through it.
-  const x0 = parts[i].x0,
+  const body = M.union(shells)
+    .subtract(M.union(parts.map((p) => p.wells)))
+    .subtract(hollow);
+  // Port panel, as on the C64's right side: a rounded recess in the low end
+  // face of the bin with the ports, with a dark insert at its back, straddling
+  // the parting line, with the ribbon's slot through it.
+  const i = Math.max(
+      0,
+      bins.findIndex((o) => o.ports),
+    ),
+    x0 = parts[i].x0,
     r = k.cfg.ribbon,
     land = landingBox(k.cfg),
     a = k.frames.adapter.elements,
@@ -1303,47 +1224,41 @@ function c64(k: Kit, bins: Bin[]) {
       ),
     w = r.width_mm + 2 * r.notch_clearance_mm,
     slot = M.cube([12, w, 3]).translate([x0 - 1, ry - w / 2, rz - 1.5]);
-  trim = [face(x0 + D - 0.4, x0 + D).subtract(slot)];
-  return body.subtract(face(x0 - 1, x0 + D)).subtract(slot);
+  return {
+    body: body.subtract(face(x0 - 1, x0 + D)).subtract(slot),
+    trim: face(x0 + D - 0.4, x0 + D).subtract(slot),
+    slot,
+    wells: parts.map((p) => p.well),
+    split: PART - 0.6,
+    inside: M.union([
+      ...parts.filter((_, i) => !carried(i)).map((p) => p.cavity),
+      ...parts.map((p) => p.wells),
+    ]),
+  };
 }
-// The ribbon, moved for the C64 port panel: 12 mm further back, and up on a
-// taller landing so it leaves near the parting line rather than at the bottom edge.
-const ribbonToPanel = (c: Config) => {
-  c.adapter.position_mm[1] += 12;
-  c.ribbon.landing_mm[2] = 8;
-};
-const thumbKeys = (k: Kit) => thumbs(k),
-  fingerKeys = (k: Kit) => keys(k.frames).filter((n) => n.startsWith('matrix_'));
+const fingerKeys = (k: Kit) => keys(k.frames).filter((n) => n.startsWith('matrix_'));
 // The thumb row's direction in plan, from the far key to the near key.
 function thumbAngle(k: Kit) {
   const [p, q] = [k.frames.thumb_far.elements, k.frames.thumb_near.elements];
   return (Math.atan2(q[13] - p[13], q[12] - p[12]) * 180) / Math.PI;
 }
-
-export const variants: Variant[] = [
-  {
-    key: 'c64-joined-badge',
-    name: 'C64, thumbs joined, badge on the grill',
-    blurb:
-      "The curved-deck breadbin with the top following the dish, and the thumb row joined into the finger bin's deck instead of a second bin butting into it. The finger bin's sections carry on forward over the thumb row to the thumb bin's front edge, which runs on to the finger bin's outer end and meets it at a corner. Across each section the thumb surface runs to the thumb well's back edge, then a straight run joins it to the finger surface at the finger well's front edge, with a hard angle at each end. It's all one solid: past the finger bin's inner end the thumb bin's sections carry on alone to the far thumb key, turning to square across the thumb row, and the finger bin's inner end is a face of the same solid, rounded like its other end. A C64 badge interrupts the finger bin's grill towards its outer end: a pill-shaped recess as tall as the grooves' band, with five raised stripes along its floor like the C64's rainbow, their tops just under the top around them so they can be painted.",
-    build: (k) => {
-      const tight = { side: 6, front: 13, corner: 2 },
-        thumb: Bin = {
-          keys: thumbKeys(k),
-          angle: thumbAngle(k),
-          ...tight,
-          back: 12,
-          noGrill: true,
-        },
-        m = c64(k, [
-          { keys: fingerKeys(k), ...tight, back: 20, ports: true, apron: thumb, badge: 0.7 },
-          thumb,
-        ]);
-      return noCut ? m : cutKeys(k, m);
-    },
-    color: 0xd8ccae,
-    capColor: 0x4b3a2e,
-    split: PART - 0.6, // the bottom of the parting groove
-    config: ribbonToPanel,
-  },
-];
+/**
+ * The shell for the key poses: the finger keys in one bin, with the thumb
+ * row's bin (every thumb key) carried on in front of it as one solid, a grill
+ * with a C64 badge across the finger bin's back and the port panel on its
+ * inner end.
+ */
+export function shell(k: Kit) {
+  const tight = { side: 6, front: 13, corner: 2 },
+    thumb: Bin = {
+      keys: thumbs(k),
+      angle: thumbAngle(k),
+      ...tight,
+      back: 12,
+      noGrill: true,
+    };
+  return c64(k, [
+    { keys: fingerKeys(k), ...tight, back: 20, ports: true, apron: thumb, badge: 0.7 },
+    thumb,
+  ]);
+}

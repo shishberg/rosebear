@@ -17,16 +17,17 @@ import {
 } from './geometry';
 import { hardware, type BuildResult, type Report, type Highlight } from './solid';
 import type { Wiring } from './wiring';
+import { setupMarks } from './marks';
 import './style.css';
 const $ = <E extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as E;
 const STORAGE = 'rosebear-chassis-editor:v2';
 $('app').innerHTML =
-  `<header><div><h1>Rosebear / chassis editor</h1><p>Right hand · swept Skeletyl chassis · Cirque trackpad</p></div><span id="save-state">Local project</span></header><main><aside>
-<section><h2>Key layout</h2><label><input id="edit" type="checkbox" checked> Show handles</label><small>Drag a handle parallel to the view: the Top view moves things in plan, the Front and Inner views change heights. Gold: a finger key. Up and down sets that key's height; along the column moves the column's stagger. Move a column sideways with its X offset field. Cyan: a thumb cluster's centre. Pink: turns a thumb cluster. Purple: the trackpad. Drag empty space to orbit; right-drag to pan; wheel to zoom.</small><div id="selection" aria-live="polite"><small>Click a handle to edit its numbers.</small></div><small>Values are in layout coordinates, before the whole hand is tented: +X toward the pinky, +Y away from you, +Z up.</small><button id="undo">Undo</button><button id="redo">Redo</button><button id="reset">Reset model</button></section>
-<section><h2>View</h2><label><input id="caps" type="checkbox"> Keycaps (actual configured sizes)</label><label><input id="parts" type="checkbox" checked> Tiles and components</label><label><input id="wires" type="checkbox" checked> Wiring and pads</label><label><input id="adapter" type="checkbox" checked> Adapter and ribbons</label><label><input id="base" type="checkbox"> Bottom plate</label><label>Chassis opacity<input id="opacity" type="range" min="0.1" max="1" step="0.05" value="1"></label><button id="rebuild">Rebuild & check</button><small>Handles and parts update while dragging. The previous chassis and wiring stay visible until rebuilding finishes.</small></section>
+  `<header><div><h1>Rosebear / chassis editor</h1><p>Right hand · C64 chassis</p></div><span id="save-state">Local project</span></header><main><aside>
+<section><h2>Key layout</h2><label><input id="edit" type="checkbox" checked> Show handles</label><small>Drag a handle parallel to the view: the Top view moves things in plan, the Front and Inner views change heights. Gold: a finger key. Up and down sets that key's height; along the column moves the column's stagger. Move a column sideways with its X offset field. Cyan: a thumb cluster's centre. Pink: turns a thumb cluster. Drag empty space to orbit; right-drag to pan; wheel to zoom.</small><div id="selection" aria-live="polite"><small>Click a handle to edit its numbers.</small></div><small>Values are in layout coordinates, before the whole hand is tented: +X toward the pinky, +Y away from you, +Z up.</small><button id="undo">Undo</button><button id="redo">Redo</button><button id="reset">Reset model</button></section>
+<section><h2>View</h2><label><input id="caps" type="checkbox"> Keycaps (actual configured sizes)</label><label><input id="parts" type="checkbox" checked> Tiles and components</label><label><input id="wires" type="checkbox" checked> Wiring and pads</label><label><input id="adapter" type="checkbox" checked> Adapter and ribbons</label><label><input id="base" type="checkbox" checked> Bottom section</label><label>Chassis opacity<input id="opacity" type="range" min="0.1" max="1" step="0.05" value="1"></label><button id="rebuild">Rebuild & check</button><small>Handles and parts update while dragging. The previous chassis and wiring stay visible until rebuilding finishes.</small></section>
 <section><h2>Clearance checks</h2><label>Keycap bottom at full press (mm) <input id="bottom-out" type="number" min="0" max="20" step="0.1"></label><small>Height above the flat switch seating plane.</small><label><input id="show-failures" type="checkbox" checked> Highlight failures in 3D</label><small id="fit-legend"><span class="rest">Red: at-rest / hardware collision</span><br><span class="travel">Orange: travel + clearance collision</span><br><span class="opening">Pink: opening / switch-seat defect / loose piece</span><br><span class="wire">Cyan: wire into the chassis / blocked soldering access</span><br>Highlights show through the chassis. Click a result to isolate it.</small><button id="all-failures">Show all failures</button><div id="fit-focus" aria-live="polite"></div><div id="fit-badge">Starting geometry engine…</div><ul id="fit-list"></ul><small>Passing clearance alone does not qualify the chassis for manufacture.</small><button id="report" disabled>Save report</button></section>
 <section><h2>Wiring</h2><small>Provisional: tile pads from a photo, a generic FFC adapter. Each hand is a 4 × 5 matrix; the thumbs are row RX.</small><div id="wiring-summary"></div><details><summary>Matrix and ribbon pins</summary><table id="matrix-table"></table></details><details><summary>Cut list</summary><table id="cut-list"></table></details></section>
-<section><h2>Project</h2><button class="primary" id="export">Save project</button><button id="import">Open project</button><input id="file" type="file" accept=".json,application/json" hidden><button id="stl" disabled>Export review STL</button><button id="stl-housing" disabled>Export trackpad housing STL</button><small>Autosaved in this browser. Save a project file for backup or another browser.</small><div id="load-error"></div><details><summary>All configuration</summary><small>Every layout, chassis and component dimension. The handles and fields above edit the same values.</small><textarea id="config" aria-label="Configuration"></textarea><button id="apply-config">Apply configuration</button></details></section></aside>
+<section><h2>Project</h2><button class="primary" id="export">Save project</button><button id="import">Open project</button><input id="file" type="file" accept=".json,application/json" hidden><button id="stl" disabled>Export review STL</button><button id="stl-base" disabled>Export bottom section STL</button><small>Autosaved in this browser. Save a project file for backup or another browser.</small><div id="load-error"></div><details><summary>All configuration</summary><small>Every layout, chassis and component dimension. The handles and fields above edit the same values.</small><textarea id="config" aria-label="Configuration"></textarea><button id="apply-config">Apply configuration</button></details></section></aside>
 <div id="viewport"><div id="viewbar">${['3D', 'Top', 'Underside', 'Front', 'Inner'].map((v) => `<button data-view="${v}">${v}</button>`).join('')}</div><div id="view-state">Loading model…</div></div></main>`;
 let project = clone(defaults),
   loadProblem = '';
@@ -80,13 +81,12 @@ const basePlate = new T.Mesh(
   new T.MeshStandardMaterial({ color: 0x7f9a96, roughness: 0.8 }),
 );
 scene.add(basePlate);
-const pad = new T.Mesh(
+// The port panel's dark insert.
+const trim = new T.Mesh(
   new T.BufferGeometry(),
-  new T.MeshStandardMaterial({ color: 0x3d474c, roughness: 0.35 }),
+  new T.MeshStandardMaterial({ color: 0x2a2826, roughness: 0.6 }),
 );
-scene.add(pad);
-const housing = new T.Mesh(new T.BufferGeometry(), material);
-scene.add(housing);
+scene.add(trim);
 const parts = new T.Group();
 scene.add(parts);
 const wires = new T.Group();
@@ -111,10 +111,7 @@ function updateFailures(items: Highlight[]) {
     const color =
       item.kind === 'travel' || item.kind === 'room'
         ? 0xffa124
-        : item.kind === 'opening' ||
-            item.kind === 'seat' ||
-            item.kind === 'loose' ||
-            item.kind === 'wall'
+        : item.kind === 'opening' || item.kind === 'seat' || item.kind === 'loose'
           ? 0xf16bd8
           : item.kind === 'wire' || item.kind === 'solder'
             ? 0x40e0ff
@@ -176,7 +173,7 @@ const TURN = 40;
 function handles(p: Project) {
   const c = p.config,
     frames = componentFrames(c),
-    out: { id: string; kind: 'key' | 'cluster' | 'turn' | 'trackpad'; at: T.Vector3 }[] = [];
+    out: { id: string; kind: 'key' | 'cluster' | 'turn'; at: T.Vector3 }[] = [];
   for (const [n, m] of Object.entries(frames))
     if (n.startsWith('matrix_'))
       out.push({ id: 'key:' + n, kind: 'key', at: new T.Vector3().setFromMatrixPosition(m) });
@@ -192,11 +189,6 @@ function handles(p: Project) {
       at: world(c, [root.x + Math.sin(a) * TURN, root.y - Math.cos(a) * TURN, root.z]),
     });
   }
-  out.push({
-    id: 'trackpad',
-    kind: 'trackpad',
-    at: new T.Vector3().setFromMatrixPosition(frames.trackpad),
-  });
   return out;
 }
 // The layout axis nearest the view direction is left unchanged, so a drag in
@@ -231,8 +223,7 @@ function dragTo(
       s = toLayout(c, start.clone().sub(o)),
       e = toLayout(c, start.clone().add(delta).sub(o));
     cl.rotation_deg[2] += ((Math.atan2(e.y, e.x) - Math.atan2(s.y, s.x)) * 180) / Math.PI;
-  } else if (id === 'trackpad')
-    c.trackpad.position_mm = c.trackpad.position_mm.map((x, i) => x + d.getComponent(i));
+  }
   return p;
 }
 // Number fields for the selected handle: [label, path into the config].
@@ -271,16 +262,6 @@ function fields(id: string): { title: string; list: Field[] } {
       ],
     };
   }
-  if (id === 'trackpad')
-    return {
-      title: 'trackpad',
-      list: [
-        ['X mm', ['trackpad', 'position_mm', 0]],
-        ['Y mm', ['trackpad', 'position_mm', 1]],
-        ['Z mm', ['trackpad', 'position_mm', 2]],
-        ['Tilt about Y °', ['trackpad', 'rotation_deg', 1]],
-      ],
-    };
   return { title: '', list: [] };
 }
 const getAt = (o: unknown, path: (string | number)[]) =>
@@ -318,7 +299,7 @@ function updateSelection() {
     };
   });
 }
-const handleColors = { key: 0xffd48b, cluster: 0x60dfff, turn: 0xff8fd8, trackpad: 0xb58cff };
+const handleColors = { key: 0xffd48b, cluster: 0x60dfff, turn: 0xff8fd8 };
 const handleGroup = new T.Group();
 scene.add(handleGroup);
 function updateHandles() {
@@ -416,8 +397,7 @@ function setShell(r: BuildResult) {
   hasShell = true;
   setMesh(shell, r.mesh);
   setMesh(basePlate, r.base);
-  setMesh(pad, r.trackpad);
-  setMesh(housing, r.housing);
+  setMesh(trim, r.trim);
   originalIndices = (shell.geometry.getIndex()!.array as Uint32Array).slice();
   render();
 }
@@ -488,12 +468,10 @@ const colors: Record<string, number> = {
   components: 0x303b43,
   switch: 0x667e86,
   keycaps: 0xd7d8bd,
-  trackpad: 0x3d474c,
-  'trackpad parts': 0x5b4f7a,
-  'trackpad cable': 0xd9b45a,
   adapter: 0x2f6f4f,
   ribbon: 0xd9b45a,
   pads: 0xd8c27a,
+  glue: 0xf2e6a0,
 };
 /** Wire colours by net group. */
 const wireColors: Record<string, number> = {
@@ -503,7 +481,7 @@ const wireColors: Record<string, number> = {
   power: 0xff4d4d,
   ground: 0x222222,
 };
-const ADAPTER_GROUPS = ['adapter', 'ribbon', 'trackpad cable'];
+const ADAPTER_GROUPS = ['adapter', 'ribbon'];
 function clearGroup(g: T.Group) {
   for (const o of [...g.children]) {
     g.remove(o);
@@ -515,7 +493,6 @@ function clearGroup(g: T.Group) {
 function updateHardware() {
   clearGroup(parts);
   for (const p of hardware(project)) {
-    if (p.group === 'trackpad') continue;
     const g = p.cylinder
         ? new T.CylinderGeometry(p.cylinder, p.cylinder, p.size[2], 48).rotateX(Math.PI / 2)
         : new T.BoxGeometry(...p.size),
@@ -631,7 +608,7 @@ function markStale() {
   solidRevision = -1;
   report = undefined;
   $<HTMLButtonElement>('stl').disabled = true;
-  $<HTMLButtonElement>('stl-housing').disabled = true;
+  $<HTMLButtonElement>('stl-base').disabled = true;
   $<HTMLButtonElement>('report').disabled = true;
   $('fit-badge').className = '';
   $('fit-badge').textContent = 'Not checked for this edit';
@@ -693,7 +670,7 @@ function startWorker() {
         solidRevision = revision;
         showReport(report);
         $<HTMLButtonElement>('stl').disabled = false;
-        $<HTMLButtonElement>('stl-housing').disabled = false;
+        $<HTMLButtonElement>('stl-base').disabled = false;
         $<HTMLButtonElement>('report').disabled = false;
         $('view-state').textContent =
           `Chassis rebuilt in ${(report.milliseconds / 1000).toFixed(2)} s`;
@@ -762,24 +739,18 @@ function showReport(r: Report) {
   );
   add(
     r.pieces.length === 1
-      ? 'The chassis is one piece without the bottom plate.'
-      : `The chassis is ${r.pieces.length} pieces without the bottom plate.`,
+      ? 'The case is one piece without the bottom section.'
+      : `The case is ${r.pieces.length} pieces without the bottom section.`,
   );
   for (let i = 1; i < r.pieces.length; i++)
     add(`loose piece ${i}: ${(r.pieces[i] / 1000).toFixed(1)} cm³`, `loose piece ${i}`);
   add(
     r.footprint.length === 1
-      ? 'The walls meet along the base without the bottom plate.'
-      : `The walls stand on ${r.footprint.length} separate footprints without the bottom plate.`,
+      ? 'The case holds together along the parting line without the bottom section.'
+      : `The case meets the parting line in ${r.footprint.length} separate pieces.`,
   );
   for (let i = 1; i < r.footprint.length; i++)
     add(`separate footprint ${i}: ${r.footprint[i].toFixed(0)} mm²`, `separate footprint ${i}`);
-  add(
-    r.pocketCut <= 0.01
-      ? 'No part reaches into a tile pocket.'
-      : `Parts reach ${r.pocketCut.toFixed(1)} mm³ into the tile pockets.`,
-    r.pocketCut > 0.01 ? 'tile pocket cut' : undefined,
-  );
   add(
     r.roomCuts.length
       ? `${r.roomCuts.length} keycap rooms had to cut into the chassis.`
@@ -789,20 +760,6 @@ function showReport(r: Report) {
     add(
       `${c.name.replaceAll('_', ' ')}: its keycap room cut ${c.volume.toFixed(1)} mm³ out of the chassis`,
       `${c.name} keycap room`,
-    );
-  const badWalls = r.walls.filter((w) => !w.passed);
-  add(
-    badWalls.length
-      ? `${badWalls.length} wall windows have gaps or blind cutouts.`
-      : `The walls are solid apart from their ${r.walls.length} cutouts, and every cutout goes through.`,
-  );
-  for (const w of badWalls)
-    add(
-      `${w.name.replaceAll('_', ' ')}: ${[
-        ...w.gaps.map((a) => `gap through the wall, ${a.toFixed(2)} mm²`),
-        ...(w.blindCutouts ? ['cutout does not go through'] : []),
-      ].join('; ')}`,
-      w.name,
     );
   for (const seat of r.seats)
     if (!seat.passed)
@@ -837,13 +794,6 @@ function showReport(r: Report) {
   );
   for (const p of r.solder)
     add(`${p.name.replaceAll('_', ' ')}: soldering iron's way blocked`, p.name);
-  const h = r.housing;
-  add(
-    h.pieces === 1 && h.fit <= 0.05 && h.slide <= 0.05
-      ? 'The trackpad housing is one piece and slides onto its mount.'
-      : `Trackpad housing: ${h.pieces} pieces, ${h.fit.toFixed(2)} mm³ overlap where it sits, ${h.slide.toFixed(2)} mm³ in its way off the mount.`,
-    h.fit > 0.05 ? 'trackpad housing' : h.slide > 0.05 ? 'trackpad housing slide' : undefined,
-  );
   for (const o of r.openings)
     if (o.covered < 9 || o.blocked || o.removed < 0.001)
       add(`${o.name}: incomplete opening (${o.covered}/9 probes, ${o.blocked} blocked)`, o.name);
@@ -935,11 +885,11 @@ $('stl').onclick = () => {
     'application/octet-stream',
   );
 };
-$('stl-housing').onclick = () => {
+$('stl-base').onclick = () => {
   if (solidRevision !== revision) return;
   download(
-    'rosebear-trackpad-housing.stl',
-    new STLExporter().parse(housing, { binary: true }) as DataView<ArrayBuffer>,
+    'rosebear-right-bottom.stl',
+    new STLExporter().parse(basePlate, { binary: true }) as DataView<ArrayBuffer>,
     'application/octet-stream',
   );
 };
@@ -993,7 +943,7 @@ const screen = (p: T.Vector3) => {
 renderer.domElement.addEventListener(
   'pointerdown',
   (e) => {
-    if (e.button !== 0 || !$('edit').matches(':checked')) return;
+    if (e.button !== 0 || !$('edit').matches(':checked') || marks.painting()) return;
     let best = 13,
       hit: ReturnType<typeof handles>[number] | undefined;
     for (const h of handles(project)) {
@@ -1141,6 +1091,24 @@ Object.assign(window, {
     },
   },
 });
+// Review marks painted on the model, saved by the dev server (vite.config.ts),
+// so only there.
+const marks = !import.meta.env.DEV
+  ? { painting: () => false }
+  : setupMarks({
+      scene,
+      camera,
+      controls,
+      renderer,
+      targets: () => [
+        [shell, 'shell'],
+        [basePlate, 'bottom section'],
+        [trim, 'trim'],
+        ...parts.children.map((o): [T.Object3D, string] => [o, o.userData.group ?? 'other']),
+      ],
+      view: () => ({ variant: 'chassis', thumbs: 'editor', query: location.search }),
+      render,
+    });
 historyButtons();
 refreshInputs();
 preview();

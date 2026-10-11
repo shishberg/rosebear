@@ -9,14 +9,14 @@
 //  chain    keys joined one to the next by a net's wires (wiring.nets[].chains);
 //  feed     the wire from a chain's end to its adapter hole;
 //  loom     the height above the bottom plate at which feeds run to the adapter;
-//  wire port  a round hole thumb wires pass through into the finger columns:
-//           through the thumb row's back wall and the slot between the inner
-//           and index columns' front swept ends;
+//  wire port  where thumb wires pass from under the thumb well to under the
+//           finger well: a straight round way in front of the gap between the
+//           inner and index columns' bottom keys, inside the case's hollow;
 //  slack loop  the arch the ribbon makes between the connector and the landing,
 //           so a pull held by the ties never reaches the connector.
 import { Matrix4, Vector3 } from 'three';
-import { componentFrames, point, slideToward, type Config, type V3 } from './geometry';
-import { seatSettings } from './seats';
+import { componentFrames, point, type Config, type V3 } from './geometry';
+import { PLATES, plateEdges, plateHalfWidths } from './plates';
 import type { Part } from './solid';
 
 export interface NetSpec {
@@ -69,6 +69,8 @@ export interface Wiring {
 export const WIRING = {
   /** The wire port's inside end is this far inside the plate corners. */
   slotInside: 3,
+  /** The wire port runs halfway down from this far under the lower of its two plate corners to the base. */
+  portBelow: 9,
   /**
    * A thumb's wires through the port gather this far out from its edge facing
    * the port, and this far below the tile, each offset as its place in the port.
@@ -80,10 +82,14 @@ export const WIRING = {
   /**
    * Depths below a tile's underside a wire runs at: from hopDepth for a hop
    * over the pad's own edge, from stripDepth along the pads' strip (under the
-   * other pads' drops and the tile rests), or from just under the tile's parts
+   * other pads' drops), or from just under the tile's parts
    * across the tile; then depthChoices steps of depthStep deeper.
    */
   hopDepth: 0.6,
+  /** Between keys at different heights, how far in under the higher tile a wire may step back to find its way down. */
+  climbBack: 12,
+  /** Failing that, how far below the lower of the two legs' ends a wire may run across under both. */
+  climbUnder: 6,
   stripDepth: 2.7,
   stripStep: 0.9,
   depthStep: 0.7,
@@ -136,15 +142,6 @@ export const WIRING = {
   placeChoices: 13,
   /** Feeds and wires through the port try only this many of the depths. */
   longDepths: 2,
-  /**
-   * The tile rests' room, kept clear of wires, in the key's frame: under the
-   * side edges from this far in from the tile's edge, down this far below the
-   * tile, and (in the finger columns) from restFrom off the centre to the end
-   * of the tile its feet are under (see slideToward).
-   */
-  restIn: 1.7,
-  restDepth: 2.1,
-  restFrom: 2,
   /** Wires are checked against the tiles and their parts every this many mm along. */
   sample: 0.3,
   /** Ribbon segments per half turn of the slack loop. */
@@ -195,10 +192,9 @@ const facing = (m: Matrix4, dir: number[]) => {
 };
 
 /**
- * The wire port from the thumb rows into the finger columns: a straight round
- * hole along the axis of the slot between the inner and index columns' front
- * swept ends, at the height of the slot's round bottom, and on through the
- * thumb row's back wall. `outside` is its end under the thumb tiles, `inside`
+ * The wire port from under the thumb row to under the finger columns: a
+ * straight round way out in front of the gap between the inner and index
+ * columns' bottom keys, below them. `outside` is its end under the thumb tiles, `inside`
  * its end inside the finger columns, `centre` where it crosses the line
  * between the two keys' plate corners.
  */
@@ -221,7 +217,7 @@ export function wirePort(cfg: Config, frames = componentFrames(cfg)) {
   const centre = mid(pa, pb);
   const halfWidth = Math.max(1.5, Math.hypot(pa[0] - pb[0], pa[1] - pb[1]) / 2);
   const foot = 1;
-  const z = foot + (Math.min(pa[2], pb[2]) - cfg.chassis.end_radius_mm - foot) / 2 + halfWidth;
+  const z = foot + (Math.min(pa[2], pb[2]) - WIRING.portBelow - foot) / 2 + halfWidth;
   // Outward: the mean of the two keys' front edge directions, in plan.
   const out = [a, b]
     .map((n) => {
@@ -239,15 +235,6 @@ export function wirePort(cfg: Config, frames = componentFrames(cfg)) {
     diameter: cfg.wiring.port_diameter_mm,
   };
 }
-
-/** The plates' half-widths, as the chassis builds them. */
-const plateHalfWidths = (cfg: Config) => {
-  const seat = seatSettings(cfg).outer;
-  const tile = cfg.tile;
-  return [0, 1].map((i) =>
-    Math.max(seat[i] / 2 + cfg.chassis.plate_margin_mm, tile.size_mm[i] / 2 + tile.clearance_mm),
-  );
-};
 
 /** The closest distance between segments pq and rs. */
 export function segmentDistance(p: V3, q: V3, r: V3, s: V3) {
@@ -445,20 +432,33 @@ export function wiring(cfg: Config, frames = componentFrames(cfg)): Wiring {
   const hole = holes(cfg, frames);
   const port = wirePort(cfg, frames);
 
-  // What wires keep out of: each tile from its underside up, its parts with
-  // their clearance, and the tile rests' room under its side edges.
+  // What wires keep out of: each tile from its underside up, and its parts
+  // with their clearance.
   const obstacles: Obstacle[] = [];
+  // And, where a wire climbs between keys at different heights, the plates
+  // with the reach of an edge that has no neighbour.
+  const plates: Obstacle[] = [];
+  const plateHalf = plateHalfWidths(cfg);
   const [hx, hy] = tile.size_mm.map((x) => x / 2 + tile.clearance_mm);
   const c = tile.component_clearance_mm;
   const tileTop = -tile.plate_top_to_pcb_top_mm;
+  const reach: Record<string, number[][]> = Object.assign(
+    {},
+    plateEdges(cfg, frames, keys.filter(isThumb)).reach,
+    plateEdges(
+      cfg,
+      frames,
+      keys.filter((k) => !isThumb(k)),
+    ).reach,
+  );
   for (const key of keys) {
     const m = frames[key];
     const inverse = m.clone().invert();
-    const box = (lo: V3, hi: V3) => {
+    const box = (lo: V3, hi: V3, list = obstacles) => {
       const corners = [0, 1, 2, 3, 4, 5, 6, 7].map((i) =>
         point(m, [i & 1 ? hi[0] : lo[0], i & 2 ? hi[1] : lo[1], i & 4 ? hi[2] : lo[2]]),
       );
-      obstacles.push({
+      list.push({
         name: `${key} ${obstacles.length}`,
         inverse,
         lo,
@@ -468,28 +468,40 @@ export function wiring(cfg: Config, frames = componentFrames(cfg)): Wiring {
       });
     };
     box([-hx, -hy, padZ], [hx, hy, 0]);
+    // Each plate with its edges' reach, as the chassis builds it, and each
+    // reach run on along its edge into the gap beside a neighbour, where the
+    // join between their reaches fills it.
+    const r = reach[key];
+    const pt = -cfg.chassis.plate_thickness_mm;
+    const lo = (axis: number): number => -plateHalf[axis] - r[axis][0];
+    const hi = (axis: number): number => plateHalf[axis] + r[axis][1];
+    box([-plateHalf[0], -plateHalf[1], pt], [plateHalf[0], plateHalf[1], 0], plates);
+    box([lo(0), lo(1), -PLATES.reachThickness], [hi(0), hi(1), 0], plates);
+    for (const axis of [0, 1])
+      for (const side of [0, 1]) {
+        if (!r[axis][side]) continue;
+        const along = 1 - axis;
+        const a: V3 = [0, 0, -PLATES.reachThickness];
+        const b: V3 = [0, 0, 0];
+        a[axis] = side ? plateHalf[axis] : lo(axis);
+        b[axis] = side ? hi(axis) : -plateHalf[axis];
+        a[along] = lo(along) - (r[along][0] ? 0 : PLATES.neighbourGap / 2);
+        b[along] = hi(along) + (r[along][1] ? 0 : PLATES.neighbourGap / 2);
+        box(a, b, plates);
+      }
     for (const p of tile.components)
       box(
         p.center_mm.map((x, k) => x + (k === 2 ? tileTop : 0) - p.size_mm[k] / 2 - c) as V3,
         p.center_mm.map((x, k) => x + (k === 2 ? tileTop : 0) + p.size_mm[k] / 2 + c) as V3,
       );
-    const ahead = slideToward(key);
-    const [from, to] = isThumb(key)
-      ? [-hy, hy]
-      : [ahead * WIRING.restFrom, ahead * hy].sort((x, y) => x - y);
-    for (const sx of [-1, 1])
-      box(
-        [sx > 0 ? hx - WIRING.restIn : -hx - 3, from, padZ - WIRING.restDepth],
-        [sx > 0 ? hx + 3 : -hx + WIRING.restIn, to, padZ],
-      );
   }
   /** Whether a wire's segment comes within r of an obstacle. */
-  const blocked = (a: V3, b: V3, r: number) => {
+  const blocked = (a: V3, b: V3, r: number, among = obstacles) => {
     const lo = [0, 1, 2].map((k) => Math.min(a[k], b[k]) - r);
     const hi = [0, 1, 2].map((k) => Math.max(a[k], b[k]) + r);
     const steps = Math.max(1, Math.ceil(distance(a, b) / WIRING.sample));
     const limit = (r - WIRING.touch) ** 2;
-    for (const o of obstacles) {
+    for (const o of among) {
       if ([0, 1, 2].some((k) => lo[k] > o.whi[k] || hi[k] < o.wlo[k])) continue;
       const e = o.inverse.elements;
       const local = (p: V3) =>
@@ -641,6 +653,8 @@ export function wiring(cfg: Config, frames = componentFrames(cfg)): Wiring {
   const half = [hx, hy];
   // Set when a leg's shift takes it out past its tile's pocket, into the chassis.
   let strayed = false;
+  // Set when a join between two keys' legs finds no way past the plates.
+  let stuck = false;
   let keep = 0;
   /**
    * A pad's way off its tile, in the tile's frame: just under the tile,
@@ -716,6 +730,52 @@ export function wiring(cfg: Config, frames = componentFrames(cfg)): Wiring {
       const cb = point(frames[a.key], [0, 0, 0]);
       const p = leg(a, edgeToward(a.key, ca), lane.da, lane.aside);
       const q = leg(b, edgeToward(b.key, cb), lane.db, lane.asideB ?? lane.aside);
+      // Straight across between the legs' ends, or, where that runs into a
+      // tile (a key much higher than its neighbour, beside it), straight down
+      // from the higher end first, then across.
+      const [pe, qe] = [p.at(-1)!, q.at(-1)!];
+      const r = w.power_wire_mm / 2;
+      const clear = (a: V3, b: V3) => !blocked(a, b, r) && !blocked(a, b, r, plates);
+      if (clear(pe, qe)) return clean([...p, ...q.reverse()]);
+      // Down from the higher key's leg as it heads out under its tile: from
+      // the last place along its run to the edge where the way down misses the
+      // lower key's tile and plate, or failing that, from a step back in under
+      // the higher tile toward its centre; then across.
+      const [h, l, own] = pe[2] > qe[2] ? [p, q, cb] : [q, p, ca];
+      const [from, to] = [h.at(-2)!, h.at(-1)!];
+      const end = l.at(-1)!;
+      for (let back = 0; back <= WIRING.climbBack; back += 1)
+        for (let t = 1; t >= 0; t -= 0.05) {
+          const run: V3 = [0, 1, 2].map((k) => from[k] + (to[k] - from[k]) * t) as V3;
+          const d = Math.hypot(own[0] - run[0], own[1] - run[1]) || 1;
+          const top: V3 = [
+            run[0] + ((own[0] - run[0]) / d) * back,
+            run[1] + ((own[1] - run[1]) / d) * back,
+            run[2],
+          ];
+          const foot: V3 = [top[0], top[1], end[2]];
+          if (clear(run, top) && clear(top, foot) && clear(foot, end)) {
+            const way = [...h.slice(0, -1), run, top, foot, ...[...l].reverse()];
+            return clean(h === p ? way : way.reverse());
+          }
+        }
+      // Or round a corner in plan, along one key's edge and then the other's.
+      const mid = (pe[2] + qe[2]) / 2;
+      for (const c of [
+        [pe[0], qe[1], mid],
+        [qe[0], pe[1], mid],
+      ] as V3[])
+        if (clear(pe, c) && clear(c, qe)) return clean([...p, c, ...q.reverse()]);
+      // Or under both ends: down from each, and across below them.
+      for (let d = 1; d <= WIRING.climbUnder; d += 1) {
+        const z = Math.max(Math.min(pe[2], qe[2]) - d, loomZ);
+        const [a, b]: V3[] = [
+          [pe[0], pe[1], z],
+          [qe[0], qe[1], z],
+        ];
+        if (clear(pe, a) && clear(a, b) && clear(b, qe)) return clean([...p, a, b, ...q.reverse()]);
+      }
+      stuck = true;
       return clean([...p, ...q.reverse()]);
     }
     // The lane's first depth and aside are for a's leg, the second for b's.
@@ -729,7 +789,7 @@ export function wiring(cfg: Config, frames = componentFrames(cfg)): Wiring {
   };
   const crossesPort = (s: Spec) =>
     typeof s.a === 'number' ? isThumb(s.b.key) : isThumb(s.a.key) !== isThumb(s.b.key);
-  /** Whether a route runs into a tile, its parts or its rests (its drops at the pads excepted). */
+  /** Whether a route runs into a tile or its parts (its drops at the pads excepted). */
   // Many routes share segments (their legs), so each segment is tested once.
   const tested = new Map<string, boolean>();
   const hitsTiles = (points: V3[], r: number) => {
@@ -954,6 +1014,7 @@ export function wiring(cfg: Config, frames = componentFrames(cfg)): Wiring {
         [s.b, ...others(s.b)].flatMap((b, kb) =>
           candidates({ ...s, a, b: b as Pad }, placeOf.get(i)).flatMap(({ lane, place, rank }) => {
             strayed = false;
+            stuck = false;
             keep = d / 2;
             const points = route(
               ka ? (a as Pad) : ends[i].a,
@@ -965,7 +1026,7 @@ export function wiring(cfg: Config, frames = componentFrames(cfg)): Wiring {
             return {
               tube: tubeOf(points, d),
               rank: rank + (ka ? WIRING.otherPad : 0) + (kb ? WIRING.otherPad : 0),
-              blocked: hitsTiles(points, d / 2),
+              blocked: stuck || hitsTiles(points, d / 2),
             };
           }),
         ),
@@ -1274,7 +1335,7 @@ export function landingBox(cfg: Config) {
   };
 }
 
-/** The adapter, its connector, the ribbon and the trackpad's cable, as parts for display and the checks. */
+/** The adapter, its connector and the ribbon, as parts for display and the checks. */
 export function adapterParts(cfg: Config, frames = componentFrames(cfg)): Part[] {
   const a = cfg.adapter;
   const r = cfg.ribbon;
@@ -1312,32 +1373,6 @@ export function adapterParts(cfg: Config, frames = componentFrames(cfg)): Part[]
         across,
         r.width_mm,
         r.thickness_mm,
-      ),
-    );
-  // The trackpad's own cable: straight down out of its connector, through the
-  // housing's floor, then away from the mount.
-  const t = cfg.trackpad;
-  const tf = frames.trackpad;
-  const cableX = -t.connector_from_centre_mm;
-  const bottom = -t.pod_depth_mm - 1.5;
-  const top = -t.top_below_rim_mm - t.thickness_mm - t.connector_mm[2];
-  const cable = [
-    [cableX, 0, top],
-    [cableX, 0, bottom],
-    [cableX - 3, 0, bottom - 3],
-    [cableX - 18, 0, bottom - 3],
-  ].map((p) => point(tf, p));
-  const tAcross = point(tf, [0, 1, 0]).map((x, i) => x - tf.elements[12 + i]) as V3;
-  for (let i = 0; i + 1 < cable.length; i++)
-    parts.push(
-      segmentPart(
-        `Trackpad cable ${i + 1}`,
-        'trackpad cable',
-        cable[i],
-        cable[i + 1],
-        tAcross,
-        t.cable_width_mm,
-        0.12,
       ),
     );
   return parts;
