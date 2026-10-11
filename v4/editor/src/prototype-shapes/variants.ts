@@ -1598,7 +1598,7 @@ function breadbin(k0: Kit, o: Bin): BinParts {
     PX = PART / 118, // mm per px
     RAKE = Math.tan((7.2 * Math.PI) / 180),
     bk = Math.hypot(RAKE, 1),
-    END = 4,
+    END = 2, // rounding of the ends, all round
     x0 = wb.min[0] - o.side,
     x1 = wb.max[0] + o.side,
     xr = (x0 + x1) / 2,
@@ -1902,6 +1902,14 @@ function c64(k: Kit, bins: Bin[]) {
       .subtract(hollow),
     plates(k),
   ]);
+  // Plan outlines for inspection (prototype-shapes.html exposes them as __plan).
+  (globalThis as { __plan?: unknown }).__plan = {
+    bins: parts.map((p) => p.shell.project().toPolygons()),
+    wells: parts.map((p) => p.wells.project().toPolygons()),
+    caps: Object.keys(k.frames)
+      .filter(isKey)
+      .map((n) => [n, capSweep(k, n).project().toPolygons()]),
+  };
   trim = [];
   const i = bins.findIndex((o) => o.ports);
   if (i < 0) return body;
