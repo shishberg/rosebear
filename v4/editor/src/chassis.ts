@@ -354,12 +354,18 @@ export function buildChassis(
         );
       // Each key's face is flat to 0.8 mm past its seat: where a neighbour's
       // plane stands above it there (by under 0.2 mm, where the ring and
-      // pinky columns meet), it is cut down to it.
+      // pinky columns meet), it is cut down to it, the cut's sides at 45
+      // degrees so it leaves a bevel rather than a pit.
       const flats = M.union(
         ns.map((n) =>
-          place(
-            M.cube([seat[0] + 1.6, seat[1] + 1.6, 20], true).translate([0, 0, 10]),
-            frames[n],
+          M.hull(
+            [0, 20].flatMap((z) =>
+              [-1, 1].flatMap((sx) =>
+                [-1, 1].map((sy) =>
+                  keyPoint(n, sx * (seatHalf[0] + 0.8 + z), sy * (seatHalf[1] + 0.8 + z), z),
+                ),
+              ),
+            ),
           ),
         ),
       );
@@ -367,7 +373,9 @@ export function buildChassis(
       return {
         cores: floor,
         rest: floor,
-        rooms: room(SIZES.underRoom),
+        // Only under the floor: above its underside the room would cut the
+        // well's wall away above the floor, leaving a slot.
+        rooms: room(SIZES.underRoom).intersect(under(-plateThickness)),
         below: under(0).intersect(clip),
         top: floor,
         skirt: column(PLATES.wellReach, SIZES.skirtInto - plateThickness, SIZES.skirtDepth)
