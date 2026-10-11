@@ -3,7 +3,7 @@
 // sample is the screen point and, where the ray hits the model, the world point
 // and normal on it. Save sends the strokes, the camera, a note and a screenshot
 // to the dev server, which writes them to prototype-marks/ (see vite.config.ts).
-// ?mark=<id> opens on a saved mark's view.
+// ?mark=<id> opens on a saved mark's view; ?marks=0 hides the saved marks.
 import * as T from 'three';
 import type { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
@@ -48,7 +48,7 @@ export function setupMarks(o: {
   panel.innerHTML = `<div style="display:flex;gap:6px;align-items:center"><button id="mk-paint">✎ Paint (M)</button><span id="mk-mode" style="color:#9aa"></span></div>
 <div id="mk-edit" style="display:none;margin-top:6px"><textarea id="mk-note" rows="3" placeholder="What's wrong here (optional)" style="width:100%;box-sizing:border-box;font:12px system-ui"></textarea>
 <div style="display:flex;gap:6px;margin-top:4px"><button id="mk-save">Save mark</button><button id="mk-undo">Undo stroke</button><button id="mk-clear">Clear</button></div></div>
-<label style="display:block;margin-top:6px"><input id="mk-show" type="checkbox" checked> show saved marks</label>
+<label style="display:block;margin-top:6px"><input id="mk-show" type="checkbox" ${new URLSearchParams(location.search).get('marks') === '0' ? '' : 'checked'}> show saved marks</label>
 <div id="mk-list" style="max-height:40vh;overflow:auto"></div>`;
   document.body.append(panel);
   const $ = <E extends HTMLElement>(id: string) => document.getElementById(id) as E;

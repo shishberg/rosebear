@@ -1675,11 +1675,22 @@ function binSurface(k0: Kit, o: Bin) {
     ),
     [px0, px1] = [Math.min(...cs.map((c) => c[0])), Math.max(...cs.map((c) => c[0]))],
     [py0, py1] = [Math.min(...cs.map((c) => c[1])), Math.max(...cs.map((c) => c[1]))];
+  // Held with smooth clamps and a smooth minimum (each eased over its
+  // width): a hard one leaves a crease in the deck along the line where it
+  // takes hold.
+  const smax = (a: number, b: number, w: number) => {
+      const h = Math.max(w - Math.abs(a - b), 0) / w;
+      return Math.max(a, b) + (h * h * w) / 4;
+    },
+    smin = (a: number, b: number, w: number) => -smax(-a, -b, w),
+    clamp = (v: number, lo: number, hi: number) => smin(hi, smax(lo, v, HOLD), HOLD);
   return (x: number, y: number) => {
-    const xc = Math.min(px1, Math.max(px0, x));
-    return Math.min(fitted(xc, Math.min(py1, Math.max(py0, y))), fitted(xc, py0), fitted(xc, py1));
+    const xc = clamp(x, px0, px1);
+    return smin(smin(fitted(xc, clamp(y, py0, py1)), fitted(xc, py0), 1), fitted(xc, py1), 1);
   };
 }
+// The width over which a bin's key surface eases from its fit to level.
+const HOLD = 10;
 // The deck of a bin carrying another bin's (its apron's) deck in front of its
 // well, in world coordinates (the carrying bin has no angle). own: the
 // carrying bin's surface. front: the apron's front edge at x. breaks: where the
@@ -2131,13 +2142,33 @@ function breadbin(k0: Kit, o: Bin): BinParts {
           [yf + 113 * PX, 0],
         ] as [number, number][];
       },
-      // Where an outline joined from the apron's section and this bin's
-      // (inset further) leaves the apron's: first (counter-clockwise) on the
-      // deck, then low on the apron's back.
-      junctions = (U: CrossSection, T: CrossSection): [number, number][] => {
-        const u = largest(U),
-          t = largest(T),
-          dist = ([y, z]: [number, number]) =>
+      // An outline moved inward by e, except along the stretch from a round
+      // (counter-clockwise) to b, which the apron's outline t shares. Off
+      // that stretch the move eases in with the distance from t: never more
+      // than half that distance, so the outline can't cross t. Points are a
+      // few tenths of a millimetre apart first, so the easing is smooth.
+      shrinkAway = (
+        poly: [number, number][],
+        a: [number, number],
+        b: [number, number],
+        e: number,
+        t: [number, number][],
+      ) => {
+        const TAPER = 3 * END,
+          m = poly.length,
+          ia = poly.findIndex((p) => p[0] === a[0] && p[1] === a[1]),
+          ib = poly.findIndex((p) => p[0] === b[0] && p[1] === b[1]),
+          free: [number, number][] = [];
+        // The free stretch, b round to a, made dense.
+        for (let k = 0, i = ib; k < (ia - ib + m) % m; k++, i = (i + 1) % m) {
+          const p = poly[i],
+            q = poly[(i + 1) % m],
+            steps = Math.max(1, Math.ceil(Math.hypot(q[0] - p[0], q[1] - p[1]) / 0.3));
+          for (let j = 0; j < steps; j++)
+            free.push([p[0] + ((q[0] - p[0]) * j) / steps, p[1] + ((q[1] - p[1]) * j) / steps]);
+        }
+        free.push(poly[ia]);
+        const fromT = ([y, z]: [number, number]) =>
             Math.min(
               ...t.map((p, i) => {
                 const q = t[(i + 1) % t.length],
@@ -2147,12 +2178,60 @@ function breadbin(k0: Kit, o: Bin): BinParts {
                 return Math.hypot(p[0] + f * dy - y, p[1] + f * dz - z);
               }),
             ),
-          on = u.map((p) => dist(p) < 1e-3),
-          n = u.length,
-          starts = u.flatMap((_, i) => (on[i] && !on[(i + n - 1) % n] ? [i] : [])),
-          ends = u.flatMap((_, i) => (on[i] && !on[(i + 1) % n] ? [i] : []));
+          ease = (d: number) => {
+            const u = Math.min(1, d / TAPER);
+            return u * u * (3 - 2 * u);
+          },
+          moved = free.map((p, i): [number, number] => {
+            // (The ends, on t, never move.)
+            const w = i && i < free.length - 1 ? ease(fromT(p)) : 0;
+            if (!w) return p;
+            // Inward (left, counter-clockwise) normal: the mean of the edges'
+            // either side, lengthened to keep both edges e in (capped at sharp corners).
+            const unit = (u: [number, number], v: [number, number]) => {
+                const l = Math.hypot(v[0] - u[0], v[1] - u[1]);
+                return [-(v[1] - u[1]) / l, (v[0] - u[0]) / l];
+              },
+              n1 = unit(free[i - 1], p),
+              n2 = unit(p, free[i + 1]),
+              n = [n1[0] + n2[0], n1[1] + n2[1]],
+              c = (n[0] * n1[0] + n[1] * n1[1]) / Math.hypot(...n),
+              k = (e * w) / Math.max(c, 1 / 3) / Math.hypot(...n);
+            return [p[0] + n[0] * k, p[1] + n[1] * k];
+          }),
+          kept: [number, number][] = [];
+        for (let k = 0, i = ia; k <= (ib - ia + m) % m; k++, i = (i + 1) % m) kept.push(poly[i]);
+        return new CS([[...kept, ...moved.slice(1, -1)]]);
+      },
+      // Where the apron's outline leaves this bin's (the apron's lies inside
+      // it, on it from the deck corner round the front and bottom): the deck
+      // corner, then the base corner. Both are added to this bin's outline as
+      // points, so the stretch between them starts and ends on points of it.
+      junctions = (F: [number, number][], T: CrossSection) => {
+        const t = largest(T),
+          // The nearest point to p on F: its edge and the point.
+          nearest = ([y, z]: [number, number]) =>
+            F.map((p, i) => {
+              const q = F[(i + 1) % F.length],
+                [dy, dz] = [q[0] - p[0], q[1] - p[1]],
+                l2 = dy * dy + dz * dz,
+                f = l2 ? Math.min(1, Math.max(0, ((y - p[0]) * dy + (z - p[1]) * dz) / l2)) : 0;
+              return { i, d: Math.hypot(p[0] + f * dy - y, p[1] + f * dz - z) };
+            }).reduce((a, b) => (b.d < a.d ? b : a)),
+          on = t.map((p) => nearest(p).d < 1e-3),
+          n = t.length,
+          starts = t.flatMap((_, i) => (on[i] && !on[(i + n - 1) % n] ? [i] : [])),
+          ends = t.flatMap((_, i) => (on[i] && !on[(i + 1) % n] ? [i] : []));
         if (starts.length !== 1) throw new Error(`joined: ${starts.length} shared runs`);
-        return [u[starts[0]], u[ends[0]]];
+        const J = t[starts[0]],
+          J2 = t[ends[0]],
+          poly = [...F];
+        // (The later edge first, so the earlier one's index still holds.)
+        for (const [i, p] of [J, J2]
+          .map((p) => [nearest(p).i, p] as const)
+          .sort((a, b) => b[0] - a[0]))
+          poly.splice(i + 1, 0, p);
+        return { poly, J, J2, t };
       };
     return (inset: number) => {
       const ri = END - inset,
@@ -2177,15 +2256,18 @@ function breadbin(k0: Kit, o: Bin): BinParts {
           near = (y: number) =>
             pts.reduce((p, q) => (Math.abs(q[0] - y) < Math.abs(p[0] - y) && q[1] > PART ? q : p)),
           marks = [...frontMarks(pts, T.yf, br[0]), near(br[2]), near(yB)];
-        if (off <= inset + 1e-6)
+        // Away from the apron (and at the pinky end) the whole outline rounds in.
+        if (off <= inset + 1e-6 || x > (x0 + x1) / 2)
           return {
             x,
-            outline: outline(pts, inset),
+            outline: outline(pts, off),
             marks: [...marks, near(br[1]), [T.wR - 41 * PX, 0]] as [number, number][],
           };
-        const To = outline(T.pts, inset),
-          U = outline(pts, off).add(To);
-        return { x, outline: U, marks: [...marks, ...junctions(U, To)] };
+        // At the index end, the stretch the apron carries on from (deck
+        // corner round the front and bottom to the base corner) stays put;
+        // the rest rounds in.
+        const { poly, J, J2, t } = junctions(largest(outline(pts, inset)), outline(T.pts, inset));
+        return { x, outline: shrinkAway(poly, J, J2, off - inset, t), marks: [...marks, J, J2] };
       });
       // The apron bin's planes: through its middle line, square across it at
       // its far end (rounded in there), then turning to square across x at
@@ -2201,8 +2283,17 @@ function breadbin(k0: Kit, o: Bin): BinParts {
           phi: A.t,
           off: END - ri * Math.sin(p),
         }));
-      for (let i = 1; i < Mf; i++)
-        tp.push({ O: onMid(us + ((ue - us) * i) / Mf), phi: A.t * (1 - i / Mf), off: inset });
+      // The turn eases in and out: a section's shape depends on its plane's
+      // angle, so turning at a steady rate and then stopping leaves a crease
+      // where it stops.
+      for (let i = 1; i < Mf; i++) {
+        const f = i / Mf;
+        tp.push({
+          O: onMid(us + (ue - us) * f),
+          phi: A.t * (1 - f * f * (3 - 2 * f)),
+          off: inset,
+        });
+      }
       tp.push({ O: [xj, 0], phi: 0, off: inset });
       const [J, J2] = fRings[0].marks.slice(-2),
         vJ = -xj * A.s + J[0] * A.c,
@@ -2276,7 +2367,11 @@ function breadbin(k0: Kit, o: Bin): BinParts {
   }
   const shell = body(0),
     bb = shell.boundingBox(),
-    skin = (d: number) => shell.subtract(shell.translate([0, 0, -d])),
+    // The part of a plan shape's prism within d (vertically) of the shell's
+    // top: the shell lowered by d, taken away, rather than the prism cut to
+    // the shell, so no face of the cut lies on the shell's (coincident faces
+    // leave slivers).
+    near = (cs: CrossSection, d: number) => prism(cs).subtract(shell.translate([0, 0, -d])),
     prism = (cs: CrossSection) => cs.extrude(400).translate([0, 0, -1]),
     slab = (z0: number, z1: number) =>
       M.cube([bb.max[0] - bb.min[0] + 40, bb.max[1] - bb.min[1] + 40, z1 - z0]).translate([
@@ -2291,7 +2386,7 @@ function breadbin(k0: Kit, o: Bin): BinParts {
     for (let y = yC - 60 * PX - 0.4; y - 1.2 > flatStart; y -= 2.4)
       grooves.push(CS.square([x1 - x0 + 4, 1.2]).translate([x0 - 2, y - 1.2]));
   // (An empty cut would empty the whole result, so a bin without grooves skips it.)
-  const grill = grooves.length ? prism(CS.union(grooves)).intersect(skin(1.2)) : undefined;
+  const grill = grooves.length ? near(CS.union(grooves), 1.2) : undefined;
   // Trough: 0.8 mm wide and 1 mm deep, following the case outline on the deck:
   // in from the ends, just behind the bullnose, between the well and the flat top.
   // (With an apron, round both bins' outlines.)
@@ -2329,7 +2424,7 @@ function breadbin(k0: Kit, o: Bin): BinParts {
         .offset(-d, 'Miter')
         .offset(-Math.max(0.1, o.corner - d), 'Round', 2, 32)
         .offset(Math.max(0.1, o.corner - d), 'Round', 2, 32),
-    trough = prism(ring(0).subtract(ring(0.8))).intersect(skin(1));
+    trough = near(ring(0).subtract(ring(0.8)), 1);
   // Parting line between the top and bottom halves, 0.8 mm deep. (Cut as the
   // slab outside the inset body, so no face of the cut lies on the shell's.)
   const parting = slab(PART - 0.6, PART + 0.6).subtract(body(0.8));
