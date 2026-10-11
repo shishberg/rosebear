@@ -1401,14 +1401,15 @@ interface Bin {
   corner: number; // corner radius of the trough in plan
   // No grill grooves across the back.
   noGrill?: boolean;
-  ports?: boolean;
+  ports?: boolean; // a C64 port panel on the low-x end, where the ribbon leaves
   // Curved deck only: carry this other bin's deck (the thumb row's) on in
   // front of the well as part of this bin's sections, out to that bin's front
   // edge, so the two are one deck. Its surface runs back to its well's back
   // edge, then a straight run joins it to this bin's surface at the well's
-  // front edge, with a hard angle at each end. This bin's low end is then a
-  // plain vertical face, where the other bin carries on.
-  apron?: Bin; // a C64 port panel on the low-x end, where the ribbon leaves
+  // front edge, with a hard angle at each end. The two are one solid: past
+  // this bin's low end the other bin's sections carry on alone, turning to
+  // square across it towards its far end.
+  apron?: Bin;
   // Curve the deck to follow the keys (a quadratic surface through the key
   // plates) instead of a flat plane.
   curved?: boolean;
@@ -1433,6 +1434,7 @@ interface BinParts {
   cavity: Manifold; // the case's hollow, before anything is kept back from it
   keep: Manifold; // kept solid inside the hollow: well walls, floor and pedestal walls
   open: Manifold; // opened through what is kept: inside each pedestal, down to the bottom
+  x0: number; // the low end face (of an unturned bin)
 }
 // A corner where two straight runs meet, rounded by a cubic: [corner, unit
 // direction back along the previous run, unit direction along the next run,
@@ -1454,87 +1456,144 @@ function bezier(P: [number, number][]): [number, number][] {
 // and the first and last are capped. Marks (the same number on every
 // outline: hard corners, say) are matched up too: each run between marks gets
 // the same number of points on every outline, spaced evenly along it.
+// An outline traced for a loft: its points from the one nearest anchor, their
+// distances round it, and the marks' distances (sorted, between 0 and the
+// whole length).
+function trace(outline: CrossSection, anchor: [number, number], marks: [number, number][] = []) {
+  const area = (q: [number, number][]) =>
+      q.reduce((t, p, i) => {
+        const r = q[(i + 1) % q.length];
+        return t + p[0] * r[1] - r[0] * p[1];
+      }, 0),
+    poly = outline
+      .toPolygons()
+      .map((q) => q.map(([y, z]) => [y, z] as [number, number]))
+      .reduce((p, q) => (area(q) > area(p) ? q : p)),
+    d = poly.map((p) => (p[0] - anchor[0]) ** 2 + (p[1] - anchor[1]) ** 2),
+    i0 = d.indexOf(Math.min(...d)),
+    pts = [...poly.slice(i0), ...poly.slice(0, i0)],
+    m = pts.length,
+    cum = [0];
+  for (let i = 1; i <= m; i++) {
+    const p = pts[i - 1],
+      q = pts[i % m];
+    cum.push(cum[i - 1] + Math.hypot(q[0] - p[0], q[1] - p[1]));
+  }
+  // Each mark's distance round the outline: at the nearest point on it
+  // (between vertices too: an inset outline's flat runs have none inside).
+  const at = marks.map(([y, z]) => {
+    let best = Infinity,
+      t = 0;
+    for (let i = 0; i < m; i++) {
+      const p = pts[i],
+        q = pts[(i + 1) % m],
+        [dy, dz] = [q[0] - p[0], q[1] - p[1]],
+        l2 = dy * dy + dz * dz,
+        f = l2 ? Math.min(1, Math.max(0, ((y - p[0]) * dy + (z - p[1]) * dz) / l2)) : 0,
+        e = (p[0] + f * dy - y) ** 2 + (p[1] + f * dz - z) ** 2;
+      if (e < best) [best, t] = [e, cum[i] + f * (cum[i + 1] - cum[i])];
+    }
+    return t;
+  });
+  return { pts, cum, at, L: [0, ...[...at].sort((p, q) => p - q), cum[m]] };
+}
+type Trace = ReturnType<typeof trace>;
+// Points per run between marks, n in all, shared out by the runs' lengths.
+function shares(L: number[], n: number) {
+  const per = L.slice(1).map((l, i) => Math.max(2, Math.round((n * (l - L[i])) / L[L.length - 1])));
+  per[per.length - 1] += n - per.reduce((t, c) => t + c, 0);
+  return per;
+}
+// A traced outline resampled: per[i] points along the i-th run, evenly by length.
+function samples({ pts, cum, L }: Trace, per: number[]) {
+  const m = pts.length,
+    ts = per.flatMap((c, i) =>
+      Array.from({ length: c }, (_, s) => L[i] + ((L[i + 1] - L[i]) * s) / c),
+    ),
+    out: [number, number][] = [];
+  for (let s = 0, j = 0; s < ts.length; s++) {
+    const t = ts[s];
+    while (j < m - 1 && cum[j + 1] < t) j++;
+    const p = pts[j],
+      q = pts[(j + 1) % m],
+      f = (t - cum[j]) / (cum[j + 1] - cum[j] || 1);
+    out.push([p[0] + (q[0] - p[0]) * f, p[1] + (q[1] - p[1]) * f]);
+  }
+  return out;
+}
+// A closed solid through (y, z) outlines standing at stations along x: each
+// outline is resampled to the same number of points, evenly by length from
+// the point nearest anchor, consecutive outlines are joined point to point,
+// and the first and last are capped. Marks (the same number on every
+// outline: hard corners, say) are matched up too: each run between marks gets
+// the same number of points on every outline, spaced evenly along it.
 function loft(
   k: Kit,
   rings: { x: number; outline: CrossSection; marks?: [number, number][] }[],
   anchor: [number, number],
   n = 240,
 ) {
+  const tr = rings.map((r) => trace(r.outline, anchor, r.marks)),
+    per = shares(tr[0].L, n);
+  return mesh(
+    k,
+    tr.map((t, i) => ({
+      pts: samples(t, per),
+      place: (y: number, z: number): Vec3 => [rings[i].x, y, z],
+    })),
+  );
+}
+// The solid through rings of points (counter-clockwise in each ring's own
+// plane), each placed in 3D by its own map. Each group's consecutive rings are
+// joined point to point, and its ends capped unless it says not. share: a
+// ring's points that are another's (its point index to the vertex's).
+// extra: more faces, as polygons of [ring, point] (counter-clockwise in the
+// first ring's plane, facing back along it).
+function mesh(
+  k: Kit,
+  rings: {
+    pts: [number, number][];
+    place: (w: number, z: number) => Vec3;
+    share?: Map<number, number>;
+  }[],
+  groups: { rings: number[]; open?: [boolean, boolean] }[] = [{ rings: rings.map((_, i) => i) }],
+  extra: [number, number][][] = [],
+) {
   const verts: number[] = [],
     tris: number[] = [],
-    area = (q: [number, number][]) =>
-      q.reduce((t, p, i) => {
-        const r = q[(i + 1) % q.length];
-        return t + p[0] * r[1] - r[0] * p[1];
-      }, 0),
-    prep = rings.map(({ outline, marks = [] }) => {
-      const poly = outline
-          .toPolygons()
-          .map((q) => q.map(([y, z]) => [y, z] as [number, number]))
-          .reduce((p, q) => (area(q) > area(p) ? q : p)),
-        d = poly.map((p) => (p[0] - anchor[0]) ** 2 + (p[1] - anchor[1]) ** 2),
-        i0 = d.indexOf(Math.min(...d)),
-        pts = [...poly.slice(i0), ...poly.slice(0, i0)],
-        m = pts.length,
-        cum = [0];
-      for (let i = 1; i <= m; i++) {
-        const p = pts[i - 1],
-          q = pts[i % m];
-        cum.push(cum[i - 1] + Math.hypot(q[0] - p[0], q[1] - p[1]));
+    base: number[] = [];
+  let nv = 0;
+  for (const r of rings) {
+    base.push(nv);
+    for (const [w, z] of r.pts) verts.push(...r.place(w, z));
+    nv += r.pts.length;
+  }
+  const id = (r: number, j: number) => rings[r].share?.get(j) ?? base[r] + j;
+  for (const { rings: g, open = [false, false] } of groups) {
+    for (let i = 0; i + 1 < g.length; i++) {
+      const [ra, rb] = [g[i], g[i + 1]],
+        n = rings[ra].pts.length;
+      for (let j = 0; j < n; j++) {
+        const a = id(ra, j),
+          b = id(ra, (j + 1) % n),
+          c = id(rb, (j + 1) % n),
+          d = id(rb, j);
+        tris.push(a, b, c, a, c, d);
       }
-      // Each mark's distance round the outline: at the nearest point on it
-      // (between vertices too: an inset outline's flat runs have none inside).
-      const at = marks.map(([y, z]) => {
-        let best = Infinity,
-          t = 0;
-        for (let i = 0; i < m; i++) {
-          const p = pts[i],
-            q = pts[(i + 1) % m],
-            [dy, dz] = [q[0] - p[0], q[1] - p[1]],
-            l2 = dy * dy + dz * dz,
-            f = l2 ? Math.min(1, Math.max(0, ((y - p[0]) * dy + (z - p[1]) * dz) / l2)) : 0,
-            e = (p[0] + f * dy - y) ** 2 + (p[1] + f * dz - z) ** 2;
-          if (e < best) [best, t] = [e, cum[i] + f * (cum[i + 1] - cum[i])];
-        }
-        return t;
-      });
-      return { pts, cum, L: [0, ...at.sort((p, q) => p - q), cum[m]] };
-    }),
-    // Points per run between marks, from the first outline's run lengths.
-    L0 = prep[0].L,
-    per = L0.slice(1).map((l, i) => Math.max(2, Math.round((n * (l - L0[i])) / L0[L0.length - 1])));
-  per[per.length - 1] += n - per.reduce((t, c) => t + c, 0);
-  const rs = rings.map(({ x }, r) => {
-    const { pts, cum, L } = prep[r],
-      m = pts.length,
-      ts = per.flatMap((c, i) =>
-        Array.from({ length: c }, (_, s) => L[i] + ((L[i + 1] - L[i]) * s) / c),
-      );
-    const out: [number, number][] = [];
-    for (let s = 0, j = 0; s < n; s++) {
-      const t = ts[s];
-      while (j < m - 1 && cum[j + 1] < t) j++;
-      const p = pts[j],
-        q = pts[(j + 1) % m],
-        f = (t - cum[j]) / (cum[j + 1] - cum[j] || 1);
-      out.push([p[0] + (q[0] - p[0]) * f, p[1] + (q[1] - p[1]) * f]);
     }
-    for (const [y, z] of out) verts.push(x, y, z);
-    return out;
-  });
-  // Outlines run counter-clockwise in (y, z), so these face outwards.
-  for (let i = 0; i + 1 < rs.length; i++)
-    for (let j = 0; j < n; j++) {
-      const a = i * n + j,
-        b = i * n + ((j + 1) % n),
-        c = b + n,
-        d = a + n;
-      tris.push(a, b, c, a, c, d);
-    }
-  const last = (rs.length - 1) * n;
-  for (const [p, q, r] of k.wasm.triangulate([rs[0]])) tris.push(p, r, q);
-  for (const [p, q, r] of k.wasm.triangulate([rs[rs.length - 1]]))
-    tris.push(last + p, last + q, last + r);
+    const [f, l] = [g[0], g[g.length - 1]];
+    if (!open[0])
+      for (const [p, q, r] of k.wasm.triangulate([rings[f].pts]))
+        tris.push(id(f, p), id(f, r), id(f, q));
+    if (!open[1])
+      for (const [p, q, r] of k.wasm.triangulate([rings[l].pts]))
+        tris.push(id(l, p), id(l, q), id(l, r));
+  }
+  for (const poly of extra) {
+    const at = poly.map(([r, j]) => rings[r].pts[j]);
+    for (const [p, q, r] of k.wasm.triangulate([at]))
+      tris.push(id(...poly[p]), id(...poly[r]), id(...poly[q]));
+  }
   const m = new k.wasm.Manifold(
     new k.wasm.Mesh({
       numProp: 3,
@@ -1685,6 +1744,12 @@ function apronDeck(
       return [Math.max(line(vW, x) + 1, yW - Math.max(yW - yT, rise, 1)), yW];
     };
   return {
+    t,
+    c,
+    s,
+    wb,
+    vW,
+    deck,
     front: (x: number) => line(vW - a.front, x),
     breaks: (x: number) => [line(vW, x), ...run(x)],
     z: (x: number, y: number) => {
@@ -1754,8 +1819,8 @@ function breadbin(k0: Kit, o: Bin): BinParts {
     },
     // The back's top corner, the back foot and the rounded underside at the
     // front: the same for every bin, given the grill top's height.
-    backAndUnder = (zG: number, yR: number, yf = yF): [number, number][] => [
-      ...round([[yC, zG], [-1, 0], [RAKE / bk, -1 / bk], 60 * PX, 0.45, 68 * PX, 0.37]),
+    backAndUnder = (zG: number, yR: number, yf = yF, yc = yC): [number, number][] => [
+      ...round([[yc, zG], [-1, 0], [RAKE / bk, -1 / bk], 60 * PX, 0.45, 68 * PX, 0.37]),
       [yR, PART],
       ...round([[yR, 0], [0, 1], [-1, 0], 69 * PX, 0.23, 41 * PX, 0.22]),
       ...round([[yf, 0], [1, 0], [0, 1], 113 * PX, 0.43, 116 * PX, 0.31]),
@@ -1767,6 +1832,7 @@ function breadbin(k0: Kit, o: Bin): BinParts {
   // On a curved deck with backTop 'dish', zG and yR are the highest section's.
   let yG: number, zG: number, yR: number, yN: number, flatStart: number;
   let body: (inset: number) => Manifold;
+  let apronOf: ReturnType<typeof apronDeck> | undefined;
   if (!o.curved) {
     const rise = Math.max(c, Math.tan((5 * Math.PI) / 180)),
       deck = (y: number) => a + b * xr + c * ym + rise * (y - ym) + LIFT,
@@ -1931,24 +1997,6 @@ function breadbin(k0: Kit, o: Bin): BinParts {
       };
     yN = yF + 104 * PX * fwd[0];
     if (apron) front = apron.front;
-    // With an apron, the corners along each section, matched up in the loft:
-    // the bullnose's end, the apron well's front edge, the two ends of the run
-    // between the wells, and the start of the rise to the flat top; and, as
-    // the front edge is angled, so each section's front sits further forward,
-    // the front's own: the gutter and the ends of the rounded underside.
-    const marks = (x: number) => {
-      if (!apron) return undefined;
-      const pts = section(x),
-        yf = apron.front(x),
-        near = (y: number) =>
-          pts.reduce((p, q) => (Math.abs(q[0] - y) < Math.abs(p[0] - y) && q[1] > PART ? q : p));
-      return [
-        ...[yf + 104 * PX * 0.99, ...apron.breaks(x), yB].map(near),
-        [yf, PART],
-        [yf, 116 * PX],
-        [yf + 113 * PX, 0],
-      ] as [number, number][];
-    };
     // Sections for inspection (prototype-shapes.html exposes them as __sections).
     ((globalThis as { __sections?: unknown[] }).__sections ??= []).push({
       keys: o.keys.length,
@@ -1964,12 +2012,10 @@ function breadbin(k0: Kit, o: Bin): BinParts {
       const ri = END - inset,
         stations: [number, number][] = [],
         N = 8;
-      if (o.apron) stations.push([x0 + inset, inset]);
-      else
-        for (let i = 0; i <= N; i++) {
-          const p = (i / N) * (Math.PI / 2);
-          stations.push([x0 + END - ri * Math.cos(p), END - ri * Math.sin(p)]);
-        }
+      for (let i = 0; i <= N; i++) {
+        const p = (i / N) * (Math.PI / 2);
+        stations.push([x0 + END - ri * Math.cos(p), END - ri * Math.sin(p)]);
+      }
       const mid = Math.ceil((x1 - x0 - 2 * END) / 5);
       for (let i = 1; i < mid; i++)
         stations.push([x0 + END + ((x1 - x0 - 2 * END) * i) / mid, inset]);
@@ -1982,18 +2028,262 @@ function breadbin(k0: Kit, o: Bin): BinParts {
         stations.map(([x, off]) => ({
           x,
           outline: new CS([section(x).reverse()]).offset(-off, 'Round', 2, 24),
-          marks: marks(x),
         })),
         [yR, PART],
       );
     };
+    if (apron) body = joined(apron, o.apron!, section, yB, yR);
+    apronOf = apron || undefined;
   }
-  const yLo = Math.min(yF, front(x0), front(x1)),
-    shell = body(0),
+  // A bin carrying another's deck (its apron's) is one solid with it: lofted
+  // through this bin's sections, from its low end on, and the apron bin's own
+  // sections past there, on planes that turn from square across the apron bin
+  // at its far end to square across this one where they meet. There, the
+  // apron's section is the lower part of this bin's: they share the outline
+  // from the deck in front of this well round the front and along the
+  // bottom, and the rest of this bin's section is its end face, rounded in
+  // like any end. section: this bin's sections; yB: where its deck starts to
+  // rise to the flat top; yR: its back foot.
+  function joined(
+    A: ReturnType<typeof apronDeck>,
+    a: Bin,
+    section: (x: number) => [number, number][],
+    yB: number,
+    yR: number,
+  ) {
+    const tB = A.wb.max[1] + 3,
+      tC = A.wb.max[1] + a.back,
+      tG = Math.min(tB + (a.ramp ?? 6), tC - 60 * PX - (a.noGrill ? 1 : 7)),
+      // The apron bin's section on the vertical plane through O whose normal
+      // is at phi (0: square across x; the apron's angle: square across it),
+      // in w along the plane (y, when phi is 0) and z: the carried deck in
+      // front, as in this bin's sections, then the apron bin's own rise into
+      // its flat top, and its own back.
+      apronSection = (O: [number, number], phi: number) => {
+        const [sp, cp] = [Math.sin(phi), Math.cos(phi)],
+          vO = -O[0] * A.s + O[1] * A.c,
+          cd = Math.cos(A.t - phi),
+          wOf = (v: number) => (v - vO) / cd,
+          z = (w: number) => A.deck(O[0] - w * sp, O[1] + w * cp),
+          yf = wOf(A.vW - a.front),
+          L = 104 * PX,
+          s = (z(yf + L + 0.01) - z(yf + L - 0.01)) / 0.02,
+          ls = Math.hypot(1, s),
+          dir: [number, number] = [1 / ls, s / ls],
+          yE = yf + L * dir[0],
+          zf = z(yE) - (yE - yf) * s,
+          [wB, wG, wC] = [tB, tG, tC].map(wOf),
+          sB = (z(wB + 0.01) - z(wB - 0.01)) / 0.02,
+          zT = z(wB) + Math.max(0, sB) * Math.min(wG - wB, 6),
+          wR = wC + (zT - PART) * RAKE,
+          ys = [wOf(A.vW)];
+        for (let y = yE + 0.5; y < wB; y += 1) ys.push(y);
+        ys.sort((p, q) => p - q);
+        const B: [number, number] = [wB, z(wB)],
+          h = 0.4 * (wG - wB),
+          lB = Math.hypot(1, sB),
+          pts: [number, number][] = [
+            [yf, PART],
+            ...round([[yf, zf], [0, -1], dir, Math.min(93 * PX, zf - PART), 0.41, L, 0.3]),
+            [yE, z(yE)],
+            ...ys
+              .filter((y, i) => i === 0 || y - ys[i - 1] > 0.05)
+              .map((y): [number, number] => [y, z(y)]),
+            ...bezier([B, [wB + h / lB, B[1] + (h * sB) / lB], [wG - h, zT], [wG, zT]]),
+            ...backAndUnder(zT, wR, yf, wC),
+          ];
+        return {
+          pts,
+          yf,
+          wR,
+          wOf,
+          // The section's highest point at w.
+          top: (w: number) =>
+            Math.max(
+              ...pts.flatMap((p, i) => {
+                const q = pts[(i + 1) % pts.length];
+                return (p[0] - w) * (q[0] - w) <= 0 && p[0] !== q[0]
+                  ? [p[1] + ((q[1] - p[1]) * (w - p[0])) / (q[0] - p[0])]
+                  : [];
+              }),
+            ),
+          place: (w: number, zz: number): Vec3 => [O[0] - w * sp, O[1] + w * cp, zz],
+        };
+      },
+      outline = (pts: [number, number][], off: number) =>
+        new CS([[...pts].reverse()]).offset(-off, 'Round', 2, 24),
+      largest = (cs: CrossSection) =>
+        cs
+          .toPolygons()
+          .reduce((p, q) => (q.length > p.length ? q : p))
+          .map(([y, z]) => [y, z] as [number, number]),
+      // The marks along the front, the same on both bins' sections: the
+      // bullnose's end, the apron well's front edge, the gutter and the ends
+      // of the rounded underside.
+      frontMarks = (pts: [number, number][], yf: number, yW: number) => {
+        const near = (y: number) =>
+          pts.reduce((p, q) => (Math.abs(q[0] - y) < Math.abs(p[0] - y) && q[1] > PART ? q : p));
+        return [
+          near(yf + 104 * PX * 0.99),
+          near(yW),
+          [yf, PART],
+          [yf, 116 * PX],
+          [yf + 113 * PX, 0],
+        ] as [number, number][];
+      },
+      // Where an outline joined from the apron's section and this bin's
+      // (inset further) leaves the apron's: first (counter-clockwise) on the
+      // deck, then low on the apron's back.
+      junctions = (U: CrossSection, T: CrossSection): [number, number][] => {
+        const u = largest(U),
+          t = largest(T),
+          dist = ([y, z]: [number, number]) =>
+            Math.min(
+              ...t.map((p, i) => {
+                const q = t[(i + 1) % t.length],
+                  [dy, dz] = [q[0] - p[0], q[1] - p[1]],
+                  l2 = dy * dy + dz * dz,
+                  f = l2 ? Math.min(1, Math.max(0, ((y - p[0]) * dy + (z - p[1]) * dz) / l2)) : 0;
+                return Math.hypot(p[0] + f * dy - y, p[1] + f * dz - z);
+              }),
+            ),
+          on = u.map((p) => dist(p) < 1e-3),
+          n = u.length,
+          starts = u.flatMap((_, i) => (on[i] && !on[(i + n - 1) % n] ? [i] : [])),
+          ends = u.flatMap((_, i) => (on[i] && !on[(i + 1) % n] ? [i] : []));
+        if (starts.length !== 1) throw new Error(`joined: ${starts.length} shared runs`);
+        return [u[starts[0]], u[ends[0]]];
+      };
+    return (inset: number) => {
+      const ri = END - inset,
+        N = 8,
+        quarter = Array.from({ length: ri > 0 ? N + 1 : 1 }, (_, i) => (i / N) * (Math.PI / 2)),
+        xj = x0 + inset,
+        // This bin's stations [x, inset]: rounded in at the low end, where
+        // it's joined to the apron's section (inset at least half a millimetre
+        // more there, so the face between them has some height everywhere).
+        fs: [number, number][] = quarter.map((p, i) => [
+          x0 + END - ri * Math.cos(p),
+          i ? END - ri * Math.sin(p) : Math.max(END, inset + 0.5),
+        ]),
+        mid = Math.ceil((x1 - x0 - 2 * END) / 5);
+      for (let i = 1; i < mid; i++) fs.push([x0 + END + ((x1 - x0 - 2 * END) * i) / mid, inset]);
+      for (const p of [...quarter].reverse())
+        fs.push([x1 - END + ri * Math.cos(p), END - ri * Math.sin(p)]);
+      const fRings = fs.map(([x, off]) => {
+        const pts = section(x),
+          T = apronSection([x, 0], 0),
+          br = A.breaks(x),
+          near = (y: number) =>
+            pts.reduce((p, q) => (Math.abs(q[0] - y) < Math.abs(p[0] - y) && q[1] > PART ? q : p)),
+          marks = [...frontMarks(pts, T.yf, br[0]), near(br[2]), near(yB)];
+        if (off <= inset + 1e-6)
+          return {
+            x,
+            outline: outline(pts, inset),
+            marks: [...marks, near(br[1]), [T.wR - 41 * PX, 0]] as [number, number][],
+          };
+        const To = outline(T.pts, inset),
+          U = outline(pts, off).add(To);
+        return { x, outline: U, marks: [...marks, ...junctions(U, To)] };
+      });
+      // The apron bin's planes: through its middle line, square across it at
+      // its far end (rounded in there), then turning to square across x at
+      // the joint, a few millimetres apart.
+      const um = (A.wb.min[1] + A.wb.max[1]) / 2,
+        onMid = (u: number): [number, number] => [u * A.c - um * A.s, u * A.s + um * A.c],
+        ux = A.wb.min[0] - a.side,
+        us = ux + END,
+        ue = (xj + um * A.s) / A.c,
+        Mf = Math.ceil((ue - us) / 3),
+        tp: { O: [number, number]; phi: number; off: number }[] = quarter.map((p) => ({
+          O: onMid(ux + END - ri * Math.cos(p)),
+          phi: A.t,
+          off: END - ri * Math.sin(p),
+        }));
+      for (let i = 1; i < Mf; i++)
+        tp.push({ O: onMid(us + ((ue - us) * i) / Mf), phi: A.t * (1 - i / Mf), off: inset });
+      tp.push({ O: [xj, 0], phi: 0, off: inset });
+      const [J, J2] = fRings[0].marks.slice(-2),
+        vJ = -xj * A.s + J[0] * A.c,
+        tRings = tp.map(({ O, phi, off }) => {
+          const T = apronSection(O, phi),
+            wJ = T.wOf(vJ);
+          return {
+            T,
+            outline: outline(T.pts, off),
+            marks: [...frontMarks(T.pts, T.yf, T.wOf(A.vW)), [wJ, T.top(wJ)], [T.wR, J2[1]]] as [
+              number,
+              number,
+            ][],
+          };
+        });
+      // Points per run: this bin's from a middle section; the apron's runs
+      // along the shared outline the same, the rest at the same spacing.
+      const n = 240,
+        fT = fRings.map((r) => trace(r.outline, [yR, PART], r.marks)),
+        tT = tRings.map((r) => trace(r.outline, [r.T.wR, PART], r.marks)),
+        ref = fT[Math.floor(fT.length / 2)],
+        perF = shares(ref.L, n),
+        // A run's index from its starting mark's: marks are sorted round from
+        // the anchor, so it's one more than the number of marks before it.
+        run = (t: Trace, m: number) => 1 + t.L.slice(1, -1).filter((l) => l < t.at[m]).length,
+        [fj, fj2] = [run(ref, 5 + 2), run(ref, 5 + 3)],
+        [tj, tj2] = [run(tT[tT.length - 1], 5), run(tT[tT.length - 1], 6)],
+        last = tT[tT.length - 1],
+        perT = last.L.slice(1).map((l, i) =>
+          i >= tj && i < tj2
+            ? perF[fj + i - tj]
+            : Math.max(2, Math.round((n * (l - last.L[i])) / ref.L[ref.L.length - 1])),
+        );
+      if (fj2 - fj !== tj2 - tj) throw new Error('joined: shared runs differ');
+      const start = (per: number[], r: number) => per.slice(0, r).reduce((t, c) => t + c, 0),
+        [sF, sF2, sT, sT2] = [start(perF, fj), start(perF, fj2), start(perT, tj), start(perT, tj2)],
+        nF = perF.reduce((t, c) => t + c, 0),
+        nT = perT.reduce((t, c) => t + c, 0),
+        ti = tRings.length - 1,
+        fi = tRings.length,
+        rings = [
+          ...tRings.map((r, i) => ({ pts: samples(tT[i], perT), place: r.T.place })),
+          ...fRings.map((r, i) => ({
+            pts: samples(fT[i], perF),
+            place: (y: number, z: number): Vec3 => [r.x, y, z],
+          })),
+        ];
+      // The last apron section's shared points are the first of this bin's.
+      const share = new Map<number, number>();
+      // (Vertex numbers: mesh() numbers each ring's points in turn.)
+      const base = rings.slice(0, fi).reduce((t, r) => t + r.pts.length, 0);
+      for (let j = sT; j <= sT2; j++) share.set(j, base + sF + j - sT);
+      (rings[ti] as { share?: Map<number, number> }).share = share;
+      // The end face: this bin's first outline from the low junction round
+      // the back to the deck one, then back along the apron's.
+      const face: [number, number][] = [];
+      for (let j = sF2; j < nF; j++) face.push([fi, j]);
+      for (let j = 0; j <= sF; j++) face.push([fi, j]);
+      for (let j = sT - 1; j >= 0; j--) face.push([ti, j]);
+      for (let j = nT - 1; j > sT2; j--) face.push([ti, j]);
+      return mesh(
+        k,
+        rings,
+        [
+          { rings: tRings.map((_, i) => i), open: [false, true] },
+          { rings: fRings.map((_, i) => fi + i), open: [true, false] },
+        ],
+        [face],
+      );
+    };
+  }
+  const shell = body(0),
+    bb = shell.boundingBox(),
     skin = (d: number) => shell.subtract(shell.translate([0, 0, -d])),
     prism = (cs: CrossSection) => cs.extrude(400).translate([0, 0, -1]),
     slab = (z0: number, z1: number) =>
-      M.cube([x1 - x0 + 40, yR - yLo + 40, z1 - z0]).translate([x0 - 20, yLo - 20, z0]);
+      M.cube([bb.max[0] - bb.min[0] + 40, bb.max[1] - bb.min[1] + 40, z1 - z0]).translate([
+        bb.min[0] - 20,
+        bb.min[1] - 20,
+        z0,
+      ]);
   // Grill: grooves across the flat top between its two roundings, out through
   // both ends.
   const grooves: CrossSection[] = [];
@@ -2004,20 +2294,38 @@ function breadbin(k0: Kit, o: Bin): BinParts {
   const grill = grooves.length ? prism(CS.union(grooves)).intersect(skin(1.2)) : undefined;
   // Trough: 0.8 mm wide and 1 mm deep, following the case outline on the deck:
   // in from the ends, just behind the bullnose, between the well and the flat top.
-  // (With an apron it runs on out of the low end, to meet the apron bin's.)
-  const rx0 = o.apron ? x0 - 5 : x0 + END + 1,
+  // (With an apron, round both bins' outlines.)
+  const rx0 = x0 + END + 1,
     ry0 = (x: number) => front(x) + yN - yF + 1,
     rx1 = x1 - END - 1,
     ry1 = wb.max[1] + 1.6,
+    // A rectangle, turned by deg.
+    rect = (u0: number, u1: number, v0: number, v1: number, deg = 0) =>
+      CS.square([u1 - u0, v1 - v0])
+        .translate([u0, v0])
+        .rotate(deg),
+    plan = (() => {
+      if (!apronOf)
+        return CS.ofPolygons([
+          [
+            [rx0, ry0(rx0)],
+            [rx1, ry0(rx1)],
+            [rx1, ry1],
+            [rx0, ry1],
+          ],
+        ]);
+      const a = o.apron!,
+        A = apronOf,
+        deg = (A.t * 180) / Math.PI,
+        // The front line, in the apron bin's frame (it runs along it).
+        vf = A.vW - a.front + (yN - yF + 1) * A.c;
+      return rect(rx0, rx1, Math.min(front(x0), front(x1)) - 20, ry1)
+        .add(rect(A.wb.min[0] - a.side + END + 1, 500, vf - 20, A.wb.max[1] + 1.6, deg))
+        .intersect(rect(-500, 500, vf, 500, deg))
+        .intersect(rect(-500, rx1, -500, 500));
+    })(),
     ring = (d: number) =>
-      new CS([
-        [
-          [rx0, ry0(rx0)],
-          [rx1, ry0(rx1)],
-          [rx1, ry1],
-          [rx0, ry1],
-        ],
-      ])
+      plan
         .offset(-d, 'Miter')
         .offset(-Math.max(0.1, o.corner - d), 'Round', 2, 32)
         .offset(Math.max(0.1, o.corner - d), 'Round', 2, 32),
@@ -2067,24 +2375,24 @@ function breadbin(k0: Kit, o: Bin): BinParts {
     cavity: back(body(WALL)),
     keep: back(keep),
     open: back(bores),
+    x0,
   };
 }
 function c64(k: Kit, bins: Bin[]) {
   const M = k.wasm.Manifold,
     parts = bins.map((o) => breadbin(k, o)),
-    hollow = M.union(parts.map((p) => p.cavity))
+    // A bin that's another's apron is part of that bin's solid: only its
+    // well and what's in it are its own.
+    carried = (i: number) => bins.some((b) => b.apron === bins[i]),
+    hollow = M.union(parts.filter((_, i) => !carried(i)).map((p) => p.cavity))
       .subtract(M.union(parts.map((p) => p.keep)))
       .add(M.union(parts.map((p) => p.open)));
   // Each bin stops at the outline of the bins before it (the thumb bin at the
   // finger bin's walls), so its deck, trough and grill don't run on through them.
   const CS = k.wasm.CrossSection,
-    // A bin that's another's apron is carried in that bin's deck, so it's cut
-    // off square at that bin's low end instead (its front face lies on the
-    // carrying bin's, and cutting along a shared face leaves slivers).
-    carrier = (i: number) => bins.findIndex((b) => b.apron === bins[i]),
-    shells = parts.map((p, i) =>
-      carrier(i) >= 0
-        ? p.shell.trimByPlane([-1, 0, 0], -parts[carrier(i)].shell.boundingBox().min[0])
+    shells = parts.flatMap((p, i) =>
+      carried(i)
+        ? []
         : i
           ? p.shell.subtract(
               CS.union(parts.slice(0, i).map((q) => q.shell.project()))
@@ -2114,7 +2422,7 @@ function c64(k: Kit, bins: Bin[]) {
   // Port panel, as on the C64's right side: a rounded recess in the end face
   // with a dark insert at its back, straddling the parting line, with the
   // ribbon's slot through it.
-  const x0 = parts[i].shell.boundingBox().min[0],
+  const x0 = parts[i].x0,
     r = k.cfg.ribbon,
     land = landingBox(k.cfg),
     a = k.frames.adapter.elements,
@@ -2462,7 +2770,7 @@ export const variants: Variant[] = [
     key: 'c64-joined',
     name: 'C64, thumbs joined into the deck',
     blurb:
-      "The curved-deck breadbin with the top following the dish, and the thumb row joined into the finger bin's deck instead of a second bin butting into it. The finger bin's sections carry on forward over the thumb row to the thumb bin's front edge, which runs on to the finger bin's outer end and meets it at a corner. Across each section the thumb surface runs to the thumb well's back edge, then a straight run joins it to the finger surface at the finger well's front edge, with a hard angle at each end. Past the inner end of the finger bin, which is a plain vertical face, the thumb bin carries on alone to the far thumb key.",
+      "The curved-deck breadbin with the top following the dish, and the thumb row joined into the finger bin's deck instead of a second bin butting into it. The finger bin's sections carry on forward over the thumb row to the thumb bin's front edge, which runs on to the finger bin's outer end and meets it at a corner. Across each section the thumb surface runs to the thumb well's back edge, then a straight run joins it to the finger surface at the finger well's front edge, with a hard angle at each end. It's all one solid: past the finger bin's inner end the thumb bin's sections carry on alone to the far thumb key, turning to square across the thumb row, and the finger bin's inner end is a face of the same solid, rounded like its other end.",
     build: (k) => {
       const tight = { side: 6, front: 13, corner: 2, curved: true, backTop: 'dish' as const },
         thumb: Bin = {
