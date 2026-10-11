@@ -1401,7 +1401,14 @@ interface Bin {
   corner: number; // corner radius of the trough in plan
   // No grill grooves across the back.
   noGrill?: boolean;
-  ports?: boolean; // a C64 port panel on the low-x end, where the ribbon leaves
+  ports?: boolean;
+  // Curved deck only: carry this other bin's deck (the thumb row's) on in
+  // front of the well as part of this bin's sections, out to that bin's front
+  // edge, so the two are one deck. Its surface runs back to its well's back
+  // edge, then a straight run joins it to this bin's surface at the well's
+  // front edge, with a hard angle at each end. This bin's low end is then a
+  // plain vertical face, where the other bin carries on.
+  apron?: Bin; // a C64 port panel on the low-x end, where the ribbon leaves
   // Curve the deck to follow the keys (a quadratic surface through the key
   // plates) instead of a flat plane.
   curved?: boolean;
@@ -1444,10 +1451,12 @@ function bezier(P: [number, number][]): [number, number][] {
 // A closed solid through (y, z) outlines standing at stations along x: each
 // outline is resampled to the same number of points, evenly by length from
 // the point nearest anchor, consecutive outlines are joined point to point,
-// and the first and last are capped.
+// and the first and last are capped. Marks (the same number on every
+// outline: hard corners, say) are matched up too: each run between marks gets
+// the same number of points on every outline, spaced evenly along it.
 function loft(
   k: Kit,
-  rings: { x: number; outline: CrossSection }[],
+  rings: { x: number; outline: CrossSection; marks?: [number, number][] }[],
   anchor: [number, number],
   n = 240,
 ) {
@@ -1458,7 +1467,7 @@ function loft(
         const r = q[(i + 1) % q.length];
         return t + p[0] * r[1] - r[0] * p[1];
       }, 0),
-    rs = rings.map(({ x, outline }) => {
+    prep = rings.map(({ outline, marks = [] }) => {
       const poly = outline
           .toPolygons()
           .map((q) => q.map(([y, z]) => [y, z] as [number, number]))
@@ -1473,18 +1482,35 @@ function loft(
           q = pts[i % m];
         cum.push(cum[i - 1] + Math.hypot(q[0] - p[0], q[1] - p[1]));
       }
-      const out: [number, number][] = [];
-      for (let s = 0, j = 0; s < n; s++) {
-        const t = (s / n) * cum[m];
-        while (cum[j + 1] < t) j++;
-        const p = pts[j],
-          q = pts[(j + 1) % m],
-          f = (t - cum[j]) / (cum[j + 1] - cum[j] || 1);
-        out.push([p[0] + (q[0] - p[0]) * f, p[1] + (q[1] - p[1]) * f]);
-      }
-      for (const [y, z] of out) verts.push(x, y, z);
-      return out;
-    });
+      // Each mark's distance round the outline: at the nearest point on it.
+      const at = marks.map(([y, z]) => {
+        const e = pts.map((p) => (p[0] - y) ** 2 + (p[1] - z) ** 2);
+        return cum[e.indexOf(Math.min(...e))];
+      });
+      return { pts, cum, L: [0, ...at.sort((p, q) => p - q), cum[m]] };
+    }),
+    // Points per run between marks, from the first outline's run lengths.
+    L0 = prep[0].L,
+    per = L0.slice(1).map((l, i) => Math.max(2, Math.round((n * (l - L0[i])) / L0[L0.length - 1])));
+  per[per.length - 1] += n - per.reduce((t, c) => t + c, 0);
+  const rs = rings.map(({ x }, r) => {
+    const { pts, cum, L } = prep[r],
+      m = pts.length,
+      ts = per.flatMap((c, i) =>
+        Array.from({ length: c }, (_, s) => L[i] + ((L[i + 1] - L[i]) * s) / c),
+      );
+    const out: [number, number][] = [];
+    for (let s = 0, j = 0; s < n; s++) {
+      const t = ts[s];
+      while (j < m - 1 && cum[j + 1] < t) j++;
+      const p = pts[j],
+        q = pts[(j + 1) % m],
+        f = (t - cum[j]) / (cum[j + 1] - cum[j] || 1);
+      out.push([p[0] + (q[0] - p[0]) * f, p[1] + (q[1] - p[1]) * f]);
+    }
+    for (const [y, z] of out) verts.push(x, y, z);
+    return out;
+  });
   // Outlines run counter-clockwise in (y, z), so these face outwards.
   for (let i = 0; i + 1 < rs.length; i++)
     for (let j = 0; j < n; j++) {
@@ -1541,19 +1567,117 @@ function curvedDeck(P: Vec3[], xc: number, yc: number, lift: number) {
   const q = A.map((row, i) => row[6] / row[i]);
   return (x: number, y: number) => basis(x, y).reduce((t, r, i) => t + r * q[i], lift);
 }
+// A bin's own frame (turned by its angle, so its well runs along x) and its
+// well: axis-aligned boxes round each key's cap travel, merged and closed
+// across the gaps between them so the outline steps like the C64's.
+function binWell(k0: Kit, o: Bin) {
+  const rot = new Matrix4().makeRotationZ((-(o.angle ?? 0) * Math.PI) / 180),
+    k: Kit = {
+      ...k0,
+      frames: Object.fromEntries(
+        Object.entries(k0.frames).map(([n, f]) => [n, rot.clone().multiply(f)]),
+      ),
+    },
+    CS = k.wasm.CrossSection,
+    box = (cs: CrossSection) => {
+      const bb = cs.bounds();
+      return CS.square([bb.max[0] - bb.min[0], bb.max[1] - bb.min[1]]).translate(bb.min);
+    },
+    keyWell = CS.union(o.keys.map((n) => box(capSweep(k, n).project()).offset(1.2, 'Miter')))
+      .offset(11, 'Miter')
+      .offset(-11, 'Miter')
+      .offset(-2, 'Round', 2, 24)
+      .offset(2, 'Round', 2, 24);
+  return { k, keyWell, wb: keyWell.bounds(), P: o.keys.flatMap((n) => corners(k, n)) };
+}
+const LIFT = 3; // deck above the fitted key surface: below the keycaps' lowest travel
+// A curved bin's key surface in its own frame: a quadratic fitted through the
+// plates, centred on the bin, and held level past the outermost key centres
+// (in front of the front row, behind the back row, beyond the end columns),
+// rather than climbing on with the fit into a raised lip, back top or end.
+// Front and back hold at the same height: the lower of the two rows'. (The
+// well is cut out of the deck, so this only shapes the rim round it.)
+function binSurface(k0: Kit, o: Bin) {
+  const { k, wb, P } = binWell(k0, o),
+    fitted = curvedDeck(P, (wb.min[0] + wb.max[0]) / 2, (wb.min[1] + wb.max[1]) / 2, LIFT),
+    cs = o.keys.map((n) =>
+      corners(k, n).reduce((t, p) => [t[0] + p[0] / 4, t[1] + p[1] / 4], [0, 0]),
+    ),
+    [px0, px1] = [Math.min(...cs.map((c) => c[0])), Math.max(...cs.map((c) => c[0]))],
+    [py0, py1] = [Math.min(...cs.map((c) => c[1])), Math.max(...cs.map((c) => c[1]))];
+  return (x: number, y: number) => {
+    const xc = Math.min(px1, Math.max(px0, x));
+    return Math.min(fitted(xc, Math.min(py1, Math.max(py0, y))), fitted(xc, py0), fitted(xc, py1));
+  };
+}
+// The deck of a bin carrying another bin's (its apron's) deck in front of its
+// well, in world coordinates (the carrying bin has no angle). own: the
+// carrying bin's surface. front: the apron's front edge at x. breaks: where the
+// deck turns along the section at x (the apron well's front and back edges and
+// this well's front edge), so each turn is a hard angle.
+function apronDeck(
+  k0: Kit,
+  a: Bin,
+  well: CrossSection,
+  own: (x: number, y: number) => number,
+  FRONT: number,
+) {
+  const t = ((a.angle ?? 0) * Math.PI) / 180,
+    [c, s] = [Math.cos(t), Math.sin(t)],
+    { keyWell, wb } = binWell(k0, a),
+    held = binSurface(k0, a),
+    local = (x: number, y: number) => [x * c + y * s, -x * s + y * c],
+    // The world y on the apron's line v (in its own frame) at x.
+    line = (v: number, x: number) => (v + x * s) / c,
+    vW = wb.min[1],
+    deck = (x: number, y: number) => {
+      const [u, v] = local(x, y);
+      return v >= vW ? held(u, v) : held(u, vW) - FRONT * (vW - v);
+    },
+    // Where the vertical line at x crosses a well's outline, lowest and highest.
+    span = (cs: CrossSection, x: number) => {
+      const ys: number[] = [];
+      for (const poly of cs.toPolygons())
+        poly.forEach((p, i) => {
+          const q = poly[(i + 1) % poly.length];
+          if ((p[0] - x) * (q[0] - x) <= 0 && p[0] !== q[0])
+            ys.push(p[1] + ((q[1] - p[1]) * (x - p[0])) / (q[0] - p[0]));
+        });
+      return ys.length ? [Math.min(...ys), Math.max(...ys)] : undefined;
+    },
+    // The apron well's back edge, and this well's front edge, at x: along
+    // each well's hull, so the run between them doesn't twist at every step
+    // in the wells' outlines (each bend in a hull is a crease across it).
+    world = keyWell.rotate(a.angle ?? 0).hull(),
+    hull = well.hull(),
+    back = (x: number) => span(world, x)?.[1] ?? line(wb.max[1], x),
+    fore = (x: number) => span(hull, x)?.[0] ?? well.bounds().min[1];
+  return {
+    front: (x: number) => line(vW - a.front, x),
+    // (Where the wells overlap, the step between the two surfaces, just either side.)
+    breaks: (x: number) => {
+      const [yT, yW] = [back(x), fore(x)],
+        mid = (yT + yW) / 2;
+      return yT > yW - 0.6 ? [line(vW, x), mid - 0.3, mid + 0.3] : [line(vW, x), yT, yW];
+    },
+    z: (x: number, y: number) => {
+      const [yT, yW] = [back(x), fore(x)];
+      if (yT >= yW) return y < (yT + yW) / 2 ? deck(x, y) : own(x, y);
+      if (y <= yT) return deck(x, y);
+      if (y >= yW) return own(x, y);
+      const f = (y - yT) / (yW - yT);
+      return deck(x, yT) * (1 - f) + own(x, yW) * f;
+    },
+  };
+}
 function breadbin(k0: Kit, o: Bin): BinParts {
   const ang = o.angle ?? 0,
-    rot = new Matrix4().makeRotationZ((-ang * Math.PI) / 180),
-    frames = Object.fromEntries(
-      Object.entries(k0.frames).map(([n, f]) => [n, rot.clone().multiply(f)]),
-    ),
-    k: Kit = { ...k0, frames },
+    { k, keyWell, wb, P } = binWell(k0, o),
     M = k.wasm.Manifold,
     CS = k.wasm.CrossSection,
     names = o.keys;
   // Least-squares plane z = a + bx + cy through the plate corners.
-  const P = names.flatMap((n) => corners(k, n)),
-    S = [0, 0, 0, 0, 0, 0, 0, 0, 0],
+  const S = [0, 0, 0, 0, 0, 0, 0, 0, 0],
     R = [0, 0, 0];
   for (const [x, y, z] of P) {
     const r = [1, x, y];
@@ -1570,20 +1694,7 @@ function breadbin(k0: Kit, o: Bin): BinParts {
       const m = [...S];
       for (let j = 0; j < 3; j++) m[j * 3 + i] = R[j];
       return det(m) / det(S);
-    }),
-    LIFT = 3; // deck above the fitted plate plane: below the keycaps' lowest travel
-  // Well: axis-aligned boxes round each key's cap travel, merged and closed
-  // across the gaps between them so the outline steps like the C64's.
-  const box = (cs: CrossSection) => {
-      const bb = cs.bounds();
-      return CS.square([bb.max[0] - bb.min[0], bb.max[1] - bb.min[1]]).translate(bb.min);
-    },
-    keyWell = CS.union(names.map((n) => box(capSweep(k, n).project()).offset(1.2, 'Miter')))
-      .offset(11, 'Miter')
-      .offset(-11, 'Miter')
-      .offset(-2, 'Round', 2, 24)
-      .offset(2, 'Round', 2, 24),
-    wb = keyWell.bounds();
+    });
   // Side profile, fitted to a side-on photo of the C64 and scaled so its gutter
   // (118 px up the photo) lands on the parting line. Every rounded part keeps
   // the photo's size and shape: a corner where two straight runs meet, rounded
@@ -1617,12 +1728,14 @@ function breadbin(k0: Kit, o: Bin): BinParts {
     },
     // The back's top corner, the back foot and the rounded underside at the
     // front: the same for every bin, given the grill top's height.
-    backAndUnder = (zG: number, yR: number): [number, number][] => [
+    backAndUnder = (zG: number, yR: number, yf = yF): [number, number][] => [
       ...round([[yC, zG], [-1, 0], [RAKE / bk, -1 / bk], 60 * PX, 0.45, 68 * PX, 0.37]),
       [yR, PART],
       ...round([[yR, 0], [0, 1], [-1, 0], 69 * PX, 0.23, 41 * PX, 0.22]),
-      ...round([[yF, 0], [1, 0], [0, 1], 113 * PX, 0.43, 116 * PX, 0.31]),
+      ...round([[yf, 0], [1, 0], [0, 1], 113 * PX, 0.43, 116 * PX, 0.31]),
     ];
+  // Front edge at x: straight across, or along the apron bin's front edge.
+  let front = (x: number) => (void x, yF);
   // yN: where the bullnose meets the deck (the furthest back, on a curved
   // deck); flatStart: where the flat top over the grill begins.
   // On a curved deck with backTop 'dish', zG and yR are the highest section's.
@@ -1690,26 +1803,11 @@ function breadbin(k0: Kit, o: Bin): BinParts {
     // into the photo's bullnose; behind it a cubic carries the deck up into the flat top
     // over the grill, which with the back and the underside is the same in
     // every section. Sections past the end columns repeat the end column's section.
-    const fitted = curvedDeck(P, xr, ym, LIFT),
-      // Past the outermost key centres (in front of the front row, behind the
-      // back row, beyond the end columns) the surface holds level, rather than
-      // climbing on with the fit into a raised lip, back top or end. (The well
-      // is cut out of the deck, so this only shapes the rim round it.)
-      cs = names.map((n) =>
-        corners(k, n).reduce((t, p) => [t[0] + p[0] / 4, t[1] + p[1] / 4], [0, 0]),
-      ),
-      [px0, px1] = [Math.min(...cs.map((c) => c[0])), Math.max(...cs.map((c) => c[0]))],
-      [py0, py1] = [Math.min(...cs.map((c) => c[1])), Math.max(...cs.map((c) => c[1]))],
-      // Front and back hold at the same height: the lower of the two rows'.
-      held = (x: number, y: number) =>
-        Math.min(fitted(x, Math.min(py1, Math.max(py0, y))), fitted(x, py0), fitted(x, py1)),
-      at = (x: number) => {
-        const xc = Math.min(px1, Math.max(px0, x));
-        return {
-          z: (y: number) => held(xc, y),
-          s: (y: number) => (held(xc, y + 0.01) - held(xc, y - 0.01)) / 0.02,
-        };
-      },
+    const held = binSurface(k0, o),
+      at = (x: number) => ({
+        z: (y: number) => held(x, y),
+        s: (y: number) => (held(x, y + 0.01) - held(x, y - 0.01)) / 0.02,
+      }),
       // The deck runs 3 mm past the well (room for the trough), then rises
       // into the flat top, which starts before the back corner's rounding.
       yB = wb.max[1] + 3,
@@ -1745,7 +1843,42 @@ function breadbin(k0: Kit, o: Bin): BinParts {
       lF = Math.hypot(1, FRONT),
       fwd: [number, number] = [1 / lF, FRONT / lF],
       yW = wb.min[1],
+      // With an apron: the deck at (x, y), in this bin's frame (with no angle
+      // of its own, the world's). In front of the apron's well it falls away
+      // to the front at the C64's deck angle, as a bin's own front does.
+      apron = o.apron && apronDeck(k0, o.apron, keyWell, (x, y) => at(x).z(y), FRONT),
       section = (x: number): [number, number][] => {
+        if (apron) {
+          const yf = apron.front(x),
+            z = (y: number) => apron.z(x, y),
+            // The bullnose ends on the deck 104 px back, along the deck's
+            // slope there (the deck isn't straight along an angled section).
+            L = 104 * PX,
+            s = (z(yf + L + 0.01) - z(yf + L - 0.01)) / 0.02,
+            ls = Math.hypot(1, s),
+            dir: [number, number] = [1 / ls, s / ls],
+            yE = yf + L * dir[0],
+            zf = z(yE) - (yE - yf) * s,
+            zT = top(x),
+            y0 = yE + 0.5,
+            ys = [...apron.breaks(x)];
+          for (let y = y0; y < yB; y += 1) ys.push(y);
+          ys.sort((p, q) => p - q);
+          const B: [number, number] = [yB, z(yB)],
+            sB = at(x).s(yB),
+            h = 0.4 * (yG - yB),
+            lB = Math.hypot(1, sB);
+          return [
+            [yf, PART],
+            ...round([[yf, zf], [0, -1], dir, Math.min(93 * PX, zf - PART), 0.41, L, 0.3]),
+            [yE, z(yE)],
+            ...ys
+              .filter((y, i) => i === 0 || y - ys[i - 1] > 0.05)
+              .map((y): [number, number] => [y, z(y)]),
+            ...bezier([B, [yB + h / lB, B[1] + (h * sB) / lB], [yG - h, zT], [yG, zT]]),
+            ...backAndUnder(zT, yC + (zT - PART) * RAKE, yf),
+          ];
+        }
         const d = at(x),
           zT = top(x),
           W: [number, number] = [yW, d.z(yW)],
@@ -1770,6 +1903,17 @@ function breadbin(k0: Kit, o: Bin): BinParts {
         ];
       };
     yN = yF + 104 * PX * fwd[0];
+    if (apron) front = apron.front;
+    // With an apron, the hard corners along each section, matched up in the
+    // loft: the bullnose's end, the apron well's front edge, the two ends of
+    // the run between the wells, and the start of the rise to the flat top.
+    const marks = (x: number) => {
+      if (!apron) return undefined;
+      const pts = section(x),
+        near = (y: number) =>
+          pts.reduce((p, q) => (Math.abs(q[0] - y) < Math.abs(p[0] - y) && q[1] > PART ? q : p));
+      return [apron.front(x) + 104 * PX * 0.99, ...apron.breaks(x), yB].map(near);
+    };
     // Sections for inspection (prototype-shapes.html exposes them as __sections).
     ((globalThis as { __sections?: unknown[] }).__sections ??= []).push({
       keys: o.keys.length,
@@ -1785,10 +1929,12 @@ function breadbin(k0: Kit, o: Bin): BinParts {
       const ri = END - inset,
         stations: [number, number][] = [],
         N = 8;
-      for (let i = 0; i <= N; i++) {
-        const p = (i / N) * (Math.PI / 2);
-        stations.push([x0 + END - ri * Math.cos(p), END - ri * Math.sin(p)]);
-      }
+      if (o.apron) stations.push([x0 + inset, inset]);
+      else
+        for (let i = 0; i <= N; i++) {
+          const p = (i / N) * (Math.PI / 2);
+          stations.push([x0 + END - ri * Math.cos(p), END - ri * Math.sin(p)]);
+        }
       const mid = Math.ceil((x1 - x0 - 2 * END) / 5);
       for (let i = 1; i < mid; i++)
         stations.push([x0 + END + ((x1 - x0 - 2 * END) * i) / mid, inset]);
@@ -1801,16 +1947,18 @@ function breadbin(k0: Kit, o: Bin): BinParts {
         stations.map(([x, off]) => ({
           x,
           outline: new CS([section(x).reverse()]).offset(-off, 'Round', 2, 24),
+          marks: marks(x),
         })),
         [yR, PART],
       );
     };
   }
-  const shell = body(0),
+  const yLo = Math.min(yF, front(x0), front(x1)),
+    shell = body(0),
     skin = (d: number) => shell.subtract(shell.translate([0, 0, -d])),
     prism = (cs: CrossSection) => cs.extrude(400).translate([0, 0, -1]),
     slab = (z0: number, z1: number) =>
-      M.cube([x1 - x0 + 40, yR - yF + 40, z1 - z0]).translate([x0 - 20, yF - 20, z0]);
+      M.cube([x1 - x0 + 40, yR - yLo + 40, z1 - z0]).translate([x0 - 20, yLo - 20, z0]);
   // Grill: grooves across the flat top between its two roundings, out through
   // both ends.
   const grooves: CrossSection[] = [];
@@ -1821,13 +1969,21 @@ function breadbin(k0: Kit, o: Bin): BinParts {
   const grill = grooves.length ? prism(CS.union(grooves)).intersect(skin(1.2)) : undefined;
   // Trough: 0.8 mm wide and 1 mm deep, following the case outline on the deck:
   // in from the ends, just behind the bullnose, between the well and the flat top.
-  const rx0 = x0 + END + 1,
-    ry0 = yN + 1,
+  // (With an apron it runs on out of the low end, to meet the apron bin's.)
+  const rx0 = o.apron ? x0 - 5 : x0 + END + 1,
+    ry0 = (x: number) => front(x) + yN - yF + 1,
     rx1 = x1 - END - 1,
     ry1 = wb.max[1] + 1.6,
     ring = (d: number) =>
-      CS.square([rx1 - rx0 - 2 * d, ry1 - ry0 - 2 * d])
-        .translate([rx0 + d, ry0 + d])
+      new CS([
+        [
+          [rx0, ry0(rx0)],
+          [rx1, ry0(rx1)],
+          [rx1, ry1],
+          [rx0, ry1],
+        ],
+      ])
+        .offset(-d, 'Miter')
         .offset(-Math.max(0.1, o.corner - d), 'Round', 2, 32)
         .offset(Math.max(0.1, o.corner - d), 'Round', 2, 32),
     trough = prism(ring(0).subtract(ring(0.8))).intersect(skin(1));
@@ -2260,4 +2416,27 @@ export const variants: Variant[] = [
     split: PART - 0.6, // the bottom of the parting groove
     config: ribbonToPanel,
   })),
+  {
+    key: 'c64-joined',
+    name: 'C64, thumbs joined into the deck',
+    blurb:
+      "The curved-deck breadbin with the top following the dish, and the thumb row joined into the finger bin's deck instead of a second bin butting into it. The finger bin's sections carry on forward over the thumb row to the thumb bin's front edge, which runs on to the finger bin's outer end and meets it at a corner. Across each section the thumb surface runs to the thumb well's back edge, then a straight run joins it to the finger surface at the finger well's front edge, with a hard angle at each end. Past the inner end of the finger bin, which is a plain vertical face, the thumb bin carries on alone to the far thumb key.",
+    build: (k) => {
+      const tight = { side: 6, front: 13, corner: 2, curved: true, backTop: 'dish' as const },
+        thumb: Bin = {
+          keys: thumbKeys(k),
+          angle: thumbAngle(k),
+          ...tight,
+          back: 12,
+          noGrill: true,
+        },
+        m = c64(k, [{ keys: fingerKeys(k), ...tight, back: 20, ports: true, apron: thumb }, thumb]);
+      return noCut ? m : cutKeys(k, m);
+    },
+    color: 0xd8ccae,
+    capColor: 0x4b3a2e,
+    noPad: true,
+    split: PART - 0.6, // the bottom of the parting groove
+    config: ribbonToPanel,
+  },
 ];
