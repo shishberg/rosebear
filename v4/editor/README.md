@@ -103,12 +103,16 @@ base thickness. The case's own sizes are named at the top of `shell.ts`.
 - **Bottom section**: the case below the parting line, a separate print. It
   carries the **adapter mount**: a boss with a peg through each of the
   adapter's two mounting holes, beside the connector, and two rests under its
-  solder-hole end. Between the connector and the port panel is the ribbon's
-  **landing**, a block with two tunnels across it for cable ties that pass over
-  the ribbon.
+  solder-hole end.
 - **Port panel**: a rounded recess in the finger bin's inner end, straddling
   the parting line, with a dark **trim** insert (a separate part) at its back.
-  The main ribbon leaves through a slot in it.
+  The main ribbon leaves through a slot in it. The insert also holds the
+  ribbon. A neck round the slot passes through the wall, where the two halves
+  close on it. Inside the case it carries the ribbon's **landing**, a block on
+  the bottom plate with two tunnels across it for cable ties that pass over the
+  ribbon. The landing reaches below the neck, so a pull on the ribbon bears on
+  the wall. The landing is 10 mm long from the wall, so the adapter stands far
+  enough in for its loop to clear it.
 - **Tile**: the bought 1U key PCB under each switch (see [the v4 README](../README.md)),
   provisionally 19 × 19 mm. Its **tile pocket** is the space under the plate kept
   clear for the tile, its parts and the switch body, open below to the hollow so
@@ -209,7 +213,7 @@ checks the result:
 - Each opening is probed at nine points.
 - Tiles, tile components, the pads, the FFC adapter with its connector and
   latch room, and the main ribbon must not overlap the chassis or the bottom
-  section.
+  section. The adapter and the ribbon must not overlap the port insert either.
 - **Wires**: each wire, as a tube of its diameter, must miss the chassis, the
   bottom section and every other wire (wires may touch).
   Wires that hit are listed and highlighted cyan.

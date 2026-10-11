@@ -30,7 +30,7 @@ import { capSize, isKey, point, type Config } from './geometry';
 import { seatSettings } from './seats';
 import { PLATES, plateEdges, plateHalfWidths, type HalfWidths } from './plates';
 import { shell } from './shell';
-import { landingBox, wiring, type Wiring } from './wiring';
+import { wiring, type Wiring } from './wiring';
 
 export { capSize, isKey };
 export interface ChassisResult {
@@ -38,8 +38,10 @@ export interface ChassisResult {
   body: Manifold;
   /** The bottom section, below the parting line, with the adapter's mount. */
   base: Manifold;
-  /** The port panel's dark insert, a separate part. */
+  /** The port panel's dark insert, a separate part, with the ribbon's landing. */
   trim: Manifold;
+  /** The port panel's end face, in world x. */
+  panel: number;
   /** Where the case and the bottom section part. */
   split: number;
   /** For each key, the chassis its keycap's room (and the switch rim's) had to remove. */
@@ -87,9 +89,6 @@ export const SIZES = {
   glueLayer: 0.15,
   /** The adapter's rests stand this far in from its hole edge. */
   adapterRestIn: 7,
-  /** Tie tunnels: their centres this far in from the landing's ends, and their tops this far under its top. */
-  tieIn: 2.75,
-  tieBridge: 1,
 } as const;
 
 /** A plan vector or direction, [x, y] in world coordinates. */
@@ -446,7 +445,7 @@ export function buildChassis(
   // All at once: one boolean against the whole case, not two per key.
   const whole = uncarved.subtract(M.union(cutters));
   // The case above the parting groove's bottom, and the bottom section below
-  // it with the adapter's mount, less the tie tunnels and the ribbon's slot.
+  // it with the adapter's mount, less the ribbon's slot.
   const bb = whole.boundingBox();
   const below = M.cube([
     bb.max[0] - bb.min[0] + 40,
@@ -456,12 +455,12 @@ export function buildChassis(
   const base = whole
     .intersect(below)
     .add(adapterMount(wasm, cfg, frames))
-    .subtract(landingTunnels(wasm, cfg, frames))
     .subtract(built.slot);
   return {
     body: whole.subtract(below),
     base,
     trim: built.trim,
+    panel: built.panel,
     split: built.split,
     roomCuts,
   };
@@ -469,8 +468,8 @@ export function buildChassis(
 
 /**
  * The adapter's mount on the bottom section: a boss with a peg through each of
- * its mounting holes, two rests under its other end, and the ribbon's landing.
- * Each reaches half a millimetre into the floor.
+ * its mounting holes and two rests under its other end. Each reaches half a
+ * millimetre into the floor.
  */
 function adapterMount(wasm: ManifoldToplevel, cfg: Config, frames: Record<string, Matrix4>) {
   const M = wasm.Manifold;
@@ -483,7 +482,6 @@ function adapterMount(wasm: ManifoldToplevel, cfg: Config, frames: Record<string
       y,
       -a.standoff_mm - into,
     ]);
-  const landing = landingBox(cfg);
   return M.union([
     ...a.mounting_holes_mm.flatMap(([x, y]) => [
       post(x, y, a.boss_diameter_mm, 0),
@@ -492,23 +490,5 @@ function adapterMount(wasm: ManifoldToplevel, cfg: Config, frames: Record<string
     ...[-1, 1].map((s) =>
       post(bx / 2 - SIZES.adapterRestIn, s * (by / 2 - 2), a.rest_diameter_mm, 0),
     ),
-    M.cube(
-      [landing.from - landing.to, landing.width, landing.top - landing.bottom + into],
-      false,
-    ).translate([landing.to, -landing.width / 2, landing.bottom - into]),
   ]).transform(frames.adapter.elements as never);
-}
-/** Two tunnels across the landing for cable ties, which pass over the ribbon. */
-function landingTunnels(wasm: ManifoldToplevel, cfg: Config, frames: Record<string, Matrix4>) {
-  const landing = landingBox(cfg);
-  const [w, h] = cfg.ribbon.tie_slot_mm;
-  return wasm.Manifold.union(
-    [landing.from - SIZES.tieIn, landing.to + SIZES.tieIn].map((x) =>
-      wasm.Manifold.cube([w, landing.width + 2, h], true).translate([
-        x,
-        0,
-        landing.top - SIZES.tieBridge - h / 2,
-      ]),
-    ),
-  ).transform(frames.adapter.elements as never);
 }

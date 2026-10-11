@@ -138,7 +138,8 @@ export function componentFrames(cfg: Config) {
  * are filled in from the defaults, and the adapter, which changed meaning in
  * schema 2, is replaced. Schema 3 is the C64 chassis: the extra thumb keys
  * move out beside the thumb row, the adapter and ribbon move to the port
- * panel, and the trackpad is gone.
+ * panel, and the trackpad is gone. Schema 4 moves the ribbon's landing onto
+ * the port panel's insert.
  */
 export function migrate(c: Record<string, any>) {
   const d = defaultConfig as Record<string, any>;
@@ -151,6 +152,13 @@ export function migrate(c: Record<string, any>) {
     for (const k of ['adapter', 'ribbon', 'wiring', 'chassis']) c[k] = clone(d[k]);
     delete c.trackpad;
     c.schema = 3;
+  }
+  if (!(c.schema >= 4)) {
+    // Schema 4: the landing is on the port panel's insert, so the adapter
+    // stands 4 mm further in to keep its loop clear of it (if not moved).
+    const p = c.adapter?.position_mm;
+    if (p && p[0] === -28 && p[1] === 16) c.adapter.position_mm = clone(d.adapter.position_mm);
+    c.schema = 4;
   }
   const fill = (to: Record<string, any>, from: Record<string, any>) => {
     for (const [k, v] of Object.entries(from))

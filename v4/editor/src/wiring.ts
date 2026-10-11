@@ -1432,9 +1432,11 @@ const segmentPart = (
 
 /**
  * The ribbon's centre line, in the adapter's frame: out of the connector's
- * mouth, over the slack loop, down onto the landing and out through the wall.
+ * mouth, over the slack loop, down to the landing's top and straight out
+ * through the port panel, whose end face it crosses at x = `panel`, to
+ * outside_mm beyond it.
  */
-export function ribbonPath(cfg: Config) {
+export function ribbonPath(cfg: Config, panel = defaultPanel(cfg)) {
   const a = cfg.adapter;
   const r = cfg.ribbon;
   const [bx, , bz] = a.board_mm;
@@ -1442,8 +1444,7 @@ export function ribbonPath(cfg: Config) {
   const mouthZ = bz + a.connector_mm[2] / 2;
   const loopFrom = mouthX - 2;
   const loopTo = loopFrom - 2 * r.loop_radius_mm;
-  const landing = landingBox(cfg);
-  const onLanding = landing.top + r.thickness_mm / 2 + 0.05;
+  const onLanding = landingBox(cfg).top + r.thickness_mm / 2 + 0.05;
   const points: V3[] = [[mouthX, 0, mouthZ]];
   // The loop: a half turn up and over, from loopFrom to loopTo.
   for (let i = 0; i <= WIRING.loopSteps; i++) {
@@ -1454,25 +1455,27 @@ export function ribbonPath(cfg: Config) {
       mouthZ + r.loop_radius_mm * Math.sin(t),
     ]);
   }
-  points.push(
-    [landing.from + 0.5, 0, onLanding],
-    [landing.to, 0, onLanding],
-    [landing.to - r.outside_mm, 0, onLanding],
-  );
+  points.push([landingEnd(cfg) + 0.5, 0, onLanding], [panel - r.outside_mm, 0, onLanding]);
   return points;
 }
+/** The adapter-frame x the landing must stop short of, clear of the slack loop. */
+export function landingEnd(cfg: Config) {
+  const a = cfg.adapter;
+  return -a.board_mm[0] / 2 + a.connector_inset_mm - 3 - 2 * cfg.ribbon.loop_radius_mm;
+}
+// Until a build has placed the port panel: as if the landing ran up to the loop.
+const defaultPanel = (cfg: Config) => landingEnd(cfg) - cfg.ribbon.landing_mm[0] - 2;
 
 /**
- * The landing on the bottom plate, in the adapter's frame (x from `from` down
- * to `to`, z from the plate's top down to `bottom` up to `top`).
+ * The ribbon's landing, on the port panel's insert inside the case: its length
+ * in from the wall and its width, and in the adapter's frame its bottom (on the
+ * bottom plate) and top (under the ribbon).
  */
 export function landingBox(cfg: Config) {
   const a = cfg.adapter;
   const r = cfg.ribbon;
-  const from = -a.board_mm[0] / 2 + a.connector_inset_mm - 3 - 2 * r.loop_radius_mm;
   return {
-    from,
-    to: from - r.landing_mm[0],
+    length: r.landing_mm[0],
     width: r.landing_mm[1],
     bottom: -a.standoff_mm,
     top: -a.standoff_mm + r.landing_mm[2],
@@ -1480,7 +1483,12 @@ export function landingBox(cfg: Config) {
 }
 
 /** The adapter, its connector and the ribbon, as parts for display and the checks. */
-export function adapterParts(cfg: Config, frames = componentFrames(cfg)): Part[] {
+export function adapterParts(
+  cfg: Config,
+  frames = componentFrames(cfg),
+  /** The port panel's end face in world x, once a build has placed it. */
+  panelX?: number,
+): Part[] {
   const a = cfg.adapter;
   const r = cfg.ribbon;
   const f = frames.adapter;
@@ -1505,7 +1513,10 @@ export function adapterParts(cfg: Config, frames = componentFrames(cfg)): Part[]
     [c[0], c[1], a.latch_room_mm],
     [cx, 0, bz + c[2] + a.latch_room_mm / 2],
   );
-  const path = ribbonPath(cfg).map((p) => point(f, p));
+  // The end face, along the adapter's x (the ribbon leaves along its -x).
+  const e = f.elements;
+  const panel = panelX === undefined || e[0] < 0.1 ? undefined : (panelX - e[12]) / e[0];
+  const path = ribbonPath(cfg, panel).map((p) => point(f, p));
   const across = point(f, [0, 1, 0]).map((x, i) => x - f.elements[12 + i]) as V3;
   for (let i = 0; i + 1 < path.length; i++)
     parts.push(

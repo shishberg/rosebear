@@ -52,7 +52,12 @@ export interface Part {
   /** Round holes through a box along its z axis: centres in its x and y. */
   holes?: { at: number[]; diameter: number }[];
 }
-export function hardware(project: Project, nodes = componentFrames(project.config)): Part[] {
+export function hardware(
+  project: Project,
+  nodes = componentFrames(project.config),
+  /** The port panel's end face in world x, from a build. */
+  panel?: number,
+): Part[] {
   const cfg = project.config;
   const parts: Part[] = [];
   const tile = cfg.tile;
@@ -101,7 +106,7 @@ export function hardware(project: Project, nodes = componentFrames(project.confi
           m,
         );
     }
-  parts.push(...adapterParts(cfg, nodes), ...padParts(cfg, nodes));
+  parts.push(...adapterParts(cfg, nodes, panel), ...padParts(cfg, nodes));
   return parts;
 }
 export interface Clearance {
@@ -153,7 +158,10 @@ export interface BuildResult {
   mesh: MeshData;
   base: MeshData;
   /** The port panel's dark insert. */
+  /** The port panel's dark insert, with the ribbon's landing. */
   trim: MeshData;
+  /** The port panel's end face in world x, where the ribbon leaves. */
+  panel: number;
   report: Report;
   highlights: Highlight[];
   /** The routed wiring, which the editor draws with the chassis it was checked against. */
@@ -551,14 +559,16 @@ function build(
       });
     }
     const overlaps: Report['hardware'] = [];
-    // Hardware is checked against the chassis and its bottom section.
+    // Hardware is checked against the chassis and its bottom section, and the
+    // adapter and ribbon against the port insert, which carries the landing.
+    const withTrim = keep(result.add(chassis.trim));
     const against: Record<string, Manifold> = {
       pcb: result,
       components: result,
-      adapter: result,
-      ribbon: result,
+      adapter: withTrim,
+      ribbon: withTrim,
     };
-    for (const p of hardware(project, nodes))
+    for (const p of hardware(project, nodes, chassis.panel))
       if (against[p.group]) {
         let shape = p.cylinder
           ? keep(keep(M.cylinder(p.size[2], p.cylinder, p.cylinder, 64, true)).translate(p.center))
@@ -727,6 +737,7 @@ function build(
       mesh,
       base: meshData(chassis.base),
       trim: meshData(chassis.trim),
+      panel: chassis.panel,
       highlights,
       wiring: wired,
       report: {

@@ -1,5 +1,5 @@
 {
-  "schema": 3,
+  "schema": 4,
   "units": "mm and degrees",
   "description": "Individual RGB 1U tiles; dimensions marked provisional must be measured before a full print.",
   "geometry": {
@@ -180,7 +180,7 @@
   "adapter": {
     "provisional": true,
     "description": "Generic 24-way 0.5 mm FFC to 2.54 mm breakout, on the bottom plate. Its position is in world coordinates (it is not tented): the board centre in plan, and its turn about the vertical; at 0 the connector faces -x and the holes +x.",
-    "position_mm": [-28, 16],
+    "position_mm": [-24, 16],
     "rotation_deg": 0,
     "board_mm": [26, 36, 1.6],
     "standoff_mm": 2.5,

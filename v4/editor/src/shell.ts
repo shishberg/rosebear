@@ -86,6 +86,10 @@ interface Bin {
 // Height of the parting line between the top case and the bottom section.
 const PART = 10;
 const WALL = 2; // case wall, deck and floor thickness
+// The port insert's neck stands this far out round the ribbon's slot; its tie
+// tunnels are centred this far in from the landing's ends, their tops this far
+// under its top.
+const [NECK, TIE_IN, TIE_BRIDGE] = [1.5, 2.75, 1];
 // How far the wall round a well reaches down from the deck.
 const WELL_WALL = 16;
 interface BinParts {
@@ -1165,10 +1169,12 @@ function breadbin(k0: Kit, o: Bin): BinParts {
 export interface Shell {
   // The case, hollow, with the wells open through it and the port panel cut.
   body: Manifold;
-  // The port panel's dark insert, a separate part.
+  // The port panel's dark insert, a separate part, with the ribbon's landing.
   trim: Manifold;
   // The ribbon's slot through the port panel.
   slot: Manifold;
+  // The port panel's end face, in world x.
+  panel: number;
   // Each well's outline in plan.
   wells: CrossSection[];
   // The parting line's groove bottom: the case above it, the bottom section below.
@@ -1231,11 +1237,43 @@ function c64(k: Kit, bins: Bin[]): Shell {
         ),
       ),
     w = r.width_mm + 2 * r.notch_clearance_mm,
-    slot = M.cube([12, w, 3]).translate([x0 - 1, ry - w / 2, rz - 1.5]);
+    slot = M.cube([WALL + 1, w, 3]).translate([x0 - 1, ry - w / 2, rz - 1.5]),
+    // The insert holds the ribbon: a neck round the slot through the wall
+    // behind it, and inside the case the landing, on the bottom plate, where
+    // cable ties through two tunnels across it tie the ribbon down. The
+    // landing reaches below the neck, so a pull on the ribbon bears on the
+    // wall; the halves close on the neck across the parting line.
+    neck = M.cube([WALL - D, w + 2 * NECK, 3 + 2 * NECK]).translate([
+      x0 + D,
+      ry - w / 2 - NECK,
+      rz - 1.5 - NECK,
+    ]),
+    lx = x0 + WALL,
+    landing = M.cube([land.length, land.width, land.top - land.bottom]).translate([
+      lx,
+      ry - land.width / 2,
+      a[14] + land.bottom,
+    ]),
+    [tw, th] = r.tie_slot_mm,
+    ties = M.union(
+      [lx + TIE_IN, lx + land.length - TIE_IN].map((x) =>
+        M.cube([tw, land.width + 2, th], true).translate([
+          x,
+          ry,
+          a[14] + land.top - TIE_BRIDGE - th / 2,
+        ]),
+      ),
+    );
+  const cased = body.subtract(face(x0 - 1, x0 + D)).subtract(neck);
   return {
-    body: body.subtract(face(x0 - 1, x0 + D)).subtract(slot),
-    trim: face(x0 + D - 0.4, x0 + D).subtract(slot),
+    body: cased,
+    // Less the case, where the wall's fillet meets the floor under the landing.
+    trim: M.union([face(x0 + D - 0.4, x0 + D), neck, landing])
+      .subtract(slot)
+      .subtract(ties)
+      .subtract(cased),
     slot,
+    panel: x0,
     wells: parts.map((p) => p.well),
     split: PART - 0.6,
     inside: M.union([

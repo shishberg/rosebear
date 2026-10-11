@@ -398,6 +398,10 @@ function setShell(r: BuildResult) {
   setMesh(shell, r.mesh);
   setMesh(basePlate, r.base);
   setMesh(trim, r.trim);
+  if (panel !== r.panel) {
+    panel = r.panel;
+    updateHardware();
+  }
   originalIndices = (shell.geometry.getIndex()!.array as Uint32Array).slice();
   render();
 }
@@ -490,9 +494,11 @@ function clearGroup(g: T.Group) {
     (m.material as T.Material).dispose();
   }
 }
+// The port panel's end face as last built: the ribbon is drawn out through it.
+let panel: number | undefined;
 function updateHardware() {
   clearGroup(parts);
-  for (const p of hardware(project)) {
+  for (const p of hardware(project, undefined, panel)) {
     const g = p.cylinder
         ? new T.CylinderGeometry(p.cylinder, p.cylinder, p.size[2], 48).rotateX(Math.PI / 2)
         : new T.BoxGeometry(...p.size),
