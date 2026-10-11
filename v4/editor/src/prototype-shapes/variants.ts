@@ -1759,12 +1759,13 @@ function apronDeck(
       return [Math.max(line(vW, x) + 1, yW - Math.max(yW - yT, rise, 1)), yW];
     },
     // Where the apron's deck stops at x, at the foot of the wall up to this
-    // bin's top: where the apron's own deck ends (its rise to its flat top
-    // stays under the wall), but not in front of the run's start nor within a
-    // millimetre of this well.
+    // bin's top: just in front of the apron's trough behind its well (so the
+    // trough runs into the wall, and the apron's rise to its flat top stays
+    // under it), but not in front of the run's start nor within a millimetre
+    // of this well.
     foot = (x: number) => {
       const [yT, yW] = run(x);
-      return Math.min(yW - 1, Math.max(yT, line(wb.max[1] + 3, x)));
+      return Math.min(yW - 1, Math.max(yT, line(wb.max[1] + 0.6, x)));
     };
   return {
     t,
@@ -2530,23 +2531,20 @@ function breadbin(k0: Kit, o: Bin): BinParts {
         .offset(Math.max(0.1, o.corner - d), 'Round', 2, 32),
     band = ring(0).subtract(ring(0.8)),
     // With an apron, the trough doesn't run over the wall between the decks
-    // at the inside corner: the apron's stops short of this bin's end, this
-    // bin's on the strip above the wall, both with rounded ends.
+    // at the inside corner: the apron's runs into the wall and stops flush
+    // with it (cut back to the wall's outline a little above the deck, past
+    // its foot's rounding), this bin's stops on the strip above the wall with
+    // a rounded end.
     trough = near(
       (() => {
         if (!apronOf) return band;
-        const xe = x0 - 1.6,
-          yE = apronOf.breaks(rx0 + 0.4)[2] - 1.5,
+        const yE = apronOf.breaks(rx0 + 0.4)[2] - 1.5,
           yL = front(x0) + 20,
-          mid = (cs: CrossSection) => {
-            const b = cs.bounds();
-            return [(b.min[0] + b.max[0]) / 2, (b.min[1] + b.max[1]) / 2] as [number, number];
-          },
-          ends = [
-            band.intersect(rect(xe - 0.02, xe, yL, yE)),
-            band.intersect(rect(rx0 - 0.5, rx0 + 1.3, yE, yE + 0.02)),
-          ].map((e) => CS.circle(0.4, 16).translate(mid(e)));
-        return band.subtract(rect(xe, rx0 + 2, yL, yE)).add(CS.union(ends));
+          yc = apronOf.breaks(x0)[1],
+          wall = shell.slice(apronOf.deck(x0, yc) + 1.3).intersect(rect(x0, rx0, yL, yE)),
+          b = band.intersect(rect(rx0 - 0.5, rx0 + 1.3, yE, yE + 0.02)).bounds(),
+          end = CS.circle(0.4, 16).translate([(b.min[0] + b.max[0]) / 2, yE]);
+        return band.subtract(wall).subtract(rect(rx0, rx0 + 2, yL, yE)).add(end);
       })(),
       1,
     );
