@@ -108,8 +108,13 @@ interface BinParts {
 type Round = [[number, number], [number, number], [number, number], number, number, number, number];
 // A bin's section across x; with an apron, round: the ends of the top round
 // of the wall between the decks (one point where there's no wall).
-// round: the wall's top round's ends; rise: the wall's height (between decks).
-type Section = [number, number][] & { round?: [number, number][]; rise?: number };
+// round: the wall's top round's ends; foot: where the round at its foot
+// leaves the apron's deck; rise: the wall's height (between decks).
+type Section = [number, number][] & {
+  round?: [number, number][];
+  foot?: [number, number];
+  rise?: number;
+};
 // A cubic Bézier through four control points, sampled at 13 points.
 function bezier(P: [number, number][]): [number, number][] {
   const out: [number, number][] = [];
@@ -615,6 +620,7 @@ function breadbin(k0: Kit, o: Bin): BinParts {
                 [yc, zS - R],
                 [yc + (R * (yW - yc)) / lS, zS + (R * (zW - zS)) / lS],
               ] as [number, number][],
+              foot: [yc - f / lc, zc - (f * sc) / lc] as [number, number],
               rise,
             },
           );
@@ -927,11 +933,16 @@ function breadbin(k0: Kit, o: Bin): BinParts {
           // section to the next.
           marks = [...frontMarks(pts, T.yf, br[0]), near(br[2]), near(yB), ...pts.round!];
         // Away from the apron (and at the pinky end) the whole outline rounds in.
+        // The deck corner's mark is where the wall's foot round leaves the
+        // apron's deck, as at the index end, where it's the point the moved
+        // wall meets the deck: marked anywhere else (the round's top, say),
+        // the foot round is lofted onto the deck between the last rounded-in
+        // section and the first full one, and twists into a fan of facets.
         if (off <= inset + 1e-6 || x > (x0 + x1) / 2)
           return {
             x,
             outline: outline(pts, off),
-            marks: [...marks, near(br[1]), [T.wR - 41 * PX, 0]] as [number, number][],
+            marks: [...marks, pts.foot!, [T.wR - 41 * PX, 0]] as [number, number][],
           };
         // At the index end, the stretch the apron carries on from (deck
         // corner round the front and bottom to the base corner) stays put;
