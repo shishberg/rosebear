@@ -10,6 +10,7 @@ const root = fileURLToPath(new URL('.', import.meta.url));
 //   GET /__marks          every mark (without screenshots)
 //   POST /__marks         save a mark: JSON with `shot` as a PNG data URL
 //   DELETE /__marks/<id>  remove a mark
+//   DELETE /__marks       remove every mark
 function prototypeMarks(): Plugin {
   const dir = root + 'prototype-marks/';
   const git = (...a: string[]) => execFileSync('git', a, { cwd: root, encoding: 'utf8' }).trim();
@@ -34,6 +35,12 @@ function prototypeMarks(): Plugin {
         }
         if (req.method === 'DELETE') {
           const id = (req.url ?? '').replace(/^\//, '');
+          if (!id) {
+            // Only plain mark files: names from the folder itself, nothing else.
+            const files = readdirSync(dir).filter((f) => /^[\w-]+\.(json|png)$/.test(f));
+            files.forEach((f) => rmSync(dir + f, { force: true }));
+            return send(200, { removed: files.length });
+          }
           if (!/^[\w-]+$/.test(id)) return send(400, { error: 'bad id' });
           rmSync(dir + id + '.json', { force: true });
           rmSync(dir + id + '.png', { force: true });
