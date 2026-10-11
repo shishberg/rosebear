@@ -89,7 +89,24 @@ export const SIZES = {
   glueLayer: 0.15,
   /** The adapter's rests stand this far in from its hole edge. */
   adapterRestIn: 7,
+  /** PROTOTYPE plate styles (?plates=seat|sunk): past the seat the sheet's top falls this far by the plate's edge, */
+  ringDrop: 1,
+  /** and with ?plates=sunk it stands this far above the seat, which is sunk into it. */
+  sunkLift: 1.2,
 } as const;
+
+/**
+ * PROTOTYPE: how the plates' tops are shaped, from `chassis.plate_style` (set by
+ * the editor's ?plates= query).
+ *  square  each plate flat right out to its edge (the current design);
+ *  seat    flat only over the switch seat, then ruled across to the
+ *          neighbours' seats and falling ringDrop to the open edges;
+ *  sunk    as seat, but sunkLift higher, with each seat a recess in it.
+ */
+export function plateStyle(cfg: Config): 'square' | 'seat' | 'sunk' {
+  const s = (cfg.chassis as { plate_style?: string }).plate_style;
+  return s === 'seat' || s === 'sunk' ? s : 'square';
+}
 
 /** A plan vector or direction, [x, y] in world coordinates. */
 type Plan = [number, number];
@@ -184,28 +201,65 @@ export function buildChassis(
   const centre = (n: string): Plan => [frames[n].elements[12], frames[n].elements[13]];
   const keyPoint = (n: string, x: number, y: number, z: number): Vec3 =>
     point(frames[n], [x, y, z]);
+  const style = plateStyle(cfg);
+  const flatSeat = style !== 'square';
+  // The sheet's top at the seat, and past it (flatSeat only).
+  const lift = style === 'sunk' ? SIZES.sunkLift : 0;
+  const ring = lift - SIZES.ringDrop;
   const sheet = (ns: string[], well: CrossSection) => {
     const { reach, pairs, across } = plateEdges(cfg, frames, ns);
     const span = (n: string, axis: number) => [
       -plateHalf[axis] - reach[n][axis][0],
       plateHalf[axis] + reach[n][axis][1],
     ];
+    const grid = (n: string, xs: number[], ys: number[], zs: number[]) =>
+      xs.flatMap((x) => ys.flatMap((y) => zs.map((z) => keyPoint(n, x, y, z))));
     const box = (n: string, xs: number[], ys: number[]) =>
-      M.hull(
-        xs.flatMap((x) => ys.flatMap((y) => [0, -plateThickness].map((z) => keyPoint(n, x, y, z)))),
-      );
-    const parts = ns.map((n) => box(n, span(n, 0), span(n, 1)));
+      M.hull(grid(n, xs, ys, [0, -plateThickness]));
+    // With a flat seat: flat at lift over the seat only, and from there falling
+    // to ring by the edges of xs × ys.
+    const seatTop = (
+      n: string,
+      xs = [-seatHalf[0], seatHalf[0]],
+      ys = [-seatHalf[1], seatHalf[1]],
+    ) => grid(n, xs, ys, [lift]);
+    const pad = (n: string, xs: number[], ys: number[]) =>
+      flatSeat
+        ? M.hull([...seatTop(n), ...grid(n, xs, ys, [ring, -plateThickness])])
+        : box(n, xs, ys);
+    const parts = ns.map((n) => pad(n, span(n, 0), span(n, 1)));
     // Between neighbours: each side's strip from its seat edge to its plate
-    // edge, along the whole edge and its reach, hulled together.
+    // edge, along the whole edge and its reach, hulled together. With a flat
+    // seat, its top is the seat's edge, so the hull is ruled from seat to seat.
     const strip = (n: string, axis: number, sign: number) => {
       const acrossEdge = [sign * seatHalf[axis], sign * plateHalf[axis]];
       const along = span(n, 1 - axis);
-      return axis ? box(n, along, acrossEdge) : box(n, acrossEdge, along);
+      if (!flatSeat) return axis ? box(n, along, acrossEdge) : box(n, acrossEdge, along);
+      const edge = [sign * seatHalf[axis]];
+      const seatAlong = [-seatHalf[1 - axis], seatHalf[1 - axis]];
+      const xy = (a: number[], b: number[]) => (axis ? [b, a] : [a, b]) as [number[], number[]];
+      return M.hull([
+        ...seatTop(n, ...xy(edge, seatAlong)),
+        ...grid(n, ...xy(acrossEdge, along), [ring, -plateThickness]),
+      ]);
     };
+    // With a flat seat, a join or fill stays under each of its keys' planes
+    // (at lift): ruled from seat to seat where they fall away from each
+    // other, and a V between their planes where they dish towards each other.
+    const underPlanes = (ks: string[], m: Manifold) =>
+      flatSeat
+        ? ks.reduce(
+            (a, k) => a.intersect(M.hull(grid(k, [-60, 60], [-60, 60], [lift, lift - 60]))),
+            m,
+          )
+        : m;
     for (const [n, m, axis, sign] of pairs)
       if (n < m) {
         const back = across(m, n);
-        if (back) parts.push(M.hull([strip(n, axis, sign), strip(m, back[0], back[1])]));
+        if (back)
+          parts.push(
+            underPlanes([n, m], M.hull([strip(n, axis, sign), strip(m, back[0], back[1])])),
+          );
       }
     // Where four keys meet, the hole between their corners filled.
     for (const n of ns) {
@@ -222,26 +276,32 @@ export function buildChassis(
               .map(centre)
               .reduce((t, c) => [t[0] + c[0] / 4, t[1] + c[1] / 4], [0, 0]);
             parts.push(
-              M.hull(
-                four.flatMap((k) => {
-                  // The plate corner nearest the four's middle, and in from it.
-                  const corners = [-1, 1].flatMap((sx) => [-1, 1].map((sy) => [sx, sy]));
-                  const [sx, sy] = corners.reduce((a, b) => {
-                    const pa = keyPoint(k, a[0] * plateHalf[0], a[1] * plateHalf[1], 0);
-                    const pb = keyPoint(k, b[0] * plateHalf[0], b[1] * plateHalf[1], 0);
-                    return Math.hypot(pb[0] - target[0], pb[1] - target[1]) <
-                      Math.hypot(pa[0] - target[0], pa[1] - target[1])
-                      ? b
-                      : a;
-                  });
-                  return [0, SIZES.cornerFill].flatMap((ix) =>
-                    [0, SIZES.cornerFill].flatMap((iy) =>
-                      [0, -plateThickness].map((z) =>
-                        keyPoint(k, sx * (plateHalf[0] - ix), sy * (plateHalf[1] - iy), z),
-                      ),
-                    ),
-                  );
-                }),
+              underPlanes(
+                four,
+                M.hull(
+                  four.flatMap((k) => {
+                    // The plate corner nearest the four's middle, and in from it.
+                    const corners = [-1, 1].flatMap((sx) => [-1, 1].map((sy) => [sx, sy]));
+                    const [sx, sy] = corners.reduce((a, b) => {
+                      const pa = keyPoint(k, a[0] * plateHalf[0], a[1] * plateHalf[1], 0);
+                      const pb = keyPoint(k, b[0] * plateHalf[0], b[1] * plateHalf[1], 0);
+                      return Math.hypot(pb[0] - target[0], pb[1] - target[1]) <
+                        Math.hypot(pa[0] - target[0], pa[1] - target[1])
+                        ? b
+                        : a;
+                    });
+                    const at = (h: HalfWidths, zs: number[]) =>
+                      [0, SIZES.cornerFill].flatMap((ix) =>
+                        [0, SIZES.cornerFill].flatMap((iy) =>
+                          zs.map((z) => keyPoint(k, sx * (h[0] - ix), sy * (h[1] - iy), z)),
+                        ),
+                      );
+                    // With a flat seat, the top is the seat's corner, not the plate's.
+                    return flatSeat
+                      ? [...at(seatHalf, [lift]), ...at(plateHalf, [ring, -plateThickness])]
+                      : at(plateHalf, [0, -plateThickness]);
+                  }),
+                ),
               ),
             );
           }
@@ -250,10 +310,15 @@ export function buildChassis(
     // a plate (into its keycap's room, or under its tile).
     const offPlate = M.union(
       ns.flatMap((n) =>
-        [
-          [0, 100],
-          [-plateThickness, -100],
-        ].map((zs) =>
+        // With a flat seat, only below: above, the joins keep under their
+        // keys' planes, and the recess keeps each seat clear.
+        (flatSeat
+          ? [[-plateThickness, -100]]
+          : [
+              [0, 100],
+              [-plateThickness, -100],
+            ]
+        ).map((zs) =>
           M.hull(
             span(n, 0).flatMap((x) =>
               span(n, 1).flatMap((y) => zs.map((z) => keyPoint(n, x, y, z))),
@@ -286,21 +351,37 @@ export function buildChassis(
         ),
       );
     const clip = well.offset(SIZES.wellInto, 'Miter').extrude(400).translate([0, 0, -1]);
+    // With a flat seat, nothing stands over a seat: it is open up to the
+    // keycap's lowest point anyway (sunk, it is a recess in the sheet).
+    const recess = (m: Manifold) =>
+      flatSeat
+        ? m.subtract(
+            M.union(
+              ns.map((n) =>
+                M.hull(grid(n, [-seatHalf[0], seatHalf[0]], [-seatHalf[1], seatHalf[1]], [0, 100])),
+              ),
+            ),
+          )
+        : m;
     return {
       // The plates alone, and their reaches and joins, thinner.
-      cores: M.union(
-        ns.map((n) => box(n, [-plateHalf[0], plateHalf[0]], [-plateHalf[1], plateHalf[1]])),
+      cores: recess(
+        M.union(
+          ns.map((n) => pad(n, [-plateHalf[0], plateHalf[0]], [-plateHalf[1], plateHalf[1]])),
+        ),
       ),
-      rest: M.union(parts.slice(ns.length))
-        .subtract(offPlate)
-        .add(M.union(parts.slice(0, ns.length)))
-        .intersect(clip)
-        .subtract(column(PLATES.wellReach, -PLATES.reachThickness)),
+      rest: recess(
+        M.union(parts.slice(ns.length))
+          .subtract(offPlate)
+          .add(M.union(parts.slice(0, ns.length)))
+          .intersect(clip)
+          .subtract(column(PLATES.wellReach, (flatSeat ? ring : 0) - PLATES.reachThickness)),
+      ),
       rooms: room(SIZES.underRoom),
       // Everything under the sheet: its plates and reaches, out to its well,
       // and everything under its top.
       below: column(PLATES.wellReach).intersect(clip),
-      top: column(PLATES.wellReach, 0).intersect(clip),
+      top: column(PLATES.wellReach, lift).intersect(clip),
       // Round the well's edge, under the sheet: where the sheet stands above
       // what is outside the well, its skirt closes the step.
       skirt: column(PLATES.wellReach, SIZES.skirtInto - PLATES.reachThickness, SIZES.skirtDepth)

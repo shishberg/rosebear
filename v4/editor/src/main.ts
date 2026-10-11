@@ -725,7 +725,11 @@ function requestBuild() {
   $('fit-badge').className = '';
   $('fit-badge').textContent = 'Building chassis & checking fit…';
   buildRequests++;
-  worker.postMessage({ id, project: clone(project) });
+  // PROTOTYPE: ?plates=seat|sunk picks the plates' top (chassis.ts plateStyle).
+  const sent = clone(project);
+  const plates = new URLSearchParams(location.search).get('plates');
+  if (plates) (sent.config.chassis as { plate_style?: string }).plate_style = plates;
+  worker.postMessage({ id, project: sent });
   timeout = setTimeout(() => {
     worker.terminate();
     busy = false;
