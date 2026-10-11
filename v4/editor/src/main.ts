@@ -24,7 +24,7 @@ const STORAGE = 'rosebear-chassis-editor:v2';
 $('app').innerHTML =
   `<header><div><h1>Rosebear / chassis editor</h1><p>Right hand · C64 chassis</p></div><span id="save-state">Local project</span></header><main><aside>
 <section><h2>Key layout</h2><label><input id="edit" type="checkbox" checked> Show handles</label><small>Drag a handle parallel to the view: the Top view moves things in plan, the Front and Inner views change heights. Gold: a finger key. Up and down sets that key's height; along the column moves the column's stagger. Move a column sideways with its X offset field. Cyan: a thumb cluster's centre. Pink: turns a thumb cluster. Drag empty space to orbit; right-drag to pan; wheel to zoom.</small><div id="selection" aria-live="polite"><small>Click a handle to edit its numbers.</small></div><small>Values are in layout coordinates, before the whole hand is tented: +X toward the pinky, +Y away from you, +Z up.</small><button id="undo">Undo</button><button id="redo">Redo</button><button id="reset">Reset model</button></section>
-<section><h2>View</h2><label><input id="caps" type="checkbox"> Keycaps (actual configured sizes)</label><label><input id="parts" type="checkbox" checked> Tiles and components</label><label><input id="wires" type="checkbox" checked> Wiring and pads</label><label><input id="adapter" type="checkbox" checked> Adapter and ribbons</label><label><input id="base" type="checkbox" checked> Bottom section</label><label>Chassis opacity<input id="opacity" type="range" min="0.1" max="1" step="0.05" value="1"></label><button id="rebuild">Rebuild & check</button><small>Handles and parts update while dragging. The previous chassis and wiring stay visible until rebuilding finishes.</small></section>
+<section><h2>View</h2><label><input id="caps" type="checkbox"> Keycaps (actual configured sizes)</label><label><input id="parts" type="checkbox" checked> Tiles and components</label><label><input id="wires" type="checkbox" checked> Wiring and pads</label><label><input id="adapter" type="checkbox" checked> Adapter and ribbons</label><label><input id="base" type="checkbox" checked> Bottom section</label><label><input id="bounds" type="checkbox"> Show bounding box</label><small id="size">Size: waiting for the chassis</small><label>Chassis opacity<input id="opacity" type="range" min="0.1" max="1" step="0.05" value="1"></label><button id="rebuild">Rebuild & check</button><small>Handles and parts update while dragging. The previous chassis and wiring stay visible until rebuilding finishes.</small></section>
 <section><h2>Clearance checks</h2><label>Keycap bottom at full press (mm) <input id="bottom-out" type="number" min="0" max="20" step="0.1"></label><small>Height above the flat switch seating plane.</small><label><input id="show-failures" type="checkbox" checked> Highlight failures in 3D</label><small id="fit-legend"><span class="rest">Red: at-rest / hardware collision</span><br><span class="travel">Orange: travel + clearance collision</span><br><span class="opening">Pink: opening / switch-seat defect / loose piece</span><br><span class="wire">Cyan: wire into the chassis / blocked soldering access</span><br>Highlights show through the chassis. Click a result to isolate it.</small><button id="all-failures">Show all failures</button><div id="fit-focus" aria-live="polite"></div><div id="fit-badge">Starting geometry engine…</div><ul id="fit-list"></ul><small>Passing clearance alone does not qualify the chassis for manufacture.</small><button id="report" disabled>Save report</button></section>
 <section><h2>Wiring</h2><small>Provisional: tile pads from a photo, a generic FFC adapter. Each hand is a 4 × 5 matrix; the thumbs are row RX.</small><div id="wiring-summary"></div><details><summary>Matrix and ribbon pins</summary><table id="matrix-table"></table></details><details><summary>Cut list</summary><table id="cut-list"></table></details></section>
 <section><h2>Project</h2><button class="primary" id="export">Save project</button><button id="import">Open project</button><input id="file" type="file" accept=".json,application/json" hidden><button id="stl" disabled>Export review STL</button><button id="stl-base" disabled>Export bottom section STL</button><small>Autosaved in this browser. Save a project file for backup or another browser.</small><div id="load-error"></div><details><summary>All configuration</summary><small>Every layout, chassis and component dimension. The handles and fields above edit the same values.</small><textarea id="config" aria-label="Configuration"></textarea><button id="apply-config">Apply configuration</button></details></section></aside>
@@ -87,6 +87,19 @@ const trim = new T.Mesh(
   new T.MeshStandardMaterial({ color: 0x2a2826, roughness: 0.6 }),
 );
 scene.add(trim);
+// The box the size readout measures: case, bottom section and trim.
+const bounds = new T.Box3Helper(new T.Box3(), 0xffd36b);
+bounds.visible = false;
+scene.add(bounds);
+function measure() {
+  const box = bounds.box.makeEmpty();
+  for (const m of [shell, basePlate, trim]) box.expandByObject(m);
+  const s = box.getSize(new T.Vector3());
+  $('size').textContent = box.isEmpty()
+    ? 'Size: no chassis'
+    : `Size: ${s.x.toFixed(1)} W × ${s.y.toFixed(1)} D × ${s.z.toFixed(1)} H mm`;
+  bounds.visible = $('bounds').matches(':checked') && !box.isEmpty();
+}
 const parts = new T.Group();
 scene.add(parts);
 const wires = new T.Group();
@@ -398,6 +411,7 @@ function setShell(r: BuildResult) {
   setMesh(shell, r.mesh);
   setMesh(basePlate, r.base);
   setMesh(trim, r.trim);
+  measure();
   if (panel !== r.panel) {
     panel = r.panel;
     updateHardware();
@@ -587,6 +601,7 @@ function visibility() {
               : $('parts').matches(':checked');
   wires.visible = $('wires').matches(':checked');
   basePlate.visible = $('base').matches(':checked');
+  bounds.visible = $('bounds').matches(':checked') && !bounds.box.isEmpty();
   handleGroup.visible = $('edit').matches(':checked');
   render();
 }
@@ -831,7 +846,8 @@ $('reset').onclick = () => {
   refreshInputs();
   edited();
 };
-for (const id of ['edit', 'caps', 'parts', 'wires', 'adapter', 'base']) $(id).onchange = visibility;
+for (const id of ['edit', 'caps', 'parts', 'wires', 'adapter', 'base', 'bounds'])
+  $(id).onchange = visibility;
 $('opacity').oninput = () => {
   material.opacity = Number($<HTMLInputElement>('opacity').value);
   material.transparent = material.opacity < 1;

@@ -86,6 +86,9 @@ base thickness. The case's own sizes are named at the top of `shell.ts`.
   stay as last built. **Adapter and ribbons** shows the adapter and both
   ribbons; turn it off to see the wiring behind them. The **Wiring** panel
   lists each key's row and column, and a cut list per net.
+- **Show bounding box** outlines the box around the case, bottom section and
+  trim; the View panel gives its width (X), depth (Y) and height (Z) in mm,
+  updated with each chassis build.
 - Projects saved before the wiring was added load with the default adapter,
   ribbon, pads and wiring.
 
