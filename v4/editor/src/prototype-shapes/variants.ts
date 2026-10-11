@@ -1691,7 +1691,9 @@ function breadbin(k0: Kit, o: Bin): BinParts {
       // shapes the rim round it.)
       cy = names.map((n) => corners(k, n).reduce((t, p) => t + p[1], 0) / 4),
       [py0, py1] = [Math.min(...cy), Math.max(...cy)],
-      held = (x: number, y: number) => fitted(x, Math.min(py1, Math.max(py0, y))),
+      // Front and back hold at the same height: the lower of the two rows'.
+      held = (x: number, y: number) =>
+        Math.min(fitted(x, Math.min(py1, Math.max(py0, y))), fitted(x, py0), fitted(x, py1)),
       at = (x: number) => {
         const xc = Math.min(wb.max[0], Math.max(wb.min[0], x));
         return {
