@@ -434,7 +434,17 @@ function apronDeck(
     world = keyWell.rotate(a.angle ?? 0).hull(),
     hull = well.hull(),
     back = (x: number) => span(world, x)?.[1] ?? line(wb.max[1], x),
-    fore = (x: number) => span(hull, x)?.[0] ?? well.bounds().min[1],
+    // Past either end of this well, and over its rounded corners, its front
+    // edge carries straight on (the well's lowest point would be a step).
+    hb = hull.bounds(),
+    fore = (x: number) => {
+      const [lo, hi] = [hb.min[0] + 3, hb.max[0] - 3],
+        e = Math.min(hi, Math.max(lo, x)),
+        f0 = span(hull, e)![0];
+      if (e === x) return f0;
+      const d = x < lo ? 1 : -1;
+      return f0 + ((span(hull, e + d)![0] - f0) / d) * (x - e);
+    },
     // Towards its outer end (from the second-last key's centre to the last's,
     // and on past it) the apron's deck rises to this well's rim, so the two
     // decks meet level there.
