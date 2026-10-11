@@ -369,7 +369,45 @@ export function buildChassis(
           ),
         ),
       );
-      const floor = under(0).subtract(under(-plateThickness)).subtract(flats).intersect(clip);
+      // Between each pair of neighbours, a sloping step: whatever stands above
+      // the face spanning from one's flat area's edge to the other's is cut
+      // down to it, so a neighbour's plane that would stand too high meets
+      // the flat area through one clean slope rather than notches.
+      const flatEdge = (n: string, axis: number, sign: number, z: number) =>
+        [-1, 1].map((t) => {
+          const q = [0, 0];
+          q[axis] = sign * (seatHalf[axis] + 0.8);
+          q[1 - axis] = t * (seatHalf[1 - axis] + 0.8);
+          return keyPoint(n, q[0], q[1], z);
+        });
+      const lift = (ps: Vec3[]) => ps.map((q) => [q[0], q[1], q[2] + 20] as Vec3);
+      const halfBelow = (n: string) =>
+        place(M.cube([400, 400, 200], true).translate([0, 0, -100]), frames[n]);
+      const flatColumn = (n: string) =>
+        place(
+          M.cube([2 * (seatHalf[0] + 0.8), 2 * (seatHalf[1] + 0.8), 20], true).translate([0, 0, 10]),
+          frames[n],
+        );
+      // Only where one's plane really stands above the other's flat area (the
+      // ring and pinky columns); elsewhere the planes already meet cleanly
+      // and a step would only add creases.
+      const stands = (n: string, m: string) =>
+        halfBelow(m).intersect(flatColumn(n)).volume() > 0.005;
+      const steps = M.union(
+        pairs
+          .filter(([n, m]) => n < m)
+          .flatMap(([n, m, axis, sign]) => {
+            const back = across(m, n);
+            if (!back || !(stands(n, m) || stands(m, n))) return [];
+            const ps = [...flatEdge(n, axis, sign, 0), ...flatEdge(m, back[0], back[1], 0)];
+            return [M.hull([...ps, ...lift(ps)])];
+          }),
+      );
+      const floor = under(0)
+        .subtract(under(-plateThickness))
+        .subtract(steps)
+        .subtract(flats)
+        .intersect(clip);
       return {
         cores: floor,
         rest: floor,
