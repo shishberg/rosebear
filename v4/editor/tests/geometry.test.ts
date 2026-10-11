@@ -2,9 +2,9 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import Module from 'manifold-3d';
 import { Vector3 } from 'three';
-import { defaults, clone, componentFrames, slideToward, validateProject } from '../src/geometry';
-import { buildSolid, checkWalls } from '../src/solid';
-import { buildChassis, SIZES } from '../src/chassis';
+import { defaults, clone, componentFrames, validateProject } from '../src/geometry';
+import { buildSolid } from '../src/solid';
+import { buildChassis } from '../src/chassis';
 import { crossings, holes, nets, wiring } from '../src/wiring';
 import ref from './python-reference.json';
 const pos = (m: { elements: number[] }) => new Vector3(...m.elements.slice(12, 15));
@@ -53,13 +53,13 @@ test('thumb clusters fan on an arc and tilt into a well', () => {
     const a = (normal(f[n]).angleTo(normal(f.thumb_home)) * 180) / Math.PI;
     assert(Math.abs(a - th.arc.well_deg) < 0.01, n);
   }
-  // The extra pair are level with each other.
-  assert(Math.abs(pos(f.thumb_x1).z - pos(f.thumb_x2).z) < 0.5);
+  // The extra pair share the cluster's tilt.
+  assert(normal(f.thumb_x1).angleTo(normal(f.thumb_x2)) < 1e-6);
   const none = clone(defaults);
   delete (none.config.geometry as { thumb_extra?: unknown }).thumb_extra;
   assert(!componentFrames(none.config).thumb_x1);
 });
-test('default chassis passes: one piece on one footprint, clear of the tile pockets, flat seats, clear keycaps, hardware and wires, reachable pads and a fitting trackpad housing', async () => {
+test('default chassis passes: one piece on one footprint, clear of the tile pockets, flat seats, clear keycaps, hardware and wires, and reachable pads', async () => {
   const wasm = await Module();
   wasm.setup();
   const r = buildSolid(wasm, clone(defaults));
@@ -73,19 +73,13 @@ test('default chassis passes: one piece on one footprint, clear of the tile pock
   assert(r.report.seats.every((s) => s.passed));
   assert.equal(r.report.pieces.length, 1);
   assert.equal(r.report.footprint.length, 1);
-  assert(r.report.pocketCut <= 0.01, `tile pockets cut ${r.report.pocketCut} mm³`);
   assert.deepEqual(r.report.roomCuts, []);
   assert.deepEqual(r.report.hardware, []);
   assert.deepEqual(r.report.wires, []);
   assert.deepEqual(r.report.solder, []);
-  assert.deepEqual(r.report.housing, { pieces: 1, fit: 0, slide: 0 });
   assert(r.report.keycaps.every((k) => k.passed));
   assert(r.report.capGaps.every((g) => g.gap > 0));
   assert(r.report.openings.every((o) => o.removed > 0 && o.covered === 9 && o.blocked === 0));
-  // A wall under each key: three on each outer finger column, three on the
-  // thumb row's back and two on the extra thumb row's front.
-  assert(r.report.walls.every((w) => w.passed));
-  assert.equal(r.report.walls.length, 11);
   assert(r.report.passed);
   const mounted = new wasm.Manifold(
     new wasm.Mesh({ numProp: 3, vertProperties: r.mesh.positions, triVerts: r.mesh.indices }),
@@ -136,7 +130,7 @@ test('default chassis passes: one piece on one footprint, clear of the tile pock
     mounted.delete();
   }
 });
-test('the checker reports keycap collisions and loose pieces', async () => {
+test('the checker reports keycap collisions', async () => {
   const wasm = await Module();
   wasm.setup();
   // Keycaps that press 2 mm into the plate must fail, with matching highlight geometry.
@@ -160,15 +154,6 @@ test('the checker reports keycap collisions and loose pieces', async () => {
   } finally {
     solid.delete();
   }
-  // An extra thumb row moved well away only touches the removable base plate.
-  const apart = clone(defaults),
-    x = (apart.config.geometry as { thumb_extra: { position_mm: number[] } }).thumb_extra;
-  x.position_mm[1] -= 40;
-  const r2 = buildSolid(wasm, apart);
-  assert.equal(r2.report.pieces.length, 2);
-  assert.equal(r2.report.footprint.length, 2);
-  assert.equal(r2.report.passed, false);
-  assert(r2.highlights.some((h) => h.kind === 'loose'));
 });
 test('the checker reports chassis built where a keycap goes', async () => {
   const wasm = await Module();
@@ -182,102 +167,6 @@ test('the checker reports chassis built where a keycap goes', async () => {
   assert(home && home.volume > 10);
   assert.equal(r.report.passed, false);
   assert(r.highlights.some((h) => h.kind === 'room' && h.name === 'thumb_home keycap room'));
-});
-test('the wall check finds a gap through a wall and a cutout that does not go through', async () => {
-  const wasm = await Module();
-  wasm.setup();
-  // Plain walls, so the slit goes through a solid post.
-  const cfg = clone(defaults.config);
-  cfg.chassis.wall_pattern = 'solid';
-  const chassis = buildChassis(wasm, cfg, componentFrames(cfg));
-  const pinky = chassis.wallWindows.filter((w) => w.name.startsWith('pinky column wall'));
-  const home = pinky.find((w) => w.name === 'pinky column wall: matrix_pinky_home')!;
-  const top = pinky.find((w) => w.name === 'pinky column wall: matrix_pinky_top')!;
-  // A plan point on a window's mid-plane, at a distance along the wall.
-  const at = (w: typeof home, along: number, z: number): [number, number, number] => {
-    const across = (w.across[0] + w.across[1]) / 2;
-    const [nx, ny] = w.normal;
-    return [-ny * along + nx * across, nx * along + ny * across, z];
-  };
-  const turn = (m: ReturnType<typeof wasm.Manifold.cube>) =>
-    m.rotate([0, 0, (Math.atan2(home.normal[1], home.normal[0]) * 180) / Math.PI]);
-  // A slit 2 mm long and 0.5 mm high through the post between the top and home
-  // keys, and the home key's cutout filled.
-  const [homeAlong, homeZ] = home.cutouts[0];
-  const slit = turn(wasm.Manifold.cube([30, 2, 0.5], true)).translate(
-    at(home, (homeAlong + top.cutouts[0][0]) / 2, homeZ),
-  );
-  const fill = turn(wasm.Manifold.cube([30, 20.5, 16], true)).translate(at(home, homeAlong, homeZ));
-  const damaged = chassis.body.subtract(slit).add(fill);
-  const { checks, gapSolids } = checkWalls(wasm, damaged, pinky, chassis.wallOpenings);
-  const byName = Object.fromEntries(checks.map((c) => [c.name, c]));
-  // The slit is inside both keys' windows.
-  for (const w of [home, top]) {
-    assert.equal(byName[w.name].gaps.length, 1, w.name);
-    assert(Math.abs(byName[w.name].gaps[0] - 1) < 0.1, w.name);
-  }
-  assert.equal(byName[home.name].blindCutouts, 1);
-  assert.equal(byName[top.name].blindCutouts, 0);
-  assert.equal(
-    gapSolids.length,
-    checks.reduce((t, c) => t + c.gaps.length + c.blindCutouts, 0),
-  );
-  // The inner column's wall is tall enough for the hex pattern: the home key's
-  // window sees its cutout, the openings above and below the hexagons, and the
-  // two hexagons beside it. With the solid pattern it sees only the cutout.
-  const innerHome = (c: typeof cfg) =>
-    buildChassis(wasm, c, componentFrames(c)).wallWindows.find(
-      (w) => w.name === 'inner column wall: matrix_inner_home',
-    )!.cutouts.length;
-  const hex = clone(cfg);
-  hex.chassis.wall_pattern = 'hex';
-  assert.equal(innerHome(hex), 5);
-  assert.equal(innerHome(cfg), 1);
-});
-test('every finger tile has a clear way in past its tile rests', async () => {
-  const wasm = await Module();
-  wasm.setup();
-  const M = wasm.Manifold;
-  const cfg = clone(defaults.config);
-  const f = componentFrames(cfg);
-  const body = buildChassis(wasm, cfg, f).body;
-  const t = cfg.tile,
-    top = -t.plate_top_to_pcb_top_mm;
-  type V3 = [number, number, number];
-  // The tile and its parts, moved in the key's frame.
-  const parts = ([x, y, z]: number[]) => [
-    M.cube(t.size_mm as V3, true).translate([x, y, top - t.size_mm[2] / 2 + z]),
-    ...t.components.map((c) =>
-      M.cube(c.size_mm as V3, true).translate([
-        c.center_mm[0] + x,
-        c.center_mm[1] + y,
-        c.center_mm[2] + top + z,
-      ]),
-    ),
-  ];
-  // Each part swept straight through a list of positions.
-  const path = (n: string, ...at: number[][]) =>
-    M.union(
-      at.slice(1).flatMap((b, i) => {
-        const [p, q] = [parts(at[i]), parts(b)];
-        return p.map((x, j) => M.hull([x, q[j]]));
-      }),
-    ).transform(f[n].elements as never);
-  const keys = Object.keys(f).filter((n) => n.startsWith('matrix_'));
-  const s = SIZES.restSlide;
-  const rise = SIZES.restRise;
-  for (const n of keys) {
-    const others = M.union(
-      keys
-        .filter((k) => k !== n)
-        .map((k) => M.union(parts([0, 0, 0])).transform(f[k].elements as never)),
-    );
-    // Each tile comes up restRise from below, restSlide to one side of its place, and slides onto its feet.
-    const from = -slideToward(n) * s;
-    const p = path(n, [0, from, -rise], [0, from, 0], [0, 0, 0]);
-    assert(p.intersect(body).volume() < 0.01, `${n} hits the chassis`);
-    assert(p.intersect(others).volume() < 0.01, `${n} hits another tile`);
-  }
 });
 test("the wiring joins each net's pads and adapter hole, for a 4 × 5 matrix", () => {
   const cfg = defaults.config;
@@ -329,7 +218,6 @@ test('a project saved before the wiring loads with the default adapter, ribbon a
   delete c.ribbon;
   delete c.wiring;
   delete c.tile.pads;
-  delete c.trackpad.mount;
   c.adapter = { position_mm: [0, 0], rotation_deg: 0, board_mm: [30, 16, 1.6] };
   validateProject(p);
   assert.deepEqual(p.config, defaults.config);

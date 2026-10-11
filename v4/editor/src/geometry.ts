@@ -43,6 +43,9 @@ export type Cluster = {
   arc: { radius_mm: number; step_deg: number; well_deg: number };
 };
 export const ROWS = ['top', 'home', 'bottom'] as const;
+export const isKey = (name: string) => name.startsWith('thumb_') || name.startsWith('matrix_');
+export const capSize = (c: Config, n: string) =>
+  ((c.switch.keycap_overrides_mm as Record<string, number[]>)[n] || c.switch.keycap_mm) as V3;
 /** Layout coordinates are before tenting: +Y away from the user, +Z up. The tent
  * (a rotation about Y) and the mount lift are applied last, to every frame. */
 export const tentFrame = (cfg: Config) => {
@@ -108,13 +111,6 @@ export function clusterFrames(c: Cluster) {
       .multiply(frame(key.offset_mm, key.rotation_deg));
   });
 }
-/**
- * Which way a finger tile slides onto its tile rests, as a sign along its key's
- * y axis: back (+1), toward the socket, except in the bottom row, which has no
- * room in front for that past the front swept end and slides forward (-1).
- */
-export const slideToward = (key: string) =>
-  key.startsWith('matrix_') && key.endsWith('_bottom') ? -1 : 1;
 export function componentFrames(cfg: Config) {
   const g = cfg.geometry,
     n: Record<string, Matrix4> = {};
@@ -127,18 +123,8 @@ export function componentFrames(cfg: Config) {
   );
   for (const c of [g.thumb, (g as { thumb_extra?: Cluster }).thumb_extra])
     if (c) clusterFrames(c).forEach((m, i) => (n['thumb_' + c.keys[i].name] = m));
-  n.trackpad = frame(cfg.trackpad.position_mm, cfg.trackpad.rotation_deg);
   const tent = tentFrame(cfg);
   for (const key in n) n[key].premultiply(tent);
-  // The trackpad housing is symmetric about its frame's xz plane, and its mount
-  // tongue points along +x: turn the frame about the pad's normal so +x points
-  // at the key it is mounted to, seen along that normal.
-  const toward = n[cfg.trackpad.mount_toward];
-  if (toward) {
-    const f = n.trackpad,
-      local = new Vector3().setFromMatrixPosition(toward).applyMatrix4(f.clone().invert());
-    f.multiply(frame([0, 0, 0], [0, 0, (Math.atan2(local.y, local.x) * 180) / Math.PI]));
-  }
   // The adapter lies on the bottom plate, so it is placed in world coordinates.
   const a = cfg.adapter;
   n.adapter = frame(
@@ -150,13 +136,21 @@ export function componentFrames(cfg: Config) {
 /**
  * Bring a project saved by an earlier editor up to date: sections added since
  * are filled in from the defaults, and the adapter, which changed meaning in
- * schema 2, is replaced.
+ * schema 2, is replaced. Schema 3 is the C64 chassis: the extra thumb keys
+ * move out beside the thumb row, the adapter and ribbon move to the port
+ * panel, and the trackpad is gone.
  */
 export function migrate(c: Record<string, any>) {
   const d = defaultConfig as Record<string, any>;
   if (!(c.schema >= 2)) {
     c.adapter = clone(d.adapter);
     c.schema = 2;
+  }
+  if (!(c.schema >= 3)) {
+    if (c.geometry) c.geometry.thumb_extra = clone(d.geometry.thumb_extra);
+    for (const k of ['adapter', 'ribbon', 'wiring', 'chassis']) c[k] = clone(d[k]);
+    delete c.trackpad;
+    c.schema = 3;
   }
   const fill = (to: Record<string, any>, from: Record<string, any>) => {
     for (const [k, v] of Object.entries(from))
@@ -170,7 +164,7 @@ export function migrate(c: Record<string, any>) {
       )
         fill(to[k], v);
   };
-  for (const k of ['tile', 'adapter', 'ribbon', 'trackpad', 'wiring', 'chassis'])
+  for (const k of ['tile', 'adapter', 'ribbon', 'wiring', 'chassis'])
     if (!c[k]) c[k] = clone(d[k]);
     else fill(c[k], d[k]);
 }
@@ -186,7 +180,7 @@ export function validateProject(p: unknown): asserts p is Project {
   check(a.config);
   migrate(a.config);
   const c = a.config;
-  if (!c.geometry || !c.switch || !c.tile || !c.trackpad || !c.adapter)
+  if (!c.geometry || !c.switch || !c.tile || !c.adapter)
     throw Error('Missing component configuration');
   if (
     c.geometry.columns?.length !== 5 ||

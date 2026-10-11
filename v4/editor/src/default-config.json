@@ -1,5 +1,5 @@
 {
-  "schema": 2,
+  "schema": 3,
   "units": "mm and degrees",
   "description": "Individual RGB 1U tiles; dimensions marked provisional must be measured before a full print.",
   "geometry": {
@@ -67,20 +67,22 @@
       }
     },
     "thumb_extra": {
-      "position_mm": [-34.046, -84.128, -7.607],
-      "rotation_deg": [-2.443, -9.7, 14.207],
+      "position_mm": [13.5015, -52, 1.0416],
+      "rotation_deg": [0, -10, 0],
       "keys": [
         {
-          "name": "x1"
+          "name": "x1",
+          "offset_mm": [-11.5, -0.5, 1.5]
         },
         {
-          "name": "x2"
+          "name": "x2",
+          "offset_mm": [11.5, 0.5, -1.5]
         }
       ],
       "arc": {
-        "radius_mm": 142.304,
-        "step_deg": 10,
-        "well_deg": 12
+        "radius_mm": 100,
+        "step_deg": 0,
+        "well_deg": 0
       }
     }
   },
@@ -178,7 +180,7 @@
   "adapter": {
     "provisional": true,
     "description": "Generic 24-way 0.5 mm FFC to 2.54 mm breakout, on the bottom plate. Its position is in world coordinates (it is not tented): the board centre in plan, and its turn about the vertical; at 0 the connector faces -x and the holes +x.",
-    "position_mm": [-28, 4],
+    "position_mm": [-28, 16],
     "rotation_deg": 0,
     "board_mm": [26, 36, 1.6],
     "standoff_mm": 2.5,
@@ -200,44 +202,14 @@
   },
   "ribbon": {
     "provisional": true,
-    "description": "24-way 0.5 mm FFC from the adapter, through a loop and a tied-down landing, out through a notch in the inner wall to the pod.",
+    "description": "24-way 0.5 mm FFC from the adapter, through a loop and a tied-down landing, out through the port panel on the finger bin's inner end.",
     "width_mm": 12.5,
     "thickness_mm": 0.12,
     "loop_radius_mm": 4,
-    "landing_mm": [10, 16.5, 3],
+    "landing_mm": [10, 16.5, 8],
     "tie_slot_mm": [3.2, 1.6],
     "notch_clearance_mm": 1,
     "outside_mm": 20
-  },
-  "trackpad": {
-    "provisional": true,
-    "description": "Cirque TM040040 (spec v1.1) in a separate printed housing, symmetric so either hand takes it. It slides down onto a dovetail on the body and is held by one screw from below.",
-    "position_mm": [-83.878, -30, -0.389],
-    "rotation_deg": [0, -30, 0],
-    "diameter_mm": 40,
-    "thickness_mm": 0.99,
-    "top_below_rim_mm": 0.4,
-    "clearance_mm": 0.4,
-    "pod_wall_mm": 2.1,
-    "pod_depth_mm": 7.5,
-    "parts_depth_mm": 4.1,
-    "parts_diameter_mm": 36.01,
-    "cavity_clearance_mm": 0.25,
-    "connector_from_centre_mm": 15.5,
-    "connector_mm": [3.2, 8.6, 4],
-    "cable_width_mm": 6.5,
-    "cable_slot_mm": [2, 7.5],
-    "mount_toward": "thumb_far",
-    "mount": {
-      "tongue_root_mm": 6,
-      "tongue_tip_mm": 9,
-      "tongue_length_mm": 5,
-      "slot_clearance_mm": 0.2,
-      "wall_mm": 2.5,
-      "floor_mm": 2.5,
-      "screw_hole_mm": 1.8,
-      "screw_clearance_mm": 2.4
-    }
   },
   "wiring": {
     "provisional": true,
@@ -251,8 +223,8 @@
     "end_allowance_mm": 5,
     "solder_access_mm": [2, 8],
     "led_order": [
-      "thumb_x1",
       "thumb_x2",
+      "thumb_x1",
       "thumb_near",
       "thumb_home",
       "thumb_far",
@@ -323,7 +295,7 @@
         "pin": 12,
         "group": "row",
         "pads": ["R", "R"],
-        "chains": [["thumb_far", "thumb_home", "thumb_near", "thumb_x2", "thumb_x1"]]
+        "chains": [["thumb_far", "thumb_home", "thumb_near", "thumb_x1", "thumb_x2"]]
       },
       {
         "name": "C0",
@@ -388,10 +360,6 @@
     "plate_thickness_mm": 3,
     "plate_margin_mm": 0.9,
     "wall_mm": 2.4,
-    "end_radius_mm": 9,
-    "end_cut_mm": 4,
-    "base_thickness_mm": 2,
-    "wall_pattern": "hex",
-    "tile_rests": true
+    "base_thickness_mm": 2
   }
 }

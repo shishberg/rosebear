@@ -123,11 +123,11 @@ test('a newer edit supersedes an in-flight build; invalid imports leave the proj
   const solid = await stl;
   const bytes = await fs.readFile((await solid.path())!);
   expect(bytes.length).toBe(84 + 50 * bytes.readUInt32LE(80));
-  const housingStl = page.waitForEvent('download');
-  await page.locator('#stl-housing').click();
-  const housingBytes = await fs.readFile((await (await housingStl).path())!);
-  expect(housingBytes.readUInt32LE(80)).toBeGreaterThan(100);
-  expect(housingBytes.length).toBe(84 + 50 * housingBytes.readUInt32LE(80));
+  const baseStl = page.waitForEvent('download');
+  await page.locator('#stl-base').click();
+  const baseBytes = await fs.readFile((await (await baseStl).path())!);
+  expect(baseBytes.readUInt32LE(80)).toBeGreaterThan(100);
+  expect(baseBytes.length).toBe(84 + 50 * baseBytes.readUInt32LE(80));
   const initial = await project(page);
   await page.locator('#file').setInputFiles({
     name: 'invalid.json',
