@@ -1685,11 +1685,18 @@ function breadbin(k0: Kit, o: Bin): BinParts {
     // over the grill, which with the back and the underside is the same in
     // every section. Sections past the well's ends repeat the end section.
     const fitted = curvedDeck(P, xr, ym, LIFT),
+      // In front of the front row's key centres and behind the back row's the
+      // surface holds level, rather than climbing on with the fit into a raised
+      // front lip and back top. (The well is cut out of the deck, so this only
+      // shapes the rim round it.)
+      cy = names.map((n) => corners(k, n).reduce((t, p) => t + p[1], 0) / 4),
+      [py0, py1] = [Math.min(...cy), Math.max(...cy)],
+      held = (x: number, y: number) => fitted(x, Math.min(py1, Math.max(py0, y))),
       at = (x: number) => {
         const xc = Math.min(wb.max[0], Math.max(wb.min[0], x));
         return {
-          z: (y: number) => fitted(xc, y),
-          s: (y: number) => (fitted(xc, y + 0.01) - fitted(xc, y - 0.01)) / 0.02,
+          z: (y: number) => held(xc, y),
+          s: (y: number) => (held(xc, y + 0.01) - held(xc, y - 0.01)) / 0.02,
         };
       },
       // The deck runs 3 mm past the well (room for the trough), then rises
