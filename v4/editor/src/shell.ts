@@ -98,6 +98,9 @@ interface Bin {
   sweepUp?: (n: string) => number;
   // PROTOTYPE ?box=left-grill: the grill across the low end (see leftGrill).
   leftGrill?: boolean;
+  // PROTOTYPE ?box=turned: the deck levels off past the first group's
+  // (the fingers') well, into one long flat top, the grill past every well.
+  flat?: boolean;
 }
 // Height of the parting line between the top case and the bottom section.
 const PART = 10;
@@ -571,18 +574,22 @@ function breadbin(k0: Kit, o: Bin): BinParts {
       }),
       // The deck runs 3 mm past the well (room for the trough), then rises
       // into the flat top, which starts before the back corner's rounding.
-      yB = wb.max[1] + 3,
+      yB = (o.flat ? groupWells[0].bounds().max[1] : wb.max[1]) + 3,
       xs = Array.from({ length: 41 }, (_, i) => wb.min[0] + ((wb.max[0] - wb.min[0]) * i) / 40);
     // The flat top is long enough for three grill grooves (the C64 has six).
-    yG = Math.min(yB + 6, yC - 60 * PX - (grilled ? 7 : 1));
+    yG = o.flat ? yB + 6 : Math.min(yB + 6, yC - 60 * PX - (grilled ? 7 : 1));
     // Each section's own flat-top height: where its deck would reach on its
     // own slope (over at most 6 mm), so it doesn't have to dip to meet it.
     // The top follows the dish: each section's own height.
-    const top = (x: number) => at(x).z(yB) + Math.max(0, at(x).s(yB)) * Math.min(yG - yB, 6);
+    const own = (x: number) => at(x).z(yB) + Math.max(0, at(x).s(yB)) * Math.min(yG - yB, 6),
+      // Level: one height, as low as the steepest section's rise allows.
+      level = Math.max(...xs.map((x) => at(x).z(yB) + Math.max(0, at(x).s(yB)) * 3)),
+      top = o.flat ? () => level : own;
     zG = Math.max(...xs.map(top));
     yR = yC + (zG - PART) * RAKE;
     backAt = (x) => yC + (top(x) - PART) * RAKE;
-    flatStart = yG + 0.4;
+    // (Levelled off, the grill starts past every well.)
+    flatStart = o.flat ? Math.max(yG, wb.max[1] + 3) + 0.4 : yG + 0.4;
     // In front of the well the deck angles down towards the front at the
     // C64's own deck angle (7.5 degrees) from the well's front edge, rolling
     // over the photo's bullnose into the vertical front face; a 2 mm rounding
@@ -1476,7 +1483,7 @@ function box(k: Kit, style: string) {
   if (style === 'turned')
     // In the bin's own frame (turned a quarter), u along it is world y and
     // v across it is world -x: its front is the pinky end.
-    return c64(k, [{ ...bin, angle: 90, side: 8, surface: (u, v) => surface(-v, u) }]);
+    return c64(k, [{ ...bin, angle: 90, side: 8, flat: true, surface: (u, v) => surface(-v, u) }]);
   if (style === 'left-grill') return c64(k, [{ ...bin, back: 8, leftGrill: true }]);
   return c64(k, [bin]);
 }
@@ -1512,17 +1519,17 @@ function leftGrill(k0: Kit, o: Bin): BinParts {
     yC = wb.max[1] + o.back,
     // The deck rises this much per mm towards the low end.
     m = Math.max(0, (s(wb.min[0] - 0.5, 0) - s(wb.min[0] + 0.5, 0)) / 1),
-    // It runs on 3 mm past the well (room for the trough), then over RAMP
-    // eases level into the flat top, FLAT long (three grooves) before the
-    // back corner's rounding.
-    [RAMP, FLAT] = [6, 7],
-    xB = wb.min[0] - 3,
-    xG = xB - RAMP,
-    zT = Math.max(s(xB, yF), s(xB, yC)) + m * RAMP,
+    // It runs on 3 mm past the fingers' well (room for the trough), then over
+    // RAMP eases level into one long flat top, round the thumbs' well, and on
+    // FLAT past every well (the grill) to the back corner's rounding.
+    [RAMP, FLAT] = [6, 12],
+    xB = groupWells[0].bounds().min[0] - 3,
+    zT = Math.max(s(xB, yF), s(xB, yC)) + (m * RAMP) / 2,
+    xG = Math.min(xB - RAMP, wb.min[0] - 3),
     xC = xG - FLAT - 60 * PX,
     xR = xC - (zT - PART) * RAKE,
     // The deck: the plane, eased (a cubic) from its own slope at xB to level
-    // at zT + 1 at xG; the end's profile cuts it level at zT.
+    // just over zT; the end's profile cuts it level at zT.
     deck = (x: number, y: number) => {
       if (x >= xB) return s(x, y);
       const t = Math.min(1, (xB - x) / RAMP),
@@ -1530,7 +1537,7 @@ function leftGrill(k0: Kit, o: Bin): BinParts {
       return (
         (2 * t ** 3 - 3 * t * t + 1) * z0 +
         (t ** 3 - 2 * t * t + t) * m * RAMP +
-        (-2 * t ** 3 + 3 * t * t) * (zT + 1)
+        (-2 * t ** 3 + 3 * t * t) * (zT + 0.5)
       );
     },
     slope = (x: number, y: number) => (deck(x, y + 0.01) - deck(x, y - 0.01)) / 0.02,
