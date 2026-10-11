@@ -296,90 +296,54 @@ export function buildChassis(
         ),
       );
     const clip = well.offset(SIZES.wellInto, 'Miter').extrude(400).translate([0, 0, -1]);
-    // PROTOTYPE narrow plates: on each edge facing the wall, everything above
-    // the falling top is cut away (cutters), and a ramp 2 mm thick under it
-    // carries the plate on down to the wall.
-    const ramps: Manifold[] = [],
-      cutters: Manifold[] = [];
+    // PROTOTYPE narrow plates: each key's keep, the room its plate's top may
+    // stand in: past its edges facing the wall, flat only to rim past the
+    // seat, then falling at slope degrees by drop; and each pair of
+    // neighbours' keeps hulled together across the gap between them. Near the
+    // wall, everything in the sheet's top drop (straight down) outside every
+    // keep is cut away, so the plates and what joins them meet the wall drop
+    // lower, all along it.
+    let keep: Manifold | undefined;
+    const drop = plateThickness - 1;
     if (narrow) {
       const s = Math.tan((narrow.slope * Math.PI) / 180);
-      // Each wall-facing edge's three shapes, as points: the ramp's falling
-      // and level parts, and the cutter over them.
-      const edges: { n: string; out: Plan; at: number; pts: Vec3[][] }[] = [];
-      for (const n of ns)
-        for (const axis of [0, 1])
-          for (const i of [0, 1]) {
-            if (!reach[n][axis][i]) continue;
-            const sign = 2 * i - 1,
-              f = seatHalf[axis] + narrow.rim,
-              U = plateHalf[axis] + PLATES.wellReach,
-              along = span(n, 1 - axis),
-              edge = (uz: number[][]) =>
-                along.flatMap((a) =>
-                  uz.map(([u, z]) =>
-                    axis ? keyPoint(n, a, sign * u, z) : keyPoint(n, sign * u, a, z),
-                  ),
-                );
-            // It falls at most drop, leaving 1 mm over the plate's underside:
-            // below that is the soldering iron's way to the tile's edge pads.
-            const drop = plateThickness - 1,
-              g = f + drop / s;
-            const e = frames[n].elements,
-              l = Math.hypot(e[axis * 4], e[axis * 4 + 1]),
-              out: Plan = [(sign * e[axis * 4]) / l, (sign * e[axis * 4 + 1]) / l],
-              c = centre(n);
-            edges.push({
-              n,
-              out,
-              at: c[0] * out[0] + c[1] * out[1] + plateHalf[axis],
-              pts: [
-                edge([
-                  [f, 0],
-                  [g, -drop],
-                  [g, -plateThickness],
-                  [f, -plateThickness],
-                ]),
-                edge([
-                  [g, -drop],
-                  [U, -drop],
-                  [U, -plateThickness],
-                  [g, -plateThickness],
-                ]),
-                edge([
-                  [f, 0.01],
-                  [g, 0.01 - drop],
-                  [U, 0.01 - drop],
-                  [f, 100],
-                  [U, 100],
-                ]),
-              ],
-            });
-          }
-      const add = (pts: Vec3[][]) => {
-        ramps.push(M.hull(pts[0]).intersect(clip), M.hull(pts[1]).intersect(clip));
-        cutters.push(M.hull(pts[2]).intersect(clip));
-      };
-      for (const e of edges) add(e.pts);
-      // Across the gap between neighbours whose edges face the same wall in
-      // line (within 2 mm), the two edges' shapes hulled together.
-      for (const [n, m] of pairs)
-        if (n < m)
-          for (const a of edges.filter((x) => x.n === n))
-            for (const b of edges.filter((x) => x.n === m))
-              if (
-                a.out[0] * b.out[0] + a.out[1] * b.out[1] > 0.9 &&
-                Math.abs(
-                  a.at -
-                    (centre(m)[0] * a.out[0] +
-                      centre(m)[1] * a.out[1] +
-                      (b.at - (centre(m)[0] * b.out[0] + centre(m)[1] * b.out[1]))),
-                ) < 2
-              )
-                add(a.pts.map((p, k) => [...p, ...b.pts[k]]));
+      const own = new Map(
+        ns.map((n) => {
+          // [axis][side]: the keep's half-width at the top, and below drop.
+          const ext = [0, 1].map((axis) =>
+            [0, 1].map((i) => {
+              const f = reach[n][axis][i] ? seatHalf[axis] + narrow.rim : plateHalf[axis];
+              return reach[n][axis][i] ? [f, f + drop / s] : [f, f];
+            }),
+          );
+          const ring = (k: number, z: number) =>
+            [0, 1].flatMap((i) =>
+              [0, 1].map((j) =>
+                keyPoint(n, (2 * i - 1) * ext[0][i][k], (2 * j - 1) * ext[1][j][k], z),
+              ),
+            );
+          // Each point also 3 mm straight down: nothing under what a keep
+          // holds is cut, so no hollow is left sealed under it.
+          const pts = [
+            ...ring(0, 1),
+            ...ring(0, 0),
+            ...ring(1, -drop),
+            ...ring(1, -plateThickness - 0.5),
+          ];
+          return [n, pts.flatMap((p) => [p, [p[0], p[1], p[2] - 3] as Vec3])];
+        }),
+      );
+      keep = M.union([
+        ...ns.map((n) => M.hull(own.get(n)!)),
+        ...pairs
+          .filter(([n, m]) => n < m)
+          .map(([n, m]) => M.hull([...own.get(n)!, ...own.get(m)!])),
+      ]);
     }
     return {
-      ramps: M.union(ramps),
-      cutters: M.union(cutters),
+      keep,
+      // Within 5 mm of the well's wall.
+      nearWall: clip.subtract(well.offset(-5, 'Miter').extrude(400).translate([0, 0, -1])),
       // The plates alone, and their reaches and joins, thinner.
       cores: M.union(
         ns.map((n) => box(n, [-plateHalf[0], plateHalf[0]], [-plateHalf[1], plateHalf[1]])),
@@ -388,7 +352,7 @@ export function buildChassis(
         .subtract(offPlate)
         .add(M.union(parts.slice(0, ns.length)))
         .intersect(clip)
-        .subtract(column(PLATES.wellReach, -PLATES.reachThickness)),
+        .subtract(column(PLATES.wellReach, narrow ? -plateThickness : -PLATES.reachThickness)),
       rooms: room(SIZES.underRoom),
       // Everything under the sheet: its plates and reaches, out to its well,
       // and everything under its top.
@@ -485,14 +449,22 @@ export function buildChassis(
       .filter((p) => p.intersect(sheets).volume() > SIZES.skirtPiece),
   );
   // Neither well's reaches and joins run on in under the other's sheet.
-  const plates = M.union([
+  const sheetsMade = M.union([
     fingers.cores,
     thumbs.cores,
     fingers.rest.subtract(thumbs.below),
     thumbs.rest.subtract(fingers.below),
     skirts,
-    fingers.ramps.subtract(thumbs.below).subtract(keepClear),
-  ]).subtract(fingers.cutters);
+  ]);
+  // PROTOTYPE narrow plates: the finger sheet's top drop near its wall, outside its keys' keeps.
+  const plates = fingers.keep
+    ? sheetsMade.subtract(
+        sheetsMade
+          .subtract(sheetsMade.translate([0, 0, -(cfg.chassis.plate_thickness_mm - 1)]))
+          .intersect(fingers.nearWall)
+          .subtract(fingers.keep),
+      )
+    : sheetsMade;
   const solid = case_.add(plates);
   const glue = gluePads(cfg);
   const pads = M.union(
