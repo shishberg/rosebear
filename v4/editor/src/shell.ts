@@ -90,6 +90,8 @@ const WALL = 2; // case wall, deck and floor thickness
 // tunnels are centred this far in from the landing's ends, their tops this far
 // under its top.
 const [NECK, TIE_IN, TIE_BRIDGE] = [1.5, 2.75, 1];
+// The wall between the decks is lofted every millimetre where it's lower than this.
+const FADE = 2;
 // How far the wall round a well reaches down from the deck.
 const WELL_WALL = 16;
 interface BinParts {
@@ -106,7 +108,8 @@ interface BinParts {
 type Round = [[number, number], [number, number], [number, number], number, number, number, number];
 // A bin's section across x; with an apron, round: the ends of the top round
 // of the wall between the decks (one point where there's no wall).
-type Section = [number, number][] & { round?: [number, number][] };
+// round: the wall's top round's ends; rise: the wall's height (between decks).
+type Section = [number, number][] & { round?: [number, number][]; rise?: number };
 // A cubic Bézier through four control points, sampled at 13 points.
 function bezier(P: [number, number][]): [number, number][] {
   const out: [number, number][] = [];
@@ -612,6 +615,7 @@ function breadbin(k0: Kit, o: Bin): BinParts {
                 [yc, zS - R],
                 [yc + (R * (yW - yc)) / lS, zS + (R * (zW - zS)) / lS],
               ] as [number, number][],
+              rise,
             },
           );
         }
@@ -895,10 +899,22 @@ function breadbin(k0: Kit, o: Bin): BinParts {
         // well's front edge turns its corner), too fast for 5 mm steps.
         DENSE = 12;
       for (let d = 1; d < DENSE; d++) fs.push([x0 + END + d, inset]);
+      // Every millimetre, too, where the wall is low and fading out (and a
+      // millimetre either side): it shrinks to nothing where the decks meet
+      // level, and 5 mm steps loft that as a fan of twisted slivers.
+      const xs: number[] = [];
+      for (let x = x0 + END + DENSE; x < x1 - END; x++) xs.push(x);
+      const low = xs.map((x) => {
+          const r = section(x).rise ?? 0;
+          return r > 0 && r < FADE;
+        }),
+        fine = xs.filter((_, i) => low[i - 1] || low[i] || low[i + 1]);
       for (let i = 1; i < mid; i++) {
         const x = x0 + END + ((x1 - x0 - 2 * END) * i) / mid;
-        if (x >= x0 + END + DENSE) fs.push([x, inset]);
+        if (x >= x0 + END + DENSE && fine.every((f) => Math.abs(f - x) > 0.5)) fs.push([x, inset]);
       }
+      for (const x of fine) fs.push([x, inset]);
+      fs.sort((p, q) => p[0] - q[0]);
       for (const p of [...quarter].reverse())
         fs.push([x1 - END + ri * Math.cos(p), END - ri * Math.sin(p)]);
       const fRings = fs.map(([x, off]) => {
