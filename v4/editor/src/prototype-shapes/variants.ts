@@ -1838,7 +1838,8 @@ function breadbin(k0: Kit, o: Bin): BinParts {
       // into the flat top, which starts before the back corner's rounding.
       yB = wb.max[1] + 3,
       xs = Array.from({ length: 41 }, (_, i) => wb.min[0] + ((wb.max[0] - wb.min[0]) * i) / 40);
-    yG = Math.min(yB + (o.ramp ?? 6), yC - 60 * PX - 1);
+    // The flat top is long enough for three grill grooves (the C64 has six).
+    yG = Math.min(yB + (o.ramp ?? 6), yC - 60 * PX - (grilled ? 7 : 1));
     // Each section's own flat-top height: where its deck would reach on its
     // own slope (over at most 6 mm), so it doesn't have to dip to meet it.
     const own = (x: number) => at(x).z(yB) + Math.max(0, at(x).s(yB)) * Math.min(yG - yB, 6),
