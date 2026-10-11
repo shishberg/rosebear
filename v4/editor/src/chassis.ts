@@ -547,7 +547,18 @@ export function buildChassis(
     thumbs.rest.subtract(fingers.below),
     skirts,
   ]);
-  const solid = case_.add(plates);
+  // PROTOTYPE ?box=...-one: the floor between the groups, kept out of the
+  // room under the plates and the soldering iron's way, less any crumbs.
+  const floor =
+    built.floor &&
+    M.union(
+      built.floor
+        .subtract(M.union([fingers.rooms, thumbs.rooms]))
+        .subtract(keepClear)
+        .decompose()
+        .filter((p) => p.volume() > 5),
+    );
+  const solid = floor ? case_.add(plates).add(floor) : case_.add(plates);
   const glue = gluePads(cfg);
   const pads = M.union(
     keyNames.flatMap((n) =>

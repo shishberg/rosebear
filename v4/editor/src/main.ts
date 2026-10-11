@@ -754,6 +754,8 @@ function requestBuild() {
   if (q.get('plates')) (sent.config.chassis as { plate_style?: string }).plate_style = q.get('plates')!;
   if (q.get('slope')) (sent.config.chassis as { plate_slope?: number }).plate_slope = +q.get('slope')!;
   // PROTOTYPE: ?recess=mm, the finger deck this far above the plates' tops (shell.ts Bin.lift).
+  // PROTOTYPE: ?box=level|tilted[-one], a rectangular breadbin with a plane deck (shell.ts box).
+  if (q.get('box')) (sent.config.chassis as { box_style?: string }).box_style = q.get('box')!;
   if (q.get('recess')) (sent.config.chassis as { deck_lift?: number }).deck_lift = +q.get('recess')!;
   worker.postMessage({ id, project: sent });
   timeout = setTimeout(() => {

@@ -40,15 +40,16 @@ const corners = (k: Kit, n: string, grow = 0) =>
 const place = (m: Manifold, f: Matrix4) => m.transform(f.elements as never);
 // A keycap's travel envelope, as the editor's clearance check builds it: the cap
 // plus its margin, from rest down by the travel.
-const capSweep = (k: Kit, n: string) => {
+// up: reaching on this much higher (PROTOTYPE ?box=: up to the deck).
+const capSweep = (k: Kit, n: string, up = 0) => {
   const z = capSize(k.cfg, n),
     s = k.cfg.switch,
     g = (s.keycap_clearance_overrides_mm as Record<string, number>)[n] ?? s.keycap_clearance_mm;
   return place(
-    k.wasm.Manifold.cube([z[0] + 2 * g, z[1] + 2 * g, z[2] + s.travel_mm], true).translate([
+    k.wasm.Manifold.cube([z[0] + 2 * g, z[1] + 2 * g, z[2] + s.travel_mm + up], true).translate([
       0,
       0,
-      s.keycap_bottom_above_plate_mm - s.travel_mm + (z[2] + s.travel_mm) / 2,
+      s.keycap_bottom_above_plate_mm - s.travel_mm + (z[2] + s.travel_mm + up) / 2,
     ]),
     k.frames[n],
   );
@@ -85,6 +86,18 @@ interface Bin {
   // PROTOTYPE ?recess=mm: the deck this far above the fitted key surface
   // instead of LIFT, the well's wall reaching down as much further.
   lift?: number;
+  // PROTOTYPE ?box=: the deck is this surface (a plane) instead of one fitted
+  // through the keys; the front runs on along it into the bullnose.
+  surface?: (x: number, y: number) => number;
+  // PROTOTYPE ?box=: a well stepped round each group of keys (default: one
+  // round all); or a rectangle round each (rect), or one round all (one).
+  groups?: string[][];
+  wells?: 'rect' | 'one';
+  // PROTOTYPE ?box=: how far the wall round the well reaches down from the deck.
+  wellWall?: number;
+  // PROTOTYPE ?box=: each key's travel envelope reaches on up this far, so its
+  // well clears the keycap's room up to the deck.
+  sweepUp?: (n: string) => number;
 }
 // Height of the parting line between the top case and the bottom section.
 const PART = 10;
@@ -101,6 +114,7 @@ interface BinParts {
   shell: Manifold; // solid case with trough, grill and parting line cut, wells not yet cut
   wells: Manifold; // the wells, cut from every bin's shell down to the foot of their walls
   well: CrossSection; // the well's outline in plan (world)
+  outlines: CrossSection[]; // the outline each group of keys' plates reach to
   cavity: Manifold; // the case's hollow, before anything is kept back from it
   keep: Manifold; // kept solid inside the hollow: the wall round the well
   x0: number; // the low end face (of an unturned bin)
@@ -332,10 +346,26 @@ function binWell(k0: Kit, o: Bin) {
       const bb = cs.bounds();
       return CS.square([bb.max[0] - bb.min[0], bb.max[1] - bb.min[1]]).translate(bb.min);
     },
-    keyWell = CS.union(o.keys.map((n) => box(capSweep(k, n).project()).offset(1.2, 'Miter')))
-      .offset(11, 'Miter')
-      .offset(-11, 'Miter');
-  return { k, keyWell, wb: keyWell.bounds(), P: o.keys.flatMap((n) => corners(k, n)) };
+    group = (ns: string[]) =>
+      CS.union(
+        ns.map((n) => box(capSweep(k, n, o.sweepUp?.(n)).project()).offset(1.2, 'Miter')),
+      )
+        .offset(11, 'Miter')
+        .offset(-11, 'Miter'),
+    groupWells = (o.groups ?? [o.keys]).map(group),
+    keyWell =
+      o.wells === 'one'
+        ? rectOf(k, CS.union(groupWells))
+        : o.wells === 'rect'
+          ? CS.union(groupWells.map((w) => rectOf(k, w)))
+          : CS.union(groupWells);
+  return {
+    k,
+    keyWell,
+    groupWells,
+    wb: keyWell.bounds(),
+    P: o.keys.flatMap((n) => corners(k, n)),
+  };
 }
 const LIFT = 3; // deck above the fitted key surface: below the keycaps' lowest travel
 // A curved bin's key surface in its own frame: a quadratic fitted through the
@@ -345,6 +375,7 @@ const LIFT = 3; // deck above the fitted key surface: below the keycaps' lowest 
 // Front and back hold at the same height: the lower of the two rows'. (The
 // well is cut out of the deck, so this only shapes the rim round it.)
 function binSurface(k0: Kit, o: Bin) {
+  if (o.surface) return o.surface;
   const { k, wb, P } = binWell(k0, o),
     fitted = curvedDeck(P, (wb.min[0] + wb.max[0]) / 2, (wb.min[1] + wb.max[1]) / 2, o.lift ?? LIFT),
     cs = o.keys.map((n) =>
@@ -479,7 +510,7 @@ function apronDeck(
 }
 function breadbin(k0: Kit, o: Bin): BinParts {
   const ang = o.angle ?? 0,
-    { k, keyWell, wb } = binWell(k0, o),
+    { k, keyWell, groupWells, wb } = binWell(k0, o),
     M = k.wasm.Manifold,
     CS = k.wasm.CrossSection;
   // Side profile, fitted to a side-on photo of the C64 and scaled so its gutter
@@ -628,8 +659,28 @@ function breadbin(k0: Kit, o: Bin): BinParts {
           );
         }
         const d = at(x),
-          zT = top(x),
-          W: [number, number] = [yW, d.z(yW)],
+          zT = top(x);
+        if (o.surface) {
+          // A plane deck runs on along itself into the bullnose.
+          const s = d.s(yF),
+            l = Math.hypot(1, s),
+            dir: [number, number] = [1 / l, s / l],
+            C: [number, number] = [yF, d.z(yF)],
+            pts: [number, number][] = [];
+          for (let y = yF + 104 * PX * dir[0] + 1; y < yB; y += 1) pts.push([y, d.z(y)]);
+          const B: [number, number] = [yB, d.z(yB)],
+            sB = d.s(yB),
+            h = 0.4 * (yG - yB),
+            lB = Math.hypot(1, sB);
+          return [
+            [yF, PART],
+            ...round([C, [0, -1], dir, Math.min(93 * PX, C[1] - PART), 0.41, 104 * PX, 0.3]),
+            ...pts,
+            ...bezier([B, [yB + h / lB, B[1] + (h * sB) / lB], [yG - h, zT], [yG, zT]]),
+            ...backAndUnder(zT, yC + (zT - PART) * RAKE),
+          ];
+        }
+        const W: [number, number] = [yW, d.z(yW)],
           C: [number, number] = [yF, W[1] - FRONT * (yW - yF)],
           sW = d.s(yW),
           lW = Math.hypot(1, sW),
@@ -1183,13 +1234,17 @@ function breadbin(k0: Kit, o: Bin): BinParts {
   const parting = slab(PART - 0.6, PART + 0.6).subtract(body(0.8));
   // The well is open down through the case to the foot of its wall, which
   // reaches WELL_WALL down from the deck (and stops short of the parting line).
-  const below = M.union([shell.translate([0, 0, -WELL_WALL - (o.lift ?? LIFT) + LIFT]), slab(-1, PART + 3)]),
+  const below = M.union([
+      shell.translate([0, 0, -(o.wellWall ?? WELL_WALL + (o.lift ?? LIFT) - LIFT)]),
+      slab(-1, PART + 3),
+    ]),
     keep = prism(keyWell.offset(WALL, 'Miter')).subtract(below);
   const back = (m: Manifold) => m.rotate([0, 0, ang]);
   return {
     shell: back((grill ? shell.subtract(grill) : shell).subtract(trough).subtract(parting)),
     wells: back(prism(keyWell).subtract(below)),
     well: keyWell.rotate(ang),
+    outlines: groupWells.map((w) => w.rotate(ang)),
     cavity: back(body(WALL)),
     keep: back(keep),
     x0,
@@ -1211,6 +1266,8 @@ export interface Shell {
   // Inside the case's skin: its hollow and its wells, with the walls round
   // the wells, which room under the plates may cut back.
   inside: Manifold;
+  // PROTOTYPE ?box=...-one: the floor of the one well between the groups of keys.
+  floor?: Manifold;
 }
 function c64(k: Kit, bins: Bin[]): Shell {
   const M = k.wasm.Manifold,
@@ -1303,7 +1360,7 @@ function c64(k: Kit, bins: Bin[]): Shell {
       .subtract(cased),
     slot,
     panel: x0,
-    wells: parts.map((p) => p.well),
+    wells: parts.flatMap((p) => p.outlines),
     split: PART - 0.6,
     inside: M.union([
       ...parts.filter((_, i) => !carried(i)).map((p) => p.cavity),
@@ -1324,6 +1381,8 @@ function thumbAngle(k: Kit) {
  * inner end.
  */
 export function shell(k: Kit) {
+  const style = (k.cfg.chassis as { box_style?: string }).box_style;
+  if (style) return box(k, style);
   const tight = { side: 6, front: 13, corner: 2 },
     lift = (k.cfg.chassis as { deck_lift?: number }).deck_lift,
     thumb: Bin = {
@@ -1346,4 +1405,117 @@ export function shell(k: Kit) {
     },
     thumb,
   ]);
+}
+
+// PROTOTYPE ?box=: the least-squares plane z = a + bx x + by y through the
+// points (bx = 0 when level), and the matrix that shears z = 0 onto it.
+function fitPlane(P: Vec3[], tilted: boolean) {
+  const [xc, yc, zc] = [0, 1, 2].map((i) => P.reduce((t, p) => t + p[i], 0) / P.length),
+    sum = (f: (p: Vec3) => number) => P.reduce((t, p) => t + f(p), 0),
+    Sxx = sum((p) => (p[0] - xc) ** 2),
+    Sxy = sum((p) => (p[0] - xc) * (p[1] - yc)),
+    Syy = sum((p) => (p[1] - yc) ** 2),
+    Sxz = sum((p) => (p[0] - xc) * (p[2] - zc)),
+    Syz = sum((p) => (p[1] - yc) * (p[2] - zc)),
+    det = Sxx * Syy - Sxy * Sxy,
+    [bx, by] = tilted
+      ? [(Sxz * Syy - Syz * Sxy) / det, (Syz * Sxx - Sxz * Sxy) / det]
+      : [0, Syz / Syy];
+  return {
+    z: (x: number, y: number) => zc + bx * (x - xc) + by * (y - yc),
+    shear: [1, 0, bx, 0, 0, 1, by, 0, 0, 0, 1, 0, 0, 0, zc - bx * xc - by * yc, 1],
+  };
+}
+
+/**
+ * PROTOTYPE ?box=level|tilted[-rect|-one]: a true breadbin, rectangular in
+ * plan, round every key (fingers and thumbs), its deck one plane: fitted
+ * through the finger plates, level across (level) or tilted across with the
+ * tent (tilted). The deck stands the recess above the highest finger plate
+ * centre. The fingers and thumbs each have their own well, stepped round
+ * their keys; or each a rectangle (-rect); or all share one rectangle (-one).
+ * In a rectangle, past the plates, a floor on the plane through its keys'
+ * plates (the fingers' for -one) runs out to the wall.
+ */
+function box(k: Kit, style: string) {
+  const fingers = fingerKeys(k),
+    others = thumbs(k),
+    all = [...fingers, ...others],
+    tilted = style.startsWith('tilted'),
+    wells = style.endsWith('-one') ? 'one' : style.endsWith('-rect') ? 'rect' : undefined,
+    fit = (ns: string[]) => fitPlane(ns.flatMap((n) => corners(k, n)), tilted),
+    plane = fit(fingers),
+    recess = (k.cfg.chassis as { deck_lift?: number }).deck_lift ?? LIFT,
+    C = all.map((n) => point(k.frames[n], [0, 0, 0])),
+    high = Math.max(...C.slice(0, fingers.length).map((p) => p[2] - plane.z(p[0], p[1]))),
+    surface = (x: number, y: number) => plane.z(x, y) + high + recess,
+    // A plate centre's depth below the deck.
+    depth = (c: Vec3) => surface(c[0], c[1]) - c[2],
+    bin: Bin = {
+      keys: all,
+      groups: [fingers, others],
+      wells,
+      side: 6,
+      front: 13,
+      back: 20,
+      corner: 2,
+      ports: true,
+      badge: 0.7,
+      surface,
+      sweepUp: (n) => Math.max(0, depth(point(k.frames[n], [0, 0, 0]))) + 2,
+      // Down past the deepest plate's underside, with its tilt.
+      wellWall: Math.max(...C.map(depth)) + k.cfg.chassis.plate_thickness_mm + 8,
+    },
+    built = c64(k, [bin]);
+  if (!wells) return built;
+  // The floor: WALL thick, out of each group's stepped well and into the wall
+  // round its rectangle (-rect), on the plane through that group's plates; or
+  // (-one) the fingers' within the rectangle round their well and the thumbs'
+  // round it, with a step between. From its edge round each group's stepped
+  // well a wall reaches down as the stepped wells' do, joining the plates to it
+  // where they sit below it.
+  const CS = k.wasm.CrossSection,
+    M = k.wasm.Manifold,
+    { groupWells, keyWell } = binWell(k, bin),
+    groups = CS.union(groupWells),
+    out = (cs: CrossSection) => cs.offset(WALL / 2, 'Miter').subtract(groups),
+    // Everything below the plane on, lowered by d; or above it, up.
+    half = (on: ReturnType<typeof fitPlane>, d: number, up = false) =>
+      CS.square([2000, 2000], true)
+        .extrude(500)
+        .translate([0, 0, up ? -d : -500 - d])
+        .transform(on.shear as never),
+    prism = (cs: CrossSection) => cs.extrude(400).translate([0, 0, -200]),
+    // (Stopping short of the parting line, as the stepped wells' walls do.)
+    foot = half(plane, bin.wellWall! - high - recess, true).intersect(
+      M.cube([2000, 2000, 500]).translate([-1000, -1000, PART + 3]),
+    ),
+    rim = groups.offset(WALL, 'Miter'),
+    // A region's floor on the plane on, with the wall round the wells under it.
+    floor = (region: CrossSection, on: ReturnType<typeof fitPlane>) =>
+      prism(region)
+        .intersect(half(on, 0))
+        .intersect(half(on, WALL, true))
+        .add(prism(region.intersect(rim)).intersect(half(on, 0)).intersect(foot)),
+    inner = rectOf(k, groupWells[0]),
+    low = fit(others),
+    pieces =
+      wells === 'rect'
+        ? [fingers, others].map((ns, i) => floor(out(rectOf(k, groupWells[i])), fit(ns)))
+        : [
+            floor(out(keyWell).intersect(inner), plane),
+            floor(out(keyWell).subtract(inner), low),
+            // The step: the fingers' floor's edge carried on down to the thumbs'.
+            prism(inner.subtract(inner.offset(-WALL, 'Miter')).intersect(out(keyWell)))
+              .intersect(half(plane, 0))
+              .intersect(half(low, WALL, true)),
+          ];
+  return { ...built, floor: M.union(pieces).intersect(built.inside) };
+}
+// The rectangle round an outline in plan.
+function rectOf(k: Kit, cs: CrossSection) {
+  const bb = cs.bounds();
+  return k.wasm.CrossSection.square([bb.max[0] - bb.min[0], bb.max[1] - bb.min[1]]).translate(
+    bb.min,
+  );
 }
