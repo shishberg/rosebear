@@ -15,6 +15,7 @@ import {
   skelOutside,
   skelHits,
   skelHighlight,
+  trim,
   skelHighlightInfo,
   type Kit,
 } from './variants';
@@ -177,6 +178,7 @@ const cache = new Map<
   {
     clear: string[];
     hl?: T.BufferGeometry;
+    trim?: T.BufferGeometry;
     hlInfo: string[];
     outside: string[];
     pieces: string[];
@@ -207,6 +209,7 @@ async function show() {
     const wasm = await engine(),
       t0 = performance.now(),
       project = clone(defaults);
+    v.config?.(project.config);
     let frames: Record<string, T.Matrix4>, m: Manifold, pad: Manifold | undefined;
     {
       frames = thumbLayout(project, componentFrames(project.config), ex, tk);
@@ -286,6 +289,7 @@ async function show() {
         v.key.startsWith('skel') && skelHighlight.length
           ? toGeom(wasm.Manifold.union(skelHighlight).subtract(slab))
           : undefined,
+      trim: v.key.startsWith('c64') && trim.length ? toGeom(wasm.Manifold.union(trim)) : undefined,
       hlInfo: v.key.startsWith('skel') ? [...skelHighlightInfo] : [],
       outside: v.key.startsWith('skel') ? [...skelOutside] : [],
       pieces,
@@ -329,6 +333,8 @@ async function show() {
         }),
       ),
     );
+  if (c.trim)
+    group.add(new T.Mesh(c.trim, new T.MeshStandardMaterial({ color: 0x2a2826, roughness: 0.6 })));
   if (c.pad)
     group.add(new T.Mesh(c.pad, new T.MeshStandardMaterial({ color: 0x4a5358, roughness: 0.35 })));
   for (const part of hardware(c.project, c.frames)) {

@@ -6,6 +6,7 @@ import type { CrossSection, Manifold, ManifoldToplevel, Vec3 } from 'manifold-3d
 import { Matrix4 } from 'three';
 import { point, type Config } from '../geometry';
 import { capSize, isKey } from '../solid';
+import { landingBox } from '../wiring';
 
 export interface Kit {
   wasm: ManifoldToplevel;
@@ -24,6 +25,8 @@ export interface Variant {
   noPad?: boolean;
   // Height of the split between the case and its bottom section (default: the lowest 2 mm).
   split?: number;
+  // Changes to the hardware config (such as where the ribbon runs) for this shape.
+  config?: (c: Config) => void;
 }
 
 const T = 3; // plate thickness
@@ -526,6 +529,8 @@ export let skelOutside: string[] = [],
   skelHits: string[] = [];
 // Debug: ?hl=a,b draws the named Skeletyl part tags in orange (none by default).
 const hl = qp.get('hl')?.split(',') ?? [];
+// Dark inserts (the C64 port panel) drawn in their own colour, from the last build.
+export let trim: Manifold[] = [];
 export let skelHighlight: Manifold[] = [],
   skelHighlightInfo: string[] = [];
 export const noCut = qp.get('nocut') === '1';
@@ -1396,6 +1401,7 @@ interface Bin {
   corner: number; // corner radius of the trough in plan
   // No grill grooves across the back.
   noGrill?: boolean;
+  ports?: boolean; // a C64 port panel on the low-x end, where the ribbon leaves
   // Curve the deck to follow the keys (a quadratic surface through the key
   // plates) instead of a flat plane.
   curved?: boolean;
@@ -1889,14 +1895,50 @@ function c64(k: Kit, bins: Bin[]) {
           )
         : p.shell,
     );
-  return M.union([
+  const body = M.union([
     M.union(shells)
       .subtract(M.union(parts.map((p) => p.wells)))
       .add(M.union(parts.map((p) => p.inside)))
       .subtract(hollow),
     plates(k),
   ]);
+  trim = [];
+  const i = bins.findIndex((o) => o.ports);
+  if (i < 0) return body;
+  // Port panel, as on the C64's right side: a rounded recess in the end face
+  // with a dark insert at its back, straddling the parting line, with the
+  // ribbon's slot through it.
+  const x0 = parts[i].shell.boundingBox().min[0],
+    r = k.cfg.ribbon,
+    land = landingBox(k.cfg),
+    a = k.frames.adapter.elements,
+    ry = a[13],
+    rz = a[14] + land.top + r.thickness_mm / 2,
+    [y0, y1, z0, z1, R, D] = [ry - 12, ry + 36, PART - 6, PART + 7, 3, 1.5],
+    face = (from: number, to: number) =>
+      M.hull(
+        [
+          [y0 + R, z0 + R],
+          [y1 - R, z0 + R],
+          [y0 + R, z1 - R],
+          [y1 - R, z1 - R],
+        ].map(([y, z]) =>
+          M.cylinder(to - from, R, R, 24)
+            .rotate([0, 90, 0])
+            .translate([from, y, z]),
+        ),
+      ),
+    w = r.width_mm + 2 * r.notch_clearance_mm,
+    slot = M.cube([12, w, 3]).translate([x0 - 1, ry - w / 2, rz - 1.5]);
+  trim = [face(x0 + D - 0.4, x0 + D).subtract(slot)];
+  return body.subtract(face(x0 - 1, x0 + D)).subtract(slot);
 }
+// The ribbon, moved for the C64 port panel: 12 mm further back, and up on a
+// taller landing so it leaves near the parting line rather than at the bottom edge.
+const ribbonToPanel = (c: Config) => {
+  c.adapter.position_mm[1] += 12;
+  c.ribbon.landing_mm[2] = 8;
+};
 const thumbKeys = (k: Kit) => thumbs(k),
   fingerKeys = (k: Kit) => keys(k.frames).filter((n) => n.startsWith('matrix_'));
 // The thumb row's direction in plan, from the far key to the near key.
@@ -2148,7 +2190,7 @@ export const variants: Variant[] = [
     build: (k) => {
       const tight = { side: 6, front: 13, back: 16, corner: 2 },
         m = c64(k, [
-          { keys: fingerKeys(k), ...tight },
+          { keys: fingerKeys(k), ...tight, ports: true },
           { keys: thumbKeys(k), angle: thumbAngle(k), ...tight, noGrill: true },
         ]);
       return noCut ? m : cutKeys(k, m);
@@ -2157,6 +2199,7 @@ export const variants: Variant[] = [
     capColor: 0x4b3a2e,
     noPad: true,
     split: PART - 0.6, // the bottom of the parting groove
+    config: ribbonToPanel,
   },
   ...(
     [
@@ -2192,7 +2235,7 @@ export const variants: Variant[] = [
     build: (k) => {
       const tight = { side: 6, front: 13, corner: 2, curved: true, ...opt },
         m = c64(k, [
-          { keys: fingerKeys(k), ...tight, back: 20 },
+          { keys: fingerKeys(k), ...tight, back: 20, ports: true },
           {
             keys: thumbKeys(k),
             angle: thumbAngle(k),
@@ -2207,5 +2250,6 @@ export const variants: Variant[] = [
     capColor: 0x4b3a2e,
     noPad: true,
     split: PART - 0.6, // the bottom of the parting groove
+    config: ribbonToPanel,
   })),
 ];
