@@ -2396,7 +2396,7 @@ function breadbin(k0: Kit, o: Bin): BinParts {
   // Badge, as on the C64's top: a pill-shaped recess 1 mm deep, 0.6 mm taller
   // than the grooves' band at each side, with the grooves stopping 1.2 mm short
   // of it. On its floor five raised stripes, 0.8 mm wide with 0.6 mm gaps, run
-  // along the pill's straight stretch with square ends, all lined up; their
+  // the pill's straight stretch with square ends, all lined up; their
   // tops stay 0.2 mm under the top around them. Floor and stripe tops are the
   // shell lowered, like the grooves, so no face of the cut lies on the shell's
   // or on another's.
@@ -2409,7 +2409,7 @@ function breadbin(k0: Kit, o: Bin): BinParts {
       by = (gTop + gBottom) / 2,
       [W, GAP] = [0.8, 0.6],
       pitch = W + GAP,
-      run = L - 2 * r - 2, // each stripe's length, 1 mm clear of the pill's rounds
+      run = L - 2 * r, // each stripe's length: out to the centres of the pill's rounds
       sy = by - (4 * pitch + W) / 2,
       stripes = CS.ofPolygons(
         [0, 1, 2, 3, 4].map((i) => {
