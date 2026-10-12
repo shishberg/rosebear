@@ -186,13 +186,15 @@ port panel recess straddling the parting line 10 mm up). `?recess=mm` sets
 the deck's height above the plates. These are prototypes; their code is marked
 `PROTOTYPE` in `shell.ts`.
 
-**Main thumbs held by (prototype)**, or `?held=`, holds the main thumbs to the
-wall round their well (the tape-deck's slot); without it they hang off one
-small contact. From each plate edge with no neighbour a run-out is carried
-level to that wall. `walls`: the whole edge, with the wall raised round the
-well up under a roof over the run-outs. `ribs`: a 4 mm rib at each end of the
-edge, with a post raised under each. Both stay clear of the keycap rooms, the
-tiles' and irons' ways and the wires (`chassis.thumb_support`).
+**Main thumbs held by (prototype)**, or `?held=`, braces the main thumbs to the
+case; without it they hang off one small contact. Each plate edge with no
+neighbour is carried level out, or straight down, whichever is shorter, to
+4 mm into the case or the window's lip within 25 mm, never above the plate's
+top. `walls`: the whole edge, 5 mm deep; every key passes the support check.
+`ribs`: a 5 mm rib at each end of the edge, 8 mm below the plate; near fails,
+because a rib meets the 3 mm plate only across its edge (about 15 mm² a rib).
+Both stay clear of the keycap rooms, the tiles' and irons' ways and the wires
+(`chassis.thumb_support`).
 
 ## Wiring
 

@@ -441,6 +441,7 @@ export function buildChassis(
       top: w.top.add(s.top),
       skirt: s.skirt.subtract(w.top),
       free: w.free,
+      floor,
     };
   };
   const [fingers, thumbs] = [
@@ -519,58 +520,74 @@ export function buildChassis(
       .decompose()
       .filter((p) => p.intersect(sheets).volume() > SIZES.skirtPiece),
   );
-  // PROTOTYPE ?held=walls|ribs: the main thumbs held to their well's wall.
-  // From each plate edge with no neighbour a run-out is carried level out to
-  // 0.5 mm into the wall round the well (the tape-deck's slot): the whole edge
-  // as a shelf (walls), or a rib at each end of it (ribs). Where a run-out
-  // meets that wall above the case, the wall is raised to it: all round the
-  // well, up under a roof over every run-out (walls), or a post under each
-  // rib (ribs). Neither reaches into a keycap's room or a
-  // tile's and its iron's way, and both are notched for the wires.
+  // PROTOTYPE ?held=walls|ribs: the main thumbs held to the case. Each plate
+  // edge with no neighbour is braced the shorter way to the case (or the
+  // window's lip) within REACH: carried level out from the edge, or straight
+  // down from it, INTO mm into what it meets, never above the plate's top.
+  // The whole edge, 2 mm deeper than the plate (walls), or a RIB-wide rib
+  // RIB_DEEP below the plate at each end of it (ribs). A rib meets the plate
+  // only across the plate's edge, so ribs can't hold near. An edge with
+  // nothing within reach is left.
+  // Braces stay out of the keycaps' rooms and the tiles' and irons' ways, and
+  // are notched for the wires.
   const held = (cfg.chassis as { thumb_support?: string }).thumb_support;
   let braces = M.union([]);
   if (held === 'walls' || held === 'ribs') {
-    const [RIB, RIB_DEEP, OUT] = [4, 6, 60];
-    const runs = thumbs.free.flatMap(({ n, axis, sign }) => {
-      const e = frames[n].elements,
-        l = Math.hypot(e[axis * 4], e[axis * 4 + 1]),
-        push = [0, 1].map((k) => (sign * e[axis * 4 + k] * OUT) / l),
-        a = sign * plateHalf[axis],
-        h = plateHalf[1 - axis],
-        spans =
-          held === 'walls'
-            ? [[-h, h]]
-            : [
-                [-h, -h + RIB],
-                [h - RIB, h],
-              ],
-        zs = held === 'walls' ? [0, -plateThickness] : [0, -plateThickness - RIB_DEEP];
-      return spans.map((span) => {
-        const ps = span.flatMap((b) =>
-          zs.map((z) => (axis ? keyPoint(n, b, a, z) : keyPoint(n, a, b, z))),
-        );
-        return M.hull([...ps, ...ps.map((p) => [p[0] + push[0], p[1] + push[1], p[2]] as Vec3)]);
-      });
-    });
-    const beneath = (m: Manifold) => {
+    const [RIB, RIB_DEEP, REACH, INTO] = [5, 8, 25, 4];
+    const target = M.union([case_, fingers.rest, 'floor' in thumbs ? thumbs.floor : M.union([])]).intersect(
+      built.splitKeep
+        ? aboveSplit.translate([0, 0, 0.5]).add(built.splitKeep)
+        : aboveSplit.translate([0, 0, 0.5]),
+    );
+    const dot = (p: number[], d: number[]) => p[0] * d[0] + p[1] * d[1] + p[2] * d[2];
+    const verts = (m: Manifold) => {
       const { vertProperties: v, numProp } = m.getMesh(),
         ps: Vec3[] = [];
-      for (let i = 0; i < v.length; i += numProp)
-        ps.push([v[i], v[i + 1], v[i + 2]], [v[i], v[i + 1], v[i + 2] - 200]);
-      return M.hull(ps);
+      for (let i = 0; i < v.length; i += numProp) ps.push([v[i], v[i + 1], v[i + 2]]);
+      return ps;
     };
-    const ring = thumbWell
-      .offset(cfg.chassis.wall_mm, 'Miter')
-      .subtract(thumbWell)
-      .extrude(400)
-      .translate([0, 0, built.split]);
-    const raised = (
-      held === 'walls' ? beneath(M.hull(runs)) : M.union(runs.map(beneath))
-    ).intersect(ring);
-    braces = M.union(runs)
-      .intersect(thumbWell.offset(SIZES.wellInto, 'Miter').extrude(400).translate([0, 0, -1]))
-      .add(raised)
-      .subtract(M.union([...keyNames.map(keycapRoom), keepClear]));
+    // The edge's points swept along d, as far as the case (and INTO it), or
+    // undefined if the case is not within REACH.
+    const sweep = (ps: Vec3[], d: number[]) => {
+      const along = (t: number) =>
+        M.hull([...ps, ...ps.map((p) => [p[0] + d[0] * t, p[1] + d[1] * t, p[2] + d[2] * t] as Vec3)]);
+      const hit = along(REACH).intersect(target);
+      if (hit.volume() < 0.5) return undefined;
+      const from = Math.min(...ps.map((p) => dot(p, d)));
+      const t = Math.min(...verts(hit).map((v) => dot(v, d))) - from + INTO;
+      return t > REACH ? undefined : { t, solid: along(t) };
+    };
+    braces = M.union(
+      thumbs.free.flatMap(({ n, axis, sign }) => {
+        const e = frames[n].elements,
+          l = Math.hypot(e[axis * 4], e[axis * 4 + 1]),
+          out = [(sign * e[axis * 4]) / l, (sign * e[axis * 4 + 1]) / l, 0],
+          a = sign * plateHalf[axis],
+          h = plateHalf[1 - axis],
+          spans =
+            held === 'walls'
+              ? [[-h, h]]
+              : [
+                  [-h, -h + RIB],
+                  [h - RIB, h],
+                ],
+          zs = held === 'walls' ? [0, -plateThickness - 2] : [0, -plateThickness - RIB_DEEP];
+        return spans.flatMap((span) => {
+          const ps = span.flatMap((b) =>
+            zs.map((z) => (axis ? keyPoint(n, b, a, z) : keyPoint(n, a, b, z))),
+          );
+          const ways = [out, [0, 0, -1]].map((d) => sweep(ps, d));
+          const best = ways.filter((w) => w).sort((x, y) => x!.t - y!.t)[0];
+          // Never above the plate's own top.
+          const top = Math.max(
+            ...[-1, 1].flatMap((x) => [-1, 1].map((y) => keyPoint(n, x * h, y * h, 0)[2])),
+          );
+          return best
+            ? [best.solid.intersect(M.cube([1000, 1000, 400]).translate([-500, -500, top - 400]))]
+            : [];
+        });
+      }),
+    ).subtract(M.union([...keyNames.map(keycapRoom), keepClear]));
     // (Less any piece the cuts leave standing on its own.)
     braces = M.union(
       braces
