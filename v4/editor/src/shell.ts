@@ -1329,15 +1329,17 @@ function breadbin(k0: Kit, o: Bin): BinParts {
  * PROTOTYPE ?box=tape-deck: the thumbs' block, in front of the fingers' bin,
  * loosely the C64's tape deck (world frame). Its top is level, STEP under
  * the bin's deck at its lowest over the block; its front is rounded over
- * continuously from the top down to the parting line (R), its ends too, so
- * its front corners are a sphere's; its foot is rounded RB. It runs from the
- * bin's low end (xL) to just past the thumbs' well, and back from LIP in
- * front of that well into the bin, where its back is hidden: it meets the
+ * continuously from the top down to the parting line (R), and the bottom
+ * section's from the floor up to it (RB), its ends too, so its front corners
+ * are a sphere's. It runs from the bin's low end (xL) to as far past the
+ * thumbs' well on the other side, and back from in front of that well into
+ * the bin, where its back is hidden: it meets the
  * bin's front (yJ) square. The thumbs' well is a slot, carried on out to
  * INSET behind the front, their plates filling it, their skirt its front; a
  * window through the front opens onto that, down to a sill SILL under the
- * lowest plate corner. A square lip stands out round the window, flat across
- * the front, flush with the top, its bottom corners rounded RL.
+ * lowest plate corner. A square lip LIP wide stands out round the window,
+ * centred on the block, PROUD in front of it and flat across, flush with the
+ * top, its bottom corners rounded RL.
  */
 function tapeBlock(
   k: Kit,
@@ -1350,10 +1352,11 @@ function tapeBlock(
   const M = k.wasm.Manifold,
     CS = k.wasm.CrossSection,
     wb = thumbWell.bounds(),
-    [INSET, LIP, SILL, STEP, RB, RL] = [3, 5, 3, 3, 3, 2],
-    // (Past the lip by about the front's rounding, so the lip stands clear of
-    // the rounded corner.)
-    xR = wb.max[0] + LIP + 12,
+    [INSET, LIP, PROUD, SILL, STEP, RL] = [3, 3, 1, 3, 3, 2],
+    RB = PART - 1,
+    // (The lip centred: as far past it on the high side as on the low.)
+    [lx0, lx1] = [wb.min[0] - LIP, wb.max[0] + LIP],
+    xR = lx1 + (lx0 - xL),
     yf = wb.min[1] - INSET - 1,
     top =
       Math.min(...Array.from({ length: 41 }, (_, i) => deck(xL + ((xR - xL) * i) / 40))) - STEP,
@@ -1376,7 +1379,7 @@ function tapeBlock(
       for (let i = 0; i <= 12; i++) {
         const t = (i / 12) * (Math.PI / 2);
         ring(inset + r * (1 - Math.cos(t)), top - inset - r + r * Math.sin(t));
-        if (i % 3 === 0) ring(inset + rb * (1 - Math.cos(t)), inset + rb - rb * Math.sin(t));
+        ring(inset + rb * (1 - Math.cos(t)), inset + rb - rb * Math.sin(t));
       }
       return M.hull(pts).intersect(M.cube([400, yJ + 3 + 200, 400]).translate([-200, -200, -1]));
     },
@@ -1401,21 +1404,18 @@ function tapeBlock(
     // The slot's front edge, carried on out through the front.
     edge = slot.intersect(CS.square([400, 0.5]).translate([-200, yf + INSET])),
     win = CS.hull([edge, edge.translate([0, -INSET - 2])]),
-    sb = slot.bounds(),
-    // The lip, across x and up z, through to well inside the front's rounding.
-    face = CS.square([sb.max[0] - sb.min[0] + 2 * LIP, top - PART - 1.5]).translate([
-      sb.min[0] - LIP,
-      PART + 1.5,
-    ]),
+    // The lip, across x and up z, from PROUD in front through to well inside
+    // the front's rounding.
+    face = CS.square([lx1 - lx0, top - PART - 1.5]).translate([lx0, PART + 1.5]),
     lip = face
       .offset(-RL, 'Round', 2, 24)
       .offset(RL, 'Round', 2, 24)
       .add(face.intersect(CS.square([400, 400]).translate([-200, PART + 1.5 + RL])))
-      .extrude(R + 2)
+      .extrude(R + 2 + PROUD)
       .rotate([90, 0, 0])
       .translate([0, yf + R + 2, 0]);
   if ((globalThis as { BOXDBG?: boolean }).BOXDBG)
-    console.log('tape', { xL, xR, yf, yJ, top, R, zS, slot: sb });
+    console.log('tape', { xL, xR, yf, yJ, top, R, zS, lip: [lx0, lx1], slot: slot.bounds() });
   return { solid, lip, slot, win, zS };
 }
 export interface Shell {
