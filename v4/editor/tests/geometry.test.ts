@@ -14,7 +14,11 @@ const normal = (m: { elements: number[] }) => new Vector3(...m.elements.slice(8,
 const joined = () => {
   const p = clone(defaults),
     g = p.config.geometry;
-  Object.assign(g.thumb, { position_mm: [-42.56, -60.704, 0], rotation_deg: [5, -24, 15] });
+  Object.assign(g.thumb, {
+    position_mm: [-42.56, -60.704, 0],
+    rotation_deg: [5, -24, 15],
+    keys: [{ name: 'far' }, { name: 'home', rotation_deg: [0, 0, -90] }, { name: 'near' }],
+  });
   g.thumb.arc = { radius_mm: 130, step_deg: 11, well_deg: 12 };
   g.thumb_extra!.position_mm = [13.5015, -52, 1.0416];
   return p;
@@ -45,8 +49,9 @@ test('column parameters move and tilt their keys, and invalid input is rejected'
   assert.throws(() => validateProject({ version: 1 }), /version 2/);
 });
 test('thumb clusters fan on an arc and tilt into a well', () => {
-  const f = componentFrames(defaults.config),
-    th = defaults.config.geometry.thumb;
+  const plain = joined().config,
+    f = componentFrames(plain),
+    th = plain.geometry.thumb;
   const far = pos(f.thumb_far),
     home = pos(f.thumb_home),
     near = pos(f.thumb_near);
