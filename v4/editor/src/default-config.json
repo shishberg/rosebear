@@ -140,7 +140,7 @@
     ],
     "pads": {
       "provisional": true,
-      "description": "Solder pads on the tile underside, from a photo. Back edge (the socket side, +y): C, G, +, DO. Front edge: R, G, +, DI. The two G pads are joined on the tile, and so are the two + pads.",
+      "description": "Solder pads on the tile underside (the socket side), from the listing photo; the switch side shows small plated holes along the same edges, so they are probably through-hole pads (unconfirmed until the tiles arrive). Back edge (the socket side, +y): C, G, +, DO. Front edge: R, G, +, DI. The two G pads are joined on the tile, and so are the two + pads.",
       "size_mm": [1.2, 1.8],
       "list": [
         {
