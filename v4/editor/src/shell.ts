@@ -104,8 +104,11 @@ interface Bin {
   // index column, past the thumbs' well, out through the far end.
   flat?: boolean;
 }
-// Height of the parting line between the top case and the bottom section.
-const PART = 10;
+// Height of the parting line between the top case and the bottom section
+// (PROTOTYPE ?box=: BOX_PART, about a third of the height, as on the C64). The
+// side profile fitted to the C64 photo is scaled to PART0 either way.
+const [PART0, BOX_PART] = [10, 13];
+let PART = PART0;
 const WALL = 2; // case wall, deck and floor thickness
 // The port insert's neck stands this far out round the ribbon's slot; its tie
 // tunnels are centred this far in from the landing's ends, their tops this far
@@ -531,7 +534,7 @@ function breadbin(k0: Kit, o: Bin): BinParts {
   // vertical. The well's size sets the proportions; the bin's depth and height
   // follow it, not the photo.
   const grilled = !o.noGrill,
-    PX = PART / 118, // mm per px
+    PX = PART0 / 118, // mm per px
     RAKE = Math.tan((7.2 * Math.PI) / 180),
     bk = Math.hypot(RAKE, 1),
     END = 2, // rounding of the ends, all round
@@ -1334,7 +1337,9 @@ function c64(k: Kit, bins: Bin[]): Shell {
     .subtract(hollow);
   // Port panel, as on the C64's right side: a rounded recess in the low end
   // face of the bin with the ports, with a dark insert at its back, straddling
-  // the parting line, with the ribbon's slot through it.
+  // the parting line, with the ribbon's slot through it. (PROTOTYPE ?box=: as
+  // the ports on the C64's back, a notch in the bottom section only, up to the
+  // parting line, square there.) It stays 6 mm in from the case's ends.
   const i = Math.max(
       0,
       bins.findIndex((o) => o.ports),
@@ -1345,9 +1350,19 @@ function c64(k: Kit, bins: Bin[]): Shell {
     land = landingBox(k.cfg),
     a = k.frames.adapter.elements,
     rz = a[14] + land.top + r.thickness_mm / 2,
-    [y0, y1, z0, z1, R, D] = [ry - 12, ry + 36, PART - 6, PART + 7, 3, 1.5],
-    face = (from: number, to: number) =>
-      M.hull(
+    notch = !!bins[i].surface,
+    bb = body.boundingBox(),
+    over = Math.max(0, ry + 36 - (bb.max[1] - 6)),
+    [y0, y1, z0, z1, R, D] = [
+      Math.max(ry - 12 - over, bb.min[1] + 6),
+      ry + 36 - over,
+      notch ? Math.max(2, rz - 1.5 - NECK - 3) : PART - 6,
+      notch ? PART + 3 : PART + 7,
+      3,
+      1.5,
+    ],
+    face = (from: number, to: number) => {
+      const f = M.hull(
         [
           [y0 + R, z0 + R],
           [y1 - R, z0 + R],
@@ -1358,7 +1373,11 @@ function c64(k: Kit, bins: Bin[]): Shell {
             .rotate([0, 90, 0])
             .translate([from, y, z]),
         ),
-      ),
+      );
+      return notch
+        ? f.intersect(M.cube([to - from, y1 - y0, PART - z0]).translate([from, y0, z0]))
+        : f;
+    },
     w = r.width_mm + 2 * r.notch_clearance_mm,
     slot = M.cube([WALL + 1, w, 3]).translate([x0 - 1, ry - w / 2, rz - 1.5]),
     // The insert holds the ribbon: a neck round the slot through the wall
@@ -1419,6 +1438,7 @@ function thumbAngle(k: Kit) {
  */
 export function shell(k: Kit) {
   const style = (k.cfg.chassis as { box_style?: string }).box_style;
+  PART = style ? BOX_PART : PART0;
   if (style) return box(k, style);
   const tight = { side: 6, front: 13, corner: 2 },
     lift = (k.cfg.chassis as { deck_lift?: number }).deck_lift,
@@ -1535,7 +1555,7 @@ function leftGrill(k0: Kit, o: Bin): BinParts {
   const { k, keyWell, groupWells, wb } = binWell(k0, o),
     M = k.wasm.Manifold,
     CS = k.wasm.CrossSection,
-    PX = PART / 118,
+    PX = PART0 / 118,
     RAKE = Math.tan((7.2 * Math.PI) / 180),
     bk = Math.hypot(RAKE, 1),
     END = 2,
