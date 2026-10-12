@@ -121,6 +121,9 @@ const [NECK, TIE_IN, TIE_BRIDGE] = [1.5, 2.75, 1];
 // The port panel's opening in the case is chamfered round its outside edge,
 // 45 degrees, this far in and out, as the C64's port openings are.
 const PORT_CHAMFER = 1;
+// The grill is always this many grooves, 1.2 mm wide on a 2.4 mm pitch, as on
+// the C64; the case's back runs out as far as they need.
+const GROOVES = 6;
 // The wall between the decks is lofted every millimetre where it's lower than this.
 const FADE = 2;
 // How far the wall round a well reaches down from the deck.
@@ -552,7 +555,15 @@ function breadbin(k0: Kit, o: Bin): BinParts {
     x0 = o.tape ? groupWells[0].bounds().min[0] - 7 : wb.min[0] - o.side,
     x1 = wb.max[0] + o.side,
     yF = wb.min[1] - o.front,
-    yC = wb.max[1] + o.back,
+    // The deck's rise starts 3 mm past the well and runs 6 mm into the flat
+    // top (see yB, yG below); the back is at least far enough past that for
+    // the grill's grooves and the back corner's rounding.
+    yC = Math.max(
+      wb.max[1] + o.back,
+      grilled
+        ? (o.flat ? groupWells[0].bounds().max[1] : wb.max[1]) + 9 + 60 * PX + 2.4 * GROOVES - 0.2
+        : -Infinity,
+    ),
     // A rounded corner: [corner, towards previous run, towards next run,
     // handle lengths, handle fractions], drawn as a cubic.
     round = ([C, u, v, L0, f0, L1, f1]: Round) => {
@@ -595,7 +606,7 @@ function breadbin(k0: Kit, o: Bin): BinParts {
       // into the flat top, which starts before the back corner's rounding.
       yB = (o.flat ? groupWells[0].bounds().max[1] : wb.max[1]) + 3,
       xs = Array.from({ length: 41 }, (_, i) => wb.min[0] + ((wb.max[0] - wb.min[0]) * i) / 40);
-    // The flat top is long enough for three grill grooves (the C64 has six).
+    // The flat top is long enough for the grill's grooves.
     yG = o.flat ? yB + 6 : Math.min(yB + 6, yC - 60 * PX - (grilled ? 7 : 1));
     // Each section's own flat-top height: where its deck would reach on its
     // own slope (over at most 6 mm), so it doesn't have to dip to meet it.
@@ -1166,13 +1177,13 @@ function breadbin(k0: Kit, o: Bin): BinParts {
     gx0 = o.flat && !o.tape ? groupWells[1].bounds().max[0] + 4 : x0 - 2;
   let gBottom = gTop;
   if (grilled)
-    for (let y = gTop; y - 1.2 > flatStart; y -= 2.4) {
+    for (let y = gTop; y - 1.2 > flatStart && grooves.length < GROOVES; y -= 2.4) {
       grooves.push(CS.square([x1 + 2 - gx0, 1.2]).translate([gx0, y - 1.2]));
       gBottom = y - 1.2;
     }
   // Badge, as on the C64's top: a pill-shaped recess 1 mm deep, 0.6 mm taller
   // than the grooves' band at each side, with the grooves stopping 1.2 mm short
-  // of it. (Levelled off: as on the C64, across all but one groove beyond it
+  // of it. (Four grooves or more: as on the C64, across all but one groove beyond it
   // and two on the deck's side of it, 0.3 mm past them, and those run on.) On its floor five raised stripes, 0.8 mm wide with 0.6 mm gaps, run
   // the pill's straight stretch with square ends, all lined up; their
   // tops stay 0.2 mm under the top around them. Floor and stripe tops are the
@@ -1182,7 +1193,7 @@ function breadbin(k0: Kit, o: Bin): BinParts {
   if (grilled && grooves.length && o.badge !== undefined) {
     const n = grooves.length,
       [b0, b1] =
-        o.flat && n >= 4
+        n >= 4
           ? [gTop - 2.4 + 0.3, gTop - 2.4 * (n - 3) - 1.2 - 0.3]
           : [gTop + 0.6, gBottom - 0.6],
       H = b0 - b1,
@@ -1788,8 +1799,9 @@ function leftGrill(k0: Kit, o: Bin): BinParts {
     xB = groupWells[0].bounds().min[0] - 3,
     zT = Math.max(s(xB, yF), s(xB, yC)) + (m * RAMP) / 2,
     xG = xB - RAMP,
-    // The flat top's rounding starts 3 mm past the thumbs' well.
-    xC = Math.min(wb.min[0] - 3, xG - 7) - 60 * PX,
+    // The flat top's rounding starts 3 mm past the thumbs' well, or further
+    // out if the grill's grooves need it.
+    xC = Math.min(wb.min[0] - 3, xG - 2.4 * GROOVES + 0.2) - 60 * PX,
     xR = xC - (zT - PART) * RAKE,
     // The deck: the plane, eased (a cubic) from its own slope at xB to level
     // just over zT; the end's profile cuts it level at zT.
@@ -1896,7 +1908,7 @@ function leftGrill(k0: Kit, o: Bin): BinParts {
   const grooves: CrossSection[] = [],
     gy0 = groupWells[1].bounds().max[1] + 4,
     gx = [xC + 60 * PX + 0.4, xG - 0.4];
-  for (let x = gx[0]; x + 1.2 < gx[1]; x += 2.4)
+  for (let x = gx[0]; x + 1.2 < gx[1] && grooves.length < GROOVES; x += 2.4)
     grooves.push(CS.square([1.2, yC + 2 - gy0]).translate([x, gy0]));
   // Trough round the deck: in from the high end, behind the bullnose, in
   // front of the back's rounding, round the grill; its inside corners rounded
