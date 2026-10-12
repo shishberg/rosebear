@@ -804,7 +804,22 @@ function visibility() {
   handleGroup.visible = $('edit').matches(':checked');
   render();
 }
+// On the dev server the autosave is also written to autosave/project.json, so
+// the design can be read outside the browser.
+let mirrorTimer: ReturnType<typeof setTimeout> | undefined;
+function mirror() {
+  if (!import.meta.env.DEV) return;
+  clearTimeout(mirrorTimer);
+  mirrorTimer = setTimeout(() => {
+    fetch('/__project', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query: location.search, project }),
+    }).catch(() => {});
+  }, 500);
+}
 function autosave() {
+  mirror();
   try {
     localStorage.setItem(STORAGE, JSON.stringify(project));
     $('save-state').textContent = 'Autosaved locally';
@@ -1441,3 +1456,4 @@ preview();
 startWorker();
 requestBuild();
 resize();
+mirror();

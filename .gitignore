@@ -22,6 +22,7 @@ v4/editor/node_modules/
 v4/editor/dist/
 v4/editor/test-results/
 v4/editor/playwright-report/
+v4/editor/autosave/
 
 # Agent worktrees
 .claude/worktrees/

@@ -60,12 +60,20 @@ function marks(): Plugin {
           // The geometry the mark was drawn on: the commit, and whether the
           // shape code had uncommitted changes.
           const dirty = git('status', '--porcelain', '--', 'src').length > 0;
+          // And the design it was drawn on: the editor's last autosave.
+          let design: unknown;
+          try {
+            design = JSON.parse(readFileSync(projectFile, 'utf8'));
+          } catch {
+            design = undefined;
+          }
           const saved = {
             id,
             time: t.toISOString(),
             commit: git('rev-parse', '--short', 'HEAD') + (dirty ? '+dirty' : ''),
             ...mark,
             shot: shot ? id + '.png' : undefined,
+            design,
           };
           writeFileSync(dir + id + '.json', JSON.stringify(saved, null, 1) + '\n');
           send(200, saved);
@@ -75,5 +83,48 @@ function marks(): Plugin {
   };
 }
 
+// The editor's autosave, mirrored to a file so it can be read outside the
+// browser: autosave/project.json holds the project and the page's query (the
+// case shape). Dev server only.
+//   GET /__project   the last autosave
+//   POST /__project  replace it
+const projectDir = root + 'autosave/',
+  projectFile = projectDir + 'project.json';
+function project(): Plugin {
+  return {
+    name: 'project',
+    apply: 'serve',
+    config: () => ({ server: { watch: { ignored: [projectDir + '**'] } } }),
+    configureServer(server) {
+      server.middlewares.use('/__project', (req, res) => {
+        res.setHeader('Content-Type', 'application/json');
+        if (req.method === 'GET') {
+          try {
+            return res.end(readFileSync(projectFile, 'utf8'));
+          } catch {
+            res.statusCode = 404;
+            return res.end('{"error":"no autosave"}');
+          }
+        }
+        if (req.method !== 'POST') {
+          res.statusCode = 405;
+          return res.end('{"error":"method"}');
+        }
+        const chunks: Buffer[] = [];
+        req.on('data', (c: Buffer) => chunks.push(c));
+        req.on('end', () => {
+          const saved = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+          mkdirSync(projectDir, { recursive: true });
+          writeFileSync(
+            projectFile,
+            JSON.stringify({ time: new Date().toISOString(), ...saved }, null, 1) + '\n',
+          );
+          res.end('{"ok":true}');
+        });
+      });
+    },
+  };
+}
+
 // Workers as modules: the build worker starts the wiring worker.
-export default defineConfig({ plugins: [marks()], worker: { format: 'es' } });
+export default defineConfig({ plugins: [marks(), project()], worker: { format: 'es' } });
