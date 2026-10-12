@@ -149,8 +149,8 @@ export function componentFrames(cfg: Config) {
  * move out beside the thumb row, the adapter and ribbon move to the port
  * panel, and the trackpad is gone. Schema 4 moves the ribbon's landing onto
  * the port panel's insert. Schema 5 has the measured keycaps (18.5 mm square at
- * the base, 14 mm at the top, 11 mm high) and travel (3.5 mm), where a project
- * still has the earlier guesses.
+ * the base, 14 mm at the top, 11 mm high), where a project still has the
+ * earlier guesses. Schema 6 sets travel to MX's 4 mm.
  */
 export function migrate(c: Record<string, any>) {
   const d = defaultConfig as Record<string, any>;
@@ -180,8 +180,12 @@ export function migrate(c: Record<string, any>) {
       if (same(s.keycap_overrides_mm?.thumb_home, [27.525, 18, 9]))
         s.keycap_overrides_mm.thumb_home = clone(d.switch.keycap_overrides_mm.thumb_home);
     }
-    if (s?.travel_mm === 4) s.travel_mm = d.switch.travel_mm;
     c.schema = 5;
+  }
+  if (!(c.schema >= 6)) {
+    // Schema 6: travel is MX's 4 mm again; schema 5 had set it to 3.5.
+    if (c.switch?.travel_mm === 3.5) c.switch.travel_mm = d.switch.travel_mm;
+    c.schema = 6;
   }
   const fill = (to: Record<string, any>, from: Record<string, any>) => {
     for (const [k, v] of Object.entries(from))
