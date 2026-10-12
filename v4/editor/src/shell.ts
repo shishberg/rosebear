@@ -133,6 +133,9 @@ interface BinParts {
   // PROTOTYPE ?box=turned: the low end face at the parting line, at world y
   // (each section's flat top, and so its rake, is its own).
   x0At?: (y: number) => number;
+  // PROTOTYPE ?box=tape-deck: below the parting line, what stays with the
+  // case (world).
+  splitKeep?: Manifold;
 }
 // A corner where two straight runs meet, rounded by a cubic: [corner, unit
 // direction back along the previous run, unit direction along the next run,
@@ -1288,7 +1291,12 @@ function breadbin(k0: Kit, o: Bin): BinParts {
     );
   // Parting line between the top and bottom halves, 0.8 mm deep. (Cut as the
   // slab outside the inset body, so no face of the cut lies on the shell's.)
-  const parting = slab(PART - 0.6, PART + 0.6).subtract(body(0.8));
+  // (Tape: stepping down round the lip, and not across it.)
+  const parting = tape
+    ? M.union([slab(PART - 0.6, PART + 0.6), tape.groove.rotate([0, 0, -ang])])
+        .subtract(body(0.8))
+        .subtract(tape.lip.rotate([0, 0, -ang]))
+    : slab(PART - 0.6, PART + 0.6).subtract(body(0.8));
   // The well is open down through the case to the foot of its wall, which
   // reaches WELL_WALL down from the deck (and stops short of the parting line).
   // (Tape: the thumbs' well is the block's slot; its window is cut through
@@ -1323,6 +1331,7 @@ function breadbin(k0: Kit, o: Bin): BinParts {
     // (Turned a quarter, the low end is the back's foot.)
     x0: ang === 90 ? -yR : x0,
     x0At: ang === 90 ? (y) => -backAt(y) : undefined,
+    splitKeep: tape?.keep,
   };
 }
 /**
@@ -1336,10 +1345,12 @@ function breadbin(k0: Kit, o: Bin): BinParts {
  * the bin, where its back is hidden: it meets the
  * bin's front (yJ) square. The thumbs' well is a slot, carried on out to
  * INSET behind the front, their plates filling it, their skirt its front; a
- * window through the front opens onto that, down to a sill SILL under the
- * lowest plate corner. A square lip LIP wide stands out round the window,
- * centred on the block, PROUD in front of it and flat across, flush with the
- * top, its bottom corners rounded RL.
+ * window through the front opens onto that. A square lip LIP wide stands out
+ * round the window, centred on the block, PROUD in front of it and flat
+ * across, flush with the top, its bottom corners rounded RL: part of the
+ * case, its bar under the window (BAR deep) reaching DROP below the parting
+ * line into a cutout in the bottom section's front, the parting line
+ * stepping down round it (keep: what stays with the case below the line).
  */
 function tapeBlock(
   k: Kit,
@@ -1352,7 +1363,7 @@ function tapeBlock(
   const M = k.wasm.Manifold,
     CS = k.wasm.CrossSection,
     wb = thumbWell.bounds(),
-    [INSET, LIP, PROUD, SILL, STEP, RL] = [3, 3, 1, 3, 3, 2],
+    [INSET, LIP, PROUD, STEP, RL, BAR, DROP] = [3, 3, 1, 3, 2, 3, 4],
     RB = PART - 1,
     // (The lip centred: as far past it on the high side as on the low.)
     [lx0, lx1] = [wb.min[0] - LIP, wb.max[0] + LIP],
@@ -1384,10 +1395,9 @@ function tapeBlock(
       return M.hull(pts).intersect(M.cube([400, yJ + 3 + 200, 400]).translate([-200, -200, -1]));
     },
     tk = o.groups?.[1] ?? [],
-    zS = Math.max(
-      PART + 4,
-      Math.min(...tk.flatMap((n) => corners(k, n).map((c) => c[2]))) - SILL,
-    ),
+    // The lip's foot, and the window's sill (the top of its bar).
+    zL = PART - DROP,
+    zS = zL + BAR,
     slot = CS.union([
       thumbWell,
       ...tk.map((n) => {
@@ -1406,17 +1416,27 @@ function tapeBlock(
     win = CS.hull([edge, edge.translate([0, -INSET - 2])]),
     // The lip, across x and up z, from PROUD in front through to well inside
     // the front's rounding.
-    face = CS.square([lx1 - lx0, top - PART - 1.5]).translate([lx0, PART + 1.5]),
-    lip = face
+    face = CS.square([lx1 - lx0, top - zL]).translate([lx0, zL]),
+    lipFace = face
       .offset(-RL, 'Round', 2, 24)
       .offset(RL, 'Round', 2, 24)
-      .add(face.intersect(CS.square([400, 400]).translate([-200, PART + 1.5 + RL])))
-      .extrude(R + 2 + PROUD)
-      .rotate([90, 0, 0])
-      .translate([0, yf + R + 2, 0]);
+      .add(face.intersect(CS.square([400, 400]).translate([-200, zL + RL]))),
+    // A face across x and up z, carried from PROUD in front of the block back
+    // to well inside its front's rounding.
+    along = (cs: CrossSection, back = R + 2) =>
+      cs
+        .extrude(back + PROUD + 2)
+        .rotate([90, 0, 0])
+        .translate([0, yf + back, 0]),
+    lip = along(lipFace).intersect(M.cube([400, 400, 400]).translate([-200, yf - PROUD, -1])),
+    below = CS.square([400, PART + 0.6 + 1]).translate([-200, -1]),
+    // Below the parting line: the lip stays with the case, and the parting
+    // groove runs round it.
+    keep = along(lipFace.intersect(below)),
+    groove = along(lipFace.offset(0.6, 'Round', 2, 24).subtract(lipFace).intersect(below));
   if ((globalThis as { BOXDBG?: boolean }).BOXDBG)
     console.log('tape', { xL, xR, yf, yJ, top, R, zS, lip: [lx0, lx1], slot: slot.bounds() });
-  return { solid, lip, slot, win, zS };
+  return { solid, lip, slot, win, zS, keep, groove };
 }
 export interface Shell {
   // The case, hollow, with the wells open through it and the port panel cut.
@@ -1434,6 +1454,9 @@ export interface Shell {
   // Inside the case's skin: its hollow and its wells, with the walls round
   // the wells, which room under the plates may cut back.
   inside: Manifold;
+  // PROTOTYPE ?box=tape-deck: below the parting line, what stays with the
+  // case rather than the bottom section.
+  splitKeep?: Manifold;
 }
 function c64(k: Kit, bins: Bin[]): Shell {
   const M = k.wasm.Manifold,
@@ -1545,6 +1568,7 @@ function c64(k: Kit, bins: Bin[]): Shell {
     panel: x0,
     wells: parts.flatMap((p) => p.outlines),
     split: PART - 0.6,
+    splitKeep: parts.find((p) => p.splitKeep)?.splitKeep,
     inside: M.union([
       ...parts.filter((_, i) => !carried(i)).map((p) => p.cavity),
       ...parts.map((p) => p.wells),

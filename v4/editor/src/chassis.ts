@@ -596,11 +596,13 @@ export function buildChassis(
   // The case above the parting groove's bottom, and the bottom section below
   // it with the adapter's mount, less the ribbon's slot.
   const bb = whole.boundingBox();
-  const below = M.cube([
-    bb.max[0] - bb.min[0] + 40,
-    bb.max[1] - bb.min[1] + 40,
-    built.split + 1,
-  ]).translate([bb.min[0] - 20, bb.min[1] - 20, -1]);
+  const cube = M.cube([
+      bb.max[0] - bb.min[0] + 40,
+      bb.max[1] - bb.min[1] + 40,
+      built.split + 1,
+    ]).translate([bb.min[0] - 20, bb.min[1] - 20, -1]),
+    // (PROTOTYPE ?box=tape-deck: less what stays with the case.)
+    below = built.splitKeep ? cube.subtract(built.splitKeep) : cube;
   const base = whole
     .intersect(below)
     .add(adapterMount(wasm, cfg, frames))
