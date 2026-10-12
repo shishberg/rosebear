@@ -73,6 +73,18 @@ export function facetFloor(cfg: Config) {
   return (cfg.chassis as { plate_style?: string }).plate_style === 'facets';
 }
 
+/**
+ * PROTOTYPE: the thumbs' floor. 'web' (the default with a box_style): each
+ * thumb key has only its own plate, and each key's plate is joined to the next
+ * in its cluster by a web hulled between their facing edges, as the Dactyl's
+ * thumbs are, reaching to no well wall. 'sheet' (?thumbs=sheet, and the joined
+ * C64): one sheet in the thumbs' well, like the fingers'.
+ */
+export function thumbWeb(cfg: Config) {
+  const c = cfg.chassis as { thumb_floor?: string; box_style?: string };
+  return (c.thumb_floor ?? (c.box_style ? 'web' : 'sheet')) === 'web';
+}
+
 export const SIZES = {
   /** The skirt round each well's edge, under its plates, is this thick (plan), */
   skirt: 1.2,
@@ -460,6 +472,106 @@ export function buildChassis(
         ),
     };
   };
+  // PROTOTYPE thumbWeb: each thumb's plate, and webs between neighbours in a
+  // cluster (its keys in order), each hulled between the two plates' facing
+  // edge strips, from the seat's edge out to the plate's.
+  const web = (clusters: string[][]) => {
+    const ns = clusters.flat();
+    const plateBox = (n: string) =>
+      M.hull(
+        [-plateHalf[0], plateHalf[0]].flatMap((x) =>
+          [-plateHalf[1], plateHalf[1]].flatMap((y) =>
+            [0, -plateThickness].map((z) => keyPoint(n, x, y, z)),
+          ),
+        ),
+      );
+    // The edge of n's plate (axis, sign) whose outward direction points most
+    // toward m, as its strip's corners.
+    const facing = (n: string, m: string) => {
+      const e = frames[n].elements,
+        d = [0, 1, 2].map((k) => frames[m].elements[12 + k] - e[12 + k]);
+      let best = { axis: 0, sign: 1, dot: -Infinity };
+      for (const axis of [0, 1])
+        for (const sign of [-1, 1]) {
+          const dot = sign * [0, 1, 2].reduce((t, k) => t + e[axis * 4 + k] * d[k], 0);
+          if (dot > best.dot) best = { axis, sign, dot };
+        }
+      const across = [best.sign * seatHalf[best.axis], best.sign * plateHalf[best.axis]],
+        along = [-plateHalf[1 - best.axis], plateHalf[1 - best.axis]];
+      return across.flatMap((a) =>
+        along.flatMap((b) =>
+          [0, -plateThickness].map((z) =>
+            best.axis ? keyPoint(n, b, a, z) : keyPoint(n, a, b, z),
+          ),
+        ),
+      );
+    };
+    // Webs stay between the plates: none reaches above a plate (into its
+    // keycap's room) or below it (under its tile).
+    const offPlate = M.union(
+      ns.flatMap((n) =>
+        [
+          [0, 100],
+          [-plateThickness, -100],
+        ].map((zs) =>
+          M.hull(
+            [-plateHalf[0], plateHalf[0]].flatMap((x) =>
+              [-plateHalf[1], plateHalf[1]].flatMap((y) => zs.map((z) => keyPoint(n, x, y, z))),
+            ),
+          ),
+        ),
+      ),
+    );
+    const webs = M.union(
+      clusters.flatMap((c) =>
+        c.slice(1).map((m, i) => M.hull([...facing(c[i], m), ...facing(m, c[i])])),
+      ),
+    ).subtract(offPlate);
+    const cores = M.union(ns.map(plateBox));
+    // Straight down from each plate, grown by `out` all round.
+    const column = (out: number, z = -plateThickness) =>
+      M.union(
+        ns.map((n) =>
+          M.hull(
+            [-1, 1].flatMap((sx) =>
+              [-1, 1].flatMap((sy) => {
+                const p = keyPoint(n, sx * (plateHalf[0] + out), sy * (plateHalf[1] + out), z);
+                return [p, [p[0], p[1], p[2] - 80] as Vec3];
+              }),
+            ),
+          ),
+        ),
+      );
+    return {
+      cores,
+      rest: webs,
+      // Under each plate, the room for its tile's edge pads, their wires and a
+      // soldering iron.
+      rooms: column(SIZES.underRoom),
+      below: column(0, 0).add(webs),
+      top: column(0, 0),
+      skirt: M.union([]),
+    };
+  };
+  const clusterNames = (key: 'thumb' | 'thumb_extra') =>
+    (
+      (cfg.geometry as Record<string, unknown>)[key] as { keys: { name: string }[] } | undefined
+    )?.keys
+      .map((k) => 'thumb_' + k.name)
+      .filter((n) => frames[n]) ?? [];
+  // The main thumbs' web with the extra thumbs' sheet, which sits in the well.
+  const both = (w: ReturnType<typeof web>, extra: string[]) => {
+    if (!extra.length) return w;
+    const s = sheet(extra, thumbWell);
+    return {
+      cores: w.cores.add(s.cores),
+      rest: w.rest.add(s.rest),
+      rooms: w.rooms.add(s.rooms),
+      below: w.below.add(s.below),
+      top: w.top.add(s.top),
+      skirt: s.skirt.subtract(w.top),
+    };
+  };
   const [fingers, thumbs] = [
     sheet(
       keyNames.filter((n) => n.startsWith('matrix_')),
@@ -467,10 +579,12 @@ export function buildChassis(
       narrowPlates(cfg),
       facetFloor(cfg),
     ),
-    sheet(
-      keyNames.filter((n) => n.startsWith('thumb_')),
-      thumbWell,
-    ),
+    thumbWeb(cfg)
+      ? both(web([clusterNames('thumb')]), clusterNames('thumb_extra'))
+      : sheet(
+          keyNames.filter((n) => n.startsWith('thumb_')),
+          thumbWell,
+        ),
   ];
   // Each tile, its edge pads and a soldering iron's way up to them (along the
   // key's axis): kept clear of the skirts.

@@ -963,6 +963,9 @@ function requestBuild() {
     q = new URLSearchParams(location.search);
   if (q.get('plates'))
     (sent.config.chassis as { plate_style?: string }).plate_style = q.get('plates')!;
+  // PROTOTYPE: ?thumbs=sheet|web, the thumbs' floor (chassis.ts thumbWeb).
+  if (q.get('thumbs'))
+    (sent.config.chassis as { thumb_floor?: string }).thumb_floor = q.get('thumbs')!;
   if (q.get('slope'))
     (sent.config.chassis as { plate_slope?: number }).plate_slope = +q.get('slope')!;
   // PROTOTYPE: ?recess=mm, the finger deck this far above the plates' tops (shell.ts Bin.lift).
