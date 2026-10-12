@@ -98,6 +98,11 @@ interface Bin {
   sweepUp?: (n: string) => number;
   // PROTOTYPE ?box=left-grill-narrow: the grill across the low end (see leftGrill).
   leftGrill?: boolean;
+  // PROTOTYPE ?box=tape-deck (with leftGrill): the breadbin round the fingers
+  // only, its bullnose under their bottom row; in front of it, a lower
+  // rounded block like the C64's tape deck, the thumbs in a slot open
+  // through its front, as the deck's buttons are.
+  tape?: boolean;
   // PROTOTYPE ?box=turned-narrow: the deck levels off past the first group's
   // (the fingers') well, into one long flat top, round the second group's (the
   // thumbs') well, which the case ends just past; the grill only beside the
@@ -1503,7 +1508,9 @@ function fitPlane(P: Vec3[], tilted: boolean | 'x') {
  *                     inner end; plain walls at the front and back, the deck
  *                     level along them;
  *  left-grill-narrow  bullnose at the front, plain back; the flat top, rake
- *                     and foot across the inner end.
+ *                     and foot across the inner end;
+ *  tape-deck          left-grill-narrow round the fingers only, a lower
+ *                     block in front with the thumbs in a slot (see Bin.tape).
  */
 function box(k: Kit, style: string) {
   const fingers = fingerKeys(k),
@@ -1512,7 +1519,7 @@ function box(k: Kit, style: string) {
     // (Turned, level along its length, world y: every section the same.)
     plane = fitPlane(
       fingers.flatMap((n) => corners(k, n)),
-      style === 'left-grill-narrow' || 'x',
+      style === 'left-grill-narrow' || style === 'tape-deck' || 'x',
     ),
     recess = (k.cfg.chassis as { deck_lift?: number }).deck_lift ?? LIFT,
     C = all.map((n) => point(k.frames[n], [0, 0, 0])),
@@ -1535,6 +1542,8 @@ function box(k: Kit, style: string) {
       wellWall: Math.max(...C.map(depth)) + k.cfg.chassis.plate_thickness_mm + 8,
     };
   if (style === 'left-grill-narrow') return c64(k, [{ ...bin, back: 8, leftGrill: true }]);
+  if (style === 'tape-deck')
+    return c64(k, [{ ...bin, back: 8, front: 12, leftGrill: true, tape: true }]);
   // In the bin's own frame (turned a quarter), u along it is world y and
   // v across it is world -x: its front is the pinky end.
   return c64(k, [
@@ -1569,7 +1578,29 @@ function leftGrill(k0: Kit, o: Bin): BinParts {
       ),
     s = o.surface!,
     x1 = wb.max[0] + o.side,
-    yF = wb.min[1] - o.front,
+    // The front's foot at x: o.front in front of every well; tape: of the
+    // fingers' well only, following its front edge (its ends held on past
+    // them), turning no steeper than 1.5 in plan. yF: the furthest forward.
+    fw = groupWells[0],
+    fb = fw.bounds(),
+    wellFront = (x: number) => {
+      const c = Math.min(Math.max(x, fb.min[0] + 0.5), fb.max[0] - 0.5);
+      return fw.intersect(CS.square([1, 400]).translate([c - 0.5, -200])).bounds().min[1];
+    },
+    fronts = o.tape
+      ? Array.from({ length: Math.ceil(fb.max[0] - fb.min[0]) + 1 }, (_, i) => fb.min[0] + i).map(
+          (x) => [x, wellFront(x)],
+        )
+      : [],
+    yFx = (x: number) =>
+      o.tape
+        ? Math.min(
+            ...fronts.map(
+              ([c, f]) => f + 1.5 * Math.abs(Math.min(Math.max(x, fb.min[0]), fb.max[0]) - c),
+            ),
+          ) - o.front
+        : wb.min[1] - o.front,
+    yF = o.tape ? Math.min(...fronts.map(([, f]) => f)) - o.front : wb.min[1] - o.front,
     yC = wb.max[1] + o.back,
     // The deck rises this much per mm towards the low end.
     m = Math.max(0, (s(wb.min[0] - 0.5, 0) - s(wb.min[0] + 0.5, 0)) / 1),
@@ -1598,7 +1629,8 @@ function leftGrill(k0: Kit, o: Bin): BinParts {
     slope = (x: number, y: number) => (deck(x, y + 0.01) - deck(x, y - 0.01)) / 0.02,
     // A section across y at x, clockwise from the front gutter.
     section = (x: number): [number, number][] => {
-      const sf = slope(x, yF),
+      const yF = yFx(x),
+        sf = slope(x, yF),
         lf = Math.hypot(1, sf),
         dir: [number, number] = [1 / lf, sf / lf],
         F: [number, number] = [yF, deck(x, yF)],
@@ -1637,7 +1669,7 @@ function leftGrill(k0: Kit, o: Bin): BinParts {
         const p = (i / N) * (Math.PI / 2);
         st.push([x0 + END - ri * Math.cos(p), END - ri * Math.sin(p)]);
       }
-      for (let x = Math.ceil(x0 + END + 0.5); x < x1 - END; x += x > xB + 1 ? 5 : 1)
+      for (let x = Math.ceil(x0 + END + 0.5); x < x1 - END; x += x > xB + 1 && !o.tape ? 5 : 1)
         st.push([x, inset]);
       for (let i = N; i >= 0; i--) {
         const p = (i / N) * (Math.PI / 2);
@@ -1672,7 +1704,46 @@ function leftGrill(k0: Kit, o: Bin): BinParts {
         .rotate([90, 0, 0])
         .translate([0, yC + 10, 0]);
     },
-    body = (inset: number) => lofted(inset).intersect(end(inset)),
+    // Tape: the block in front, from under the bullnose out TAPE past the
+    // thumbs' well, from the end's foot to the high end; its top level front
+    // to back, sloping across with the deck, STEP under the deck at the
+    // bullnose's foot, levelling off with it; its corners rounded TR in plan,
+    // its top edge TE and its foot TF. (A hull: the deck levels off convexly.)
+    [TAPE, STEP, TR, TE, TF] = [4, 7, 10, 5, 3],
+    tw = groupWells[o.tape ? 1 : 0].bounds(),
+    yT = o.tape ? [tw.min[1] - TAPE, Math.max(...fronts.map(([c]) => yFx(c))) + 6] : [0, 1],
+    yM = (yF + yT[1] - 6) / 2,
+    tTop = (x: number) => deck(x, yM) - STEP,
+    tPlan = CS.square([x1 - xR - 2, yT[1] - yT[0]])
+      .translate([xR + 2, yT[0]])
+      .offset(-TR, 'Round', 2, 32)
+      .offset(TR, 'Round', 2, 32),
+    tape = (inset: number) => {
+      const pts: Vec3[] = [],
+        [re, rf] = [TE, TF].map((r) => Math.max(0.5, r - inset)),
+        // (Every 2 mm along its edges, for the top's levelling off.)
+        layer = (d: number, z: (x: number) => number) => {
+          const P = tPlan.offset(-d, 'Round', 2, 32).toPolygons()[0];
+          P.forEach(([x, y], i) => {
+            const [u, v] = P[(i + 1) % P.length],
+              n = Math.ceil(Math.hypot(u - x, v - y) / 2);
+            for (let j = 0; j < n; j++) {
+              const X = x + ((u - x) * j) / n;
+              pts.push([X, y + ((v - y) * j) / n, z(X)]);
+            }
+          });
+        };
+      for (let i = 0; i <= 6; i++) {
+        const t = (i / 6) * (Math.PI / 2);
+        layer(inset + re * (1 - Math.cos(t)), (x) => tTop(x) - inset - re + re * Math.sin(t));
+        layer(inset + rf * (1 - Math.cos(t)), () => inset + rf - rf * Math.sin(t));
+      }
+      return M.hull(pts);
+    },
+    body = (inset: number) =>
+      o.tape
+        ? M.union([lofted(inset).intersect(end(inset)), tape(inset)])
+        : lofted(inset).intersect(end(inset)),
     shell = body(0),
     bb = shell.boundingBox(),
     near = (cs: CrossSection, d: number) => prism(cs).subtract(shell.translate([0, 0, -d])),
@@ -1686,19 +1757,36 @@ function leftGrill(k0: Kit, o: Bin): BinParts {
   // Grill: grooves along y across the flat top, from past the thumbs' well
   // out through the back.
   const grooves: CrossSection[] = [],
-    gy0 = groupWells[1].bounds().max[1] + 4,
-    gx = [xC + 60 * PX + 0.4, xG - 0.4];
+    gx = [xC + 60 * PX + 0.4, xG - 0.4],
+    // (Tape: from behind the trough, which runs o.front - 3 behind the
+    // bullnose's foot.)
+    gy0 = o.tape
+      ? Math.max(yFx(gx[0]), yFx(gx[1])) + o.front - 3 + 0.8 + 3.2
+      : groupWells[1].bounds().max[1] + 4;
   for (let x = gx[0]; x + 1.2 < gx[1]; x += 2.4)
     grooves.push(CS.square([1.2, yC + 2 - gy0]).translate([x, gy0]));
   // Trough round the deck: in from the high end, behind the bullnose, in
   // front of the back's rounding, round the grill; its inside corners rounded
   // 3 mm, the inner edge inset from the outer.
   const lf = Math.hypot(1, slope(x1, yF)),
-    outer = CS.square([
-      x1 - END - 1 - (wb.min[0] - 1.6),
-      yC - 60 * PX * 0.45 - 1 - (yF + (104 * PX) / lf + 1),
-    ])
-      .translate([wb.min[0] - 1.6, yF + (104 * PX) / lf + 1])
+    tx = [wb.min[0] - 1.6, x1 - END - 1],
+    yTop = yC - 60 * PX * 0.45 - 1,
+    outer = (
+      o.tape
+        ? new CS([
+            [
+              ...Array.from({ length: Math.ceil(tx[1] - tx[0]) + 1 }, (_, i) =>
+                Math.min(tx[0] + i, tx[1]),
+              ).map((x) => [x, yFx(x) + o.front - 3] as [number, number]),
+              [tx[1], yTop],
+              [tx[0], yTop],
+            ],
+          ])
+        : CS.square([tx[1] - tx[0], yTop - (yF + (104 * PX) / lf + 1)]).translate([
+            tx[0],
+            yF + (104 * PX) / lf + 1,
+          ])
+    )
       .subtract(CS.square([gx[1] - gx[0] + 3.2, 500]).translate([gx[0] - 1.6, gy0 - 1.6]))
       .offset(-o.corner, 'Round', 2, 32)
       .offset(o.corner, 'Round', 2, 32)
@@ -1707,17 +1795,59 @@ function leftGrill(k0: Kit, o: Bin): BinParts {
     ring = (d: number) => (d ? outer.offset(-d, 'Round', 2, 32) : outer),
     trough = near(ring(0).subtract(ring(0.8)), 1),
     parting = slab(PART - 0.6, PART + 0.6).subtract(body(0.8)),
-    below = M.union([shell.translate([0, 0, -o.wellWall!]), slab(-1, PART + 3)]);
-  return {
-    shell: shell
+    below = M.union([shell.translate([0, 0, -o.wellWall!]), slab(-1, PART + 3)]),
+    // Tape: the thumbs' well is a slot, carried on out to INSET behind the
+    // block's front, as the tape deck's buttons' is; their plates fill it,
+    // their skirt its front. A window through the front opens onto that,
+    // down to a sill SILL under the lowest plate corner, with a wall round it
+    // inside.
+    [INSET, SILL] = [3, 3],
+    tk = o.groups?.[1] ?? [],
+    zS = Math.min(...tk.flatMap((n) => corners(k, n).map((c) => c[2]))) - SILL,
+    outlines = o.tape
+      ? [
+          groupWells[0],
+          CS.union([
+            groupWells[1],
+            ...tk.map((n) => {
+              const b = capSweep(k, n, o.sweepUp?.(n)).project().bounds();
+              return CS.square([b.max[0] - b.min[0] + 2.4, b.max[1] - yT[0] + 5]).translate([
+                b.min[0] - 1.2,
+                yT[0] - 5,
+              ]);
+            }),
+          ])
+            .offset(11, 'Miter')
+            .offset(-11, 'Miter')
+            .intersect(CS.square([400, 400]).translate([-200, yT[0] + INSET])),
+        ]
+      : groupWells,
+    well = o.tape ? CS.union(outlines) : keyWell,
+    // (The slot's front edge, carried out through the block's front.)
+    edge = o.tape
+      ? outlines[1].intersect(CS.square([400, 0.5]).translate([-200, yT[0] + INSET]))
+      : undefined,
+    win = edge ? CS.hull([edge, edge.translate([0, -INSET - 2])]) : undefined;
+  if ((globalThis as { BOXDBG?: boolean }).BOXDBG && o.tape)
+    console.log(
+      'tape',
+      { yF, yT, top: [tTop(xR), tTop(x1)], front: [yFx(-40), yFx(0), yFx(45)] },
+      tk.map((n) => [n, at(k, n, 0, 0)[2].toFixed(1), tTop(at(k, n, 0, 0)[0]).toFixed(1)]),
+    );
+  const cut = shell
       .subtract(near(CS.union(grooves), 1.2))
       .subtract(trough)
       .subtract(parting),
-    wells: prism(keyWell).subtract(below),
-    well: keyWell,
-    outlines: groupWells,
+    keep = prism(well.offset(WALL, 'Miter')).subtract(below);
+  return {
+    shell: win ? cut.subtract(win.extrude(400).translate([0, 0, zS])) : cut,
+    wells: prism(well).subtract(below),
+    well,
+    outlines,
     cavity: body(WALL),
-    keep: prism(keyWell.offset(WALL, 'Miter')).subtract(below),
+    keep: win
+      ? M.union([keep, win.offset(WALL, 'Miter').extrude(400).translate([0, 0, zS - WALL])])
+      : keep,
     x0: xR,
   };
 }
