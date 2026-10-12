@@ -9,6 +9,8 @@ import {
   validateProject,
   componentFrames,
   tentFrame,
+  clusterFrames,
+  frame,
   ROWS,
   type Project,
   type MeshData,
@@ -27,7 +29,7 @@ const VIEW_STORAGE = 'rosebear-chassis-editor:view';
 const TOGGLES = ['edit', 'caps', 'ghost', 'parts', 'wires', 'adapter', 'base', 'bounds', 'edges'];
 $('app').innerHTML =
   `<header><div><h1>Rosebear / chassis editor</h1><p>Right hand · C64 chassis</p></div><span id="save-state">Local project</span></header><main><aside>
-<section><h2>Key layout</h2><label><input id="edit" type="checkbox" checked> Show handles</label><small>Drag a handle parallel to the view: the Top view moves things in plan, the Front and Inner views change heights. Gold: a finger key. Up and down sets that key's height; along the column moves the column's stagger. Move a column sideways with its X offset field. Cyan: a thumb cluster's centre. Pink: turns a thumb cluster. Drag empty space to orbit; right-drag to pan; wheel to zoom.</small><div id="selection" aria-live="polite"><small>Click a handle to edit its numbers.</small></div><small>Values are in layout coordinates, before the whole hand is tented: +X toward the pinky, +Y away from you, +Z up.</small><button id="undo">Undo</button><button id="redo">Redo</button><button id="reset">Reset model</button></section>
+<section><h2>Key layout</h2><label><input id="edit" type="checkbox" checked> Show handles</label><small>Drag a handle parallel to the view: the Top view moves things in plan, the Front and Inner views change heights. Gold: a finger key. Up and down sets that key's height; along the column moves the column's stagger. Move a column sideways with its X offset field. Green, on a thumb keycap: moves that key alone; its fields also tilt it. Cyan: a thumb cluster's centre. Pink: turns a thumb cluster. Drag empty space to orbit; right-drag to pan; wheel to zoom.</small><div id="selection" aria-live="polite"><small>Click a handle to edit its numbers.</small></div><small>Values are in layout coordinates, before the whole hand is tented: +X toward the pinky, +Y away from you, +Z up.</small><button id="undo">Undo</button><button id="redo">Redo</button><button id="reset">Reset model</button></section>
 <section><h2>View</h2><label>Case shape (prototype)<select id="box"><option value="">Box turned, fingers; tape-deck thumbs</option><option value="turned-narrow">Box turned, narrow, grill beside the index</option><option value="left-grill-narrow">Box, bullnose front, narrow, grill beside the index</option><option value="joined">Joined C64 (the earlier shape)</option></select></label><label><input id="caps" type="checkbox"> Keycaps (actual configured sizes)</label><label><input id="ghost" type="checkbox"> Old Dactyl's keys, ghosted (<span id="ghost-fit"></span>)</label><label><input id="parts" type="checkbox" checked> Tiles and components</label><label><input id="wires" type="checkbox" checked> Wiring and pads</label><label><input id="adapter" type="checkbox" checked> Adapter and ribbons</label><label><input id="base" type="checkbox" checked> Bottom section</label><label><input id="bounds" type="checkbox"> Show bounding box</label><label><input id="edges" type="checkbox"> Show wireframe</label><small id="size">Size: waiting for the chassis</small><label>Chassis opacity<input id="opacity" type="range" min="0.1" max="1" step="0.05" value="1"></label><button id="rebuild">Rebuild & check</button><small>Handles and parts update while dragging. The previous chassis and wiring stay visible until rebuilding finishes.</small></section>
 <section><h2>Clearance checks</h2><label>Keycap bottom at full press (mm) <input id="bottom-out" type="number" min="0" max="20" step="0.1"></label><small>Height above the flat switch seating plane.</small><label><input id="show-failures" type="checkbox" checked> Highlight failures in 3D</label><small id="fit-legend"><span class="rest">Red: at-rest / hardware collision</span><br><span class="travel">Orange: travel + clearance collision</span><br><span class="opening">Pink: opening / switch-seat defect / loose piece</span><br><span class="wire">Cyan: wire into the chassis / blocked soldering access</span><br>Highlights show through the chassis. Click a result to isolate it.</small><button id="all-failures">Show all failures</button><div id="fit-focus" aria-live="polite"></div><div id="fit-badge">Starting geometry engine…</div><ul id="fit-list"></ul><small>Passing clearance alone does not qualify the chassis for manufacture.</small><button id="report" disabled>Save report</button></section>
 <section><h2>Wiring</h2><small>Provisional: tile pads from a photo, a generic FFC adapter. Each hand is a 4 × 5 matrix; the thumbs are row RX.</small><div id="wiring-summary"></div><details><summary>Matrix and ribbon pins</summary><table id="matrix-table"></table></details><details><summary>Cut list</summary><table id="cut-list"></table></details></section>
@@ -206,17 +208,32 @@ const tentRotation = (c: Cfg) => {
 const toLayout = (c: Cfg, d: T.Vector3) => d.clone().applyMatrix4(tentRotation(c).invert());
 const world = (c: Cfg, p: number[]) => new T.Vector3(...(p as V3)).applyMatrix4(tentFrame(c));
 const TURN = 40;
+// A thumb key's frame before its own offset and rotation: the cluster's arc
+// frame, in layout coordinates, which those two are given in.
+const thumbParent = (cl: Cluster, i: number) => {
+  const key = cl.keys[i];
+  return clusterFrames(cl)[i].multiply(frame(key.offset_mm, key.rotation_deg).invert());
+};
 function handles(p: Project) {
   const c = p.config,
     frames = componentFrames(c),
-    out: { id: string; kind: 'key' | 'cluster' | 'turn'; at: T.Vector3 }[] = [];
+    out: { id: string; kind: 'key' | 'thumbkey' | 'cluster' | 'turn'; at: T.Vector3 }[] = [];
   for (const [n, m] of Object.entries(frames))
     if (n.startsWith('matrix_'))
       out.push({ id: 'key:' + n, kind: 'key', at: new T.Vector3().setFromMatrixPosition(m) });
+  // Thumb keys are handled on their keycap tops, clear of the cluster centre.
+  const capTop = c.switch.keycap_bottom_above_plate_mm + c.switch.keycap_mm[2];
   for (const k of clusters(c)) {
     const cl = clusterOf(c, k)!,
       root = new T.Vector3(...(cl.position_mm as V3)),
       a = (cl.rotation_deg[2] * Math.PI) / 180;
+    cl.keys.forEach((key, i) =>
+      out.push({
+        id: `tkey:${k}:${i}`,
+        kind: 'thumbkey',
+        at: new T.Vector3(0, 0, capTop).applyMatrix4(frames['thumb_' + key.name]),
+      }),
+    );
     out.push({ id: 'cluster:' + k, kind: 'cluster', at: world(c, root.toArray()) });
     // In front of the cluster centre, in layout plan, along the cluster's own -Y.
     out.push({
@@ -250,6 +267,13 @@ function dragTo(
       column = c.geometry.columns.find((x) => x.name === col)!;
     column.heights_mm[ROWS.indexOf(row as (typeof ROWS)[number])] += d.z;
     column.offset_mm[1] += d.y;
+  } else if (id.startsWith('tkey:')) {
+    const [, k, i] = id.split(':'),
+      cl = clusterOf(c, k as ClusterKey)!,
+      key = cl.keys[+i],
+      r = thumbParent(cl, +i).setPosition(0, 0, 0).invert(),
+      o = d.clone().applyMatrix4(r);
+    key.offset_mm = (key.offset_mm ?? [0, 0, 0]).map((x, j) => x + o.getComponent(j));
   } else if (id.startsWith('cluster:')) {
     const cl = clusterOf(c, id.slice(8) as ClusterKey)!;
     cl.position_mm = cl.position_mm.map((x, i) => x + d.getComponent(i));
@@ -280,6 +304,22 @@ function fields(id: string): { title: string; list: Field[] } {
       ],
     };
   }
+  if (id.startsWith('tkey:')) {
+    const [, k, i] = id.split(':'),
+      name = clusterOf(project.config, k as ClusterKey)?.keys[+i]?.name ?? i,
+      b = ['geometry', k, 'keys', +i];
+    return {
+      title: `thumb ${name} key (in its cluster's frame)`,
+      list: [
+        ['Offset X mm', [...b, 'offset_mm', 0]],
+        ['Offset Y mm', [...b, 'offset_mm', 1]],
+        ['Offset Z mm', [...b, 'offset_mm', 2]],
+        ['Tilt about X °', [...b, 'rotation_deg', 0]],
+        ['Tilt about Y °', [...b, 'rotation_deg', 1]],
+        ['Turn about Z °', [...b, 'rotation_deg', 2]],
+      ],
+    };
+  }
   if (id.startsWith('cluster:') || id.startsWith('turn:')) {
     const k = id.split(':')[1],
       b = ['geometry', k];
@@ -301,10 +341,14 @@ function fields(id: string): { title: string; list: Field[] } {
   return { title: '', list: [] };
 }
 const getAt = (o: unknown, path: (string | number)[]) =>
-  path.reduce((x: any, k) => x?.[k], o) as number;
+  (path.reduce((x: any, k) => x?.[k], o) as number | undefined) ?? 0;
+// A thumb key may leave out its offset or rotation: setting one starts it at zero.
 const setAt = (o: unknown, path: (string | number)[], v: number) => {
   const last = path.at(-1)!;
-  (path.slice(0, -1).reduce((x: any, k) => x[k], o) as any)[last] = v;
+  (path.slice(0, -1).reduce((x: any, k, i) => {
+    if (x[k] === undefined && typeof path[i + 1] === 'number') x[k] = [0, 0, 0];
+    return x[k];
+  }, o) as any)[last] = v;
 };
 function updateSelection() {
   const box = $('selection'),
@@ -335,7 +379,7 @@ function updateSelection() {
     };
   });
 }
-const handleColors = { key: 0xffd48b, cluster: 0x60dfff, turn: 0xff8fd8 };
+const handleColors = { key: 0xffd48b, thumbkey: 0x8dff9a, cluster: 0x60dfff, turn: 0xff8fd8 };
 const handleGroup = new T.Group();
 scene.add(handleGroup);
 function updateHandles() {
