@@ -18,7 +18,9 @@ output_v4/
 __pycache__/
 
 # Local chassis editor build and browser test artifacts
-v4/editor/node_modules/
+v4/editor/node_modules
+# Editor marks: screenshots and notes taken while reviewing, local to each checkout.
+v4/editor/marks/
 v4/editor/dist/
 v4/editor/test-results/
 v4/editor/playwright-report/
