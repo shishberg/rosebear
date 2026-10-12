@@ -4,7 +4,7 @@
 
 The current design is v4: bought RGB key tiles hand-wired in a 3D-printed chassis, with an ESP32-P4 pod. Start with the [v4 README](v4/README.md) and [design status](v4/docs/design-status.md).
 
-The active chassis tool is the [TypeScript browser editor](v4/editor/README.md): run `make v4-editor` and open http://127.0.0.1:5177. Drag the 38 shape controls, with live surfaces and automatic cutout/clearance rebuilds in Manifold WASM. KiCad generation remains offline. The previous [Python foundation](v4/docs/chassis-foundation.md) and its exported previews are retained as references. The description below covers the original flat Choc keyboard.
+The active chassis tool is the [TypeScript browser editor](v4/editor/README.md): run `make v4-editor` and open http://127.0.0.1:5177. Edit the key layout with drag handles; the C64-styled case, plates and wiring rebuild in Manifold WASM, with clearance checks. KiCad generation remains offline. The description below covers the original flat Choc keyboard.
 
 Rosebear is a 5x3+3 wireless split keyboard designed with [Ergogen](https://ergogen.xyz/). ZMK firmware is at https://github.com/shishberg/rosebear-zmk.
 

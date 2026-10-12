@@ -1,13 +1,13 @@
 # Rosebear chassis editor
 
-The right-hand chassis editing loop runs entirely in **TypeScript + Three.js
+The right-hand chassis editor runs entirely in the browser, in **TypeScript,
+Three.js and Manifold WebAssembly**. KiCad/PCB generation stays in the offline
+v4 pipeline.
 
-- Manifold WebAssembly**. No Python server or export/rebuild handoff is required.
-  KiCad/PCB generation stays in the existing offline v4 pipeline.
-
-The editor edits the **key layout**; the chassis is generated from it. The
-construction is the C64-styled case chosen from the shape prototypes (see
-[design status](../docs/design-status.md)).
+The editor edits the **key layout**; the chassis is generated from it: a
+C64-styled case (see [design status](../docs/design-status.md)). The default
+case is the tape-deck prototype; the others are under
+[Case shapes](#case-shapes).
 
 The wiring, the tile pads, the FFC adapter and the ribbon dimensions are
 **provisional**: the pads are read from a photo of the bought
@@ -43,11 +43,10 @@ whole hand is tented (`geometry.tent_deg`, a rotation about Y) and lifted
 | `roll_deg`     | Sideways tilt: the slope across the column. Positive rises toward the pinky.                                                            |
 | `rotation_deg` | Turns each key about its own centre; `[0,0,a]` splays the column by `a`.                                                                |
 
-The default heights and tilts reproduce the previous paraboloid surface, so the
-finger keys sit where the Python generator put them.
-
 **Thumb clusters** (`geometry.thumb`, and the optional `geometry.thumb_extra`, the
-pair tucked in front of it). The keys fan along an arc. The thumb row runs
+pair beside it, in front of the middle and ring columns). A cluster's keys can
+fan along an arc; the defaults set `step_deg` and `well_deg` to 0 and place each
+key by its own `offset_mm` and `rotation_deg`. The thumb row runs
 `near` (next to the finger keys), `home`, then `far` (furthest from them, at
 the front):
 
@@ -57,10 +56,11 @@ the front):
 | `rotation_deg`                  | `[tilt about X, tilt about Y, angle]`. The angle turns the cluster in plan.                                                                   |
 | `arc.radius_mm`, `arc.step_deg` | The arc's radius and the angle between neighbouring keys. Key spacing is about `2 × radius × sin(step / 2)`.                                  |
 | `arc.well_deg`                  | Each key tilts toward the middle of the cluster by this much per key step, rising so it stays on a circle (a well, as in the finger columns). |
-| `keys`                          | Key names in order along the arc, each with an optional `offset_mm` and `rotation_deg` (the middle thumb key is turned 90° for its 1.5u cap). |
+| `keys`                          | Key names in order along the arc, each with an optional `offset_mm` and `rotation_deg`.                                                        |
 
-`chassis` holds the plate thickness and margin, the wall thickness and the
-base thickness. The case's own sizes are named at the top of `shell.ts`.
+`chassis` holds the plate thickness and margin and the base thickness
+(`wall_mm` is not used). The case's own sizes, its 2 mm wall among them, are
+named at the top of `shell.ts`.
 
 ## Use
 
@@ -69,22 +69,41 @@ base thickness. The case's own sizes are named at the top of `shell.ts`.
   and Inner views change heights.
   - **Gold**, one per finger key: up and down sets that key's height; along the
     column sets the column's stagger. Move a column sideways with its X offset field.
+  - **Green**, on a thumb keycap: moves that key alone. Once it is selected,
+    drag the **violet** tip of its stalk to tilt the key about its keycap's
+    centre, and the **pink** arm to spin it about its own axis.
   - **Cyan**: a thumb cluster's centre. **Pink**: turns a thumb cluster about its centre.
-- Clicking a handle shows every parameter of its column or cluster as number
-  fields. **All configuration** shows and edits the full JSON.
-- Drag empty space to orbit, right-drag to pan, wheel to zoom.
+- Clicking a handle shows every parameter of its column, cluster or key as
+  number fields. **All configuration** shows and edits the full JSON.
+- Drag empty space to orbit, right-drag to pan, wheel to zoom. The view bar
+  has 3D, Top, Underside, Front and Inner views.
 - The view, the View checkboxes and the chassis opacity are remembered in this
   browser across reloads (a `?mark=` link still sets its own view).
+- **Case shape (prototype)** in the View panel picks the case (see
+  [Case shapes](#case-shapes)); the choice is kept in the URL as `?box=`.
+- **Old Dactyl's keys, ghosted** overlays the keys of the Dactyl Manuform in
+  use (`v4/mechanical/dactyl-keys.json`), best-fitted to this design's finger
+  keys. **Show wireframe** draws the chassis edges.
+- **Keycap bottom at full press** sets the keycap's lowest point above the
+  switch seat, for the clearance checks.
 - Parts and keycaps follow while dragging. The previous chassis stays visible
   until the rebuild after release finishes. Stale results are labelled;
   STL/report export is disabled until the chassis is current.
 - Undo/Redo (Cmd/Ctrl-Z and Shift-Z also work) and Reset model. Reset can be undone.
-- Changes autosave to LocalStorage. **Save project** downloads a JSON file;
-  **Open project** validates and restores one. Projects from the earlier
-  cage-based editor (version 1) are not accepted.
-- **Export review STL** exports the case without the bottom section. It is a
-  review export, not a claim that the model is mechanically qualified.
-  **Export bottom section STL** exports the bottom section, a separate print.
+- Changes autosave to LocalStorage; the dev server also mirrors the autosave,
+  with the page's query, to `v4/editor/autosave/project.json` (gitignored).
+  **Save project** downloads a JSON file; **Open project** validates and
+  restores one. Older projects are migrated (`migrate` in `geometry.ts`);
+  version 1 files are refused.
+- **Export review STL** exports the case without the bottom section or the
+  trim. **Export bottom section STL** exports the bottom section, a separate
+  print. The port panel's trim insert has no export. **Save report** downloads
+  the clearance report as JSON.
+- **Marks**: press M to paint on the model where something looks wrong (hold
+  Alt to orbit), add a note and save. The dev server writes each mark, with a
+  screenshot, the camera, the commit and the autosaved design, to
+  `v4/editor/marks/` (gitignored). `?mark=<id>` opens on a mark's view;
+  `?marks=0` hides saved marks.
 - **Wiring and pads** shows the wires as tubes coloured by net group, and the
   pads. The wires are routed with each chassis build, so while you edit they
   stay as last built. **Adapter and ribbons** shows the adapter and both
@@ -93,33 +112,37 @@ base thickness. The case's own sizes are named at the top of `shell.ts`.
 - **Show bounding box** outlines the box around the case, bottom section and
   trim; the View panel gives its width (X), depth (Y) and height (Z) in mm,
   updated with each chassis build.
-- Projects saved before the wiring was added load with the default adapter,
-  ribbon, pads and wiring.
 
 ## Construction
 
 `chassis.ts` builds the chassis from the key poses, on the case from `shell.ts`:
 
-- **Case**: a Commodore 64 style "breadbin". The finger keys sit in one well;
-  the thumb row's deck is carried on in front of it as part of the same solid,
-  with the thumbs in their own well. The deck follows a surface fitted through
-  the key plates. A bullnose runs along the front, a grill and badge across the
-  back, and a groove all round is the **parting line**. The case is hollow and
-  each well is open through it, with a wall down from the deck round it. A
-  rounded wall stands between the thumb deck and the finger well.
-- **Bottom section**: the case below the parting line, a separate print. It
-  carries the **adapter mount**: a boss with a peg through each of the
-  adapter's two mounting holes, beside the connector, and two rests under its
-  solder-hole end.
-- **Port panel**: a rounded recess in the finger bin's inner end, straddling
-  the parting line, with a dark **trim** insert (a separate part) at its back.
-  The main ribbon leaves through a slot in it. The insert also holds the
-  ribbon. A neck round the slot passes through the wall, where the two halves
-  close on it. Inside the case it carries the ribbon's **landing**, a block on
-  the bottom plate with two tunnels across it for cable ties that pass over the
-  ribbon. The landing reaches below the neck, so a pull on the ribbon bears on
-  the wall. The landing is 10 mm long from the wall, so the adapter stands far
-  enough in for its loop to clear it.
+- **Case** (tape-deck, the default): a Commodore 64 style "breadbin" round the
+  finger keys, turned a quarter so the C64's side profile runs across X: the
+  bullnose along the pinky end, the flat top with the grill (six grooves) and
+  badge towards the inner end, and the port panel on the inner end. Its deck is
+  one plane fitted through the finger plates. The thumbs sit in a separate
+  block in front of it, like the C64's tape deck: a level top 3 mm below the
+  bin's deck, its front rounded over, the thumbs' well a slot in it with a
+  window through the front, and a square lip round the window. A groove all
+  round, 13 mm up, is the **parting line**. The case is hollow and each well is
+  open through it, with a wall down from the deck round it.
+- **Bottom section**: the case's shell below the parting line, plus the
+  **adapter mount**, a separate print. The mount is a boss with a peg through
+  each of the adapter's two mounting holes, beside the connector, and two rests
+  under its solder-hole end. Everything else below the parting line (plates,
+  floors, skirts, glue pads, and the tape-deck lip, which reaches 4 mm below
+  the line into a cutout in the bottom section's front) stays with the case.
+- **Port panel**: a notch in the bottom section on the finger bin's inner end,
+  up to the parting line and square there, its opening chamfered 1 mm at 45°
+  round its outside edge. A dark **trim** insert (a separate part) sits at its
+  back, and the main ribbon leaves through a slot in it. A neck round the slot
+  passes through the wall, where the two halves close on it. Inside the case
+  the insert carries the ribbon's **landing**, a block standing on the bottom
+  section with two tunnels across it for cable ties that pass over the ribbon.
+  The landing reaches below the neck, so a pull on the ribbon bears on the
+  wall. It is 10 mm long from the wall, so the adapter stands far enough in for
+  its loop to clear it.
 - **Tile**: the bought 1U key PCB under each switch (see [the v4 README](../README.md)),
   provisionally 19 × 19 mm. Its **tile pocket** is the space under the plate kept
   clear for the tile, its parts and the switch body, open below to the hollow so
@@ -127,10 +150,13 @@ base thickness. The case's own sizes are named at the top of `shell.ts`.
 - **Plate**: the square a switch clips into, 3 mm thick. It reaches 0.9 mm
   past the 15.8 mm switch seat on each side, or to the edge of the tile pocket if
   that is further, so the plate always covers the tile.
-- **Plate sheet**: in each well the plates make one sheet. Each plate joins its
-  neighbours edge to edge, and reaches out on its other edges to the well's
-  wall. The reaches and joins are 2 mm thick, so wires can pass under them.
-  Neither well's sheet runs under the other's.
+- **Floor**: the plates are part of a faceted floor, as thick as the plate
+  (3 mm). In the finger well it is one sheet: a flat square 0.8 mm past each
+  key's seat, straight strips between neighbours, a patch where four keys meet,
+  and the outer keys' strips carried on level out to the wall round the well.
+  The main thumbs have the same squares and strips, with no run-out to a wall;
+  the extra thumbs have a sheet whose run-out stops short of the main thumbs'
+  rooms. Neither well's floor runs under the other's.
 - **Rooms**: the case is cut back under the plates, straight down from 8 mm
   past each plate's open edges, so the tiles, their solder pads and the wires
   have room inside the wall round the well.
@@ -138,7 +164,7 @@ base thickness. The case's own sizes are named at the top of `shell.ts`.
   thick and up to 10 mm deep runs round the well's edge to close it. Skirts stop
   3.6 mm above the parting line, keep clear of the tiles, the soldering iron's
   way to each pad and the wires, and are dropped where a piece would be left
-  loose.
+  loose. The main thumbs have no skirt.
 - **Glue pads**: each tile is glued up against four L-shaped pads under its
   plate's corners, outside the switch's seat. The pads set its height, and the
   glue holds it when a switch is pressed into its socket.
@@ -147,6 +173,18 @@ base thickness. The case's own sizes are named at the top of `shell.ts`.
 - **Wire port**: the thumb wires reach the finger well through a round way
   (`wiring.port_diameter_mm`, 5 mm) in front of the gap between the inner and
   index columns' bottom keys, inside the case's hollow.
+
+### Case shapes
+
+**Case shape (prototype)** in the View panel, or `?box=` in the URL, picks the
+case; tape-deck, the default, leaves no `?box=`. The others are
+`turned-narrow` (one turned bin round all the keys, the grill beside the index
+column), `left-grill-narrow` (bullnose at the front, the flat top and grill
+across the inner end) and `joined` (the earlier shape: a deck fitted through
+the plates, the thumb deck carried on in front as part of the same solid, a
+port panel recess straddling the parting line 10 mm up). `?recess=mm` sets
+the deck's height above the plates. These are prototypes; their code is marked
+`PROTOTYPE` in `shell.ts`.
 
 ## Wiring
 
@@ -228,7 +266,7 @@ checks the result:
   straight down from each pad, along the key's normal, must miss the chassis.
   Blocked pads are listed and highlighted cyan.
 - Keycaps at rest and over their full travel plus clearance must not touch it.
-  The middle thumb uses its **27.525 × 18 × 9 mm** cap, **4 mm travel** and
+  The middle thumb uses its **28 × 18.5 × 11 mm** cap, **4 mm travel** and
   **2.5 mm clearance**. The keycap bottom at full press is set 2 mm above the seat.
   Each keycap's room is cut out of the chassis before this check, so it fails
   only when the room is smaller than the keycap's travel; the keycap room check
@@ -254,10 +292,10 @@ a print.
 `worker.ts` rebuilds outside the UI thread. Results carry revision IDs, so a stale
 result cannot replace a newer edit. A 30-second watchdog stops a stuck worker, and a
 fresh worker takes over every eight builds to release geometry-engine memory.
-A rebuild takes about 2.2 s in the browser: about 0.5 s to loft the shell while the
-wires are routed alongside, then about 1.5 s for the chassis and the checks. The checks
-cut each probe against the case near its key, not the whole case. Each build frees every geometry object it made, so
-memory stays flat from one build to the next.
+The wires are routed in their own worker while the shell is lofted. The checks
+cut each probe against the case near its key, not the whole case. Each build
+frees every geometry object it made, so memory stays flat from one build to the
+next.
 
 ## Validation
 
@@ -271,10 +309,11 @@ npm --prefix v4/editor run format         # Prettier
 
 A change meant to leave the geometry alone must leave `fingerprint`'s output
 unchanged: save it before the change and diff it after. It builds the default
-project and its variants.
+project and its variants. `test:fit` and `fingerprint` build the tape-deck case,
+as the browser does by default.
 
 Construction sizes that are not in the config are named in `SIZES` at the top of
-`chassis.ts`, the case's at the top of `shell.ts`, and the plate sheet's in
+`chassis.ts`, the case's at the top of `shell.ts`, and the plates' in
 `plates.ts`; the checks' sizes and limits are in `CHECKS` in `solid.ts`.
 
 `test:fit` optionally takes a saved project file and exits nonzero whenever a
