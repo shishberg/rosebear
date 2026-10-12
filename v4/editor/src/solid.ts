@@ -30,6 +30,8 @@ const CHECKS = {
   /** The footprint check's section height above the parting line, and the smallest area it counts. */
   footprintHeight: 1.5,
   minFootprint: 1,
+  /** How far in from the case's outside a footprint piece must reach to stand on the parting line. */
+  footprintEdge: 3,
   /** Keycap groups further apart than this are not listed. */
   capGapSearch: 40,
   /** Wire tubes: sides per segment's end sphere. */
@@ -526,10 +528,17 @@ function build(
         highlights.push({ name: `loose piece ${i + 1}`, kind: 'loose', mesh: meshData(p) }),
       );
     // Without the bottom section the case must also hold together along its
-    // edge: a section just above the parting line must be one connected area.
+    // edge: a section just above the parting line must be one connected area
+    // where it meets the outside wall. (Plates and floors that dip below the
+    // parting line inside the case don't stand on it.)
     const section = cut.slice(chassis.split + CHECKS.footprintHeight);
+    const outline = wasm.CrossSection.union(
+      section.toPolygons().map((c) => wasm.CrossSection.ofPolygons([c], 'NonZero')),
+    );
+    const edge = outline.subtract(outline.offset(-CHECKS.footprintEdge, 'Miter'));
     const footprint = section
       .decompose()
+      .filter((c) => c.intersect(edge).area() > CHECKS.minFootprint)
       .map((c) => {
         const a = c.area();
         return { a, c };
