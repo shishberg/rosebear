@@ -118,6 +118,9 @@ const WALL = 2; // case wall, deck and floor thickness
 // tunnels are centred this far in from the landing's ends, their tops this far
 // under its top.
 const [NECK, TIE_IN, TIE_BRIDGE] = [1.5, 2.75, 1];
+// The port panel's opening in the case is chamfered round its outside edge,
+// 45 degrees, this far in and out, as the C64's port openings are.
+const PORT_CHAMFER = 1;
 // The wall between the decks is lofted every millimetre where it's lower than this.
 const FADE = 2;
 // How far the wall round a well reaches down from the deck.
@@ -1528,6 +1531,43 @@ function c64(k: Kit, bins: Bin[]): Shell {
         ? f.intersect(M.cube([to - from, y1 - y0, PART - z0]).translate([from, y0, z0]))
         : f;
     },
+    // The face's outline across the end (y, z), grown by g: the chamfer's
+    // outline at each depth. (A notch: square at the top, grown up as well.)
+    outline = (g: number) => {
+      const o = CS.hull(
+        [
+          [y0 + R, z0 + R],
+          [y1 - R, z0 + R],
+          [y0 + R, z1 - R],
+          [y1 - R, z1 - R],
+        ].map(([y, z]) => CS.circle(R + g, 24).translate([y, z])),
+      );
+      return notch
+        ? o.intersect(
+            CS.square([y1 - y0 + 2 * g + 2, PART + g - (z0 - g - 1)]).translate([
+              y0 - g - 1,
+              z0 - g - 1,
+            ]),
+          )
+        : o;
+    },
+    // The chamfer: from the outline grown by PORT_CHAMFER on the end face to
+    // the outline itself PORT_CHAMFER in, run on out past the face (by `out`)
+    // so it cuts clean wherever the face isn't quite at x0.
+    out = 1,
+    chamfer = M.hull(
+      (
+        [
+          [x0 - out, PORT_CHAMFER + out],
+          [x0 + PORT_CHAMFER, 0],
+        ] as const
+      ).flatMap(([x, g]) =>
+        outline(g)
+          .toPolygons()
+          .flat()
+          .map(([y, z]) => [x, y, z] as Vec3),
+      ),
+    ),
     w = r.width_mm + 2 * r.notch_clearance_mm,
     slot = M.cube([WALL + 1, w, 3]).translate([x0 - 1, ry - w / 2, rz - 1.5]),
     // The insert holds the ribbon: a neck round the slot through the wall
@@ -1556,7 +1596,18 @@ function c64(k: Kit, bins: Bin[]): Shell {
         ]),
       ),
     );
-  const cased = body.subtract(face(x0 - 1, x0 + D)).subtract(neck);
+  // The neck's cut runs on 1 mm into the hollow: ending on the wall's inner
+  // face, it would leave a sheet of no thickness across the slot there,
+  // coplanar with the landing's end (the bottom section drawn over the slot).
+  const neckCut = M.cube([WALL - D + 1, w + 2 * NECK, 3 + 2 * NECK]).translate([
+    x0 + D,
+    ry - w / 2 - NECK,
+    rz - 1.5 - NECK,
+  ]);
+  const cased = body
+    .subtract(face(x0 - 1, x0 + D))
+    .subtract(chamfer)
+    .subtract(neckCut);
   return {
     body: cased,
     // Less the case, where the wall's fillet meets the floor under the landing.
