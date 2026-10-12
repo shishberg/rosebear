@@ -127,6 +127,12 @@ export const WIRING = {
   repairBlockers: 4,
   repairWork: 5000000,
   restarts: 3,
+  /**
+   * Routing gives up improving after this long (ms) and keeps its best so far,
+   * the wires still meeting reported as such: keys placed where the wires
+   * cannot get past each other otherwise search for minutes.
+   */
+  budgetMs: 8000,
   /** The cost of ending a wire on the tile's other pad of the same name. */
   otherPad: 2,
   /** Wires may touch: they count as passing into each other only past this much (mm). */
@@ -1151,6 +1157,8 @@ export function wiring(cfg: Config, frames = componentFrames(cfg)): Wiring {
   // Route with the usual choices first; if wires still meet, again with every
   // place in the port and every depth, and keep the better.
   let wide = false;
+  const deadline = Date.now() + WIRING.budgetMs,
+    late = () => Date.now() > deadline;
   const solve = () => {
     const options: Option[][] = specs.map((s, i) => {
       const d = diameterOf(s);
@@ -1205,7 +1213,11 @@ export function wiring(cfg: Config, frames = componentFrames(cfg)): Wiring {
       const y = ids.get(b)!;
       const key = x < y ? x * count + y : y * count + x;
       let v = memo.get(key);
-      if (v === undefined) memo.set(key, (v = touches(a, b)));
+      if (v === undefined) {
+        // (A Map holds at most 2^24 entries.)
+        if (memo.size > 1e7) memo.clear();
+        memo.set(key, (v = touches(a, b)));
+      }
       return v;
     };
     // Negotiate: each wire in turn takes its cheapest option, given the others'
@@ -1224,7 +1236,11 @@ export function wiring(cfg: Config, frames = componentFrames(cfg)): Wiring {
       // Stop when the number meeting has not fallen for a while.
       let fewest = Infinity;
       let since = 0;
-      for (let round = 0; round < WIRING.rounds && moving.length && since < WIRING.stall; round++) {
+      for (
+        let round = 0;
+        round < WIRING.rounds && moving.length && since < WIRING.stall && !late();
+        round++
+      ) {
         for (const i of moving) {
           let best = Infinity;
           const list = options[i];
@@ -1302,7 +1318,7 @@ export function wiring(cfg: Config, frames = componentFrames(cfg)): Wiring {
           return;
         }
         for (const o of lists[d]) {
-          if (n + o.n + rest[d] >= best || --work < 0) break;
+          if (n + o.n + rest[d] >= best || --work < 0 || (work % 4096 === 0 && late())) break;
           const m = n + o.n + mutual(d, o.k, chosen);
           if (m + rest[d] >= best) continue;
           chosen[d] = o.k;
@@ -1315,10 +1331,11 @@ export function wiring(cfg: Config, frames = componentFrames(cfg)): Wiring {
       return true;
     };
     const repairAll = () => {
-      for (let pass = 0; pass < WIRING.repairPasses; pass++) {
+      for (let pass = 0; pass < WIRING.repairPasses && !late(); pass++) {
         let improved = false;
         for (const i of specs.map((_, i) => i).filter(meetsAny))
           for (const j of near[i]) {
+            if (late()) return;
             if (!meets(options[i][choice[i]].tube, options[j][choice[j]].tube)) continue;
             if (repair([i, j])) {
               improved = true;
@@ -1338,11 +1355,13 @@ export function wiring(cfg: Config, frames = componentFrames(cfg)): Wiring {
               ...top.map((k) => [i, j, k]),
               ...top.flatMap((k, n) => top.slice(n + 1).map((m) => [i, j, k, m])),
             ];
-            for (const g of groups)
+            for (const g of groups) {
+              if (late()) return;
               if (repair(g)) {
                 improved = true;
                 break;
               }
+            }
           }
         if (!improved) break;
       }
@@ -1356,14 +1375,14 @@ export function wiring(cfg: Config, frames = componentFrames(cfg)): Wiring {
       repairAll();
       const meeting = specs.map((_, i) => i).filter(meetsAny);
       if (!best || meeting.length < best.left) best = { left: meeting.length, choice: [...choice] };
-      if (!meeting.length) break;
+      if (!meeting.length || late()) break;
       const first = new Set(meeting);
       order = [...meeting, ...order.filter((i) => !first.has(i))];
     }
     return { left: best!.left, paths: best!.choice.map((k, i) => options[i][k].tube.points) };
   };
   let solved = solve();
-  if (solved.left) {
+  if (solved.left && !late()) {
     wide = true;
     const again = solve();
     if (again.left < solved.left) solved = again;

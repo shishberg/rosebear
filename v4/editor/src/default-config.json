@@ -46,29 +46,29 @@
     ],
     "key_overrides": {},
     "thumb": {
-      "position_mm": [-37.91, -60.7, -2.99],
-      "rotation_deg": [5, -29.9, 15],
+      "position_mm": [-40.432, -52.245, -8.284],
+      "rotation_deg": [0, 0, 0],
       "keys": [
         {
           "name": "far",
-          "offset_mm": [-0.52, 0.88, -1.41],
-          "rotation_deg": [0, 3.9, 0]
+          "offset_mm": [-15.438, -10.851, -13.343],
+          "rotation_deg": [41.846, -11.653, -45.786]
         },
         {
           "name": "home",
-          "offset_mm": [2.61, -0.19, 0.58],
-          "rotation_deg": [3.6, 0, -90]
+          "offset_mm": [-0.943, 1.553, 0.672],
+          "rotation_deg": [34.793, -5.092, -59.339]
         },
         {
           "name": "near",
-          "offset_mm": [-0.8, 0.27, 0.56],
-          "rotation_deg": [0, 2.6, 0]
+          "offset_mm": [16.38, 9.296, 12.67],
+          "rotation_deg": [30.242, 2.52, -72.918]
         }
       ],
       "arc": {
         "radius_mm": 130,
-        "step_deg": 9.5,
-        "well_deg": 31
+        "step_deg": 0,
+        "well_deg": 0
       }
     },
     "thumb_extra": {

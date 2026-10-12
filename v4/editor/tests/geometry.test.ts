@@ -5,6 +5,7 @@ import { Vector3 } from 'three';
 import { defaults, clone, componentFrames, validateProject } from '../src/geometry';
 import { buildSolid } from '../src/solid';
 import { buildChassis } from '../src/chassis';
+import { oldKeyFrames } from '../src/ghost';
 import { crossings, holes, nets, wiring } from '../src/wiring';
 import ref from './python-reference.json';
 const pos = (m: { elements: number[] }) => new Vector3(...m.elements.slice(12, 15));
@@ -185,7 +186,7 @@ test('the checker reports chassis built where a keycap goes', async () => {
   assert(r.highlights.some((h) => h.kind === 'room' && h.name === 'thumb_home keycap room'));
 });
 test("the wiring joins each net's pads and adapter hole, for a 4 × 5 matrix", () => {
-  const cfg = defaults.config;
+  const cfg = joined().config;
   const frames = componentFrames(cfg);
   const w = wiring(cfg, frames);
   const keys = Object.keys(frames).filter((n) => n.startsWith('matrix_') || n.startsWith('thumb_'));
@@ -237,4 +238,14 @@ test('a project saved before the wiring loads with the default adapter, ribbon a
   c.adapter = { position_mm: [0, 0], rotation_deg: 0, board_mm: [30, 16, 1.6] };
   validateProject(p);
   assert.deepEqual(p.config, defaults.config);
+});
+test('the old Dactyl ghost fits its finger keys onto the design and carries its thumbs', () => {
+  const { frames, rms } = oldKeyFrames(defaults.config),
+    now = componentFrames(defaults.config);
+  assert.equal(Object.keys(frames).length, 18);
+  assert(rms < 6, String(rms));
+  // Every old finger key lands near this design's same key, and the thumbs in front.
+  for (const n of Object.keys(frames).filter((n) => n.startsWith('matrix_')))
+    assert(pos(frames[n]).distanceTo(pos(now[n])) < 8, n);
+  for (const n of ['thumb_near', 'thumb_home', 'thumb_far']) assert(pos(frames[n]).y < -35, n);
 });
