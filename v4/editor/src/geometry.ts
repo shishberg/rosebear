@@ -46,6 +46,15 @@ export const ROWS = ['top', 'home', 'bottom'] as const;
 export const isKey = (name: string) => name.startsWith('thumb_') || name.startsWith('matrix_');
 export const capSize = (c: Config, n: string) =>
   ((c.switch.keycap_overrides_mm as Record<string, number[]>)[n] || c.switch.keycap_mm) as V3;
+/** A keycap's top face: it tapers in from its base (capSize) by as much as
+ * keycap_top_mm is smaller than keycap_mm, so a wider cap tapers alike. Without
+ * keycap_top_mm the cap is a box. */
+export const capTop = (c: Config, n: string): [number, number] => {
+  const s = c.switch as { keycap_mm: number[]; keycap_top_mm?: number[] },
+    size = capSize(c, n),
+    top = s.keycap_top_mm ?? s.keycap_mm;
+  return [0, 1].map((k) => size[k] - (s.keycap_mm[k] - top[k])) as [number, number];
+};
 /** Layout coordinates are before tenting: +Y away from the user, +Z up. The tent
  * (a rotation about Y) and the mount lift are applied last, to every frame. */
 export const tentFrame = (cfg: Config) => {
@@ -139,7 +148,9 @@ export function componentFrames(cfg: Config) {
  * schema 2, is replaced. Schema 3 is the C64 chassis: the extra thumb keys
  * move out beside the thumb row, the adapter and ribbon move to the port
  * panel, and the trackpad is gone. Schema 4 moves the ribbon's landing onto
- * the port panel's insert.
+ * the port panel's insert. Schema 5 has the measured keycaps (18.5 mm square at
+ * the base, 14 mm at the top, 11 mm high) and travel (3.5 mm), where a project
+ * still has the earlier guesses.
  */
 export function migrate(c: Record<string, any>) {
   const d = defaultConfig as Record<string, any>;
@@ -159,6 +170,18 @@ export function migrate(c: Record<string, any>) {
     const p = c.adapter?.position_mm;
     if (p && p[0] === -28 && p[1] === 16) c.adapter.position_mm = clone(d.adapter.position_mm);
     c.schema = 4;
+  }
+  if (!(c.schema >= 5)) {
+    const s = c.switch,
+      same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+    if (s && same(s.keycap_mm, [18, 18, 9])) {
+      s.keycap_mm = clone(d.switch.keycap_mm);
+      s.keycap_top_mm = clone(d.switch.keycap_top_mm);
+      if (same(s.keycap_overrides_mm?.thumb_home, [27.525, 18, 9]))
+        s.keycap_overrides_mm.thumb_home = clone(d.switch.keycap_overrides_mm.thumb_home);
+    }
+    if (s?.travel_mm === 4) s.travel_mm = d.switch.travel_mm;
+    c.schema = 5;
   }
   const fill = (to: Record<string, any>, from: Record<string, any>) => {
     for (const [k, v] of Object.entries(from))

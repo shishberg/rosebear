@@ -4,7 +4,7 @@ import { seatSettings } from './seats';
 import { buildChassis, capSize, gluePads, isKey } from './chassis';
 import { shell } from './shell';
 import { adapterParts, crossings, padParts, wiring, type Wiring } from './wiring';
-import { componentFrames, validateProject, type V3, type MeshData, type Project } from './geometry';
+import { capTop, componentFrames, validateProject, type V3, type MeshData, type Project } from './geometry';
 export { capSize, isKey };
 /** Sizes and limits for the seats and the clearance checks, in mm (volumes in mm³, areas in mm²). */
 const CHECKS = {
@@ -49,6 +49,8 @@ export interface Part {
   center: V3;
   matrix: number[];
   cylinder?: number;
+  /** A tapered box's top face (x, y): it narrows from size at its bottom. */
+  top?: [number, number];
   /** Round holes through a box along its z axis: centres in its x and y. */
   holes?: { at: number[]; diameter: number }[];
 }
@@ -73,10 +75,12 @@ export function hardware(
     center: number[],
     m: Matrix4,
     cylinder?: number,
+    top?: [number, number],
   ) =>
     parts.push({
       name,
       group,
+      top,
       size: size as V3,
       center: center as V3,
       matrix: m.elements.slice(),
@@ -95,7 +99,15 @@ export function hardware(
         );
       add(name, 'switch', sw.body_mm, [0, 0, sw.body_mm[2] / 2 - sw.body_below_plate_mm], m);
       const cap = capSize(cfg, name);
-      add(name, 'keycaps', cap, [0, 0, sw.keycap_bottom_above_plate_mm + cap[2] / 2], m);
+      add(
+        name,
+        'keycaps',
+        cap,
+        [0, 0, sw.keycap_bottom_above_plate_mm + cap[2] / 2],
+        m,
+        undefined,
+        capTop(cfg, name),
+      );
       // The glue between the tile's top and the pads under the plate's corners.
       for (const b of glue.boxes)
         add(
@@ -385,6 +397,29 @@ function build(
   const box = (size: number[], center: number[] = [0, 0, 0]) =>
     keep(keep(M.cube(size as V3, true)).translate(center as V3));
   const place = (m: Manifold, pose: Matrix4) => keep(m.transform(pose.elements as Mat4));
+  // A box tapering from size (x, y at its bottom; z its height) to top, its
+  // bottom at z = bottom.
+  const tapered = (size: number[], top: number[], bottom: number) => {
+    const [x, y] = [size[0] / 2, size[1] / 2];
+    return keep(
+      keep(
+        M.extrude(
+          [
+            [
+              [-x, -y],
+              [x, -y],
+              [x, y],
+              [-x, y],
+            ],
+          ],
+          size[2],
+          0,
+          0,
+          [top[0] / size[0], top[1] / size[1]],
+        ),
+      ).translate([0, 0, bottom]),
+    );
+  };
   const volume = (a: Manifold, b: Manifold) => {
     const hit = within(a, b).intersect(b);
     try {
@@ -675,15 +710,26 @@ function build(
         (sw.keycap_clearance_overrides_mm as Record<string, number>)[name] ??
         sw.keycap_clearance_mm;
       const pressedBottom = sw.keycap_bottom_above_plate_mm - sw.travel_mm;
+      const top = capTop(cfg, name);
       const rest = (rests[name] = place(
-        box(size, [0, 0, sw.keycap_bottom_above_plate_mm + size[2] / 2]),
+        tapered(size, top, sw.keycap_bottom_above_plate_mm),
         m,
       ));
-      // The keycap over its full travel, grown by its clearance.
+      // The keycap over its full travel, grown by its clearance: the tapered cap
+      // at rest, and its base's footprint down to where it is pressed.
+      const grown = [size[0] + 2 * margin, size[1] + 2 * margin, size[2] + margin];
       const sweep = place(
-        box(
-          [size[0] + 2 * margin, size[1] + 2 * margin, size[2] + sw.travel_mm],
-          [0, 0, pressedBottom + (size[2] + sw.travel_mm) / 2],
+        keep(
+          tapered(
+            grown,
+            [top[0] + 2 * margin, top[1] + 2 * margin],
+            sw.keycap_bottom_above_plate_mm - margin / 2,
+          ).add(
+            box(
+              [grown[0], grown[1], sw.travel_mm + margin / 2],
+              [0, 0, pressedBottom + (sw.travel_mm + margin / 2) / 2],
+            ),
+          ),
         ),
         m,
       );

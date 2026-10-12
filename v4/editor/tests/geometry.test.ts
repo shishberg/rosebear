@@ -11,10 +11,17 @@ import ref from './python-reference.json';
 const pos = (m: { elements: number[] }) => new Vector3(...m.elements.slice(12, 15));
 const normal = (m: { elements: number[] }) => new Vector3(...m.elements.slice(8, 11));
 // The joined C64 chassis (no box_style) with the thumbs where it was laid out
-// for, before the tape-deck's thumbs moved in the defaults.
+// for, before the tape-deck's thumbs moved in the defaults, and the keycap
+// sizes it was laid out for, before they were measured.
 const joined = () => {
   const p = clone(defaults),
-    g = p.config.geometry;
+    g = p.config.geometry,
+    s = p.config.switch as Omit<typeof p.config.switch, 'keycap_top_mm'> & {
+      keycap_top_mm?: number[];
+    };
+  Object.assign(s, { keycap_mm: [18, 18, 9], travel_mm: 4 });
+  delete s.keycap_top_mm;
+  s.keycap_overrides_mm.thumb_home = [27.525, 18, 9];
   Object.assign(g.thumb, {
     position_mm: [-42.56, -60.704, 0],
     rotation_deg: [5, -24, 15],

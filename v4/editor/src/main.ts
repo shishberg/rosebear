@@ -9,6 +9,7 @@ import {
   validateProject,
   componentFrames,
   tentFrame,
+  capTop,
   clusterFrames,
   frame,
   ROWS,
@@ -677,6 +678,18 @@ function clearGroup(g: T.Group) {
 }
 // The port panel's end face as last built: the ribbon is drawn out through it.
 let panel: number | undefined;
+// A box tapering from size (x, y at its bottom, z its height, centred) to a
+// top face of top (x, y).
+const taperedBox = (size: number[], top: number[]) => {
+  const g = new T.BoxGeometry(1, 1, size[2]),
+    p = g.getAttribute('position');
+  for (let i = 0; i < p.count; i++) {
+    const up = p.getZ(i) > 0;
+    p.setXY(i, p.getX(i) * (up ? top[0] : size[0]), p.getY(i) * (up ? top[1] : size[1]));
+  }
+  g.computeVertexNormals();
+  return g;
+};
 function updateGhosts() {
   clearGroup(ghosts);
   const sw = project.config.switch,
@@ -685,7 +698,11 @@ function updateGhosts() {
   $('ghost-fit').textContent = `fingers fit to ${rms.toFixed(1)} mm`;
   for (const [name, m] of Object.entries(frames)) {
     const color = name.startsWith('thumb_') ? 0xff9a3c : 0x7fc8ff,
-      g = new T.BoxGeometry(...cap).translate(0, 0, sw.keycap_bottom_above_plate_mm + cap[2] / 2),
+      g = taperedBox(cap, capTop(project.config, '')).translate(
+        0,
+        0,
+        sw.keycap_bottom_above_plate_mm + cap[2] / 2,
+      ),
       fill = new T.Mesh(
         g,
         new T.MeshBasicMaterial({ color, transparent: true, opacity: 0.25, depthWrite: false }),
@@ -709,7 +726,9 @@ function updateHardware() {
   for (const p of hardware(project, undefined, panel)) {
     const g = p.cylinder
         ? new T.CylinderGeometry(p.cylinder, p.cylinder, p.size[2], 48).rotateX(Math.PI / 2)
-        : new T.BoxGeometry(...p.size),
+        : p.top
+          ? taperedBox(p.size, p.top)
+          : new T.BoxGeometry(...p.size),
       o = new T.Mesh(g, new T.MeshStandardMaterial({ color: colors[p.group], roughness: 0.8 }));
     g.translate(...p.center);
     o.applyMatrix4(new T.Matrix4().fromArray(p.matrix));
