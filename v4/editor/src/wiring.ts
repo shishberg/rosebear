@@ -476,9 +476,9 @@ export function wiring(cfg: Config, frames = componentFrames(cfg)): Wiring {
       });
     };
     box([-hx, -hy, padZ], [hx, hy, 0]);
-    // Each plate with its edges' reach, as the chassis builds it, and each
-    // reach run on along its edge into the gap beside a neighbour, where the
-    // join between their reaches fills it.
+    // Each plate with its edges' reach out to the well's wall, and each reach
+    // run on along its edge into the gap beside a neighbour, where the floor
+    // carries on between them.
     const r = reach[key];
     const pt = -cfg.chassis.plate_thickness_mm;
     const lo = (axis: number): number => -plateHalf[axis] - r[axis][0];

@@ -2,9 +2,11 @@
 // built from the key poses.
 // The shell is a hollow case parted along a groove all round: the case above
 // it, and the bottom section below, which is the base the adapter stands on.
-// In each well the plates make one sheet: each key's plate, joined to its
-// neighbours' edge to edge, and reaching out on its other edges to the wall
-// round the well. Under every plate a tile pocket is kept clear, open below
+// The finger well's floor is one faceted sheet: a flat square round each key's
+// seat, strips between neighbours, and the outer keys' strips carried level out
+// to the wall round the well. The main thumbs' floor is the same pieces with
+// no run-out to a wall; the extra thumbs have a sheet in the thumbs' well.
+// Under every plate a tile pocket is kept clear, open below
 // to the hollow, so the tiles can be soldered from below with the base off.
 // Each tile is glued up against four L-shaped pads under its plate's corners,
 // outside the switch's seat; the pads set its height, and the glue holds it
@@ -52,39 +54,6 @@ export interface ChassisResult {
  * Construction sizes that are not in the config, in mm. Distances are in key
  * coordinates unless noted.
  */
-/**
- * PROTOTYPE (?plates=narrow): each finger plate's top is flat only to rim
- * past its switch seat on edges facing the well's wall, then slopes down at
- * slope degrees to plate thickness - 1 below it; from there on to the wall,
- * the plate is only its bottom 1 mm.
- */
-export function narrowPlates(cfg: Config) {
-  const c = cfg.chassis as { plate_style?: string; plate_slope?: number };
-  return c.plate_style === 'narrow' ? { rim: 0.8, slope: c.plate_slope ?? 60 } : undefined;
-}
-
-/**
- * PROTOTYPE (?plates=facets): the finger well's plates are one floor, 3 mm
- * thick, whose top is each key's plate-top plane carried on until it meets its
- * neighbours' (the highest of them at each point), so each key has its own flat
- * face with creases between them, out to the well's wall.
- */
-export function facetFloor(cfg: Config) {
-  return (cfg.chassis as { plate_style?: string }).plate_style === 'facets';
-}
-
-/**
- * PROTOTYPE: the thumbs' floor. 'web' (the default with a box_style): each
- * thumb key has only its own plate, and each key's plate is joined to the next
- * in its cluster by a web hulled between their facing edges, as the Dactyl's
- * thumbs are, reaching to no well wall. 'sheet' (?thumbs=sheet, and the joined
- * C64): one sheet in the thumbs' well, like the fingers'.
- */
-export function thumbWeb(cfg: Config) {
-  const c = cfg.chassis as { thumb_floor?: string; box_style?: string };
-  return (c.thumb_floor ?? (c.box_style ? 'web' : 'sheet')) === 'web';
-}
-
 export const SIZES = {
   /** The skirt round each well's edge, under its plates, is this thick (plan), */
   skirt: 1.2,
@@ -103,8 +72,6 @@ export const SIZES = {
   underRoom: 8,
   /** The plates reach this far into the wall round their well (plan). */
   wellInto: 0.5,
-  /** At a corner where four keys meet, each key's share of the fill reaches this far in from its plate corner. */
-  cornerFill: 3,
   /** The switch body and pins below the plate top: kept clear under the switch hole. */
   switchBelowPlate: 13,
   /** The keycap's room is this much wider than the cap plus its clearance, in total. */
@@ -125,7 +92,6 @@ export const SIZES = {
 } as const;
 
 /** A plan vector or direction, [x, y] in world coordinates. */
-type Plan = [number, number];
 
 /**
  * The glue pads under a key's plate, in key coordinates: four Ls, one under
@@ -213,127 +179,11 @@ export function buildChassis(
 
   const [fingerWell, thumbWell] = built.wells;
 
-  // The plates, one sheet in each well.
-  const centre = (n: string): Plan => [frames[n].elements[12], frames[n].elements[13]];
+  // The floor under the keys: a faceted sheet in each well.
   const keyPoint = (n: string, x: number, y: number, z: number): Vec3 =>
     point(frames[n], [x, y, z]);
-  const sheet = (
-    ns: string[],
-    well: CrossSection,
-    narrow?: ReturnType<typeof narrowPlates>,
-    facets = false,
-  ) => {
-    const { reach, pairs, across } = plateEdges(cfg, frames, ns);
-    const span = (n: string, axis: number) => [
-      -plateHalf[axis] - reach[n][axis][0],
-      plateHalf[axis] + reach[n][axis][1],
-    ];
-    const box = (n: string, xs: number[], ys: number[], zs = [0, -plateThickness]) =>
-      M.hull(xs.flatMap((x) => ys.flatMap((y) => zs.map((z) => keyPoint(n, x, y, z)))));
-    // PROTOTYPE narrow plates: the plate's full thickness stands only within
-    // top (at its top) and foot (where its slope ends, drop down); everything
-    // else of the plate and its reaches is its bottom 1 mm, drop down and below.
-    const drop = plateThickness - 1;
-    const run = narrow ? drop / Math.tan((narrow.slope * Math.PI) / 180) : 0;
-    const top = (n: string, axis: number, past = 0) =>
-      [0, 1].map(
-        (i) =>
-          (2 * i - 1) *
-          (narrow && reach[n][axis][i] ? seatHalf[axis] + narrow.rim + past : plateHalf[axis]),
-      );
-    const foot = (n: string, axis: number) => top(n, axis, run);
-    // The raised part, given what it spans across each axis at its top and foot.
-    const raised = (n: string, at: (k: 0 | 1, axis: number) => number[]) =>
-      M.hull(
-        (
-          [
-            [0, 0],
-            [-drop, 1],
-            [-plateThickness, 1],
-          ] as const
-        ).flatMap(([z, k]) => at(k, 0).flatMap((x) => at(k, 1).map((y) => keyPoint(n, x, y, z)))),
-      );
-    const plate = (n: string, xs: number[], ys: number[]) =>
-      narrow
-        ? raised(n, (k, axis) => (k ? foot : top)(n, axis)).add(
-            box(n, xs, ys, [-drop, -plateThickness]),
-          )
-        : box(n, xs, ys);
-    const parts = ns.map((n) => plate(n, span(n, 0), span(n, 1)));
-    // Between neighbours: each side's strip from its seat edge to its plate
-    // edge, along the whole edge and its reach, hulled together. Narrow, only
-    // the bottom 1 mm runs along the whole edge; above it, the strip spans
-    // only what the plate's raised part does.
-    const strip = (n: string, axis: number, sign: number, upper: boolean) => {
-      const acrossEdge = [sign * seatHalf[axis], sign * plateHalf[axis]];
-      if (narrow && upper)
-        return raised(n, (k, a) => (a === axis ? acrossEdge : (k ? foot : top)(n, a)));
-      const along = span(n, 1 - axis);
-      const zs = narrow ? [-drop, -plateThickness] : undefined;
-      return axis ? box(n, along, acrossEdge, zs) : box(n, acrossEdge, along, zs);
-    };
-    for (const [n, m, axis, sign] of pairs)
-      if (n < m) {
-        const back = across(m, n);
-        if (back)
-          for (const upper of narrow ? [false, true] : [false])
-            parts.push(M.hull([strip(n, axis, sign, upper), strip(m, back[0], back[1], upper)]));
-      }
-    // Where four keys meet, the hole between their corners filled.
-    for (const n of ns) {
-      const nb = pairs.filter((p) => p[0] === n);
-      for (const p of nb)
-        for (const q of nb)
-          if (p[2] === 0 && q[2] === 1) {
-            const diag = pairs.find(
-              (r) => r[0] === p[1] && pairs.some((s) => s[0] === q[1] && s[1] === r[1]),
-            );
-            if (!diag) continue;
-            const four = [n, p[1], q[1], diag[1]];
-            const target = four
-              .map(centre)
-              .reduce((t, c) => [t[0] + c[0] / 4, t[1] + c[1] / 4], [0, 0]);
-            parts.push(
-              M.hull(
-                four.flatMap((k) => {
-                  // The plate corner nearest the four's middle, and in from it.
-                  const corners = [-1, 1].flatMap((sx) => [-1, 1].map((sy) => [sx, sy]));
-                  const [sx, sy] = corners.reduce((a, b) => {
-                    const pa = keyPoint(k, a[0] * plateHalf[0], a[1] * plateHalf[1], 0);
-                    const pb = keyPoint(k, b[0] * plateHalf[0], b[1] * plateHalf[1], 0);
-                    return Math.hypot(pb[0] - target[0], pb[1] - target[1]) <
-                      Math.hypot(pa[0] - target[0], pa[1] - target[1])
-                      ? b
-                      : a;
-                  });
-                  return [0, SIZES.cornerFill].flatMap((ix) =>
-                    [0, SIZES.cornerFill].flatMap((iy) =>
-                      [0, -plateThickness].map((z) =>
-                        keyPoint(k, sx * (plateHalf[0] - ix), sy * (plateHalf[1] - iy), z),
-                      ),
-                    ),
-                  );
-                }),
-              ),
-            );
-          }
-    }
-    // Joins and fills stay in the gaps: none of them reaches above or below
-    // a plate (into its keycap's room, or under its tile).
-    const offPlate = M.union(
-      ns.flatMap((n) =>
-        [
-          [0, 100],
-          [-plateThickness, -100],
-        ].map((zs) =>
-          M.hull(
-            span(n, 0).flatMap((x) =>
-              span(n, 1).flatMap((y) => zs.map((z) => keyPoint(n, x, y, z))),
-            ),
-          ),
-        ),
-      ),
-    );
+  const sheet = (ns: string[], well: CrossSection) => {
+    const { reach, pairs } = plateEdges(cfg, frames, ns);
     // Under each plate, down to the parting line: the well's wall stops at
     // the plates, so the tiles' edge pads open into the case's hollow. `out`
     // is how far the room runs on past an edge with no neighbour.
@@ -358,111 +208,79 @@ export function buildChassis(
         ),
       );
     const clip = well.offset(SIZES.wellInto, 'Miter').extrude(400).translate([0, 0, -1]);
-    if (facets) {
-      // A flat square 0.8 mm past each key's seat, straight strips between
-      // neighbours and a patch where four keys meet; past the outer keys the
-      // strips carry on level out to the well's wall.
-      const cell: Record<string, number[]> = { [ns[0]]: [0, 0] };
-      const todo = [ns[0]];
-      while (todo.length) {
-        const n = todo.pop()!;
-        for (const [a, m, axis, sign] of pairs)
-          if (a === n && !cell[m]) {
-            cell[m] = [...cell[n]];
-            cell[m][axis] += sign;
-            todo.push(m);
-          }
-      }
-      const at = new Map(ns.map((n) => [cell[n].join(','), n]));
-      const lo = [0, 1].map((i) => Math.min(...ns.map((n) => cell[n][i])));
-      const hi = [0, 1].map((i) => Math.max(...ns.map((n) => cell[n][i])));
-      const flatHalf = [seatHalf[0] + 0.8, seatHalf[1] + 0.8];
-      const planDir = (n: string, axis: number) => {
-        const e = frames[n].elements;
-        const l = Math.hypot(e[axis * 4], e[axis * 4 + 1]);
-        return [e[axis * 4] / l, e[axis * 4 + 1] / l];
-      };
-      const OUT = 40;
-      // Corner (sx, sy) of the cell at c, as the floor's top and underside. A
-      // cell past the keys borrows the nearest key's corner facing it, carried
-      // level outwards.
-      const corner = (c: number[], sx: number, sy: number): [Vec3, Vec3] | undefined => {
-        const k = c.map((v, i) => Math.min(hi[i], Math.max(lo[i], v)));
-        const n = at.get(k.join(','));
-        if (!n) return undefined;
-        const o = c.map((v, i) => Math.sign(v - k[i]));
-        const q = [o[0] || sx, o[1] || sy];
-        const push = [0, 1].map(
-          (i) => OUT * (o[0] * planDir(n, 0)[i] + o[1] * planDir(n, 1)[i]),
-        );
-        return [0, -plateThickness].map((z) => {
-          const p = keyPoint(n, q[0] * flatHalf[0], q[1] * flatHalf[1], z);
-          return [p[0] + push[0], p[1] + push[1], p[2]] as Vec3;
-        }) as [Vec3, Vec3];
-      };
-      const pieces: [Vec3, Vec3][][] = [];
-      const add = (ps: ([Vec3, Vec3] | undefined)[]) => {
-        if (ps.every((p) => p)) pieces.push(ps as [Vec3, Vec3][]);
-      };
-      for (let c = lo[0] - 1; c <= hi[0]; c++)
-        for (let r = lo[1] - 1; r <= hi[1]; r++) {
-          const [a, b, d, e] = [[c, r], [c + 1, r], [c, r + 1], [c + 1, r + 1]];
-          if (at.has(a.join(','))) add([corner(a, -1, -1), corner(a, 1, -1), corner(a, 1, 1), corner(a, -1, 1)]);
-          add([corner(a, 1, -1), corner(a, 1, 1), corner(b, -1, 1), corner(b, -1, -1)]);
-          add([corner(a, -1, 1), corner(a, 1, 1), corner(d, 1, -1), corner(d, -1, -1)]);
-          add([corner(a, 1, 1), corner(b, -1, 1), corner(e, -1, -1), corner(d, 1, -1)]);
+    // A flat square 0.8 mm past each key's seat, straight strips between
+    // neighbours and a patch where four keys meet; past the outer keys the
+    // strips carry on level out to the well's wall.
+    const cell: Record<string, number[]> = { [ns[0]]: [0, 0] };
+    const todo = [ns[0]];
+    while (todo.length) {
+      const n = todo.pop()!;
+      for (const [a, m, axis, sign] of pairs)
+        if (a === n && !cell[m]) {
+          cell[m] = [...cell[n]];
+          cell[m][axis] += sign;
+          todo.push(m);
         }
-      // Everything under the pieces' tops (or undersides).
-      const beneath = (side: number) =>
-        M.union(
-          pieces.map((ps) => {
-            const top = ps.map((p) => p[side]);
-            return M.hull([...top, ...top.map((p) => [p[0], p[1], p[2] - 200] as Vec3)]);
-          }),
-        );
-      const below = beneath(0).intersect(clip);
-      const underside = beneath(1);
-      const floor = below.subtract(underside);
-      return {
-        cores: floor,
-        rest: floor,
-        // Only under the floor: above its underside the room would cut the
-        // well's wall away above the floor, leaving a slot.
-        rooms: room(SIZES.underRoom).intersect(underside),
-        below,
-        top: floor,
-        skirt: column(PLATES.wellReach, SIZES.skirtInto - plateThickness, SIZES.skirtDepth)
-          .intersect(clip)
-          .subtract(
-            well
-              .offset(SIZES.wellInto - SIZES.skirt, 'Miter')
-              .extrude(400)
-              .translate([0, 0, -1]),
-          ),
-      };
     }
+    const at = new Map(ns.map((n) => [cell[n].join(','), n]));
+    const lo = [0, 1].map((i) => Math.min(...ns.map((n) => cell[n][i])));
+    const hi = [0, 1].map((i) => Math.max(...ns.map((n) => cell[n][i])));
+    const flatHalf = [seatHalf[0] + 0.8, seatHalf[1] + 0.8];
+    const planDir = (n: string, axis: number) => {
+      const e = frames[n].elements;
+      const l = Math.hypot(e[axis * 4], e[axis * 4 + 1]);
+      return [e[axis * 4] / l, e[axis * 4 + 1] / l];
+    };
+    const OUT = 40;
+    // Corner (sx, sy) of the cell at c, as the floor's top and underside. A
+    // cell past the keys borrows the nearest key's corner facing it, carried
+    // level outwards.
+    const corner = (c: number[], sx: number, sy: number): [Vec3, Vec3] | undefined => {
+      const k = c.map((v, i) => Math.min(hi[i], Math.max(lo[i], v)));
+      const n = at.get(k.join(','));
+      if (!n) return undefined;
+      const o = c.map((v, i) => Math.sign(v - k[i]));
+      const q = [o[0] || sx, o[1] || sy];
+      const push = [0, 1].map(
+        (i) => OUT * (o[0] * planDir(n, 0)[i] + o[1] * planDir(n, 1)[i]),
+      );
+      return [0, -plateThickness].map((z) => {
+        const p = keyPoint(n, q[0] * flatHalf[0], q[1] * flatHalf[1], z);
+        return [p[0] + push[0], p[1] + push[1], p[2]] as Vec3;
+      }) as [Vec3, Vec3];
+    };
+    const pieces: [Vec3, Vec3][][] = [];
+    const add = (ps: ([Vec3, Vec3] | undefined)[]) => {
+      if (ps.every((p) => p)) pieces.push(ps as [Vec3, Vec3][]);
+    };
+    for (let c = lo[0] - 1; c <= hi[0]; c++)
+      for (let r = lo[1] - 1; r <= hi[1]; r++) {
+        const [a, b, d, e] = [[c, r], [c + 1, r], [c, r + 1], [c + 1, r + 1]];
+        if (at.has(a.join(','))) add([corner(a, -1, -1), corner(a, 1, -1), corner(a, 1, 1), corner(a, -1, 1)]);
+        add([corner(a, 1, -1), corner(a, 1, 1), corner(b, -1, 1), corner(b, -1, -1)]);
+        add([corner(a, -1, 1), corner(a, 1, 1), corner(d, 1, -1), corner(d, -1, -1)]);
+        add([corner(a, 1, 1), corner(b, -1, 1), corner(e, -1, -1), corner(d, 1, -1)]);
+      }
+    // Everything under the pieces' tops (or undersides).
+    const beneath = (side: number) =>
+      M.union(
+        pieces.map((ps) => {
+          const top = ps.map((p) => p[side]);
+          return M.hull([...top, ...top.map((p) => [p[0], p[1], p[2] - 200] as Vec3)]);
+        }),
+      );
+    const below = beneath(0).intersect(clip);
+    const underside = beneath(1);
+    const floor = below.subtract(underside);
     return {
-      // The plates alone, and their reaches and joins, thinner.
-      cores: M.union(
-        ns.map((n) => plate(n, [-plateHalf[0], plateHalf[0]], [-plateHalf[1], plateHalf[1]])),
-      ),
-      rest: M.union(parts.slice(ns.length))
-        .subtract(offPlate)
-        .add(M.union(parts.slice(0, ns.length)))
-        .intersect(clip)
-        .subtract(column(PLATES.wellReach, narrow ? -plateThickness : -PLATES.reachThickness)),
-      rooms: room(SIZES.underRoom),
-      // Everything under the sheet: its plates and reaches, out to its well,
-      // and everything under its top.
-      below: column(PLATES.wellReach).intersect(clip),
-      top: column(PLATES.wellReach, 0).intersect(clip),
-      // Round the well's edge, under the sheet: where the sheet stands above
-      // what is outside the well, its skirt closes the step.
-      skirt: column(
-        PLATES.wellReach,
-        SIZES.skirtInto - (narrow ? plateThickness : PLATES.reachThickness),
-        SIZES.skirtDepth,
-      )
+      cores: floor,
+      rest: floor,
+      // Only under the floor: above its underside the room would cut the
+      // well's wall away above the floor, leaving a slot.
+      rooms: room(SIZES.underRoom).intersect(underside),
+      below,
+      top: floor,
+      skirt: column(PLATES.wellReach, SIZES.skirtInto - plateThickness, SIZES.skirtDepth)
         .intersect(clip)
         .subtract(
           well
@@ -472,21 +290,16 @@ export function buildChassis(
         ),
     };
   };
-  // PROTOTYPE thumbWeb: each thumb's plate, and webs between neighbours in a
-  // cluster (its keys in order), each hulled between the two plates' facing
-  // edge strips, from the seat's edge out to the plate's.
+  // The main thumbs' floor: the finger sheet's facet pieces for a row of keys
+  // in any pose: a flat square round each key, 0.8 mm past its seat on
+  // edges facing a neighbour (out to its plate on the others, covering its tile
+  // and glue pads), and a straight strip between neighbours' facing edges. Each
+  // piece is hulled on its own, and nothing carries on out to a well's wall.
   const web = (clusters: string[][]) => {
     const ns = clusters.flat();
-    const plateBox = (n: string) =>
-      M.hull(
-        [-plateHalf[0], plateHalf[0]].flatMap((x) =>
-          [-plateHalf[1], plateHalf[1]].flatMap((y) =>
-            [0, -plateThickness].map((z) => keyPoint(n, x, y, z)),
-          ),
-        ),
-      );
-    // The edge of n's plate (axis, sign) whose outward direction points most
-    // toward m, as its strip's corners.
+    const flatHalf = [seatHalf[0] + 0.8, seatHalf[1] + 0.8];
+    // The edge of n's square (axis, sign) whose outward direction points most
+    // toward m.
     const facing = (n: string, m: string) => {
       const e = frames[n].elements,
         d = [0, 1, 2].map((k) => frames[m].elements[12 + k] - e[12 + k]);
@@ -496,38 +309,43 @@ export function buildChassis(
           const dot = sign * [0, 1, 2].reduce((t, k) => t + e[axis * 4 + k] * d[k], 0);
           if (dot > best.dot) best = { axis, sign, dot };
         }
-      const across = [best.sign * seatHalf[best.axis], best.sign * plateHalf[best.axis]],
-        along = [-plateHalf[1 - best.axis], plateHalf[1 - best.axis]];
-      return across.flatMap((a) =>
-        along.flatMap((b) =>
-          [0, -plateThickness].map((z) =>
-            best.axis ? keyPoint(n, b, a, z) : keyPoint(n, a, b, z),
-          ),
-        ),
+      return best;
+    };
+    const pairs = clusters.flatMap((c) => c.slice(1).map((m, i) => [c[i], m] as const));
+    // Each key's square, [axis][side] (side 0 for -, 1 for +).
+    const square: Record<string, number[][]> = Object.fromEntries(
+      ns.map((n) => [n, [0, 1].map((a) => [plateHalf[a], plateHalf[a]])]),
+    );
+    for (const [n, m] of pairs)
+      for (const [k, o] of [
+        [n, m],
+        [m, n],
+      ]) {
+        const f = facing(k, o);
+        square[k][f.axis][(f.sign + 1) / 2] = flatHalf[f.axis];
+      }
+    const span = (n: string, axis: number) => [-square[n][axis][0], square[n][axis][1]];
+    const squareAt = (n: string, zs: number[]) =>
+      M.hull(
+        span(n, 0).flatMap((x) => span(n, 1).flatMap((y) => zs.map((z) => keyPoint(n, x, y, z)))),
+      );
+    // The facing edge's corners, top and underside.
+    const edge = (n: string, m: string) => {
+      const f = facing(n, m),
+        a = f.sign * square[n][f.axis][(f.sign + 1) / 2];
+      return span(n, 1 - f.axis).flatMap((b) =>
+        [0, -plateThickness].map((z) => (f.axis ? keyPoint(n, b, a, z) : keyPoint(n, a, b, z))),
       );
     };
-    // Webs stay between the plates: none reaches above a plate (into its
+    // Strips stay between the squares: none reaches above one (into its
     // keycap's room) or below it (under its tile).
     const offPlate = M.union(
-      ns.flatMap((n) =>
-        [
-          [0, 100],
-          [-plateThickness, -100],
-        ].map((zs) =>
-          M.hull(
-            [-plateHalf[0], plateHalf[0]].flatMap((x) =>
-              [-plateHalf[1], plateHalf[1]].flatMap((y) => zs.map((z) => keyPoint(n, x, y, z))),
-            ),
-          ),
-        ),
-      ),
+      ns.flatMap((n) => [squareAt(n, [0, 100]), squareAt(n, [-plateThickness, -100])]),
     );
-    const webs = M.union(
-      clusters.flatMap((c) =>
-        c.slice(1).map((m, i) => M.hull([...facing(c[i], m), ...facing(m, c[i])])),
-      ),
-    ).subtract(offPlate);
-    const cores = M.union(ns.map(plateBox));
+    const webs = M.union(pairs.map(([n, m]) => M.hull([...edge(n, m), ...edge(m, n)]))).subtract(
+      offPlate,
+    );
+    const cores = M.union(ns.map((n) => squareAt(n, [0, -plateThickness])));
     // Straight down from each plate, grown by `out` all round.
     const column = (out: number, z = -plateThickness) =>
       M.union(
@@ -563,9 +381,23 @@ export function buildChassis(
   const both = (w: ReturnType<typeof web>, extra: string[]) => {
     if (!extra.length) return w;
     const s = sheet(extra, thumbWell);
+    // The sheet's run-out to the well's wall stops short of the main thumbs'
+    // rooms, which share the well, but each extra key keeps its own plate.
+    const own = M.union(
+      extra.map((n) =>
+        M.hull(
+          [-1, 1].flatMap((sx) =>
+            [-1, 1].flatMap((sy) =>
+              [100, -100].map((z) => keyPoint(n, sx * plateHalf[0], sy * plateHalf[1], z)),
+            ),
+          ),
+        ),
+      ),
+    );
+    const floor = s.rest.subtract(w.rooms.subtract(own));
     return {
-      cores: w.cores.add(s.cores),
-      rest: w.rest.add(s.rest),
+      cores: w.cores.add(floor),
+      rest: w.rest.add(floor),
       rooms: w.rooms.add(s.rooms),
       below: w.below.add(s.below),
       top: w.top.add(s.top),
@@ -576,15 +408,8 @@ export function buildChassis(
     sheet(
       keyNames.filter((n) => n.startsWith('matrix_')),
       fingerWell,
-      narrowPlates(cfg),
-      facetFloor(cfg),
     ),
-    thumbWeb(cfg)
-      ? both(web([clusterNames('thumb')]), clusterNames('thumb_extra'))
-      : sheet(
-          keyNames.filter((n) => n.startsWith('thumb_')),
-          thumbWell,
-        ),
+    both(web([clusterNames('thumb')]), clusterNames('thumb_extra')),
   ];
   // Each tile, its edge pads and a soldering iron's way up to them (along the
   // key's axis): kept clear of the skirts.

@@ -10,7 +10,7 @@ export const PLATES = {
   wellReach: 12,
   /** Keys are neighbours across an edge when their centres are at most this far past twice the plate half-width apart. */
   neighbourGap: 8,
-  /** The reaches and the joins between plates are this thick: a skin, holding no switch. */
+  /** The wiring keeps this far under the plane of each plate's top past its edges (where the floor runs on). */
   reachThickness: 2,
 };
 
