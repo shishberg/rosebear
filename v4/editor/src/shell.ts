@@ -1339,8 +1339,7 @@ function breadbin(k0: Kit, o: Bin): BinParts {
  * window through the front opens onto that, down to a sill SILL under the
  * lowest plate corner. A square lip LIP wide stands out round the window,
  * centred on the block, PROUD in front of it and flat across, flush with the
- * top, down over the parting line (cut across it, as all round) into the
- * bottom section, to FOOT over the floor; its bottom corners rounded RL.
+ * top, its bottom corners rounded RL.
  */
 function tapeBlock(
   k: Kit,
@@ -1353,7 +1352,7 @@ function tapeBlock(
   const M = k.wasm.Manifold,
     CS = k.wasm.CrossSection,
     wb = thumbWell.bounds(),
-    [INSET, LIP, PROUD, SILL, STEP, RL, FOOT] = [3, 3, 1, 3, 3, 2, 2],
+    [INSET, LIP, PROUD, SILL, STEP, RL] = [3, 3, 1, 3, 3, 2],
     RB = PART - 1,
     // (The lip centred: as far past it on the high side as on the low.)
     [lx0, lx1] = [wb.min[0] - LIP, wb.max[0] + LIP],
@@ -1407,11 +1406,11 @@ function tapeBlock(
     win = CS.hull([edge, edge.translate([0, -INSET - 2])]),
     // The lip, across x and up z, from PROUD in front through to well inside
     // the front's rounding.
-    face = CS.square([lx1 - lx0, top - FOOT]).translate([lx0, FOOT]),
+    face = CS.square([lx1 - lx0, top - PART - 1.5]).translate([lx0, PART + 1.5]),
     lip = face
       .offset(-RL, 'Round', 2, 24)
       .offset(RL, 'Round', 2, 24)
-      .add(face.intersect(CS.square([400, 400]).translate([-200, FOOT + RL])))
+      .add(face.intersect(CS.square([400, 400]).translate([-200, PART + 1.5 + RL])))
       .extrude(R + 2 + PROUD)
       .rotate([90, 0, 0])
       .translate([0, yf + R + 2, 0]);
