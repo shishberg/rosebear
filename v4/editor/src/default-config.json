@@ -46,8 +46,8 @@
     ],
     "key_overrides": {},
     "thumb": {
-      "position_mm": [-33.2, -60.704, 1.65],
-      "rotation_deg": [5, -24, 15],
+      "position_mm": [-25, -60.7, -5.36],
+      "rotation_deg": [5, -31.7, 15],
       "keys": [
         {
           "name": "far"
@@ -63,7 +63,7 @@
       "arc": {
         "radius_mm": 130,
         "step_deg": 11,
-        "well_deg": 12
+        "well_deg": 28.8
       }
     },
     "thumb_extra": {
