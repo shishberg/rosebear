@@ -9,6 +9,16 @@ import { crossings, holes, nets, wiring } from '../src/wiring';
 import ref from './python-reference.json';
 const pos = (m: { elements: number[] }) => new Vector3(...m.elements.slice(12, 15));
 const normal = (m: { elements: number[] }) => new Vector3(...m.elements.slice(8, 11));
+// The joined C64 chassis (no box_style) with the thumbs where it was laid out
+// for, before the tape-deck's thumbs moved in the defaults.
+const joined = () => {
+  const p = clone(defaults),
+    g = p.config.geometry;
+  Object.assign(g.thumb, { position_mm: [-42.56, -60.704, 0], rotation_deg: [5, -24, 15] });
+  g.thumb.arc = { radius_mm: 130, step_deg: 11, well_deg: 12 };
+  g.thumb_extra!.position_mm = [13.5015, -52, 1.0416];
+  return p;
+};
 test('default column heights reproduce the Python reference finger poses', () => {
   // The heights and sideways tilts were taken from the old paraboloid surface, so
   // the finger keys sit where the Python generator put them.
@@ -62,7 +72,8 @@ test('thumb clusters fan on an arc and tilt into a well', () => {
 test('default chassis passes: one piece on one footprint, clear of the tile pockets, flat seats, clear keycaps, hardware and wires, and reachable pads', async () => {
   const wasm = await Module();
   wasm.setup();
-  const r = buildSolid(wasm, clone(defaults));
+  const p = joined(),
+    r = buildSolid(wasm, p);
   console.log(
     'WASM build',
     r.report.milliseconds.toFixed(0) + ' ms',
@@ -85,7 +96,7 @@ test('default chassis passes: one piece on one footprint, clear of the tile pock
     new wasm.Mesh({ numProp: 3, vertProperties: r.mesh.positions, triVerts: r.mesh.indices }),
   );
   try {
-    for (const [name, m] of Object.entries(componentFrames(defaults.config)))
+    for (const [name, m] of Object.entries(componentFrames(p.config)))
       if (name.startsWith('matrix_') || name.startsWith('thumb_')) {
         const inverse = m.clone().invert();
         // Ray through four lip locations measures both faces of the seat.
@@ -109,8 +120,8 @@ test('default chassis passes: one piece on one footprint, clear of the tile pock
     // The seats only change the plate inside their footprint: its side edges
     // match the chassis before seating. (Trimming before filling once cut a
     // wedge from the index home plate's edge.)
-    const chassis = buildChassis(wasm, defaults.config, componentFrames(defaults.config)).body;
-    for (const [name, m] of Object.entries(componentFrames(defaults.config)))
+    const chassis = buildChassis(wasm, p.config, componentFrames(p.config)).body;
+    for (const [name, m] of Object.entries(componentFrames(p.config)))
       if (name.startsWith('matrix_'))
         for (const side of [-1, 1])
           for (const y of [-6, 0, 6]) {
@@ -134,7 +145,7 @@ test('the checker reports keycap collisions', async () => {
   const wasm = await Module();
   wasm.setup();
   // Keycaps that press 2 mm into the plate must fail, with matching highlight geometry.
-  const low = clone(defaults);
+  const low = joined();
   low.config.switch.keycap_bottom_above_plate_mm = low.config.switch.travel_mm - 2;
   const r = buildSolid(wasm, low),
     home = r.report.keycaps.find((k) => k.name === 'thumb_home')!;
@@ -160,7 +171,7 @@ test('the checker reports chassis built where a keycap goes', async () => {
   wasm.setup();
   // The thumb cluster moved 10 mm toward the fingers: the 1.5u key's room cuts
   // into the fingers' front swept end.
-  const close = clone(defaults);
+  const close = joined();
   close.config.geometry.thumb.position_mm[1] += 10;
   const r = buildSolid(wasm, close);
   const home = r.report.roomCuts.find((c) => c.name === 'thumb_home');
