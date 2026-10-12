@@ -611,7 +611,8 @@ export function buildChassis(
   // All at once: one boolean against the whole case, not two per key.
   const whole = uncarved.subtract(M.union(cutters));
   // The bottom section: the case's shell below the parting groove's bottom,
-  // with the adapter's mount, less the ribbon's slot. Everything else, the
+  // with the adapter's mount, less the ribbon's slot (and the port notch, cut
+  // after the split so the case above is left whole). Everything else, the
   // plates, floors, skirts and glue pads below the parting line too, is the
   // case's.
   const bb = whole.boundingBox();
@@ -623,11 +624,14 @@ export function buildChassis(
     // (PROTOTYPE ?box=tape-deck: less what stays with the case.)
     below = built.splitKeep ? cube.subtract(built.splitKeep) : cube;
   const tray = whole.intersect(below).subtract(plates.add(pads));
-  const base = tray.add(adapterMount(wasm, cfg, frames)).subtract(built.slot);
+  const base = tray
+    .add(adapterMount(wasm, cfg, frames))
+    .subtract(built.notch ? built.slot.add(built.notch) : built.slot);
+  const body = whole.subtract(tray);
   return {
-    body: whole.subtract(tray),
+    body,
     base,
-    trim: built.trim,
+    trim: built.trim.subtract(body).subtract(base),
     panel: built.panel,
     split: built.split,
     roomCuts,

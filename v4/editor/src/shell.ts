@@ -1462,6 +1462,9 @@ export interface Shell {
   trim: Manifold;
   // The ribbon's slot through the port panel.
   slot: Manifold;
+  // PROTOTYPE ?box=: the port notch, with its chamfer, to cut from the bottom
+  // section once it's split off (the case above meets the notch square).
+  notch?: Manifold;
   // The port panel's end face, in world x.
   panel: number;
   // Each well's outline in plan.
@@ -1505,7 +1508,8 @@ function c64(k: Kit, bins: Bin[]): Shell {
   // face of the bin with the ports, with a dark insert at its back, straddling
   // the parting line, with the ribbon's slot through it. (PROTOTYPE ?box=: as
   // the ports on the C64's back, a notch in the bottom section only, up to the
-  // parting line, square there.) It stays 6 mm in from the case's ends.
+  // parting line, square there, cut from the bottom section only.) It stays
+  // 6 mm in from the case's ends.
   const i = Math.max(
       0,
       bins.findIndex((o) => o.ports),
@@ -1618,18 +1622,17 @@ function c64(k: Kit, bins: Bin[]): Shell {
     ry - w / 2 - NECK,
     rz - 1.5 - NECK,
   ]);
-  const cased = body
-    .subtract(face(x0 - 1, x0 + D))
-    .subtract(chamfer)
-    .subtract(neckCut);
+  const cut = face(x0 - 1, x0 + D).add(chamfer),
+    cased = (notch ? body : body.subtract(cut)).subtract(neckCut);
   return {
     body: cased,
-    // Less the case, where the wall's fillet meets the floor under the landing.
+    // (The chassis takes the case and the bottom section from it, where the
+    // wall's fillet meets the floor under the landing.)
     trim: M.union([face(x0 + D - 0.4, x0 + D), neck, landing])
       .subtract(slot)
-      .subtract(ties)
-      .subtract(cased),
+      .subtract(ties),
     slot,
+    notch: notch ? cut : undefined,
     panel: x0,
     wells: parts.flatMap((p) => p.outlines),
     split: PART - 0.6,
