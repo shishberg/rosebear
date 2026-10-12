@@ -27,6 +27,8 @@ const STORAGE = 'rosebear-chassis-editor:v2';
 // The view, view toggles and opacity: browser conveniences, kept apart from the project.
 const VIEW_STORAGE = 'rosebear-chassis-editor:view';
 const TOGGLES = ['edit', 'caps', 'ghost', 'parts', 'wires', 'adapter', 'base', 'bounds', 'edges'];
+// Stored with the toggles, but drives failureVisibility rather than visibility.
+const STORED_CHECKS = [...TOGGLES, 'show-failures'];
 $('app').innerHTML =
   `<header><div><h1>Rosebear / chassis editor</h1><p>Right hand · C64 chassis</p></div><span id="save-state">Local project</span></header><main><aside>
 <section><h2>Key layout</h2><label><input id="edit" type="checkbox" checked> Show handles</label><small>Drag a handle parallel to the view: the Top view moves things in plan, the Front and Inner views change heights. Gold: a finger key. Up and down sets that key's height; along the column moves the column's stagger. Move a column sideways with its X offset field. Green, on a thumb keycap: moves that key alone. Once it is selected, drag the violet tip of its stalk to tilt the key about its keycap's centre (it swings to point there) and the pink arm to spin it about its own axis. Cyan: a thumb cluster's centre. Pink: turns a thumb cluster. Drag empty space to orbit; right-drag to pan; wheel to zoom.</small><div id="selection" aria-live="polite"><small>Click a handle to edit its numbers.</small></div><small>Values are in layout coordinates, before the whole hand is tented: +X toward the pinky, +Y away from you, +Z up.</small><button id="undo">Undo</button><button id="redo">Redo</button><button id="reset">Reset model</button></section>
@@ -188,8 +190,12 @@ function focusFailure(name?: string) {
   focusedFailure = name;
   $<HTMLInputElement>('show-failures').checked = true;
   failureVisibility();
+  saveView();
 }
-$('show-failures').onchange = failureVisibility;
+$('show-failures').onchange = () => {
+  failureVisibility();
+  saveView();
+};
 $('all-failures').onclick = () => focusFailure();
 
 // Handles. Each has a world position and a drag rule that edits the project.
@@ -1091,7 +1097,9 @@ function saveView() {
           up: camera.up.toArray(),
           zoom: camera.zoom,
         },
-        toggles: Object.fromEntries(TOGGLES.map((id) => [id, $<HTMLInputElement>(id).checked])),
+        toggles: Object.fromEntries(
+          STORED_CHECKS.map((id) => [id, $<HTMLInputElement>(id).checked]),
+        ),
         opacity: Number($<HTMLInputElement>('opacity').value),
       }),
     );
@@ -1127,7 +1135,7 @@ function restoreView() {
     controls.update();
   }
   if (v.toggles && typeof v.toggles === 'object')
-    for (const id of TOGGLES)
+    for (const id of STORED_CHECKS)
       if (typeof v.toggles[id] === 'boolean') $<HTMLInputElement>(id).checked = v.toggles[id];
   visibility();
   const o = v.opacity;
