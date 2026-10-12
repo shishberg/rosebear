@@ -51,18 +51,18 @@
       "keys": [
         {
           "name": "far",
-          "offset_mm": [-15.438, -10.851, -13.343],
-          "rotation_deg": [41.846, -11.653, -45.786]
+          "offset_mm": [-1.61, -36.43, -9.5229],
+          "rotation_deg": [15.386, -5.177, -31.828]
         },
         {
           "name": "home",
-          "offset_mm": [-0.943, 1.553, 0.672],
-          "rotation_deg": [34.793, -5.092, -59.339]
+          "offset_mm": [8.847, -15.7148, 3.7552],
+          "rotation_deg": [45.267, -6.167, -33.455]
         },
         {
           "name": "near",
-          "offset_mm": [16.38, 9.296, 12.67],
-          "rotation_deg": [30.242, 2.52, -72.918]
+          "offset_mm": [14.6273, -4.0495, 23.6823],
+          "rotation_deg": [66.724, -5.432, -33.018]
         }
       ],
       "arc": {
@@ -77,11 +77,11 @@
       "keys": [
         {
           "name": "x1",
-          "offset_mm": [-11.5, -0.5, 1.5]
+          "offset_mm": [-11.5, -10.5, 1.5]
         },
         {
           "name": "x2",
-          "offset_mm": [11.5, 0.5, -1.5]
+          "offset_mm": [11.3639, -9.536, -1.476]
         }
       ],
       "arc": {
@@ -358,6 +358,7 @@
     ]
   },
   "chassis": {
+    "box_style": "tape-deck",
     "plate_thickness_mm": 3,
     "plate_margin_mm": 0.9,
     "wall_mm": 2.4,

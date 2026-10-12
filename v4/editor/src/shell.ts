@@ -1650,7 +1650,9 @@ function thumbAngle(k: Kit) {
  * inner end.
  */
 export function shell(k: Kit) {
-  const style = (k.cfg.chassis as { box_style?: string }).box_style;
+  // (joined: the earlier joined C64 shape, below.)
+  const s = (k.cfg.chassis as { box_style?: string }).box_style,
+    style = s === 'joined' ? undefined : s;
   PART = style ? BOX_PART : PART0;
   if (style) return box(k, style);
   const tight = { side: 6, front: 13, corner: 2 },

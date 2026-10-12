@@ -10,12 +10,14 @@ import { crossings, holes, nets, wiring } from '../src/wiring';
 import ref from './python-reference.json';
 const pos = (m: { elements: number[] }) => new Vector3(...m.elements.slice(12, 15));
 const normal = (m: { elements: number[] }) => new Vector3(...m.elements.slice(8, 11));
-// The joined C64 chassis (no box_style) with the thumbs where it was laid out
+// The joined C64 chassis (box_style joined) with the thumbs where it was laid out
 // for, before the tape-deck's thumbs moved in the defaults, and the keycap
-// sizes it was laid out for, before they were measured.
+// sizes it was laid out for, before they were measured: the checker's
+// passing case.
 const joined = () => {
   const p = clone(defaults),
     g = p.config.geometry,
+    c = p.config.chassis as { box_style?: string },
     s = p.config.switch as Omit<typeof p.config.switch, 'keycap_top_mm'> & {
       keycap_top_mm?: number[];
     };
@@ -29,6 +31,11 @@ const joined = () => {
   });
   g.thumb.arc = { radius_mm: 130, step_deg: 11, well_deg: 12 };
   g.thumb_extra!.position_mm = [13.5015, -52, 1.0416];
+  g.thumb_extra!.keys = [
+    { name: 'x1', offset_mm: [-11.5, -0.5, 1.5] },
+    { name: 'x2', offset_mm: [11.5, 0.5, -1.5] },
+  ];
+  c.box_style = 'joined';
   return p;
 };
 test('default column heights reproduce the Python reference finger poses', () => {
@@ -82,7 +89,22 @@ test('thumb clusters fan on an arc and tilt into a well', () => {
   delete (none.config.geometry as { thumb_extra?: unknown }).thumb_extra;
   assert(!componentFrames(none.config).thumb_x1);
 });
-test('default chassis passes: one piece on one footprint, clear of the tile pockets, flat seats, clear keycaps, hardware and wires, and reachable pads', async () => {
+test('the default tape-deck chassis: one piece on one footprint, flat seats, and clear keycaps and hardware', async () => {
+  // (Its near thumb's wires and pads are still open: the key is being placed.)
+  const wasm = await Module();
+  wasm.setup();
+  const r = buildSolid(wasm, clone(defaults));
+  assert.equal(r.report.seats.length, 20);
+  assert(r.report.seats.every((s) => s.passed));
+  assert.equal(r.report.pieces.length, 1);
+  assert.equal(r.report.footprint.length, 1);
+  assert.deepEqual(r.report.roomCuts, []);
+  assert.deepEqual(r.report.hardware, []);
+  assert(r.report.keycaps.every((k) => k.passed));
+  assert(r.report.capGaps.every((g) => g.gap > 0));
+  assert(r.report.openings.every((o) => o.removed > 0 && o.covered === 9 && o.blocked === 0));
+});
+test('the joined C64 passes: one piece on one footprint, clear of the tile pockets, flat seats, clear keycaps, hardware and wires, and reachable pads', async () => {
   const wasm = await Module();
   wasm.setup();
   const p = joined(),

@@ -154,6 +154,33 @@ export function buildChassis(
   const seat = seatSettings(cfg).outer;
   const seatHalf: HalfWidths = [seat[0] / 2, seat[1] / 2];
   const plateHalf = plateHalfWidths(cfg);
+  // Room above each plate: the switch housing's rim up to the keycap's lowest
+  // point, and the keycap with its clearance above that.
+  const capLowest = Math.max(0, sw.keycap_bottom_above_plate_mm - sw.travel_mm);
+  const keycapRoom = (n: string) => {
+    const cap = capSize(cfg, n);
+    const clearance =
+      (sw.keycap_clearance_overrides_mm as Record<string, number>)[n] ?? sw.keycap_clearance_mm;
+    const room = place(
+      M.cube(
+        [
+          cap[0] + 2 * clearance + SIZES.keycapRoomExtra,
+          cap[1] + 2 * clearance + SIZES.keycapRoomExtra,
+          SIZES.keycapRoomHeight,
+        ],
+        true,
+      ).translate([0, 0, capLowest + SIZES.keycapRoomHeight / 2]),
+      frames[n],
+    );
+    return capLowest > 0.1
+      ? room.add(
+          place(
+            M.cube([seat[0], seat[1], capLowest], true).translate([0, 0, capLowest / 2]),
+            frames[n],
+          ),
+        )
+      : room;
+  };
   const pockets = M.union(
     keyNames.flatMap((n) => [
       place(
@@ -382,7 +409,8 @@ export function buildChassis(
     if (!extra.length) return w;
     const s = sheet(extra, thumbWell);
     // The sheet's run-out to the well's wall stops short of the main thumbs'
-    // rooms, which share the well, but each extra key keeps its own plate.
+    // rooms under their plates and their keycaps' rooms above, which share the
+    // well, but each extra key keeps its own plate.
     const own = M.union(
       extra.map((n) =>
         M.hull(
@@ -394,7 +422,8 @@ export function buildChassis(
         ),
       ),
     );
-    const floor = s.rest.subtract(w.rooms.subtract(own));
+    const main = M.union(clusterNames('thumb').map(keycapRoom)).add(w.rooms);
+    const floor = s.rest.subtract(main.subtract(own));
     return {
       cores: w.cores.add(floor),
       rest: w.rest.add(floor),
@@ -494,40 +523,16 @@ export function buildChassis(
     ),
   );
   const uncarved = solid.subtract(pockets).add(pads);
-  // Room above each plate: the switch hole, the switch housing's rim up to the
-  // keycap's lowest point, and the keycap with its clearance above that. What the
-  // rim's and keycap's room remove is kept for the checks: it is chassis that was
-  // built where a keycap goes.
-  const capLowest = Math.max(0, sw.keycap_bottom_above_plate_mm - sw.travel_mm);
+  // Each plate's switch hole and keycap room. What the keycap room removes is
+  // kept for the checks: it is chassis that was built where a keycap goes.
   const roomCuts: { name: string; cut: Manifold }[] = [];
   const cutters: Manifold[] = [];
   for (const n of keyNames) {
-    const cap = capSize(cfg, n);
-    const clearance =
-      (sw.keycap_clearance_overrides_mm as Record<string, number>)[n] ?? sw.keycap_clearance_mm;
-    const room = place(
-      M.cube(
-        [
-          cap[0] + 2 * clearance + SIZES.keycapRoomExtra,
-          cap[1] + 2 * clearance + SIZES.keycapRoomExtra,
-          SIZES.keycapRoomHeight,
-        ],
-        true,
-      ).translate([0, 0, capLowest + SIZES.keycapRoomHeight / 2]),
-      frames[n],
-    );
-    const rim =
-      capLowest > 0.1
-        ? place(
-            M.cube([seat[0], seat[1], capLowest], true).translate([0, 0, capLowest / 2]),
-            frames[n],
-          )
-        : undefined;
-    const keycapRoom = rim ? room.add(rim) : room;
-    roomCuts.push({ name: n, cut: uncarved.intersect(keycapRoom) });
+    const room = keycapRoom(n);
+    roomCuts.push({ name: n, cut: uncarved.intersect(room) });
     cutters.push(
       place(M.cube([...sw.cutout_mm, SIZES.switchHoleHeight] as Vec3, true), frames[n]),
-      keycapRoom,
+      room,
     );
   }
   // All at once: one boolean against the whole case, not two per key.

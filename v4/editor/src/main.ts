@@ -966,7 +966,7 @@ function requestBuild() {
   // left-grill-narrow, or ?box=joined for the earlier joined C64 shape.
   const boxStyle = q.get('box') ?? 'tape-deck',
     boxed = boxStyle !== 'joined';
-  if (boxed) (sent.config.chassis as { box_style?: string }).box_style = boxStyle;
+  (sent.config.chassis as { box_style?: string }).box_style = boxStyle;
   material.color.setHex(boxed ? 0xd8ccae : 0xb1cfca);
   (basePlate.material as T.MeshStandardMaterial).color.setHex(boxed ? 0xb8ab8c : 0x7f9a96);
   colors.keycaps = boxed ? 0x4b3a2e : 0xd7d8bd;
