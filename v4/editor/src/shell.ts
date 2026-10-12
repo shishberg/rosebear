@@ -38,7 +38,7 @@ const corners = (k: Kit, n: string, grow = 0) =>
     [-1, 1],
   ].map(([x, y]) => at(k, n, x, y, 0, grow));
 const place = (m: Manifold, f: Matrix4) => m.transform(f.elements as never);
-// A keycap's travel envelope, as the editor's clearance check builds it: the cap
+// A keycap's travel envelope, straight-sided (around a tapered cap): the cap
 // plus its margin, from rest down by the travel.
 const capSweep = (k: Kit, n: string) => {
   const z = capSize(k.cfg, n),

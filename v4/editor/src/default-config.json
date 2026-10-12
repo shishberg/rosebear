@@ -1,5 +1,5 @@
 {
-  "schema": 4,
+  "schema": 5,
   "units": "mm and degrees",
   "description": "Individual RGB 1U tiles; dimensions marked provisional must be measured before a full print.",
   "geometry": {
@@ -95,11 +95,12 @@
     "clip_relief_depth_mm": 1.2,
     "body_mm": [14, 14, 5],
     "body_below_plate_mm": 5,
-    "keycap_mm": [18, 18, 9],
+    "keycap_mm": [18.5, 18.5, 11],
+    "keycap_top_mm": [14, 14],
     "keycap_bottom_above_plate_mm": 6,
-    "travel_mm": 4,
+    "travel_mm": 3.5,
     "keycap_overrides_mm": {
-      "thumb_home": [27.525, 18, 9]
+      "thumb_home": [28, 18.5, 11]
     },
     "keycap_clearance_mm": 0.3,
     "keycap_clearance_overrides_mm": {

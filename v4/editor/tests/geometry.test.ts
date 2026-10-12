@@ -9,6 +9,18 @@ import { crossings, holes, nets, wiring } from '../src/wiring';
 import ref from './python-reference.json';
 const pos = (m: { elements: number[] }) => new Vector3(...m.elements.slice(12, 15));
 const normal = (m: { elements: number[] }) => new Vector3(...m.elements.slice(8, 11));
+// The defaults with the keycap sizes the chassis was laid out for, before they
+// were measured.
+const oldCaps = () => {
+  const p = clone(defaults),
+    s = p.config.switch as Omit<typeof p.config.switch, 'keycap_top_mm'> & {
+      keycap_top_mm?: number[];
+    };
+  Object.assign(s, { keycap_mm: [18, 18, 9], travel_mm: 4 });
+  delete s.keycap_top_mm;
+  s.keycap_overrides_mm.thumb_home = [27.525, 18, 9];
+  return p;
+};
 test('default column heights reproduce the Python reference finger poses', () => {
   // The heights and sideways tilts were taken from the old paraboloid surface, so
   // the finger keys sit where the Python generator put them.
@@ -62,7 +74,8 @@ test('thumb clusters fan on an arc and tilt into a well', () => {
 test('default chassis passes: one piece on one footprint, clear of the tile pockets, flat seats, clear keycaps, hardware and wires, and reachable pads', async () => {
   const wasm = await Module();
   wasm.setup();
-  const r = buildSolid(wasm, clone(defaults));
+  const p = oldCaps(),
+    r = buildSolid(wasm, p);
   console.log(
     'WASM build',
     r.report.milliseconds.toFixed(0) + ' ms',
@@ -109,8 +122,8 @@ test('default chassis passes: one piece on one footprint, clear of the tile pock
     // The seats only change the plate inside their footprint: its side edges
     // match the chassis before seating. (Trimming before filling once cut a
     // wedge from the index home plate's edge.)
-    const chassis = buildChassis(wasm, defaults.config, componentFrames(defaults.config)).body;
-    for (const [name, m] of Object.entries(componentFrames(defaults.config)))
+    const chassis = buildChassis(wasm, p.config, componentFrames(p.config)).body;
+    for (const [name, m] of Object.entries(componentFrames(p.config)))
       if (name.startsWith('matrix_'))
         for (const side of [-1, 1])
           for (const y of [-6, 0, 6]) {
@@ -134,7 +147,7 @@ test('the checker reports keycap collisions', async () => {
   const wasm = await Module();
   wasm.setup();
   // Keycaps that press 2 mm into the plate must fail, with matching highlight geometry.
-  const low = clone(defaults);
+  const low = oldCaps();
   low.config.switch.keycap_bottom_above_plate_mm = low.config.switch.travel_mm - 2;
   const r = buildSolid(wasm, low),
     home = r.report.keycaps.find((k) => k.name === 'thumb_home')!;
