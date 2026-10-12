@@ -1173,12 +1173,15 @@ function breadbin(k0: Kit, o: Bin): BinParts {
   const grooves: CrossSection[] = [],
     gTop = yC - 60 * PX - 0.4,
     // (Narrow: from past the thumbs' well, out through the far end; tape:
-    // out through both.)
-    gx0 = o.flat && !o.tape ? groupWells[1].bounds().max[0] + 4 : x0 - 2;
+    // out through both. The badge is placed from gx0.)
+    gx0 = o.flat && !o.tape ? groupWells[1].bounds().max[0] + 4 : x0 - 2,
+    // (Tape: the grooves themselves start at the fingers' front edge, x0, so
+    // they stop there rather than running on over the thumbs' block below it.)
+    gs = o.tape ? x0 : gx0;
   let gBottom = gTop;
   if (grilled)
     for (let y = gTop; y - 1.2 > flatStart && grooves.length < GROOVES; y -= 2.4) {
-      grooves.push(CS.square([x1 + 2 - gx0, 1.2]).translate([gx0, y - 1.2]));
+      grooves.push(CS.square([x1 + 2 - gs, 1.2]).translate([gs, y - 1.2]));
       gBottom = y - 1.2;
     }
   // Badge, as on the C64's top: a pill-shaped recess 1 mm deep, 0.6 mm taller
