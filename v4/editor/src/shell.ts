@@ -1162,7 +1162,8 @@ function breadbin(k0: Kit, o: Bin): BinParts {
       H = b0 - b1,
       L = o.flat ? 36 : 25,
       r = H / 2,
-      bx = o.flat ? (gx0 + x1) / 2 : x0 + (x1 - x0) * o.badge,
+      // (Levelled off: its front end where a 25 mm one centred would be, longer to the back.)
+      bx = o.flat ? (gx0 + x1) / 2 - 12.5 + L / 2 : x0 + (x1 - x0) * o.badge,
       by = (b0 + b1) / 2,
       [W, GAP] = [0.8, 0.6],
       pitch = W + GAP,
