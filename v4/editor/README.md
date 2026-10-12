@@ -47,7 +47,9 @@ The default heights and tilts reproduce the previous paraboloid surface, so the
 finger keys sit where the Python generator put them.
 
 **Thumb clusters** (`geometry.thumb`, and the optional `geometry.thumb_extra`, the
-pair tucked in front of it). The keys fan along an arc:
+pair tucked in front of it). The keys fan along an arc. The thumb row runs
+`near` (next to the finger keys), `home`, then `far` (furthest from them, at
+the front):
 
 | Parameter                       | Meaning                                                                                                                                       |
 | ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |

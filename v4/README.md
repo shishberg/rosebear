@@ -15,7 +15,6 @@ Run `make v4-editor` and open **http://127.0.0.1:5177**. The editor builds the C
 KiCad/PCB generation stays offline. The Python chassis generator is retained as a numerical reference; editing no longer requires export/rebuild handoffs.
 
 `output_v4/chassis/` retains the previous patched-shell outputs as frozen references.
-The [old parameter guide](docs/parametric-chassis.md) describes that earlier implementation.
 
 ## Paused: seeded flex and flat-thumb boards
 

@@ -476,8 +476,6 @@ def build(cfg, out):
     with tempfile.TemporaryDirectory(prefix='.chassis-', dir=str(out.parent)) as temp:
         staging = Path(temp)
         _build(cfg, staging)
-        doc = Path(__file__).resolve().parents[1]/'docs/parametric-chassis.md'
-        if doc.exists(): (staging/'README.md').write_text(doc.read_text())
         with zipfile.ZipFile(staging/'rosebear-chassis-prototype.zip', 'w', zipfile.ZIP_DEFLATED) as archive:
             for path in sorted(staging.iterdir()):
                 if path.suffix != '.zip': archive.write(path, path.name)

@@ -150,7 +150,9 @@ export function componentFrames(cfg: Config) {
  * panel, and the trackpad is gone. Schema 4 moves the ribbon's landing onto
  * the port panel's insert. Schema 5 has the measured keycaps (18.5 mm square at
  * the base, 14 mm at the top, 11 mm high), where a project still has the
- * earlier guesses. Schema 6 sets travel to MX's 4 mm.
+ * earlier guesses. Schema 6 sets travel to MX's 4 mm. Schema 7 drops the
+ * tile's support and retaining-tie sizes, left from an earlier design (the
+ * tiles are glued).
  */
 export function migrate(c: Record<string, any>) {
   const d = defaultConfig as Record<string, any>;
@@ -186,6 +188,17 @@ export function migrate(c: Record<string, any>) {
     // Schema 6: travel is MX's 4 mm again; schema 5 had set it to 3.5.
     if (c.switch?.travel_mm === 3.5) c.switch.travel_mm = d.switch.travel_mm;
     c.schema = 6;
+  }
+  if (!(c.schema >= 7)) {
+    for (const k of [
+      'support_width_mm',
+      'support_corner_length_mm',
+      'retaining_tie_width_mm',
+      'retaining_tie_thickness_mm',
+      'retaining_tie_y_mm',
+    ])
+      delete c.tile?.[k];
+    c.schema = 7;
   }
   const fill = (to: Record<string, any>, from: Record<string, any>) => {
     for (const [k, v] of Object.entries(from))
