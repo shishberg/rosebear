@@ -89,7 +89,7 @@ test('thumb clusters fan on an arc and tilt into a well', () => {
   delete (none.config.geometry as { thumb_extra?: unknown }).thumb_extra;
   assert(!componentFrames(none.config).thumb_x1);
 });
-test('the default tape-deck chassis: one piece on one footprint, flat seats, and clear keycaps and hardware', async () => {
+test('the default tape-deck chassis: one piece on one footprint, flat seats, and clear keycaps and hardware; with walls raised round the slot, every key is held', async () => {
   // (Its near thumb's wires and pads are still open: the key is being placed.)
   const wasm = await Module();
   wasm.setup();
@@ -103,8 +103,22 @@ test('the default tape-deck chassis: one piece on one footprint, flat seats, and
   assert(r.report.keycaps.every((k) => k.passed));
   assert(r.report.capGaps.every((g) => g.gap > 0));
   assert(r.report.openings.every((o) => o.removed > 0 && o.covered === 9 && o.blocked === 0));
+  // Without anything holding them, the main thumbs hang off one small contact.
+  assert.deepEqual(
+    r.report.support.map((s) => s.name),
+    ['thumb_far', 'thumb_home', 'thumb_near'],
+  );
+  const walled = clone(defaults);
+  (walled.config.chassis as { thumb_support?: string }).thumb_support = 'walls';
+  const w = buildSolid(wasm, walled).report;
+  assert.deepEqual(w.support, []);
+  assert.equal(w.pieces.length, 1);
+  assert.equal(w.footprint.length, 1);
+  assert.deepEqual(w.roomCuts, []);
+  assert.deepEqual(w.hardware, []);
+  assert(w.seats.every((s) => s.passed) && w.keycaps.every((k) => k.passed));
 });
-test('the joined C64 passes: one piece on one footprint, clear of the tile pockets, flat seats, clear keycaps, hardware and wires, and reachable pads', async () => {
+test('the joined C64 passes all but support: one piece on one footprint, clear of the tile pockets, flat seats, clear keycaps, hardware and wires, and reachable pads; its main thumbs hang off one small contact', async () => {
   const wasm = await Module();
   wasm.setup();
   const p = joined(),
@@ -123,10 +137,13 @@ test('the joined C64 passes: one piece on one footprint, clear of the tile pocke
   assert.deepEqual(r.report.hardware, []);
   assert.deepEqual(r.report.wires, []);
   assert.deepEqual(r.report.solder, []);
+  assert.deepEqual(
+    r.report.support.map((s) => s.name),
+    ['thumb_far', 'thumb_home', 'thumb_near'],
+  );
   assert(r.report.keycaps.every((k) => k.passed));
   assert(r.report.capGaps.every((g) => g.gap > 0));
   assert(r.report.openings.every((o) => o.removed > 0 && o.covered === 9 && o.blocked === 0));
-  assert(r.report.passed);
   const mounted = new wasm.Manifold(
     new wasm.Mesh({ numProp: 3, vertProperties: r.mesh.positions, triVerts: r.mesh.indices }),
   );

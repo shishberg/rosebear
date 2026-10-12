@@ -21,6 +21,8 @@ for (const k of report.keycaps)
 if (report.pieces.length > 1)
   console.log(`${report.pieces.length} pieces without the bottom plate`);
 if (report.footprint.length > 1) console.log(`${report.footprint.length} separate footprints`);
+for (const s of report.support)
+  console.log(`${s.name}: held to the case by ${s.area.toFixed(1)} mm² of section`);
 for (const c of report.roomCuts)
   console.log(`${c.name}: keycap room cut ${c.volume.toFixed(2)} mm³ out of the chassis`);
 for (const o of report.openings)

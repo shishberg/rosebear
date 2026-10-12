@@ -186,6 +186,14 @@ port panel recess straddling the parting line 10 mm up). `?recess=mm` sets
 the deck's height above the plates. These are prototypes; their code is marked
 `PROTOTYPE` in `shell.ts`.
 
+**Main thumbs held by (prototype)**, or `?held=`, holds the main thumbs to the
+wall round their well (the tape-deck's slot); without it they hang off one
+small contact. From each plate edge with no neighbour a run-out is carried
+level to that wall. `walls`: the whole edge, with the wall raised round the
+well up under a roof over the run-outs. `ribs`: a 4 mm rib at each end of the
+edge, with a post raised under each. Both stay clear of the keycap rooms, the
+tiles' and irons' ways and the wires (`chassis.thumb_support`).
+
 ## Wiring
 
 `wiring.ts` models the hand wiring from these provisional assumptions:
@@ -274,6 +282,10 @@ checks the result:
 - Without the bottom section the case must be one piece; loose pieces over
   0.5 mm³ are listed and highlighted. It must also hold together along the
   parting line: a section 1.5 mm above it must be one connected area. Separate footprints are listed and highlighted.
+- Every key's seat must be held to the case: the narrowest cross-section of
+  solid between the seat and the case's outside wall at the parting line (a
+  minimum cut on a 0.75 mm voxel grid, `support.ts`) must be at least 60 mm².
+  Keys held by less are listed with their section, and the cut is highlighted.
 - No chassis may be built where a keycap goes. Each keycap's room (the keycap
   and its clearance from its lowest point up, and the switch housing's rim below
   that) is cut out of the chassis, and whatever it removed is listed and

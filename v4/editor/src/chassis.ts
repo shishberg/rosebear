@@ -373,6 +373,14 @@ export function buildChassis(
       offPlate,
     );
     const cores = M.union(ns.map((n) => squareAt(n, [0, -plateThickness])));
+    // Each plate's edges with no neighbour: (key, axis, sign).
+    const free = ns.flatMap((n) =>
+      [0, 1].flatMap((axis) =>
+        [0, 1]
+          .filter((i) => square[n][axis][i] === plateHalf[axis])
+          .map((i) => ({ n, axis, sign: 2 * i - 1 })),
+      ),
+    );
     // Straight down from each plate, grown by `out` all round.
     const column = (out: number, z = -plateThickness) =>
       M.union(
@@ -396,6 +404,7 @@ export function buildChassis(
       below: column(0, 0).add(webs),
       top: column(0, 0),
       skirt: M.union([]),
+      free,
     };
   };
   const clusterNames = (key: 'thumb' | 'thumb_extra') =>
@@ -431,6 +440,7 @@ export function buildChassis(
       below: w.below.add(s.below),
       top: w.top.add(s.top),
       skirt: s.skirt.subtract(w.top),
+      free: w.free,
     };
   };
   const [fingers, thumbs] = [
@@ -486,27 +496,89 @@ export function buildChassis(
     .subtract(keepClear);
   // Only the wires' segments that come near a skirt notch it: a union of every
   // segment would cost more than everything else here.
-  const near = unnotched.decompose().map((p) => p.boundingBox());
-  const wireWays = M.union(
-    wired.wires.flatMap((w) => {
-      const r = w.diameter / 2 + SIZES.skirtWireClear;
-      return w.points.slice(1).flatMap((q, i) => {
-        const p = w.points[i];
-        const reaches = near.some((b) =>
-          [0, 1, 2].every(
-            (k) => Math.min(p[k], q[k]) - r <= b.max[k] && Math.max(p[k], q[k]) + r >= b.min[k],
-          ),
-        );
-        return reaches ? [M.hull([p, q].map((c) => M.sphere(r, 8).translate(c as Vec3)))] : [];
-      });
-    }),
-  );
+  const wireWaysNear = (m: Manifold) => {
+    const near = m.decompose().map((p) => p.boundingBox());
+    return M.union(
+      wired.wires.flatMap((w) => {
+        const r = w.diameter / 2 + SIZES.skirtWireClear;
+        return w.points.slice(1).flatMap((q, i) => {
+          const p = w.points[i];
+          const reaches = near.some((b) =>
+            [0, 1, 2].every(
+              (k) => Math.min(p[k], q[k]) - r <= b.max[k] && Math.max(p[k], q[k]) + r >= b.min[k],
+            ),
+          );
+          return reaches ? [M.hull([p, q].map((c) => M.sphere(r, 8).translate(c as Vec3)))] : [];
+        });
+      }),
+    );
+  };
   const skirts = M.union(
     unnotched
-      .subtract(wireWays)
+      .subtract(wireWaysNear(unnotched))
       .decompose()
       .filter((p) => p.intersect(sheets).volume() > SIZES.skirtPiece),
   );
+  // PROTOTYPE ?held=walls|ribs: the main thumbs held to their well's wall.
+  // From each plate edge with no neighbour a run-out is carried level out to
+  // 0.5 mm into the wall round the well (the tape-deck's slot): the whole edge
+  // as a shelf (walls), or a rib at each end of it (ribs). Where a run-out
+  // meets that wall above the case, the wall is raised to it: all round the
+  // well, up under a roof over every run-out (walls), or a post under each
+  // rib (ribs). Neither reaches into a keycap's room or a
+  // tile's and its iron's way, and both are notched for the wires.
+  const held = (cfg.chassis as { thumb_support?: string }).thumb_support;
+  let braces = M.union([]);
+  if (held === 'walls' || held === 'ribs') {
+    const [RIB, RIB_DEEP, OUT] = [4, 6, 60];
+    const runs = thumbs.free.flatMap(({ n, axis, sign }) => {
+      const e = frames[n].elements,
+        l = Math.hypot(e[axis * 4], e[axis * 4 + 1]),
+        push = [0, 1].map((k) => (sign * e[axis * 4 + k] * OUT) / l),
+        a = sign * plateHalf[axis],
+        h = plateHalf[1 - axis],
+        spans =
+          held === 'walls'
+            ? [[-h, h]]
+            : [
+                [-h, -h + RIB],
+                [h - RIB, h],
+              ],
+        zs = held === 'walls' ? [0, -plateThickness] : [0, -plateThickness - RIB_DEEP];
+      return spans.map((span) => {
+        const ps = span.flatMap((b) =>
+          zs.map((z) => (axis ? keyPoint(n, b, a, z) : keyPoint(n, a, b, z))),
+        );
+        return M.hull([...ps, ...ps.map((p) => [p[0] + push[0], p[1] + push[1], p[2]] as Vec3)]);
+      });
+    });
+    const beneath = (m: Manifold) => {
+      const { vertProperties: v, numProp } = m.getMesh(),
+        ps: Vec3[] = [];
+      for (let i = 0; i < v.length; i += numProp)
+        ps.push([v[i], v[i + 1], v[i + 2]], [v[i], v[i + 1], v[i + 2] - 200]);
+      return M.hull(ps);
+    };
+    const ring = thumbWell
+      .offset(cfg.chassis.wall_mm, 'Miter')
+      .subtract(thumbWell)
+      .extrude(400)
+      .translate([0, 0, built.split]);
+    const raised = (
+      held === 'walls' ? beneath(M.hull(runs)) : M.union(runs.map(beneath))
+    ).intersect(ring);
+    braces = M.union(runs)
+      .intersect(thumbWell.offset(SIZES.wellInto, 'Miter').extrude(400).translate([0, 0, -1]))
+      .add(raised)
+      .subtract(M.union([...keyNames.map(keycapRoom), keepClear]));
+    // (Less any piece the cuts leave standing on its own.)
+    braces = M.union(
+      braces
+        .subtract(wireWaysNear(braces))
+        .decompose()
+        .filter((p) => p.intersect(sheets).volume() > SIZES.skirtPiece),
+    );
+  }
   // Neither well's reaches and joins run on in under the other's sheet.
   const plates = M.union([
     fingers.cores,
@@ -514,6 +586,7 @@ export function buildChassis(
     fingers.rest.subtract(thumbs.below),
     thumbs.rest.subtract(fingers.below),
     skirts,
+    braces,
   ]);
   const solid = case_.add(plates);
   const glue = gluePads(cfg);

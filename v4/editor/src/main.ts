@@ -33,7 +33,7 @@ const STORED_CHECKS = [...TOGGLES, 'show-failures'];
 $('app').innerHTML =
   `<header><div><h1>Rosebear / chassis editor</h1><p>Right hand · C64 chassis</p></div><span id="save-state">Local project</span></header><main><aside>
 <section><h2>Key layout</h2><label><input id="edit" type="checkbox" checked> Show handles</label><small>Drag a handle parallel to the view: the Top view moves things in plan, the Front and Inner views change heights. Gold: a finger key. Up and down sets that key's height; along the column moves the column's stagger. Move a column sideways with its X offset field. Green, on a thumb keycap: moves that key alone. Once it is selected, drag the violet tip of its stalk to tilt the key about its keycap's centre (it swings to point there) and the pink arm to spin it about its own axis. Cyan: a thumb cluster's centre. Pink: turns a thumb cluster. Drag empty space to orbit; right-drag to pan; wheel to zoom.</small><div id="selection" aria-live="polite"><small>Click a handle to edit its numbers.</small></div><small>Values are in layout coordinates, before the whole hand is tented: +X toward the pinky, +Y away from you, +Z up.</small><button id="undo">Undo</button><button id="redo">Redo</button><button id="reset">Reset model</button></section>
-<section><h2>View</h2><label>Case shape (prototype)<select id="box"><option value="">Box turned, fingers; tape-deck thumbs</option><option value="turned-narrow">Box turned, narrow, grill beside the index</option><option value="left-grill-narrow">Box, bullnose front, narrow, grill beside the index</option><option value="joined">Joined C64 (the earlier shape)</option></select></label><label><input id="caps" type="checkbox"> Keycaps (actual configured sizes)</label><label><input id="ghost" type="checkbox"> Old Dactyl's keys, ghosted (<span id="ghost-fit"></span>)</label><label><input id="parts" type="checkbox" checked> Tiles and components</label><label><input id="wires" type="checkbox" checked> Wiring and pads</label><label><input id="adapter" type="checkbox" checked> Adapter and ribbons</label><label><input id="base" type="checkbox" checked> Bottom section</label><label><input id="bounds" type="checkbox"> Show bounding box</label><label><input id="edges" type="checkbox"> Show wireframe</label><small id="size">Size: waiting for the chassis</small><label>Chassis opacity<input id="opacity" type="range" min="0.1" max="1" step="0.05" value="1"></label><button id="rebuild">Rebuild & check</button><small>Handles and parts update while dragging. The previous chassis and wiring stay visible until rebuilding finishes.</small></section>
+<section><h2>View</h2><label>Case shape (prototype)<select id="box"><option value="">Box turned, fingers; tape-deck thumbs</option><option value="turned-narrow">Box turned, narrow, grill beside the index</option><option value="left-grill-narrow">Box, bullnose front, narrow, grill beside the index</option><option value="joined">Joined C64 (the earlier shape)</option></select></label><label>Main thumbs held by (prototype)<select id="held"><option value="">Nothing (as before)</option><option value="walls">Walls raised round the slot</option><option value="ribs">Ribs to the slot's wall</option></select></label><label><input id="caps" type="checkbox"> Keycaps (actual configured sizes)</label><label><input id="ghost" type="checkbox"> Old Dactyl's keys, ghosted (<span id="ghost-fit"></span>)</label><label><input id="parts" type="checkbox" checked> Tiles and components</label><label><input id="wires" type="checkbox" checked> Wiring and pads</label><label><input id="adapter" type="checkbox" checked> Adapter and ribbons</label><label><input id="base" type="checkbox" checked> Bottom section</label><label><input id="bounds" type="checkbox"> Show bounding box</label><label><input id="edges" type="checkbox"> Show wireframe</label><small id="size">Size: waiting for the chassis</small><label>Chassis opacity<input id="opacity" type="range" min="0.1" max="1" step="0.05" value="1"></label><button id="rebuild">Rebuild & check</button><small>Handles and parts update while dragging. The previous chassis and wiring stay visible until rebuilding finishes.</small></section>
 <section><h2>Clearance checks</h2><label>Keycap bottom at full press (mm) <input id="bottom-out" type="number" min="0" max="20" step="0.1"></label><small>Height above the flat switch seating plane.</small><label><input id="show-failures" type="checkbox" checked> Highlight failures in 3D</label><small id="fit-legend"><span class="rest">Red: at-rest / hardware collision</span><br><span class="travel">Orange: travel + clearance collision</span><br><span class="opening">Pink: opening / switch-seat defect / loose piece</span><br><span class="wire">Cyan: wire into the chassis / blocked soldering access</span><br>Highlights show through the chassis. Click a result to isolate it.</small><button id="all-failures">Show all failures</button><div id="fit-focus" aria-live="polite"></div><div id="fit-badge">Starting geometry engine…</div><ul id="fit-list"></ul><small>Passing clearance alone does not qualify the chassis for manufacture.</small><button id="report" disabled>Save report</button></section>
 <section><h2>Wiring</h2><small>Provisional: tile pads from a photo, a generic FFC adapter. Each hand is a 4 × 5 matrix; the thumbs are row RX.</small><div id="wiring-summary"></div><details><summary>Matrix and ribbon pins</summary><table id="matrix-table"></table></details><details><summary>Cut list</summary><table id="cut-list"></table></details></section>
 <section><h2>Project</h2><button class="primary" id="export">Save project</button><button id="import">Open project</button><input id="file" type="file" accept=".json,application/json" hidden><button id="stl" disabled>Export review STL</button><button id="stl-base" disabled>Export bottom section STL</button><small>Autosaved in this browser. Save a project file for backup or another browser.</small><div id="load-error"></div><details><summary>All configuration</summary><small>Every layout, chassis and component dimension. The handles and fields above edit the same values.</small><textarea id="config" aria-label="Configuration"></textarea><button id="apply-config">Apply configuration</button></details></section></aside>
@@ -152,7 +152,10 @@ function updateFailures(items: Highlight[]) {
     const color =
       item.kind === 'travel' || item.kind === 'room'
         ? 0xffa124
-        : item.kind === 'opening' || item.kind === 'seat' || item.kind === 'loose'
+        : item.kind === 'opening' ||
+          item.kind === 'seat' ||
+          item.kind === 'loose' ||
+          item.kind === 'support'
           ? 0xf16bd8
           : item.kind === 'wire' || item.kind === 'solder'
             ? 0x40e0ff
@@ -974,6 +977,9 @@ function requestBuild() {
     if (o.userData.group === 'keycaps')
       ((o as T.Mesh).material as T.MeshStandardMaterial).color.setHex(colors.keycaps);
   });
+  // PROTOTYPE: ?held=walls|ribs, how the main thumbs are held (chassis.ts).
+  if (q.get('held'))
+    (sent.config.chassis as { thumb_support?: string }).thumb_support = q.get('held')!;
   if (q.get('recess'))
     (sent.config.chassis as { deck_lift?: number }).deck_lift = +q.get('recess')!;
   worker.postMessage({ id, project: sent });
@@ -1023,6 +1029,16 @@ function showReport(r: Report) {
   );
   for (let i = 1; i < r.footprint.length; i++)
     add(`separate footprint ${i}: ${r.footprint[i].toFixed(0)} mm²`, `separate footprint ${i}`);
+  add(
+    r.support.length
+      ? `${r.support.length} keys are held to the case by too thin a section.`
+      : 'Every key is held to the case by a solid section.',
+  );
+  for (const s of r.support)
+    add(
+      `${s.name.replaceAll('_', ' ')}: held by ${s.area.toFixed(0)} mm² of section (its narrowest cut drawn)`,
+      `${s.name} support`,
+    );
   add(
     r.roomCuts.length
       ? `${r.roomCuts.length} keycap rooms had to cut into the chassis.`
@@ -1184,6 +1200,18 @@ $('rebuild').onclick = requestBuild;
     const url = new URL(location.href);
     if (box.value) url.searchParams.set('box', box.value);
     else url.searchParams.delete('box');
+    history.replaceState(null, '', url);
+    requestBuild();
+  };
+}
+// PROTOTYPE: how the main thumbs are held, kept in the URL (?held=) like the case shape.
+{
+  const held = $<HTMLSelectElement>('held');
+  held.value = new URLSearchParams(location.search).get('held') ?? '';
+  held.onchange = () => {
+    const url = new URL(location.href);
+    if (held.value) url.searchParams.set('held', held.value);
+    else url.searchParams.delete('held');
     history.replaceState(null, '', url);
     requestBuild();
   };

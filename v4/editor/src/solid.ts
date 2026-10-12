@@ -4,6 +4,7 @@ import { seatSettings } from './seats';
 import { buildChassis, capSize, gluePads, isKey } from './chassis';
 import { shell } from './shell';
 import { adapterParts, crossings, padParts, wiring, type Wiring } from './wiring';
+import { supportCuts } from './support';
 import { capTop, componentFrames, validateProject, type V3, type MeshData, type Project } from './geometry';
 export { capSize, isKey };
 /** Sizes and limits for the seats and the clearance checks, in mm (volumes in mm³, areas in mm²). */
@@ -32,6 +33,13 @@ const CHECKS = {
   minFootprint: 1,
   /** How far in from the case's outside a footprint piece must reach to stand on the parting line. */
   footprintEdge: 3,
+  /**
+   * Each seat must be held by at least this much cross-section (mm²) of solid
+   * between it and the case's outside wall at the parting line, measured on a
+   * grid of this size (mm).
+   */
+  minSupport: 60,
+  supportVoxel: 0.75,
   /** Keycap groups further apart than this are not listed. */
   capGapSearch: 40,
   /** Wire tubes: sides per segment's end sphere. */
@@ -146,6 +154,8 @@ export interface Report {
   capGaps: { between: string; gap: number }[];
   pieces: number[];
   footprint: number[];
+  /** Seats held by less than the minimum cross-section, and how much (mm²). */
+  support: { name: string; area: number }[];
   /** Keys whose keycap room had to remove chassis, and how much (mm³). */
   roomCuts: { name: string; volume: number }[];
   hardware: { name: string; group: string; volume: number }[];
@@ -165,7 +175,17 @@ export interface Report {
 }
 export interface Highlight {
   name: string;
-  kind: 'rest' | 'travel' | 'room' | 'hardware' | 'opening' | 'seat' | 'loose' | 'wire' | 'solder';
+  kind:
+    | 'rest'
+    | 'travel'
+    | 'room'
+    | 'hardware'
+    | 'opening'
+    | 'seat'
+    | 'loose'
+    | 'support'
+    | 'wire'
+    | 'solder';
   mesh: MeshData;
 }
 export interface BuildResult {
@@ -552,6 +572,18 @@ function build(
         mesh: meshData(keep(x.c.extrude(3))),
       }),
     );
+    // Each seat must be held to the case's wall by more than a sliver: one
+    // piece is not enough when a row of keys hangs off a single small contact.
+    const support = supportCuts(
+      cut,
+      edge,
+      chassis.split + CHECKS.footprintHeight,
+      keyNodes.map(([name, pose]) => ({ name, pose, half: outer.map((x) => x / 2), thickness })),
+      CHECKS.minSupport,
+      CHECKS.supportVoxel,
+    ).filter((s) => s.area < CHECKS.minSupport);
+    for (const s of support)
+      if (s.cut) highlights.push({ name: `${s.name} support`, kind: 'support', mesh: s.cut });
     // Chassis built where a keycap goes, which its room had to remove.
     const roomCuts = chassis.roomCuts
       .map((r) => ({ name: r.name, volume: r.cut.volume(), cut: r.cut }))
@@ -782,6 +814,7 @@ function build(
       overlaps.length === 0 &&
       pieces.length === 1 &&
       footprint.length === 1 &&
+      support.length === 0 &&
       roomCuts.length === 0 &&
       capGaps.every((c) => c.gap > 0) &&
       openings.every((o) => o.removed > CHECKS.empty && o.covered === 9 && o.blocked === 0) &&
@@ -802,6 +835,7 @@ function build(
         capGaps,
         pieces: pieces.map((p) => p.volume()),
         footprint: footprint.map((x) => x.a),
+        support: support.map(({ name, area }) => ({ name, area })),
         roomCuts: roomCuts.map(({ name, volume }) => ({ name, volume })),
         hardware: overlaps,
         wires,
