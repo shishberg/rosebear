@@ -1352,10 +1352,11 @@ function c64(k: Kit, bins: Bin[]): Shell {
     rz = a[14] + land.top + r.thickness_mm / 2,
     notch = !!bins[i].surface,
     bb = body.boundingBox(),
-    over = Math.max(0, ry + 36 - (bb.max[1] - 6)),
+    // (A notch: the slot 12 mm in from its +y end.)
+    over = notch ? 24 : Math.max(0, ry + 36 - (bb.max[1] - 6)),
     [y0, y1, z0, z1, R, D] = [
       Math.max(ry - 12 - over, bb.min[1] + 6),
-      ry + 36 - over,
+      Math.min(ry + 36 - over, bb.max[1] - 6),
       notch ? Math.max(2, rz - 1.5 - NECK - 3) : PART - 6,
       notch ? PART + 3 : PART + 7,
       3,
