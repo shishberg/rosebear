@@ -96,15 +96,13 @@ interface Bin {
   // PROTOTYPE ?box=: each key's travel envelope reaches on up this far, so its
   // well clears the keycap's room up to the deck.
   sweepUp?: (n: string) => number;
-  // PROTOTYPE ?box=left-grill: the grill across the low end (see leftGrill).
+  // PROTOTYPE ?box=left-grill-narrow: the grill across the low end (see leftGrill).
   leftGrill?: boolean;
-  // PROTOTYPE ?box=turned: the deck levels off past the first group's
-  // (the fingers') well, into one long flat top, the grill past every well.
+  // PROTOTYPE ?box=turned-narrow: the deck levels off past the first group's
+  // (the fingers') well, into one long flat top, round the second group's (the
+  // thumbs') well, which the case ends just past; the grill only beside the
+  // index column, past the thumbs' well, out through the far end.
   flat?: boolean;
-  // PROTOTYPE ?box=...-narrow: the case ends just past the thumbs' well, the
-  // grill only beside the index column, past the second group's (the thumbs')
-  // well, out through the far end.
-  narrow?: boolean;
 }
 // Height of the parting line between the top case and the bottom section.
 const PART = 10;
@@ -595,8 +593,7 @@ function breadbin(k0: Kit, o: Bin): BinParts {
     zG = Math.max(...xs.map(top));
     yR = yC + (zG - PART) * RAKE;
     backAt = (x) => yC + (top(x) - PART) * RAKE;
-    // (Levelled off, the grill starts past every well.)
-    flatStart = o.flat && !o.narrow ? Math.max(yG, wb.max[1] + 3) + 0.4 : yG + 0.4;
+    flatStart = yG + 0.4;
     // In front of the well the deck angles down towards the front at the
     // C64's own deck angle (7.5 degrees) from the well's front edge, rolling
     // over the photo's bullnose into the vertical front face; a 2 mm rounding
@@ -1140,7 +1137,7 @@ function breadbin(k0: Kit, o: Bin): BinParts {
   const grooves: CrossSection[] = [],
     gTop = yC - 60 * PX - 0.4,
     // (Narrow: from past the thumbs' well, out through the far end.)
-    gx0 = o.narrow ? groupWells[1].bounds().max[0] + 4 : x0 - 2;
+    gx0 = o.flat ? groupWells[1].bounds().max[0] + 4 : x0 - 2;
   let gBottom = gTop;
   if (grilled)
     for (let y = gTop; y - 1.2 > flatStart; y -= 2.4) {
@@ -1149,18 +1146,24 @@ function breadbin(k0: Kit, o: Bin): BinParts {
     }
   // Badge, as on the C64's top: a pill-shaped recess 1 mm deep, 0.6 mm taller
   // than the grooves' band at each side, with the grooves stopping 1.2 mm short
-  // of it. On its floor five raised stripes, 0.8 mm wide with 0.6 mm gaps, run
+  // of it. (Levelled off: as on the C64, across all but one groove beyond it
+  // and two on the deck's side of it, 0.3 mm past them, and those run on.) On its floor five raised stripes, 0.8 mm wide with 0.6 mm gaps, run
   // the pill's straight stretch with square ends, all lined up; their
   // tops stay 0.2 mm under the top around them. Floor and stripe tops are the
   // shell lowered, like the grooves, so no face of the cut lies on the shell's
   // or on another's.
   let pill: CrossSection | undefined, badge: Manifold | undefined;
   if (grilled && grooves.length && o.badge !== undefined) {
-    const H = gTop - gBottom + 1.2,
-      L = 25,
+    const n = grooves.length,
+      [b0, b1] =
+        o.flat && n >= 4
+          ? [gTop - 2.4 + 0.3, gTop - 2.4 * (n - 3) - 1.2 - 0.3]
+          : [gTop + 0.6, gBottom - 0.6],
+      H = b0 - b1,
+      L = o.flat ? 36 : 25,
       r = H / 2,
-      bx = o.narrow ? (gx0 + x1) / 2 : x0 + (x1 - x0) * o.badge,
-      by = (gTop + gBottom) / 2,
+      bx = o.flat ? (gx0 + x1) / 2 : x0 + (x1 - x0) * o.badge,
+      by = (b0 + b1) / 2,
       [W, GAP] = [0.8, 0.6],
       pitch = W + GAP,
       run = L - 2 * r, // each stripe's length: out to the centres of the pill's rounds
@@ -1183,9 +1186,18 @@ function breadbin(k0: Kit, o: Bin): BinParts {
     badge = near(pill, 1).subtract(prism(stripes).intersect(shell.translate([0, 0, -0.2])));
   }
   // (An empty cut would empty the whole result, so a bin without grooves skips it.)
-  const cut = grooves.length
+  const gap = pill?.offset(1.2, 'Round', 2, 32),
+    cut = grooves.length
       ? near(
-          pill ? CS.union(grooves).subtract(pill.offset(1.2, 'Round', 2, 32)) : CS.union(grooves),
+          CS.union(
+            grooves.map((g) =>
+              gap &&
+              g.bounds().max[1] < pill!.bounds().max[1] &&
+              g.bounds().min[1] > pill!.bounds().min[1]
+                ? g.subtract(gap)
+                : g,
+            ),
+          ),
           1.2,
         )
       : undefined,
@@ -1203,8 +1215,8 @@ function breadbin(k0: Kit, o: Bin): BinParts {
         .translate([u0, v0])
         .rotate(deg),
     plan = (() => {
-      // (Narrow: round the grill, which is inside it.)
-      if (o.narrow)
+      // (Levelled off: round the grill, which is inside it.)
+      if (o.flat)
         return rect(rx0, rx1, ry0(rx0), yC - 60 * PX * 0.45 - 1).subtract(
           rect(gx0 - 1.6, 500, gBottom - 1.6, 500),
         );
@@ -1227,11 +1239,13 @@ function breadbin(k0: Kit, o: Bin): BinParts {
         .intersect(rect(-500, 500, vf, 500, deg))
         .intersect(rect(-500, rx1, -500, 500));
     })(),
-    ring = (d: number) =>
-      plan
-        .offset(-d, 'Miter')
-        .offset(-Math.max(0.1, o.corner - d), 'Round', 2, 32)
-        .offset(Math.max(0.1, o.corner - d), 'Round', 2, 32),
+    // (Its inside corners rounded 3 mm too, the inner edge inset from the outer.)
+    outer = plan
+      .offset(-o.corner, 'Round', 2, 32)
+      .offset(o.corner, 'Round', 2, 32)
+      .offset(3, 'Round', 2, 32)
+      .offset(-3, 'Round', 2, 32),
+    ring = (d: number) => (d ? outer.offset(-d, 'Round', 2, 32) : outer),
     band = ring(0).subtract(ring(0.8)),
     // With an apron, the trough doesn't run over the wall between the decks
     // at the inside corner: the apron's runs into the wall and stops flush
@@ -1431,7 +1445,8 @@ export function shell(k: Kit) {
 
 // PROTOTYPE ?box=: the least-squares plane z = a + bx x + by y through the
 // points (bx = 0 when level), and the matrix that shears z = 0 onto it.
-function fitPlane(P: Vec3[], tilted: boolean) {
+// tilted: both ways; 'x': across x only, level along y; neither: along y only.
+function fitPlane(P: Vec3[], tilted: boolean | 'x') {
   const [xc, yc, zc] = [0, 1, 2].map((i) => P.reduce((t, p) => t + p[i], 0) / P.length),
     sum = (f: (p: Vec3) => number) => P.reduce((t, p) => t + f(p), 0),
     Sxx = sum((p) => (p[0] - xc) ** 2),
@@ -1440,9 +1455,12 @@ function fitPlane(P: Vec3[], tilted: boolean) {
     Sxz = sum((p) => (p[0] - xc) * (p[2] - zc)),
     Syz = sum((p) => (p[1] - yc) * (p[2] - zc)),
     det = Sxx * Syy - Sxy * Sxy,
-    [bx, by] = tilted
-      ? [(Sxz * Syy - Syz * Sxy) / det, (Syz * Sxx - Sxz * Sxy) / det]
-      : [0, Syz / Syy];
+    [bx, by] =
+      tilted === 'x'
+        ? [Sxz / Sxx, 0]
+        : tilted
+          ? [(Sxz * Syy - Syz * Sxy) / det, (Syz * Sxx - Sxz * Sxy) / det]
+          : [0, Syz / Syy];
   return {
     z: (x: number, y: number) => zc + bx * (x - xc) + by * (y - yc),
     shear: [1, 0, bx, 0, 0, 1, by, 0, 0, 0, 1, 0, 0, 0, zc - bx * xc - by * yc, 1],
@@ -1450,28 +1468,29 @@ function fitPlane(P: Vec3[], tilted: boolean) {
 }
 
 /**
- * PROTOTYPE ?box=tilted|turned|left-grill: a true breadbin, rectangular in
- * plan, round every key (fingers and thumbs), its deck one plane fitted
+ * PROTOTYPE ?box=turned-narrow|left-grill-narrow: a true breadbin, rectangular
+ * in plan, round every key (fingers and thumbs), its deck one plane fitted
  * through the finger plates, tilted with the tent, standing the recess above
- * the highest finger plate centre. The fingers and thumbs each have their own
- * well, stepped round their keys. The keys stay where they are; only the case
- * turns:
- *  tilted      the C64's side profile across y: bullnose at the front, grill
- *              across the back;
- *  turned      the same profile turned a quarter: bullnose along the pinky
- *              end, the deck rising with the tilt into the grill's flat top
- *              along the inner end, whose raked face carries the port panel;
- *              plain walls at the front and back;
- *  left-grill  bullnose at the front, plain back; the inner end rises with
- *              the tilt into the grill's flat top and the raked face.
+ * the highest finger plate centre, levelling off past the fingers' well into
+ * one long flat top round the thumbs' well, which the case ends just past. The
+ * fingers and thumbs each have their own well, stepped round their keys. The
+ * grill is beside the index column, behind the thumbs. The keys stay where
+ * they are; only the case turns:
+ *  turned-narrow      the C64's side profile across x: bullnose along the
+ *                     pinky end, the flat top, rake and port panel along the
+ *                     inner end; plain walls at the front and back, the deck
+ *                     level along them;
+ *  left-grill-narrow  bullnose at the front, plain back; the flat top, rake
+ *                     and foot across the inner end.
  */
 function box(k: Kit, style: string) {
   const fingers = fingerKeys(k),
     others = thumbs(k),
     all = [...fingers, ...others],
+    // (Turned, level along its length, world y: every section the same.)
     plane = fitPlane(
       fingers.flatMap((n) => corners(k, n)),
-      true,
+      style === 'left-grill-narrow' || 'x',
     ),
     recess = (k.cfg.chassis as { deck_lift?: number }).deck_lift ?? LIFT,
     C = all.map((n) => point(k.frames[n], [0, 0, 0])),
@@ -1493,23 +1512,12 @@ function box(k: Kit, style: string) {
       // Down past the deepest plate's underside, with its tilt.
       wellWall: Math.max(...C.map(depth)) + k.cfg.chassis.plate_thickness_mm + 8,
     };
-  const narrow = style.endsWith('-narrow');
-  if (style.startsWith('turned'))
-    // In the bin's own frame (turned a quarter), u along it is world y and
-    // v across it is world -x: its front is the pinky end.
-    return c64(k, [
-      {
-        ...bin,
-        angle: 90,
-        side: 8,
-        flat: true,
-        narrow,
-        back: narrow ? 8 : 20,
-        surface: (u, v) => surface(-v, u),
-      },
-    ]);
-  if (style.startsWith('left-grill')) return c64(k, [{ ...bin, back: 8, leftGrill: true, narrow }]);
-  return c64(k, [bin]);
+  if (style === 'left-grill-narrow') return c64(k, [{ ...bin, back: 8, leftGrill: true }]);
+  // In the bin's own frame (turned a quarter), u along it is world y and
+  // v across it is world -x: its front is the pinky end.
+  return c64(k, [
+    { ...bin, angle: 90, side: 8, back: 8, flat: true, surface: (u, v) => surface(-v, u) },
+  ]);
 }
 
 /**
@@ -1544,14 +1552,14 @@ function leftGrill(k0: Kit, o: Bin): BinParts {
     // The deck rises this much per mm towards the low end.
     m = Math.max(0, (s(wb.min[0] - 0.5, 0) - s(wb.min[0] + 0.5, 0)) / 1),
     // It runs on 3 mm past the fingers' well (room for the trough), then over
-    // RAMP eases level into one long flat top, round the thumbs' well, and on
-    // FLAT past every well (the grill) to the back corner's rounding.
-    [RAMP, FLAT] = [6, 12],
+    // RAMP eases level into one long flat top, round the thumbs' well, the
+    // grill beside the index column behind them.
+    RAMP = 6,
     xB = groupWells[0].bounds().min[0] - 3,
     zT = Math.max(s(xB, yF), s(xB, yC)) + (m * RAMP) / 2,
-    xG = o.narrow ? xB - RAMP : Math.min(xB - RAMP, wb.min[0] - 3),
-    // (Narrow: the flat top's rounding starts 3 mm past the thumbs' well.)
-    xC = (o.narrow ? Math.min(wb.min[0] - 3, xG - 7) : xG - FLAT) - 60 * PX,
+    xG = xB - RAMP,
+    // The flat top's rounding starts 3 mm past the thumbs' well.
+    xC = Math.min(wb.min[0] - 3, xG - 7) - 60 * PX,
     xR = xC - (zT - PART) * RAKE,
     // The deck: the plane, eased (a cubic) from its own slope at xB to level
     // just over zT; the end's profile cuts it level at zT.
@@ -1653,30 +1661,28 @@ function leftGrill(k0: Kit, o: Bin): BinParts {
         bb.min[1] - 20,
         z0,
       ]);
-  // Grill: grooves along y across the flat top, out through the front and back.
-  // (Narrow: from past the thumbs' well, out through the back.)
+  // Grill: grooves along y across the flat top, from past the thumbs' well
+  // out through the back.
   const grooves: CrossSection[] = [],
-    gy0 = o.narrow ? groupWells[1].bounds().max[1] + 4 : yF - 2,
+    gy0 = groupWells[1].bounds().max[1] + 4,
     gx = [xC + 60 * PX + 0.4, xG - 0.4];
   for (let x = gx[0]; x + 1.2 < gx[1]; x += 2.4)
     grooves.push(CS.square([1.2, yC + 2 - gy0]).translate([x, gy0]));
   // Trough round the deck: in from the high end, behind the bullnose, in
-  // front of the back's rounding, and short of the ramp at the low end.
+  // front of the back's rounding, round the grill; its inside corners rounded
+  // 3 mm, the inner edge inset from the outer.
   const lf = Math.hypot(1, slope(x1, yF)),
-    ring = (d: number) =>
-      CS.square([
-        x1 - END - 1 - (wb.min[0] - 1.6),
-        yC - 60 * PX * 0.45 - 1 - (yF + (104 * PX) / lf + 1),
-      ])
-        .translate([wb.min[0] - 1.6, yF + (104 * PX) / lf + 1])
-        .subtract(
-          o.narrow
-            ? CS.square([gx[1] - gx[0] + 3.2, 500]).translate([gx[0] - 1.6, gy0 - 1.6])
-            : CS.square([0.01, 0.01]).translate([1e4, 0]),
-        )
-        .offset(-d, 'Miter')
-        .offset(-Math.max(0.1, o.corner - d), 'Round', 2, 32)
-        .offset(Math.max(0.1, o.corner - d), 'Round', 2, 32),
+    outer = CS.square([
+      x1 - END - 1 - (wb.min[0] - 1.6),
+      yC - 60 * PX * 0.45 - 1 - (yF + (104 * PX) / lf + 1),
+    ])
+      .translate([wb.min[0] - 1.6, yF + (104 * PX) / lf + 1])
+      .subtract(CS.square([gx[1] - gx[0] + 3.2, 500]).translate([gx[0] - 1.6, gy0 - 1.6]))
+      .offset(-o.corner, 'Round', 2, 32)
+      .offset(o.corner, 'Round', 2, 32)
+      .offset(3, 'Round', 2, 32)
+      .offset(-3, 'Round', 2, 32),
+    ring = (d: number) => (d ? outer.offset(-d, 'Round', 2, 32) : outer),
     trough = near(ring(0).subtract(ring(0.8)), 1),
     parting = slab(PART - 0.6, PART + 0.6).subtract(body(0.8)),
     below = M.union([shell.translate([0, 0, -o.wellWall!]), slab(-1, PART + 3)]);
