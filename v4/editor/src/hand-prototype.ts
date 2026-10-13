@@ -391,10 +391,12 @@ export function setupHand(host: Host) {
   // The middle home keycap stays where it is; everything else follows the hand.
   const c0 = cfg(),
     mi = c0.geometry.columns.findIndex((k) => k.name === 'middle'),
-    o = (c0.geometry.key_overrides as Record<string, { offset_mm?: number[] }>).matrix_middle_home,
-    anchor = V(o?.offset_mm ?? [0, 0, 0])
-      .add(V([0, 0, capTop(c0)]))
-      .applyMatrix4(columnFrames(c0, mi)[1]);
+    o = (c0.geometry.key_overrides as Record<string, { offset_mm?: number[]; rotation_deg?: number[] }>)
+      .matrix_middle_home,
+    // Through the key's own tilt too, or every reload moves the anchor.
+    anchor = V([0, 0, capTop(c0)]).applyMatrix4(
+      columnFrames(c0, mi)[1].multiply(frame(o?.offset_mm, o?.rotation_deg)),
+    );
 
   const s = {
     tent: c0.geometry.tent_deg,
