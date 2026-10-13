@@ -309,38 +309,53 @@ function thumbRow(t: ThumbPose, spacing: number, two?: TwoRows) {
   // 1.5u + 2×1u: the 1u row is a finger's step from the 1.5u (MCP and IP),
   // and its two keys sit either side of that point along the row.
   let qs = [walk(1), qh, walk(-1)],
-    short = 0;
+    short = 0,
+    /** The cluster's keys face square to the row and to the step's path. */
+    paths: (T.Vector3 | undefined)[] = [undefined, undefined, undefined];
   if (two) {
+    const pad = (q: number[]) => thumb(q).pad,
+      /** The joints' step and the pad's way along the path, at q. */
+      way = (q: number[], prev?: number[]) => {
+        const p0 = pad(q),
+          vm = pad([...q.slice(0, 3), q[3] + 0.1, q[4]]).sub(p0).divideScalar(0.1),
+          vi = pad([...q.slice(0, 4), q[4] + 0.1]).sub(p0).divideScalar(0.1),
+          p = press(q);
+        let [a, b] = two.from === 'reach' ? [two.reachMix, 1] : [vi.dot(p), -vm.dot(p)];
+        // Curling (or straightening) at the start; then on along the same path.
+        if (prev ? a * prev[0] + b * prev[1] < 0 : (a + b) * two.gap < 0) [a, b] = [-a, -b];
+        const w = vm.multiplyScalar(a).addScaledVector(vi, b);
+        return { a, b, len: w.length(), dir: w.normalize() };
+      };
     let q = qh,
-      prev: number[] | undefined;
-    const pad = (q: number[]) => thumb(q).pad;
-    let left = Math.abs(two.gap);
+      w = way(q),
+      left = Math.abs(two.gap);
+    const t0 = w.dir.clone();
     while (left > 1e-6) {
       const step = Math.min(0.25, left),
-        p0 = pad(q),
-        vm = pad([...q.slice(0, 3), q[3] + 0.1, q[4]]).sub(p0).divideScalar(0.1),
-        vi = pad([...q.slice(0, 4), q[4] + 0.1]).sub(p0).divideScalar(0.1),
-        p = press(q);
-      let [a, b] = two.from === 'reach' ? [two.reachMix, 1] : [vi.dot(p), -vm.dot(p)];
-      // Curling (or straightening) at the start; then on along the same path.
-      if (prev ? a * prev[0] + b * prev[1] < 0 : (a + b) * two.gap < 0) [a, b] = [-a, -b];
-      prev = [a, b];
-      const k = step / vm.clone().multiplyScalar(a).addScaledVector(vi, b).length();
-      const next = [...q.slice(0, 3), q[3] + a * k, q[4] + b * k];
+        k = step / w.len,
+        next = [...q.slice(0, 3), q[3] + w.a * k, q[4] + w.b * k];
       if (!inRange(next)) break;
       q = next;
+      w = way(q, [w.a, w.b]);
       left -= step;
     }
     short = left;
     qs = [walk(1, q, spacing / 2), qh, walk(-1, q, spacing / 2)];
+    // The 1u keys: the CMC carries the path's direction round with the thumb.
+    const back = rotQ(q).invert();
+    paths = qs.map((qk, i) => (i === 1 ? t0 : w.dir.clone().transformDirection(rotQ(qk).multiply(back))));
   }
-  return qs.map((q) => {
+  return qs.map((q, i) => {
     const pad = thumb(q).pad,
-      z = press(q).negate(),
+      pressed = press(q).negate(),
       x = along(q).negate(),
-      xx = x.addScaledVector(z, -x.dot(z)).normalize(),
+      t = paths[i],
+      z = t ? x.clone().cross(t).normalize() : pressed.clone();
+    if (z.dot(pressed) < 0) z.negate();
+    const xx = x.addScaledVector(z, -x.dot(z)).normalize(),
       m = new T.Matrix4().makeBasis(xx, new T.Vector3().crossVectors(z, xx), z).setPosition(pad);
-    return { pad, q, frame: m, short };
+    /** Degrees the press is off square to the key. */
+    return { pad, q, frame: m, short, off: deg(z.angleTo(pressed)) };
   });
 }
 
@@ -497,10 +512,10 @@ export function setupHand(host: Host) {
     thumb: { sweep: -47, abduct: 31, twist: 0, curl: 19, mix: 1, cmc: 0 } as ThumbPose,
     spacing: 19.5,
     cluster: '1×3',
-    // The 1u row, a key's depth from the 1.5u, on the curled side (so the 1.5u
-    // is the nearer rest at the default curl); reached like the fingers' rows.
-    // Square to the press, the IP runs out of range before the next row.
-    two: { gap: 19.5, from: 'reach', reachMix: 0.4 } as TwoRows,
+    // The 1u row, a key's depth from the 1.5u, on the curled side, reached
+    // square to the press. (A reach mix like the fingers' 0.4 moves the thumb's
+    // pad mostly along its press, onto the 1.5u.)
+    two: { gap: 19.5, from: 'press', reachMix: 0.4 } as TwoRows,
     row: 'home' as Row,
     thumbOn: 'home',
   };
@@ -622,7 +637,7 @@ export function setupHand(host: Host) {
               const g = row[0].pad.clone().add(row[2].pad).multiplyScalar(0.5).sub(row[1].pad).applyMatrix4(new T.Matrix4().extractRotation(L)),
                 n0 = new T.Vector3().setFromMatrixColumn(row[1].frame, 2),
                 n1 = new T.Vector3().setFromMatrixColumn(row[0].frame, 2).add(new T.Vector3().setFromMatrixColumn(row[2].frame, 2)).normalize();
-              return (row[0].short > 0.5 ? `The 1u row is out of reach by ${row[0].short.toFixed(0)} mm (the MCP or IP at its limit). ` : '') + `The 1u row from the 1.5u: MCP ${sign(f[3] - h[3])}° IP ${sign(f[4] - h[4])}° (+ curls); its centre is ${sign(g.x)} toward the pinky, ${sign(g.y)} away, ${sign(g.z)} up (mm), and its keys face ${deg(n1.angleTo(n0)).toFixed(0)}° from the 1.5u. Between the two 1u keys the CMC sweeps ${sign(wrap(row[2].q[0] - f[0]))}°.`;
+              return `Pressed ${row[1].off.toFixed(0)}° off square to the 1.5u, ${row[0].off.toFixed(0)}° / ${row[2].off.toFixed(0)}° to the 1u keys. ` + (row[0].short > 0.5 ? `The 1u row is out of reach by ${row[0].short.toFixed(0)} mm (the MCP or IP at its limit). ` : '') + `The 1u row from the 1.5u: MCP ${sign(f[3] - h[3])}° IP ${sign(f[4] - h[4])}° (+ curls); its centre is ${sign(g.x)} toward the pinky, ${sign(g.y)} away, ${sign(g.z)} up (mm), and its keys face ${deg(n1.angleTo(n0)).toFixed(0)}° from the 1.5u. Between the two 1u keys the CMC sweeps ${sign(wrap(row[2].q[0] - f[0]))}°.`;
             }
             return `To reach the far key the CMC sweeps ${sign(wrap(h[0] - f[0]))}°, abducts ${sign(wrap(f[1] - h[1]))}° and twists ${sign(wrap(f[2] - h[2]))}°.`;
           })()
@@ -937,7 +952,7 @@ export function setupHand(host: Host) {
   );
   radios(
     'Reach the 1u row',
-    ['reach', 'press'],
+    ['press', 'reach'],
     () => s.two.from,
     (v) => {
       s.two.from = v;
