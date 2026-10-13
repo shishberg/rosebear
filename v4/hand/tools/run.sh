@@ -25,4 +25,5 @@ SATMAX=70 "$PYTHON" "$here/grid_rot.py" "$PHOTOS/kb-uncropped-b.jpg" 3090 1472 3
 "$PYTHON" "$here/measure.py"
 "$PYTHON" "$here/cam2.py"
 "$PYTHON" "$here/export.py" > "$repo/v4/hand/left-hand.json"
+"$PYTHON" "$here/thumb_cmc.py" "$repo/v4/hand/left-hand.json"
 echo "wrote v4/hand/left-hand.json; overlays in output_v4/hand/"

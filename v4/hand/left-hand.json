@@ -267,7 +267,80 @@
     0.3
    ]
   },
-  "cmc": "Not located: the prints do not lie on a sphere about it, and carrying it across from the flat pose was not accurate enough."
+  "cmc": "Not measured: the photos show the thumb knuckles at rest only. See assumed_cmc.",
+  "assumed_cmc": {
+   "note": "Not measured. Fitted so the thumb reaches all five prints, assuming a ball joint at the base, typical anatomy (a 46 mm metacarpal, the CMC about 60 mm behind the index knuckle) and the least joint movement from rest. Angles in degrees; bending is + toward the pad.",
+   "cmc": [
+    -26.0,
+    -130.1,
+    38.1
+   ],
+   "metacarpal_mm": 45.3,
+   "pad_below_distal_axis_mm": 8.0,
+   "pose_order": [
+    "yaw",
+    "pitch",
+    "roll",
+    "mcp",
+    "ip"
+   ],
+   "poses": {
+    "1": [
+     129.1,
+     14.2,
+     31.4,
+     32.3,
+     25.5
+    ],
+    "2": [
+     118.8,
+     15.1,
+     29.0,
+     34.6,
+     24.3
+    ],
+    "3": [
+     149.0,
+     11.2,
+     38.0,
+     39.5,
+     37.1
+    ],
+    "4": [
+     167.0,
+     5.8,
+     49.3,
+     47.9,
+     47.4
+    ],
+    "5": [
+     148.1,
+     10.7,
+     42.4,
+     61.9,
+     49.9
+    ]
+   },
+   "print_misses_mm": {
+    "1": 0.2,
+    "2": 0.0,
+    "3": 0.0,
+    "4": 0.0,
+    "5": 0.0
+   },
+   "rest_joints_fitted": {
+    "mcp": [
+     -53.7,
+     -96.0,
+     27.0
+    ],
+    "ip": [
+     -57.9,
+     -65.5,
+     10.3
+    ]
+   }
+  }
  },
  "fit": {
   "pose_b_rms_mm": 1.66,

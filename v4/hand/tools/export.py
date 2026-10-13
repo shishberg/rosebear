@@ -66,7 +66,7 @@ model = {
         'rest': {'pad': prints['1'], 'joints': {'mcp': to(JM), 'ip': to(JI)}},
         'arc_through_prints_1_to_4': {'centre': [round(float(v), 1) for v in arc.x[:2]], 'radius_mm': round(float(arc.x[2]), 1),
                                       'misses_mm': [round(float(v), 1) for v in arc.fun]},
-        'cmc': 'Not located: the prints do not lie on a sphere about it, and carrying it across from the flat pose was not accurate enough.',
+        'cmc': 'Not measured: the photos show the thumb knuckles at rest only. See assumed_cmc.',
     },
     'fit': {
         'pose_b_rms_mm': round(float(np.sqrt(np.mean(q.fun ** 2))), 2),
