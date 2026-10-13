@@ -495,7 +495,9 @@ export function setupHand(host: Host) {
     );
 
   const s = {
-    tent: c0.geometry.tent_deg,
+    // 30° (the wrist's resting twist) looked too steep; the Dactyl Manuform is
+    // about 14° by the same measure (index to pinky cap tops).
+    tent: 20,
     roll: 0,
     wrist: 0,
     bend: 0,
