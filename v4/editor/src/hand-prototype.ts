@@ -414,6 +414,7 @@ export function setupHand(host: Host) {
     row: 'home' as Row,
     thumbOn: 'home',
   };
+  const defaults = structuredClone(s);
 
   /** Hand frame → layout, for a hand slid `slide` mm along its fingers. */
   const toLayout = (slide = 0) => {
@@ -556,6 +557,7 @@ export function setupHand(host: Host) {
       'beforeend',
       `<h3 style="font-size:12px;margin:12px 0 2px;color:#b7c4c6">${t}</h3>`,
     );
+  const shows: (() => void)[] = [];
   function slider(
     label: string,
     get: () => number,
@@ -570,7 +572,9 @@ export function setupHand(host: Host) {
     l.innerHTML = `<span>${label}</span><output style="text-align:right"></output><input type="range" min="${min}" max="${max}" step="${step}" style="grid-column:1/3;width:100%">`;
     const i = l.querySelector('input')!,
       out = l.querySelector('output')!;
-    i.value = out.textContent = String(get());
+    const show = () => (i.value = out.textContent = String(get()));
+    show();
+    shows.push(show);
     i.addEventListener('input', () => {
       set(+i.value);
       out.textContent = i.value;
@@ -715,6 +719,17 @@ export function setupHand(host: Host) {
     -60,
     60,
   );
+
+  // Back to the defaults, keeping which keys the hand is shown on; one Undo step.
+  const reset = document.createElement('button');
+  reset.textContent = 'Reset hand';
+  reset.addEventListener('click', () => {
+    Object.assign(s, structuredClone(defaults), { row: s.row, thumbOn: s.thumbOn });
+    shows.forEach((f) => f());
+    change();
+    touched = false;
+  });
+  sec.insertBefore(reset, box);
 
   const caseBox = document.createElement('label');
   caseBox.innerHTML = '<input type="checkbox"> Build the case (often fails on these layouts)';
