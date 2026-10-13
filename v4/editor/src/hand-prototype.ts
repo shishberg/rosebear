@@ -11,8 +11,9 @@
  * the MCP by 0.4 of that and the DIP by 2/3. A row's reach is shared between
  * the finger curling or straightening (the PIP, with the DIP following; the row
  * rises or drops as it must) and the whole hand sliding (which keeps the row
- * level). A finger presses by pivoting at the MCP, so each key faces against
- * that.
+ * level). A finger presses by flexing the MCP while the PIP and DIP give a
+ * little (Jindrich et al. 2004: per degree at the MCP, the PIP straightens 0.3°
+ * and the DIP 1.1°), scaled by a slider; each key faces against that.
  * Thumb: a ball joint at the assumed CMC, hinges at the MCP and IP. On the
  * thumb row the CMC reaches and the MCP and IP press.
  * The palm is a sketch.
@@ -158,12 +159,18 @@ function rowPose(f: Finger, curl: number, abd: number, dist: number) {
     pip = Math.max(p, flat);
   return { chain: finger(f, 0.4 * curl, pip, abd), short: dist - along(pip) };
 }
-/** Which way the pad moves as the whole finger pivots down at the knuckle: the
- * way its key is pressed. */
-function fingerPress(c: Chain, f: Finger, abd: number) {
+/** Which way the pad moves as the finger presses: the MCP flexes and the PIP and
+ * DIP straighten `give` times the measured amount. The way its key is pressed. */
+function fingerPress(c: Chain, f: Finger, abd: number, give: number) {
   const across = rest[f].heading.clone().applyAxisAngle(Z, rad(abd)).cross(Z).normalize(),
-    r = c.pad.clone().sub(c.mcp);
-  return r.clone().applyAxisAngle(across, -0.01).sub(r).normalize();
+    curl = (about: T.Vector3, a: number) => {
+      const r = c.pad.clone().sub(about);
+      return r.clone().applyAxisAngle(across, -0.01 * a).sub(r);
+    };
+  return curl(c.mcp, 1)
+    .add(curl(c.pip, -0.3 * give))
+    .add(curl(c.dip, -1.1 * give))
+    .normalize();
 }
 
 // ---------------------------------------------------------------- thumb
@@ -408,6 +415,7 @@ export function setupHand(host: Host) {
     top: 18,
     bottom: 18,
     share: 50,
+    give: 100,
     thumbAt: Math.round(printAngle('1')),
     spacing: 19.5,
     angle: 0,
@@ -477,7 +485,7 @@ export function setupHand(host: Host) {
         const L = toLayout(slide[ROWS[ri]]);
         return {
           top: ch.pad.clone().applyMatrix4(L),
-          normal: fingerPress(ch, TYPIST[col], col === 'inner' ? s.inner : 0)
+          normal: fingerPress(ch, TYPIST[col], col === 'inner' ? s.inner : 0, s.give / 100)
             .negate()
             .transformDirection(L),
         };
@@ -531,10 +539,12 @@ export function setupHand(host: Host) {
       })
       .join(' ')
       .concat(
-        ` Middle home key slopes ${(() => {
-          const n = fingerPress(chains.middle[1], 'middle', 0).negate().transformDirection(toLayout());
-          return deg(Math.atan2(n.y, n.z)).toFixed(0);
-        })()}° down away from you.`,
+        ` Middle finger keys slope ${ROWS.map((r, ri) => {
+          const n = fingerPress(chains.middle[ri], 'middle', 0, s.give / 100)
+            .negate()
+            .transformDirection(toLayout());
+          return `${deg(Math.atan2(n.y, n.z)).toFixed(0)}° (${r})`;
+        }).join(', ')} down away from you.`,
         ` Thumb home key ${(row[1].pad.clone().applyMatrix4(toLayout()).z - anchor.z).toFixed(0)} mm from the finger home row's height.`,
       );
     host.render();
@@ -660,6 +670,14 @@ export function setupHand(host: Host) {
     (v) => (s.inner = v),
     5,
     35,
+  );
+  slider(
+    'press: PIP and DIP straighten (% of measured; 0 = knuckle only)',
+    () => s.give,
+    (v) => (s.give = v),
+    0,
+    150,
+    10,
   );
   heading('Rows (mm from home, along each finger)');
   slider(
