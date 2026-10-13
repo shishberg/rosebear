@@ -8,12 +8,13 @@
  * slider move rewrite the finger columns and the thumb row (Undo restores).
  *
  * Fingers: chains MCP–PIP–DIP–pad from the resting pose. Curl at home bends
- * the PIP, the MCP by 0.4 of that and the DIP by 2/3. Worked backwards from the
- * keys: each column's keys lie on a line tilted a set angle from the plate and
- * face square off it, so reaching a row (along the line) and pressing (square
- * to it) are at right angles. The MCP and PIP (the DIP following) are solved to
- * put the pad on each key; the readout gives the joint mix each press needs.
- * The inner column is left out of the readout: it's reached with the wrist.
+ * the PIP, the MCP by 0.4 of that and the DIP by 2/3. At every key, reaching
+ * (between rows) is along the keyboard and pressing is square to it, at that
+ * point. Either the reach mix is set (MCP degrees per PIP degree) and the
+ * fingertip's path is the keyboard, or the press mix is set (PIP+DIP degrees
+ * straightened per MCP degree) and the finger reaches square to it at every
+ * point. The readout gives the other mix. The inner column is left out of the
+ * readout: it's reached with the wrist.
  * Thumb: a ball joint at the assumed CMC, hinges at the MCP and IP. On the
  * thumb row the CMC reaches and the MCP and IP press.
  * The palm is a sketch.
@@ -147,40 +148,63 @@ const DIP_BEND = Object.fromEntries(
     return [f, p[2] - p[1]];
   }),
 ) as Record<Finger, number>;
-/** A column's keys: a line through the home pad in the finger's own plane,
- * running away from you along `t`, the keys facing `n` (square to it, up). */
-type Line = { t: T.Vector3; n: T.Vector3 };
-type Pose = { chain: Chain; mcp: number; pip: number; short: number };
+type Pose = {
+  chain: Chain;
+  mcp: number;
+  pip: number;
+  /** How far short of the row the finger stops (it won't straighten past flat). */
+  short: number;
+  /** The keyboard here: along `t` (away from you), facing `n` (up, square to t). */
+  t: T.Vector3;
+  n: T.Vector3;
+};
 const dipOf = (f: Finger, pip: number) => Math.max((pip * 2) / 3, Math.min(0, -DIP_BEND[f]));
-/** The MCP and PIP (degrees from rest) that put the pad `dist` mm along the
- * line from home, the PIP no straighter than flat; and how far the pad misses. */
-function rowPose(f: Finger, curl: number, abd: number, t: T.Vector3, dist: number): Pose {
-  if (!dist) return { chain: curled(f, curl, abd), mcp: 0.4 * curl, pip: curl, short: 0 };
-  const target = curled(f, curl, abd).pad.addScaledVector(t, dist),
-    flat = -PIP_BEND[f],
-    miss = (m: number, p: number) => finger(f, m, p, abd).pad.sub(target),
-    [m, p] = fit(
-      ([m, p]) => [
-        ...miss(m, p)
-          .toArray()
-          .map((v) => v / 0.5),
-        Math.min(0, p - flat) / 0.05,
-      ],
-      [0.4 * curl, curl - dist],
-    ),
-    pip = Math.max(p, flat);
-  return { chain: finger(f, m, pip, abd), mcp: m, pip, short: miss(m, pip).length() };
+/** At a pose: how the pad moves per degree at the MCP, and per degree at the
+ * PIP (the DIP following, `ip` degrees of PIP and DIP together). */
+type Rates = { vm: T.Vector3; vp: T.Vector3; ip: number };
+function rates(f: Finger, abd: number, m: number, p: number): Rates {
+  const pad = (dm: number, dp: number) => finger(f, m + dm, p + dp, abd).pad,
+    o = pad(0, 0);
+  return {
+    vm: pad(0.01, 0).sub(o).divideScalar(0.01),
+    vp: pad(0, 0.01).sub(o).divideScalar(0.01),
+    ip: 1 + (dipOf(f, p) - dipOf(f, p - 0.01)) / 0.01,
+  };
+}
+/** How the MCP and PIP move together to reach between rows, at a pose. */
+type Way = (r: Rates) => [mcp: number, pip: number];
+/** Walk the pad `dist` mm (+ away from you) from home along the path `way`
+ * gives, step by step. The path is the keyboard: each key lies along it and
+ * faces square off it, at that point. */
+function rowPose(f: Finger, curl: number, abd: number, dist: number, way: Way): Pose {
+  const h = rest[f].heading.clone().applyAxisAngle(Z, rad(abd)),
+    flat = -PIP_BEND[f];
+  let m = 0.4 * curl,
+    p = curl,
+    left = Math.abs(dist),
+    t = h;
+  for (let i = 0; i < 4000; i++) {
+    const r = rates(f, abd, m, p),
+      [a, b] = way(r),
+      w = r.vm.clone().multiplyScalar(a).addScaledVector(r.vp, b),
+      k = (w.dot(h) < 0 ? -1 : 1) / w.length(); // joint step per mm the pad moves away
+    t = w.multiplyScalar(k);
+    if (left < 1e-6) break;
+    const step = Math.min(0.25, left) * Math.sign(dist);
+    if (p + b * k * step < flat) break;
+    m += a * k * step;
+    p += b * k * step;
+    left -= Math.abs(step);
+  }
+  const n = Z.clone().multiplyScalar(t.dot(h)).addScaledVector(h, -t.dot(Z)).normalize();
+  return { chain: finger(f, m, p, abd), mcp: m, pip: p, short: left, t, n };
 }
 /** To press straight along −n: degrees the PIP and DIP straighten (together)
  * per degree the MCP flexes. Jindrich et al. 2004 measured about 1.4. */
-function pressRatio(f: Finger, abd: number, p: Pose, line: Line) {
-  const pad = (dm: number, dp: number) => finger(f, p.mcp + dm, p.pip + dp, abd).pad,
-    o = pad(0, 0),
-    vm = pad(0.01, 0).sub(o),
-    vp = pad(0, 0.01).sub(o),
-    // a·vm + b·vp = −n, within the finger's plane: a ∝ vp·t, b ∝ −vm·t.
-    ip = 1 + (dipOf(f, p.pip) - dipOf(f, p.pip - 0.01)) / 0.01;
-  return (vm.dot(line.t) * ip) / vp.dot(line.t);
+function pressRatio(f: Finger, abd: number, p: Pose) {
+  const { vm, vp, ip } = rates(f, abd, p.mcp, p.pip);
+  // a·vm + b·vp is square to t: a ∝ vp·t, b ∝ −vm·t.
+  return (vm.dot(p.t) * ip) / vp.dot(p.t);
 }
 
 // ---------------------------------------------------------------- thumb
@@ -413,7 +437,9 @@ export function setupHand(host: Host) {
     inner: 18,
     top: 18,
     bottom: 18,
-    tilt: 0,
+    from: 'reach',
+    reachMix: 0.4,
+    pressMix: 1.4,
     thumbAt: Math.round(printAngle('1')),
     spacing: 19.5,
     angle: 0,
@@ -437,39 +463,28 @@ export function setupHand(host: Host) {
       .multiply(turn())
       .multiply(new T.Matrix4().makeTranslation(curled('middle', s.curl.middle).pad.negate()));
 
-  /** The finger's line of keys: in its own plane, sloping `s.tilt` down away
-   * from you on the plate. */
-  function rowLine(f: Finger, abd: number): Line {
-    const R = turn(),
-      h = rest[f].heading.clone().applyAxisAngle(Z, rad(abd)),
-      inPlane = (a: number) =>
-        h.clone().multiplyScalar(Math.cos(rad(a))).addScaledVector(Z, Math.sin(rad(a))),
-      slope = (a: number) => {
-        const v = inPlane(a).transformDirection(R);
-        return deg(Math.atan2(v.z, Math.hypot(v.x, v.y)));
-      },
-      [a] = fit(([a]) => [slope(a) + s.tilt], [-s.tilt]);
-    return { t: inPlane(a), n: inPlane(a + 90) };
-  }
-
-  // Each column: its line and every row's pose.
+  /** The reach: either as set, or square to the press as set. */
+  const way: Way = (r) => {
+    if (s.from === 'reach') return [s.reachMix, 1];
+    const press = r.vm.clone().addScaledVector(r.vp, -s.pressMix / r.ip);
+    return [r.vp.dot(press), -r.vm.dot(press)];
+  };
+  // Each column: every row's pose and its key.
   function solve() {
-    const poses: Record<string, Pose[]> = {},
-      lines: Record<string, Line> = {};
+    const poses: Record<string, Pose[]> = {};
     for (const col of cfg().geometry.columns.map((k) => k.name)) {
       const f = TYPIST[col],
-        abd = col === 'inner' ? s.inner : 0,
-        line = (lines[col] = rowLine(f, abd));
+        abd = col === 'inner' ? s.inner : 0;
       poses[col] = ROWS.map((r) =>
-        rowPose(f, s.curl[f], abd, line.t, r === 'top' ? s.top : r === 'bottom' ? -s.bottom : 0),
+        rowPose(f, s.curl[f], abd, r === 'top' ? s.top : r === 'bottom' ? -s.bottom : 0, way),
       );
     }
-    return { poses, lines };
+    return { poses };
   }
 
   function apply() {
     const c = cfg(),
-      { poses, lines } = solve(),
+      { poses } = solve(),
       L = toLayout(),
       keys: Record<string, KeyTop[]> = {},
       splay: Record<string, number> = {};
@@ -477,7 +492,7 @@ export function setupHand(host: Host) {
     for (const col of Object.keys(poses)) {
       keys[col] = poses[col].map((p) => ({
         top: p.chain.pad.clone().applyMatrix4(L),
-        normal: lines[col].n.clone().transformDirection(L),
+        normal: p.n.clone().transformDirection(L),
       }));
       const h = poses[col][1].chain,
         d = h.pad.clone().sub(h.mcp).transformDirection(L);
@@ -495,7 +510,7 @@ export function setupHand(host: Host) {
   const note = document.createElement('p');
   function update() {
     const c = cfg(),
-      { poses, lines } = solve(),
+      { poses } = solve(),
       ri = ROWS.indexOf(s.row),
       L = toLayout();
     const row = thumbRow(s.thumbAt, s.spacing, s.angle, s.thumbCurl, s.twist),
@@ -519,12 +534,18 @@ export function setupHand(host: Host) {
       );
     note.innerHTML =
       (misses.length ? `Out of reach: ${misses.join(', ')}.` : 'Every row in reach.') +
-      '<br>From home to the top / bottom row, degrees (+ curls); then to press, how far the PIP and DIP straighten per MCP degree on the top / home / bottom key (Jindrich measured 1.4):<br>' +
+      '<br>From home to the top / bottom row, degrees (+ curls); then to press, how far the PIP and DIP straighten per MCP degree on the top / home / bottom key (Jindrich measured 1.4). Keys tilt (+ far edge down) top / home / bottom:<br>' +
       FINGERS.map((f) => {
         const [t, h, b] = poses[f],
           d = (p: Pose) => `MCP ${sign(p.mcp - h.mcp)} PIP ${sign(p.pip - h.pip)}`,
-          pr = poses[f].map((p) => pressRatio(f, 0, p, lines[f]).toFixed(1)).join(' / ');
-        return `${f}: ${d(t)} / ${d(b)}; press ${pr}`;
+          pr = poses[f].map((p) => pressRatio(f, 0, p).toFixed(1)).join(' / '),
+          tilt = poses[f]
+            .map((p) => {
+              const n = p.n.clone().transformDirection(L);
+              return sign(deg(Math.atan2(n.y, n.z)));
+            })
+            .join(' / ');
+        return `${f}: ${d(t)} / ${d(b)}; press ${pr}; keys ${tilt}°`;
       }).join('<br>') +
       `<br>Thumb home key ${(row[1].pad.clone().applyMatrix4(L).z - anchor.z).toFixed(0)} mm from the finger home row's height.`;
     host.render();
@@ -575,8 +596,13 @@ export function setupHand(host: Host) {
     i.addEventListener('change', () => (touched = false));
     box.append(l);
   }
-  function radios(label: string, options: string[], get: () => string, set: (v: string) => void) {
-    const d = document.createElement('div');
+  function radios(
+    label: string,
+    options: string[],
+    get: () => string,
+    set: (v: string) => void,
+    d = document.createElement('div'),
+  ) {
     d.style.margin = '4px 0';
     d.innerHTML =
       label +
@@ -592,7 +618,7 @@ export function setupHand(host: Host) {
       set((e.target as HTMLInputElement).value);
       update();
     });
-    box.append(d);
+    if (!d.parentNode) box.append(d);
   }
   radios(
     'Fingers on',
@@ -651,13 +677,34 @@ export function setupHand(host: Host) {
     5,
     35,
   );
-  heading('Rows (mm from home, along each finger)');
+  heading('Rows (mm from home, along the keyboard)');
+  const fromBox = document.createElement('div');
+  box.append(fromBox);
   slider(
-    'keys tilt: + far edge down (degrees from the plate)',
-    () => s.tilt,
-    (v) => (s.tilt = v),
-    -30,
-    45,
+    'reach mix: MCP degrees per PIP degree between rows (+ both curl, − opposite)',
+    () => s.reachMix,
+    (v) => (s.reachMix = v),
+    -1,
+    3,
+    0.1,
+  );
+  slider(
+    'press mix: PIP+DIP degrees straightened per MCP degree flexed',
+    () => s.pressMix,
+    (v) => (s.pressMix = v),
+    -1,
+    4,
+    0.1,
+  );
+  radios(
+    'Set the',
+    ['reach', 'press'],
+    () => s.from,
+    (v) => {
+      s.from = v;
+      change();
+    },
+    fromBox,
   );
   slider(
     'top: forward',
@@ -715,7 +762,7 @@ export function setupHand(host: Host) {
   const reset = document.createElement('button');
   reset.textContent = 'Reset hand';
   reset.addEventListener('click', () => {
-    Object.assign(s, structuredClone(defaults), { row: s.row, thumbOn: s.thumbOn });
+    Object.assign(s, structuredClone(defaults), { row: s.row, thumbOn: s.thumbOn, from: s.from });
     shows.forEach((f) => f());
     change();
     touched = false;
