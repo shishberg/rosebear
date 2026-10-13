@@ -676,7 +676,13 @@ export function setupHand(host: Host) {
     });
     const name = (k: string) => k.replace(/^matrix_/, '').replace('_', ' '),
       base = (c as { chassis?: { base_thickness_mm?: number } }).chassis?.base_thickness_mm ?? 2;
-    note.innerHTML += `<br>Height: ${(tallest.z - lowest.z + base).toFixed(0)} mm from the base to the highest keycap corner (${name(tallest.key)}; lowest switch: ${name(lowest.key)}); the finger keys alone: ${(fingers.z - lowest.z + base).toFixed(0)} mm${two ? '' : `; without the far thumb key: ${(noFar.z - lowest.z + base).toFixed(0)} mm`}. Keyboard tray: 66 mm.`;
+    note.innerHTML += `<br>Height: ${(tallest.z - lowest.z + base).toFixed(0)} mm from the base to the highest keycap corner (${name(tallest.key)}; lowest switch: ${name(lowest.key)}); the finger keys alone: ${(fingers.z - lowest.z + base).toFixed(0)} mm${two ? '' : `; without the far thumb key: ${(noFar.z - lowest.z + base).toFixed(0)} mm`}. Keyboard tray: 66 mm.` +
+      // As measured on the Dactyl Manuform (12.7–12.8° on every row at its nominal 15°).
+      `<br>Index to pinky cap tops slope (+ pinky side lower), top / home / bottom: ${ROWS.map((_, ri) => {
+        const at = (col: string) => poses[col][ri].chain.pad.clone().applyMatrix4(L).applyMatrix4(world),
+          d = at('pinky').sub(at('index'));
+        return deg(Math.atan2(-d.z, Math.hypot(d.x, d.y))).toFixed(1);
+      }).join(' / ')}°. Dactyl Manuform: 12.8° (15° tent).`;
     host.render();
   }
 
