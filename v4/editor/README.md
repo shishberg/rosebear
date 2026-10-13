@@ -186,6 +186,14 @@ port panel recess straddling the parting line 10 mm up). `?recess=mm` sets
 the deck's height above the plates. These are prototypes; their code is marked
 `PROTOTYPE` in `shell.ts`.
 
+**Shape prototypes**: `/prototype-shapes.html` on the dev server
+(`src/prototype-shapes/`) builds a case on the default config's keys with
+none of the editor's wiring or fit checks, for trying shapes quickly. ←/→ or
+`?variant=` picks the shape: `c64-joined-badge` (the joined C64, its own copy,
+the thumb deck along the line fitted through every thumb) or `tape-deck` (the
+editor's chassis). It reports loose pieces, keycap hits and the gaps between
+key groups; M paints marks, as in the editor.
+
 **Main thumbs held by (prototype)**, or `?held=`, braces the main thumbs to the
 case; without it they hang off one small contact. Each plate edge with no
 neighbour is carried level out, or straight down, whichever is shorter, to
