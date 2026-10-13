@@ -9,8 +9,10 @@
  *
  * Fingers: chains MCP–PIP–DIP–pad from the resting pose. Curl bends the PIP,
  * the MCP by 0.4 of that and the DIP by 2/3. A row's reach is shared between
- * the fingers (least joint movement, so the row rises or drops as it must) and
- * the whole hand sliding (which keeps the row level).
+ * the finger curling or straightening (the PIP, with the DIP following; the row
+ * rises or drops as it must) and the whole hand sliding (which keeps the row
+ * level). A finger presses by pivoting at the MCP, so each key faces against
+ * that.
  * Thumb: a ball joint at the assumed CMC, hinges at the MCP and IP. On the
  * thumb row the CMC reaches and the MCP and IP press.
  * The palm is a sketch.
@@ -128,18 +130,31 @@ function finger(f: Finger, mcp: number, pip: number, abd = 0): Chain {
 }
 const curled = (f: Finger, curl: number, abd = 0) => finger(f, 0.4 * curl, curl, abd);
 
-/** The pose that moves the fingertip `dist` mm along the finger from home with
- * the least joint movement, rising or dropping as it must. Also how far short it falls. */
+/** The resting PIP bend, so how far it can straighten before the finger is flat. */
+const PIP_BEND = Object.fromEntries(
+  FINGERS.map((f) => {
+    const p = hand.fingers[f].rest.segment_pitch_deg;
+    return [f, p[1] - p[0]];
+  }),
+) as Record<Finger, number>;
+/** The pose that moves the fingertip `dist` mm along the finger from home by
+ * curling or straightening it (the knuckle held), rising or dropping as it
+ * must. Also how far short it falls: it won't straighten past flat. */
 function rowPose(f: Finger, curl: number, abd: number, dist: number) {
   const home = curled(f, curl, abd).pad,
     dir = rest[f].heading.clone().applyAxisAngle(Z, rad(abd)),
-    res = ([m, p]: number[]) => {
-      const d = finger(f, 0.4 * curl + m, curl + p, abd).pad.sub(home);
-      return [(d.dot(dir) - dist) / 0.5, m / 30, p / 30];
-    },
-    [m, p] = fit(res, [0, 0]),
-    c = finger(f, 0.4 * curl + m, curl + p, abd);
-  return { chain: c, short: dist - c.pad.clone().sub(home).dot(dir) };
+    flat = -PIP_BEND[f],
+    along = (p: number) => finger(f, 0.4 * curl, p, abd).pad.sub(home).dot(dir),
+    [p] = fit(([p]) => [(along(p) - dist) / 0.5, Math.min(0, p - flat) / 0.05], [curl]),
+    pip = Math.max(p, flat);
+  return { chain: finger(f, 0.4 * curl, pip, abd), short: dist - along(pip) };
+}
+/** Which way the pad moves as the whole finger pivots down at the knuckle: the
+ * way its key is pressed. */
+function fingerPress(c: Chain, f: Finger, abd: number) {
+  const across = rest[f].heading.clone().applyAxisAngle(Z, rad(abd)).cross(Z).normalize(),
+    r = c.pad.clone().sub(c.mcp);
+  return r.clone().applyAxisAngle(across, -0.01).sub(r).normalize();
 }
 
 // ---------------------------------------------------------------- thumb
@@ -295,31 +310,38 @@ function drawHand(group: T.Group, chains: Record<Finger, Chain>, th: ReturnType<
 }
 
 // ---------------------------------------------------------------- writing the layout
-/** Put each finger key's cap-top centre at the given layout point. Heights and
- * stagger take the column's share; the rest goes in key_overrides. */
-function placeColumns(c: Config, tops: Record<string, T.Vector3[]>, splay: Record<string, number>) {
+/** Put each finger key's cap-top centre at the given layout point, facing
+ * `normal`. The column takes the home key's place and splay; each key's own
+ * offset and tilt go in key_overrides. */
+type KeyTop = { top: T.Vector3; normal: T.Vector3 };
+function placeColumns(c: Config, keys: Record<string, KeyTop[]>, splay: Record<string, number>) {
   const g = c.geometry,
     h = capTop(c),
-    over = g.key_overrides as Record<string, { offset_mm?: number[] }>;
+    over = g.key_overrides as Record<string, { offset_mm?: number[]; rotation_deg?: number[] }>;
   g.columns.forEach((col, ci) => {
-    const P = tops[col.name];
+    const K = keys[col.name];
     col.rotation_deg = [0, 0, Math.round(splay[col.name] * 10) / 10];
-    col.offset_mm = [P[1].x - (ci - 2) * g.column_pitch_mm, P[1].y, 0];
-    col.heights_mm = P.map((p) => p.z - h);
-    for (let it = 0; it < 4; it++) {
-      ROWS.forEach((r) => delete over[`matrix_${col.name}_${r}`]);
-      const seat = columnFrames(c, ci).map((m, ri) =>
-        P[ri].clone().addScaledVector(new T.Vector3().setFromMatrixColumn(m, 2), -h),
-      );
-      col.heights_mm = seat.map((s) => Math.round(s.z * 100) / 100);
-      const frames = columnFrames(c, ci);
-      ROWS.forEach((r, ri) => {
-        const local = seat[ri].clone().applyMatrix4(frames[ri].clone().invert());
-        over[`matrix_${col.name}_${r}`] = {
-          offset_mm: local.toArray().map((v) => Math.round(v * 100) / 100),
-        };
-      });
-    }
+    col.offset_mm = [K[1].top.x - (ci - 2) * g.column_pitch_mm, K[1].top.y, 0];
+    col.heights_mm = K.map((k) => r2(k.top.z - h));
+    const frames = columnFrames(c, ci);
+    ROWS.forEach((r, ri) => {
+      const z = K[ri].normal,
+        x = new T.Vector3().setFromMatrixColumn(frames[ri], 0),
+        xx = x.addScaledVector(z, -x.dot(z)).normalize(),
+        m = frames[ri]
+          .clone()
+          .invert()
+          .multiply(
+            new T.Matrix4()
+              .makeBasis(xx, new T.Vector3().crossVectors(z, xx), z)
+              .setPosition(K[ri].top.clone().addScaledVector(z, -h)),
+          ),
+        e = new T.Euler().setFromRotationMatrix(m, 'ZYX');
+      over[`matrix_${col.name}_${r}`] = {
+        offset_mm: new T.Vector3().setFromMatrixPosition(m).toArray().map(r2),
+        rotation_deg: [e.x, e.y, e.z].map((v) => r2(deg(v))),
+      };
+    });
   });
 }
 // chassis.json turns the home key a quarter turn in its place; keep that.
@@ -435,18 +457,24 @@ export function setupHand(host: Host) {
   function apply() {
     const c = cfg(),
       { chains, slide } = solve(),
-      tops: Record<string, T.Vector3[]> = {},
+      keys: Record<string, KeyTop[]> = {},
       splay: Record<string, number> = {};
     c.geometry.tent_deg = s.tent;
     for (const col of Object.keys(chains)) {
-      tops[col] = chains[col].map((ch, ri) =>
-        ch.pad.clone().applyMatrix4(toLayout(slide[ROWS[ri]])),
-      );
+      keys[col] = chains[col].map((ch, ri) => {
+        const L = toLayout(slide[ROWS[ri]]);
+        return {
+          top: ch.pad.clone().applyMatrix4(L),
+          normal: fingerPress(ch, TYPIST[col], col === 'inner' ? s.inner : 0)
+            .negate()
+            .transformDirection(L),
+        };
+      });
       const h = chains[col][1],
         d = h.pad.clone().sub(h.mcp).transformDirection(toLayout());
       splay[col] = deg(Math.atan2(-d.x, d.y));
     }
-    placeColumns(c, tops, splay);
+    placeColumns(c, keys, splay);
     const L = toLayout();
     placeThumb(
       c,
@@ -491,6 +519,10 @@ export function setupHand(host: Host) {
       })
       .join(' ')
       .concat(
+        ` Middle home key slopes ${(() => {
+          const n = fingerPress(chains.middle[1], 'middle', 0).negate().transformDirection(toLayout());
+          return deg(Math.atan2(n.y, n.z)).toFixed(0);
+        })()}° down away from you.`,
         ` Thumb home key ${(row[1].pad.clone().applyMatrix4(toLayout()).z - anchor.z).toFixed(0)} mm from the finger home row's height.`,
       );
     host.render();
