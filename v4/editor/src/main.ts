@@ -18,6 +18,7 @@ import {
 import { hardware, type BuildResult, type Report, type Highlight } from './solid';
 import type { Wiring } from './wiring';
 import { setupMarks } from './marks';
+import { setupHand } from './hand-prototype';
 import './style.css';
 const $ = <E extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as E;
 const STORAGE = 'rosebear-chassis-editor:v2';
@@ -51,6 +52,8 @@ const undo: Project[] = [],
 let hasShell = false,
   buildRequests = 0,
   selected = '';
+// PROTOTYPE ?hand=A|B|C (hand-prototype.ts): redraws the hand after each edit.
+let handUpdate: (() => void) | undefined;
 let revision = 0,
   solidRevision = -1,
   report: Report | undefined,
@@ -666,6 +669,7 @@ function preview() {
     componentFrames(project.config);
     updateHardware();
     updateHandles();
+    handUpdate?.();
     parts.visible = true;
   } catch (e) {
     parts.visible = false;
@@ -1226,6 +1230,8 @@ const marks = !import.meta.env.DEV
       view: () => ({ variant: 'chassis', thumbs: 'editor', query: location.search }),
       render,
     });
+if (import.meta.env.DEV && new URLSearchParams(location.search).has('hand'))
+  handUpdate = setupHand({ scene, project: () => project, snapshot, edited, render });
 restoreView();
 historyButtons();
 refreshInputs();
