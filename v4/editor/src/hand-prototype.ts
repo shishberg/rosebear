@@ -15,8 +15,10 @@
  * straightened per MCP degree) and the finger reaches square to it at every
  * point. The readout gives the other mix. The inner column is left out of the
  * readout: it's reached with the wrist.
- * Thumb: a ball joint at the assumed CMC, hinges at the MCP and IP. On the
- * thumb row the CMC reaches and the MCP and IP press.
+ * Thumb: a ball joint at the assumed CMC, hinges at the MCP and IP. Its home
+ * pose is set by joint angles; it presses like a finger, curling the MCP and
+ * IP (with as much CMC abduction blended in as a slider says), and the CMC
+ * reaches between keys, square to the press at each one.
  * The palm is a sketch.
  */
 import * as T from 'three';
@@ -232,9 +234,11 @@ function thumb(q: number[]) {
     pad: axis.clone().addScaledVector(up(q[3] + q[4]), -cmc.pad_below_distal_axis_mm),
   };
 }
-/** Which way the pad moves as the MCP and IP curl together: the way a key is pressed. */
-const pressDir = (q: number[]) =>
-  thumb([q[0], q[1], q[2], q[3] + 1, q[4] + 1])
+/** Which way the pad moves as the thumb presses: the MCP curls, the IP `mix`
+ * times as much, and the CMC abducts (down, away from the palm) `cmc` times as
+ * much. */
+const pressDir = (q: number[], mix: number, cmc: number) =>
+  thumb([q[0], q[1] + cmc, q[2], q[3] + 1, q[4] + mix])
     .pad.sub(thumb(q).pad)
     .normalize();
 const arc = hand.thumb.arc_through_prints_1_to_4;
@@ -248,45 +252,58 @@ const printAngle = (k: string) => {
   const p = (hand.measured.thumb_prints as Record<string, number[]>)[k];
   return deg(Math.atan2(p[1] - arc.centre[1], p[0] - arc.centre[0]));
 };
-/** The thumb row in the hand frame, far key first. The MCP and IP are held
- * `curl` degrees past their resting bend and the thumb is `twist`ed about its
- * own length, so the thumb is one rigid piece pivoting at the CMC and its pad
- * lies on a sphere round the CMC. The home key is where the pad crosses the
- * measured arc `at` degrees round (in plan). The row runs round the sphere
- * through it, `angle` degrees from the measured arc's direction (+ far key
- * higher). Each key faces against the way the pad moves as the MCP and IP curl.
- * Frames: z out of the cap, x toward the near key. */
-function thumbRow(at: number, spacing: number, angle: number, curl: number, twist: number) {
-  const target = arcPoint(at),
-    pose = ([yaw, pitch]: number[]) => [
-      yaw,
-      pitch,
-      thumbRest[2] + twist,
-      thumbRest[3] + curl,
-      thumbRest[4] + curl,
+type ThumbPose = {
+  /** CMC degrees from rest: + across toward the fingers, + abducted (down,
+   * away from the palm), + twisted to turn the pad down. */
+  sweep: number;
+  abduct: number;
+  twist: number;
+  /** MCP and IP, degrees past rest. */
+  curl: number;
+  /** The press: IP degrees per MCP degree, CMC abduction degrees per MCP degree. */
+  mix: number;
+  cmc: number;
+};
+/** The thumb row in the hand frame, far key first (far = away from the
+ * fingers). Each key faces against the press. Between keys the thumb moves as
+ * one piece at the CMC (the pad on a sphere round it), square to both the
+ * press and the line from the CMC at each point, `spacing` mm along the pad's
+ * path. Frames: z out of the cap, x toward the near key. */
+function thumbRow(t: ThumbPose, spacing: number) {
+  const qh = [
+      thumbRest[0] - t.sweep,
+      thumbRest[1] + t.abduct,
+      thumbRest[2] + t.twist,
+      thumbRest[3] + t.curl,
+      thumbRest[4] + t.curl,
     ],
-    qh = pose(
-      fit((v) => {
-        const d = thumb(pose(v)).pad.sub(target);
-        return [d.x / 0.5, d.y / 0.5];
-      }, thumbRest.slice(0, 2)),
-    ),
-    home = thumb(qh).pad,
-    radial = home.clone().sub(C).normalize(),
-    onSphere = (v: T.Vector3) => v.addScaledVector(radial, -v.dot(radial)).normalize(),
-    a = rad(at),
-    along = onSphere(new T.Vector3(-Math.sin(a), Math.cos(a), 0)), // toward prints 3 and 4: far
-    up = onSphere(Z.clone().addScaledVector(along, -Z.dot(along))),
-    dir = along.multiplyScalar(Math.cos(rad(angle))).addScaledVector(up, Math.sin(rad(angle))),
-    axis = new T.Vector3().crossVectors(radial, dir).normalize(),
-    R = home.distanceTo(C);
-  return [1, 0, -1].map((n) => {
-    const turn = new T.Matrix4().makeRotationAxis(axis, (n * spacing) / R),
-      e = new T.Euler().setFromRotationMatrix(turn.clone().multiply(rotQ(qh)), 'ZYX'),
-      q = [deg(e.z), deg(e.y), deg(e.x), qh[3], qh[4]],
-      pad = thumb(q).pad,
-      z = pressDir(q).negate(),
-      x = dir.clone().applyMatrix4(turn).negate(),
+    press = (q: number[]) => pressDir(q, t.mix, t.cmc),
+    /** Along the row, away from the fingers. */
+    along = (q: number[], prev?: T.Vector3) => {
+      const v = thumb(q).pad.sub(C).cross(press(q)).normalize();
+      return (prev ? v.dot(prev) < 0 : v.x > 0) ? v.negate() : v;
+    },
+    walk = (sign: number) => {
+      let q = qh,
+        v = along(q);
+      for (let left = spacing; left > 1e-6; ) {
+        const step = Math.min(0.25, left),
+          r = thumb(q).pad.sub(C),
+          turn = new T.Matrix4().makeRotationAxis(
+            r.clone().cross(v).normalize(),
+            (sign * step) / r.length(),
+          ),
+          e = new T.Euler().setFromRotationMatrix(turn.multiply(rotQ(q)), 'ZYX');
+        q = [deg(e.z), deg(e.y), deg(e.x), q[3], q[4]];
+        v = along(q, v);
+        left -= step;
+      }
+      return q;
+    };
+  return [walk(1), qh, walk(-1)].map((q) => {
+    const pad = thumb(q).pad,
+      z = press(q).negate(),
+      x = along(q).negate(),
       xx = x.addScaledVector(z, -x.dot(z)).normalize(),
       m = new T.Matrix4().makeBasis(xx, new T.Vector3().crossVectors(z, xx), z).setPosition(pad);
     return { pad, q, frame: m };
@@ -440,11 +457,10 @@ export function setupHand(host: Host) {
     from: 'reach',
     reachMix: 0.4,
     pressMix: 1.4,
-    thumbAt: Math.round(printAngle('1')),
+    // Defaults reach the Dactyl Manuform's middle thumb key (DM_right.scad),
+    // at the thumb's resting twist.
+    thumb: { sweep: -47, abduct: 31, twist: 0, curl: 19, mix: 1, cmc: 0 } as ThumbPose,
     spacing: 19.5,
-    angle: 0,
-    thumbCurl: 0,
-    twist: 0,
     row: 'home' as Row,
     thumbOn: 'home',
   };
@@ -501,7 +517,7 @@ export function setupHand(host: Host) {
     placeColumns(c, keys, splay);
     placeThumb(
       c,
-      thumbRow(s.thumbAt, s.spacing, s.angle, s.thumbCurl, s.twist).map((k) =>
+      thumbRow(s.thumb, s.spacing).map((k) =>
         L.clone().multiply(k.frame),
       ),
     );
@@ -513,7 +529,7 @@ export function setupHand(host: Host) {
       { poses } = solve(),
       ri = ROWS.indexOf(s.row),
       L = toLayout();
-    const row = thumbRow(s.thumbAt, s.spacing, s.angle, s.thumbCurl, s.twist),
+    const row = thumbRow(s.thumb, s.spacing),
       th = thumb(
         s.thumbOn === 'rest' ? thumbRest : row[['far', 'home', 'near'].indexOf(s.thumbOn)].q,
       );
@@ -547,7 +563,23 @@ export function setupHand(host: Host) {
             .join(' / ');
         return `${f}: ${d(t)} / ${d(b)}; press ${pr}; keys ${tilt}°`;
       }).join('<br>') +
-      `<br>Thumb home key ${(row[1].pad.clone().applyMatrix4(L).z - anchor.z).toFixed(0)} mm from the finger home row's height.`;
+      (() => {
+        const at = row[1].pad.clone().applyMatrix4(L).sub(anchor),
+          n = new T.Vector3().setFromMatrixColumn(row[1].frame, 2).transformDirection(L),
+          m = poses.middle[1].n.clone().transformDirection(L),
+          dir = row[0].pad.clone().sub(row[2].pad).transformDirection(L);
+        return (
+          `<br>Thumb home key from the middle home key: ${sign(at.x)} toward the pinky, ${sign(at.y)} away, ${sign(at.z)} up (mm). ` +
+          `It faces ${deg(n.angleTo(Z)).toFixed(0)}° from straight up, toward the thumb side turned ${sign(deg(Math.atan2(-n.y, -n.x)))}° toward you (${deg(n.angleTo(m)).toFixed(0)}° from the middle home key). ` +
+          `Dactyl's: −49, −54, −11 mm; 37° from up, turned +33° toward you (38°). ` +
+          `The row runs ${sign(deg(Math.atan2(dir.y, -dir.x)))}° from straight across (+ far key away from you), ${sign(deg(Math.asin(dir.z)))}° up toward the far key. ` +
+          (() => {
+            const wrap = (d: number) => ((((d + 180) % 360) + 360) % 360) - 180,
+              [f, h] = [row[0].q, row[1].q];
+            return `To reach the far key the CMC sweeps ${sign(wrap(h[0] - f[0]))}°, abducts ${sign(wrap(f[1] - h[1]))}° and twists ${sign(wrap(f[2] - h[2]))}°.`;
+          })()
+        );
+      })();
     host.render();
   }
 
@@ -722,11 +754,48 @@ export function setupHand(host: Host) {
   );
   heading('Thumb row');
   slider(
-    'home key: degrees round the measured arc',
-    () => s.thumbAt,
-    (v) => (s.thumbAt = v),
+    'sweep: + across toward the fingers (CMC, degrees from rest)',
+    () => s.thumb.sweep,
+    (v) => (s.thumb.sweep = v),
+    -80,
+    30,
+  );
+  slider(
+    'abduction: + down, away from the palm (CMC)',
+    () => s.thumb.abduct,
+    (v) => (s.thumb.abduct = v),
+    -30,
     60,
-    200,
+  );
+  slider(
+    'twist: + pad turned to face down (CMC)',
+    () => s.thumb.twist,
+    (v) => (s.thumb.twist = v),
+    -90,
+    90,
+  );
+  slider(
+    'curl: MCP and IP, degrees past rest',
+    () => s.thumb.curl,
+    (v) => (s.thumb.curl = v),
+    -30,
+    50,
+  );
+  slider(
+    'press: IP degrees per MCP degree',
+    () => s.thumb.mix,
+    (v) => (s.thumb.mix = v),
+    0,
+    3,
+    0.1,
+  );
+  slider(
+    'press: CMC abduction degrees per MCP degree (0 = like a finger)',
+    () => s.thumb.cmc,
+    (v) => (s.thumb.cmc = v),
+    0,
+    3,
+    0.1,
   );
   slider(
     'key spacing (mm)',
@@ -736,28 +805,6 @@ export function setupHand(host: Host) {
     30,
     0.5,
   );
-  slider(
-    'row angle on the sphere: 0 along the measured arc, + far key higher',
-    () => s.angle,
-    (v) => (s.angle = v),
-    -60,
-    60,
-  );
-  slider(
-    'thumb curl (MCP and IP, degrees past rest)',
-    () => s.thumbCurl,
-    (v) => (s.thumbCurl = v),
-    -30,
-    40,
-  );
-  slider(
-    'thumb twist: + pad turned to face down',
-    () => s.twist,
-    (v) => (s.twist = v),
-    -60,
-    60,
-  );
-
   // Back to the defaults, keeping which keys the hand is shown on; one Undo step.
   const reset = document.createElement('button');
   reset.textContent = 'Reset hand';
