@@ -3,14 +3,16 @@
  * mirrored into the right half's layout axes) drawn in the editor, laying out
  * the keys: each home key goes under its fingertip, the top and bottom rows
  * where the fingertip lands when it reaches forward or pulls back, and the
- * thumb row where the thumb sweeps, each key facing the way the thumb curls. Opening the page and every
+ * thumb row where the thumb reaches by pivoting at its base, each key facing
+ * the way the thumb curls to press it. Opening the page and every
  * slider move rewrite the finger columns and the thumb row (Undo restores).
  *
  * Fingers: chains MCP–PIP–DIP–pad from the resting pose. Curl bends the PIP,
  * the MCP by 0.4 of that and the DIP by 2/3. A row's reach is shared between
  * the fingers (least joint movement, so the row rises or drops as it must) and
  * the whole hand sliding (which keeps the row level).
- * Thumb: a ball joint at the assumed CMC, hinges at the MCP and IP.
+ * Thumb: a ball joint at the assumed CMC, hinges at the MCP and IP. On the
+ * thumb row the CMC reaches and the MCP and IP press.
  * The palm is a sketch.
  */
 import * as T from 'three';
@@ -146,11 +148,13 @@ const cmc = hand.thumb.assumed_cmc,
   TL = [cmc.metacarpal_mm, hand.thumb.segment_mm.mcp_ip, hand.thumb.segment_mm.ip_pad],
   thumbRest = cmc.poses['1'];
 /** q = yaw, pitch, roll (the CMC), mcp, ip: as in v4/hand/tools/thumb_cmc.py. */
+const rotQ = (q: number[]) =>
+  new T.Matrix4()
+    .makeRotationZ(rad(q[0]))
+    .multiply(new T.Matrix4().makeRotationY(rad(q[1])))
+    .multiply(new T.Matrix4().makeRotationX(rad(q[2])));
 function thumb(q: number[]) {
-  const R = new T.Matrix4()
-      .makeRotationZ(rad(q[0]))
-      .multiply(new T.Matrix4().makeRotationY(rad(q[1])))
-      .multiply(new T.Matrix4().makeRotationX(rad(q[2]))),
+  const R = rotQ(q),
     d = (a: number) => new T.Vector3(Math.cos(rad(a)), -Math.sin(rad(a)), 0).applyMatrix4(R),
     up = (a: number) => new T.Vector3(Math.sin(rad(a)), Math.cos(rad(a)), 0).applyMatrix4(R),
     M = C.clone().addScaledVector(d(0), TL[0]),
@@ -191,34 +195,45 @@ const printAngle = (k: string) => {
   const p = (hand.measured.thumb_prints as Record<string, number[]>)[k];
   return deg(Math.atan2(p[1] - arc.centre[1], p[0] - arc.centre[0]));
 };
-/** The thumb row in the hand frame, far key first. The home key's pad is `at`
- * degrees round the measured arc. The row leaves it square to the way the
- * thumb presses, turned `tilt` degrees toward that way (+ the far key deeper),
- * and curves as tightly as the measured arc. Each key's frame has z out of the
- * cap (from up at `face` 0 to against the press at 1) and x toward the near key. */
-function thumbRow(at: number, spacing: number, tilt: number, face: number) {
-  const home = arcPoint(at),
-    qh = reachQ(home),
-    p = pressDir(qh),
+/** The thumb row in the hand frame, far key first. The MCP and IP are held
+ * `curl` degrees past their resting bend and the thumb is `twist`ed about its
+ * own length, so the thumb is one rigid piece pivoting at the CMC and its pad
+ * lies on a sphere round the CMC. The home key is where the pad crosses the
+ * measured arc `at` degrees round (in plan). The row runs round the sphere
+ * through it, `angle` degrees from the measured arc's direction (+ far key
+ * higher). Each key faces against the way the pad moves as the MCP and IP curl.
+ * Frames: z out of the cap, x toward the near key. */
+function thumbRow(at: number, spacing: number, angle: number, curl: number, twist: number) {
+  const target = arcPoint(at),
+    pose = ([yaw, pitch]: number[]) => [
+      yaw,
+      pitch,
+      thumbRest[2] + twist,
+      thumbRest[3] + curl,
+      thumbRest[4] + curl,
+    ],
+    qh = pose(
+      fit((v) => {
+        const d = thumb(pose(v)).pad.sub(target);
+        return [d.x / 0.5, d.y / 0.5];
+      }, thumbRest.slice(0, 2)),
+    ),
+    home = thumb(qh).pad,
+    radial = home.clone().sub(C).normalize(),
+    onSphere = (v: T.Vector3) => v.addScaledVector(radial, -v.dot(radial)).normalize(),
     a = rad(at),
-    tangent = new T.Vector3(-Math.sin(a), Math.cos(a), 0), // toward prints 3 and 4: far
-    flat = tangent.addScaledVector(p, -tangent.dot(p)).normalize(),
-    sweep = flat.multiplyScalar(Math.cos(rad(tilt))).addScaledVector(p, Math.sin(rad(tilt))),
-    inward = V([arc.centre[0], arc.centre[1], home.z]).sub(home),
-    k = inward.addScaledVector(sweep, -inward.dot(sweep)).normalize(),
-    R = arc.radius_mm;
+    along = onSphere(new T.Vector3(-Math.sin(a), Math.cos(a), 0)), // toward prints 3 and 4: far
+    up = onSphere(Z.clone().addScaledVector(along, -Z.dot(along))),
+    dir = along.multiplyScalar(Math.cos(rad(angle))).addScaledVector(up, Math.sin(rad(angle))),
+    axis = new T.Vector3().crossVectors(radial, dir).normalize(),
+    R = home.distanceTo(C);
   return [1, 0, -1].map((n) => {
-    const th = (n * spacing) / R,
-      pad = home
-        .clone()
-        .addScaledVector(sweep, R * Math.sin(th))
-        .addScaledVector(k, R * (1 - Math.cos(th))),
-      q = reachQ(pad, qh),
-      z = Z.clone().lerp(pressDir(q).negate(), face).normalize(),
-      x = sweep
-        .clone()
-        .multiplyScalar(-Math.cos(th))
-        .addScaledVector(k, -Math.sin(th)),
+    const turn = new T.Matrix4().makeRotationAxis(axis, (n * spacing) / R),
+      e = new T.Euler().setFromRotationMatrix(turn.clone().multiply(rotQ(qh)), 'ZYX'),
+      q = [deg(e.z), deg(e.y), deg(e.x), qh[3], qh[4]],
+      pad = thumb(q).pad,
+      z = pressDir(q).negate(),
+      x = dir.clone().applyMatrix4(turn).negate(),
       xx = x.addScaledVector(z, -x.dot(z)).normalize(),
       m = new T.Matrix4().makeBasis(xx, new T.Vector3().crossVectors(z, xx), z).setPosition(pad);
     return { pad, q, frame: m };
@@ -362,8 +377,9 @@ export function setupHand(host: Host) {
     share: 50,
     thumbAt: Math.round(printAngle('1')),
     spacing: 19.5,
-    tilt: 0,
-    face: 50,
+    angle: 0,
+    thumbCurl: 0,
+    twist: 0,
     row: 'home' as Row,
     thumbOn: 'home',
   };
@@ -434,7 +450,9 @@ export function setupHand(host: Host) {
     const L = toLayout();
     placeThumb(
       c,
-      thumbRow(s.thumbAt, s.spacing, s.tilt, s.face / 100).map((k) => L.clone().multiply(k.frame)),
+      thumbRow(s.thumbAt, s.spacing, s.angle, s.thumbCurl, s.twist).map((k) =>
+        L.clone().multiply(k.frame),
+      ),
     );
   }
 
@@ -444,14 +462,15 @@ export function setupHand(host: Host) {
       { chains, slide } = solve(),
       ri = ROWS.indexOf(s.row),
       L = toLayout(slide[s.row]);
-    // The thumb on its key, which stays put while the hand slides for a row.
+    // The thumb on its key. The key stays put while the hand slides for a row,
+    // so then the thumb reaches back to it with every joint.
+    const row = thumbRow(s.thumbAt, s.spacing, s.angle, s.thumbCurl, s.twist);
     let th = thumb(thumbRest);
     if (s.thumbOn !== 'rest') {
-      const k = thumbRow(s.thumbAt, s.spacing, s.tilt, s.face / 100)[
-          ['far', 'home', 'near'].indexOf(s.thumbOn)
-        ],
-        pad = k.pad.clone().applyMatrix4(L.clone().invert().multiply(toLayout()));
-      th = thumb(reachQ(pad, k.q));
+      const k = row[['far', 'home', 'near'].indexOf(s.thumbOn)];
+      th = slide[s.row]
+        ? thumb(reachQ(k.pad.clone().applyMatrix4(L.clone().invert().multiply(toLayout())), k.q))
+        : thumb(k.q);
     }
     const shown = Object.fromEntries(FINGERS.map((f) => [f, chains[f][ri]])) as Record<
       Finger,
@@ -470,7 +489,10 @@ export function setupHand(host: Host) {
           moved = Math.abs(slide[r]).toFixed(0);
         return `${r === 'top' ? 'Top' : 'Bottom'} row: hand slides ${moved} mm, keys ${lo === hi ? lo : `${lo} to ${hi}`} mm from home height.`;
       })
-      .join(' ');
+      .join(' ')
+      .concat(
+        ` Thumb home key ${(row[1].pad.clone().applyMatrix4(toLayout()).z - anchor.z).toFixed(0)} mm from the finger home row's height.`,
+      );
     host.render();
   }
 
@@ -632,19 +654,25 @@ export function setupHand(host: Host) {
     0.5,
   );
   slider(
-    'row tilt: + far key pressed deeper',
-    () => s.tilt,
-    (v) => (s.tilt = v),
-    -40,
+    'row angle on the sphere: 0 along the measured arc, + far key higher',
+    () => s.angle,
+    (v) => (s.angle = v),
+    -60,
+    60,
+  );
+  slider(
+    'thumb curl (MCP and IP, degrees past rest)',
+    () => s.thumbCurl,
+    (v) => (s.thumbCurl = v),
+    -30,
     40,
   );
   slider(
-    'keys face (%): 0 up, 100 the way the thumb curls',
-    () => s.face,
-    (v) => (s.face = v),
-    0,
-    100,
-    5,
+    'thumb twist: + pad turned to face down',
+    () => s.twist,
+    (v) => (s.twist = v),
+    -60,
+    60,
   );
 
   const caseBox = document.createElement('label');
