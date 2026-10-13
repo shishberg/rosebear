@@ -580,6 +580,53 @@ export function setupHand(host: Host) {
           })()
         );
       })();
+    // How tall the board stands: from the highest keycap corner down to the
+    // lowest switch body's bottom, plus the base under it.
+    const world = tentFrame(c),
+      sw = c.switch,
+      caps = (c.switch as { keycap_overrides_mm?: Record<string, number[]> }).keycap_overrides_mm ?? {},
+      tallest = { z: -Infinity, key: '' },
+      fingers = { z: -Infinity, key: '' },
+      lowest = { z: Infinity, key: '' },
+      corners = (m: T.Matrix4, w: number, d: number, zs: number[], into: { z: number; key: string }, key: string, hi: boolean) => {
+        for (const x of [-w / 2, w / 2])
+          for (const y of [-d / 2, d / 2])
+            for (const z of zs) {
+              const p = new T.Vector3(x, y, z).applyMatrix4(m);
+              if (hi ? p.z > into.z : p.z < into.z) Object.assign(into, { z: p.z, key });
+            }
+      },
+      cap = (key: string, top: T.Matrix4) => {
+        const [w, d, h] = caps[key] ?? sw.keycap_mm,
+          m = world.clone().multiply(top),
+          seat = -h - sw.keycap_bottom_above_plate_mm;
+        corners(m, w, d, [-h, 0], tallest, key, true);
+        if (key.startsWith('matrix_')) corners(m, w, d, [-h, 0], fingers, key, true);
+        corners(m, sw.body_mm[0], sw.body_mm[1], [seat - sw.body_below_plate_mm], lowest, key, false);
+      };
+    for (const col of Object.keys(poses))
+      poses[col].forEach((p, ri) => {
+        const z = p.n.clone().transformDirection(L),
+          x = new T.Vector3(1, 0, 0).addScaledVector(z, -z.x).normalize();
+        cap(
+          `matrix_${col}_${ROWS[ri]}`,
+          new T.Matrix4()
+            .makeBasis(x, new T.Vector3().crossVectors(z, x), z)
+            .setPosition(p.chain.pad.clone().applyMatrix4(L)),
+        );
+      });
+    row.forEach((k, i) => {
+      const name = ['far', 'home', 'near'][i];
+      cap(
+        `thumb_${name}`,
+        L.clone()
+          .multiply(k.frame)
+          .multiply(frame([0, 0, 0], KEY_TURN[name] ?? [0, 0, 0])),
+      );
+    });
+    const name = (k: string) => k.replace(/^matrix_/, '').replace('_', ' '),
+      base = (c as { chassis?: { base_thickness_mm?: number } }).chassis?.base_thickness_mm ?? 2;
+    note.innerHTML += `<br>Height: ${(tallest.z - lowest.z + base).toFixed(0)} mm from the base to the highest keycap corner (${name(tallest.key)}; lowest switch: ${name(lowest.key)}); the finger keys alone: ${(fingers.z - lowest.z + base).toFixed(0)} mm. Keyboard tray: 66 mm.`;
     host.render();
   }
 
