@@ -587,6 +587,7 @@ export function setupHand(host: Host) {
       caps = (c.switch as { keycap_overrides_mm?: Record<string, number[]> }).keycap_overrides_mm ?? {},
       tallest = { z: -Infinity, key: '' },
       fingers = { z: -Infinity, key: '' },
+      noFar = { z: -Infinity, key: '' },
       lowest = { z: Infinity, key: '' },
       corners = (m: T.Matrix4, w: number, d: number, zs: number[], into: { z: number; key: string }, key: string, hi: boolean) => {
         for (const x of [-w / 2, w / 2])
@@ -602,6 +603,7 @@ export function setupHand(host: Host) {
           seat = -h - sw.keycap_bottom_above_plate_mm;
         corners(m, w, d, [-h, 0], tallest, key, true);
         if (key.startsWith('matrix_')) corners(m, w, d, [-h, 0], fingers, key, true);
+        if (key !== 'thumb_far') corners(m, w, d, [-h, 0], noFar, key, true);
         corners(m, sw.body_mm[0], sw.body_mm[1], [seat - sw.body_below_plate_mm], lowest, key, false);
       };
     for (const col of Object.keys(poses))
@@ -626,7 +628,7 @@ export function setupHand(host: Host) {
     });
     const name = (k: string) => k.replace(/^matrix_/, '').replace('_', ' '),
       base = (c as { chassis?: { base_thickness_mm?: number } }).chassis?.base_thickness_mm ?? 2;
-    note.innerHTML += `<br>Height: ${(tallest.z - lowest.z + base).toFixed(0)} mm from the base to the highest keycap corner (${name(tallest.key)}; lowest switch: ${name(lowest.key)}); the finger keys alone: ${(fingers.z - lowest.z + base).toFixed(0)} mm. Keyboard tray: 66 mm.`;
+    note.innerHTML += `<br>Height: ${(tallest.z - lowest.z + base).toFixed(0)} mm from the base to the highest keycap corner (${name(tallest.key)}; lowest switch: ${name(lowest.key)}); the finger keys alone: ${(fingers.z - lowest.z + base).toFixed(0)} mm; without the far thumb key: ${(noFar.z - lowest.z + base).toFixed(0)} mm. Keyboard tray: 66 mm.`;
     host.render();
   }
 
