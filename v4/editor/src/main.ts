@@ -52,8 +52,10 @@ const undo: Project[] = [],
 let hasShell = false,
   buildRequests = 0,
   selected = '';
-// PROTOTYPE ?hand=A|B|C (hand-prototype.ts): redraws the hand after each edit.
-let handUpdate: (() => void) | undefined;
+// PROTOTYPE ?hand (hand-prototype.ts): redraws the hand after each edit, and
+// builds the case only when asked (the generator can't follow many hand layouts).
+let handUpdate: (() => void) | undefined,
+  handCase: (() => boolean) | undefined;
 let revision = 0,
   solidRevision = -1,
   report: Report | undefined,
@@ -742,6 +744,11 @@ function startWorker() {
 }
 function requestBuild() {
   clearTimeout(timer);
+  for (const o of [shell, basePlate, trim]) o.visible = !handCase || handCase();
+  if (handCase && !handCase()) {
+    $('view-state').textContent = 'Case not built (prototype: tick Build the case)';
+    return;
+  }
   if (drag || busy) {
     pending = true;
     return;
@@ -1231,7 +1238,14 @@ const marks = !import.meta.env.DEV
       render,
     });
 if (import.meta.env.DEV && new URLSearchParams(location.search).has('hand'))
-  handUpdate = setupHand({ scene, project: () => project, snapshot, edited, render });
+  ({ update: handUpdate, buildCase: handCase } = setupHand({
+    scene,
+    project: () => project,
+    snapshot,
+    edited,
+    render,
+    rebuild: () => requestBuild(),
+  }));
 restoreView();
 historyButtons();
 refreshInputs();
