@@ -124,7 +124,9 @@ function finger(f: Finger, mcp: number, pip: number, abd = 0): Chain {
       pts.forEach((p) => p.sub(about).applyAxisAngle(across, -rad(a)).add(about));
   bend(c.mcp, mcp, [c.pip, c.dip, c.pad, c.tip]);
   bend(c.pip, pip, [c.dip, c.pad, c.tip]);
-  bend(c.dip, (pip * 2) / 3, [c.pad, c.tip]);
+  // The DIP follows the PIP, but straightens no further than straight (or its
+  // resting angle, where pressing on the paper already bent it back).
+  bend(c.dip, Math.max((pip * 2) / 3, Math.min(0, -DIP_BEND[f])), [c.pad, c.tip]);
   for (const p of [c.pip, c.dip, c.pad, c.tip]) p.sub(c.mcp).applyAxisAngle(Z, rad(abd)).add(c.mcp);
   return c;
 }
@@ -135,6 +137,13 @@ const PIP_BEND = Object.fromEntries(
   FINGERS.map((f) => {
     const p = hand.fingers[f].rest.segment_pitch_deg;
     return [f, p[1] - p[0]];
+  }),
+) as Record<Finger, number>;
+/** The resting DIP bend (negative where it was bent back). */
+const DIP_BEND = Object.fromEntries(
+  FINGERS.map((f) => {
+    const p = hand.fingers[f].rest.segment_pitch_deg;
+    return [f, p[2] - p[1]];
   }),
 ) as Record<Finger, number>;
 /** The pose that moves the fingertip `dist` mm along the finger from home by
