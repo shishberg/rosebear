@@ -672,7 +672,7 @@ export function setupHand(host: Host) {
     35,
   );
   slider(
-    'press: PIP and DIP straighten (% of measured; 0 = knuckle only)',
+    'press: PIP and DIP straighten (% of measured; 0 = MCP only)',
     () => s.give,
     (v) => (s.give = v),
     0,
