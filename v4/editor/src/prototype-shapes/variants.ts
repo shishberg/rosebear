@@ -1307,8 +1307,29 @@ function c64(k: Kit, bins: Bin[]) {
   trim = [face(x0 + D - 0.4, x0 + D).subtract(slot)];
   return body.subtract(face(x0 - 1, x0 + D)).subtract(slot);
 }
-// The tape deck's parting groove bottom, from its last build.
-let tapeSplit = 0;
+// The editor's chassis with its case set to chassis.box_style: style (see
+// src/shell.ts, where its shape is changed). The parting groove bottom comes
+// from the last build.
+let chassisSplit = 0;
+const editorCase = (style: string, name: string, blurb: string): Variant => ({
+  key: style,
+  name,
+  blurb: `The editor's case (chassis.box_style ${style}): ${blurb} Built by the editor's chassis (plate sheets, rooms, skirts; ?held= braces the main thumbs).`,
+  build: (k) => {
+    const c = buildChassis(k.wasm, k.cfg, k.frames);
+    trim = [c.trim];
+    chassisSplit = c.split;
+    return c.body.add(c.base);
+  },
+  color: 0xd8ccae,
+  capColor: 0x4b3a2e,
+  get split() {
+    return chassisSplit;
+  },
+  config: (c) => {
+    (c.chassis as { box_style?: string }).box_style = style;
+  },
+});
 const thumbKeys = (k: Kit) => thumbs(k),
   fingerKeys = (k: Kit) => keys(k.frames).filter((n) => n.startsWith('matrix_'));
 // The thumb row's direction in plan: the line fitted through every thumb
@@ -1346,24 +1367,14 @@ export const variants: Variant[] = [
     capColor: 0x4b3a2e,
     split: PART - 0.6, // the bottom of the parting groove
   },
-  {
-    key: 'tape-deck',
-    name: 'Tape deck: thumbs in a block in front',
-    blurb:
-      "The editor's current case (chassis.box_style tape-deck, src/shell.ts): a breadbin turned a quarter round the finger keys, its deck one plane fitted through them, with the thumbs in a block in front like the C64's tape deck. Built by the editor's chassis (plate sheets, rooms, skirts; ?held= braces the main thumbs), so change the shape in src/shell.ts.",
-    build: (k) => {
-      const c = buildChassis(k.wasm, k.cfg, k.frames);
-      trim = [c.trim];
-      tapeSplit = c.split;
-      return c.body.add(c.base);
-    },
-    color: 0xd8ccae,
-    capColor: 0x4b3a2e,
-    get split() {
-      return tapeSplit;
-    },
-    config: (c) => {
-      (c.chassis as { box_style?: string }).box_style = 'tape-deck';
-    },
-  },
+  editorCase(
+    'tape-deck',
+    'Tape deck: thumbs in a block in front',
+    "a breadbin turned a quarter round the finger keys, its deck one plane fitted through them, with the thumbs in a block in front like the C64's tape deck.",
+  ),
+  editorCase(
+    'turned-narrow',
+    'Turned breadbin to the front, no tape deck',
+    "the tape deck's turned breadbin carried on to the front round the thumbs too, one case with no block: its deck the same plane, levelling off past the fingers' well into one flat top round the thumbs' well; the grill beside the index column, past the thumbs.",
+  ),
 ];

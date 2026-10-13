@@ -190,8 +190,9 @@ the deck's height above the plates. These are prototypes; their code is marked
 (`src/prototype-shapes/`) builds a case on the default config's keys with
 none of the editor's wiring or fit checks, for trying shapes quickly. ←/→ or
 `?variant=` picks the shape: `c64-joined-badge` (the joined C64, its own copy,
-the thumb deck along the line fitted through every thumb) or `tape-deck` (the
-editor's chassis). It reports loose pieces, keycap hits and the gaps between
+the thumb deck along the line fitted through every thumb), `tape-deck` or
+`turned-narrow` (the C64 case carried to the front round the thumbs, no tape
+deck); the last two are the editor's chassis with that case. It reports loose pieces, keycap hits and the gaps between
 key groups; M paints marks, as in the editor.
 
 **Main thumbs held by (prototype)**, or `?held=`, braces the main thumbs to the
