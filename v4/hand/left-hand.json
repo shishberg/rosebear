@@ -1,0 +1,293 @@
+{
+ "hand": "left",
+ "frame": "Hand frame (matches the editor's layout axes, so the left hand reads as the right half's layout): origin at the middle fingertip's resting print, +X toward the pinky, +Y away from you along the mean finger direction, +Z up from the surface the fingertips rest on. Millimetres and degrees.",
+ "measured": {
+  "fingertip_rest": {
+   "index": [
+    -20.8,
+    -4.7,
+    0.0
+   ],
+   "middle": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "ring": [
+    21.0,
+    -10.0,
+    0.0
+   ],
+   "pinky": [
+    40.2,
+    -27.5,
+    0.0
+   ]
+  },
+  "thumb_prints": {
+   "1": [
+    -45.2,
+    -55.1,
+    0.0
+   ],
+   "2": [
+    -29.3,
+    -53.4,
+    0.0
+   ],
+   "3": [
+    -62.8,
+    -70.2,
+    0.0
+   ],
+   "4": [
+    -74.0,
+    -90.5,
+    0.0
+   ],
+   "5": [
+    -44.0,
+    -80.5,
+    0.0
+   ]
+  },
+  "thumb_prints_key": {
+   "1": "rest",
+   "2": "swept in, toward the index",
+   "3": "swept out, away from the palm",
+   "4": "pulled back, toward you",
+   "5": "curled in, under the hand"
+  },
+  "mcp_knuckle_height_mm": {
+   "middle": 80,
+   "thumb": 45
+  },
+  "accuracy": "Positions on the surface (fingertip_rest, thumb_prints) are within about 1-2 mm."
+ },
+ "fingers": {
+  "index": {
+   "segment_mm": {
+    "mcp_pip": 42.5,
+    "pip_dip": 26.5,
+    "dip_pad": 15.0
+   },
+   "rest": {
+    "pad": [
+     -20.8,
+     -4.7,
+     0.0
+    ],
+    "joints": {
+     "mcp": [
+      -21.1,
+      -63.2,
+      58.9
+     ],
+     "pip": [
+      -21.5,
+      -27.5,
+      35.9
+     ],
+     "dip": [
+      -21.8,
+      -10.7,
+      15.5
+     ]
+    },
+    "segment_pitch_deg": [
+     33.0,
+     51.0,
+     44.0
+    ],
+    "flexion_deg": {
+     "pip": 18.0,
+     "dip": -6.0
+    },
+    "heading_deg": -0.8
+   }
+  },
+  "middle": {
+   "segment_mm": {
+    "mcp_pip": 50.1,
+    "pip_dip": 29.5,
+    "dip_pad": 15.7
+   },
+   "rest": {
+    "pad": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "joints": {
+     "mcp": [
+      4.9,
+      -62.7,
+      67.7
+     ],
+     "pip": [
+      3.2,
+      -19.9,
+      41.7
+     ],
+     "dip": [
+      2.5,
+      -3.6,
+      17.2
+     ]
+    },
+    "segment_pitch_deg": [
+     31.0,
+     56.0,
+     54.0
+    ],
+    "flexion_deg": {
+     "pip": 25.0,
+     "dip": -2.0
+    },
+    "heading_deg": -2.3
+   }
+  },
+  "ring": {
+   "segment_mm": {
+    "mcp_pip": 45.5,
+    "pip_dip": 28.0,
+    "dip_pad": 15.8
+   },
+   "rest": {
+    "pad": [
+     21.0,
+     -10.0,
+     0.0
+    ],
+    "joints": {
+     "mcp": [
+      23.5,
+      -70.3,
+      59.5
+     ],
+     "pip": [
+      24.0,
+      -29.1,
+      39.9
+     ],
+     "dip": [
+      24.2,
+      -12.9,
+      17.1
+     ]
+    },
+    "segment_pitch_deg": [
+     25.0,
+     55.0,
+     58.0
+    ],
+    "flexion_deg": {
+     "pip": 29.0,
+     "dip": 3.0
+    },
+    "heading_deg": 0.7
+   }
+  },
+  "pinky": {
+   "segment_mm": {
+    "mcp_pip": 31.2,
+    "pip_dip": 21.2,
+    "dip_pad": 14.6
+   },
+   "rest": {
+    "pad": [
+     40.2,
+     -27.5,
+     0.0
+    ],
+    "joints": {
+     "mcp": [
+      43.0,
+      -77.6,
+      43.3
+     ],
+     "pip": [
+      44.1,
+      -49.6,
+      29.6
+     ],
+     "dip": [
+      44.7,
+      -34.6,
+      14.6
+     ]
+    },
+    "segment_pitch_deg": [
+     26.0,
+     45.0,
+     43.0
+    ],
+    "flexion_deg": {
+     "pip": 19.0,
+     "dip": -2.0
+    },
+    "heading_deg": 2.3
+   }
+  }
+ },
+ "thumb": {
+  "segment_mm": {
+   "mcp_ip": 35.0,
+   "ip_pad": 17.5
+  },
+  "rest": {
+   "pad": [
+    -45.2,
+    -55.1,
+    0.0
+   ],
+   "joints": {
+    "mcp": [
+     -54.2,
+     -100.0,
+     36.0
+    ],
+    "ip": [
+     -60.0,
+     -65.0,
+     32.2
+    ]
+   }
+  },
+  "arc_through_prints_1_to_4": {
+   "centre": [
+    -27.3,
+    -100.2
+   ],
+   "radius_mm": 47.4,
+   "misses_mm": [
+    -0.5,
+    1.1,
+    -0.9,
+    0.3
+   ]
+  },
+  "cmc": "Not located: the prints do not lie on a sphere about it, and carrying it across from the flat pose was not accurate enough."
+ },
+ "fit": {
+  "pose_b_rms_mm": 1.66,
+  "pose_b_max_mm": 4.72
+ },
+ "assumptions": {
+  "skin_dot_above_joint_axis_mm": {
+   "MCP": 12,
+   "PIP": 9,
+   "DIP": 7
+  },
+  "pad_below_distal_axis_mm": 7,
+  "size_scale": {
+   "index": 1,
+   "middle": 1,
+   "ring": 0.95,
+   "pinky": 0.85
+  },
+  "pose_a_dot_height": "twice the dot offset (the joint axis is as far above the paper as the dot is above the axis)",
+  "grid_pitch_mm": 4.975,
+  "note": "Rest-pose heights rest on the 80 mm middle knuckle measurement: the camera, about 80 cm above the paper, barely sees height. MCP flexion is not given because the back-of-hand angle is poorly determined."
+ }
+}

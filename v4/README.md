@@ -17,6 +17,10 @@ KiCad/PCB generation stays offline. The Python chassis generator is retained as 
 `output_v4/chassis/` retains the previous patched-shell outputs as frozen references.
 The [old parameter guide](docs/parametric-chassis.md) describes that earlier implementation.
 
+## Hand model
+
+[`hand/`](hand/README.md) holds a measured model of the hand, in the editor's layout axes: fingertip rest positions, thumb landing points, segment lengths and the resting pose. It narrows down key placement; the layout itself is still chosen by preference.
+
 ## Paused: seeded flex and flat-thumb boards
 
 The rest of this README describes the `make v4` pipeline: flex finger boards, flat rigid thumb PCBs, the LED-free pod and the custom trackball board. The key tiles replace these boards for the first prototype. The pipeline, its tests and its docs are kept as reference and still build.
