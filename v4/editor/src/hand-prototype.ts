@@ -503,28 +503,28 @@ export function setupHand(host: Host) {
       columnFrames(c0, mi)[1].multiply(frame(o?.offset_mm, o?.rotation_deg)),
     );
 
+  // The closest fit to the Dactyl Manuform (DM_right): every hand slider at
+  // once, least squares over all 18 keys' cap tops (per 2 mm) and facings (per
+  // 3°), relative to the middle home key, before tenting. The finger keys come
+  // out 2–3 mm off in the middle and ring columns, 6–13 mm in the inner, index
+  // and pinky (the Dactyl raises its outer columns into a bowl, which these
+  // sliders can't); the thumb's home key within 2 mm, its end keys 15–19 mm
+  // (its row runs more toward you than the Dactyl's). Earlier defaults: tent
+  // 20, curls 25, inner/top/bottom 18, reach mix 0.4, the thumb at rest
+  // pressed from the CMC (all 0 but cmc 3), spacing 19.5.
   const s = {
-    // 30° (the wrist's resting twist) looked too steep; the Dactyl Manuform is
-    // about 14° by the same measure (index to pinky cap tops).
-    tent: 20,
-    roll: 0,
-    wrist: 0,
-    bend: 0,
-    // Curled enough that every finger reaches the top row on a flat plane.
-    curl: { index: 25, middle: 25, ring: 25, pinky: 25 } as Record<Finger, number>,
-    inner: 18,
-    top: 18,
-    bottom: 18,
+    tent: 15,
+    roll: 4,
+    wrist: 12,
+    bend: -2,
+    curl: { index: 15, middle: 16, ring: 13, pinky: 11 } as Record<Finger, number>,
+    inner: 23,
+    top: 17,
+    bottom: 15,
     from: 'reach',
     reachMix: 0.4,
     pressMix: 1.4,
-    // The closest fit to the Dactyl Manuform's thumb keys, relative to the
-    // middle home key: its middle thumb key within 1 mm and 1°, the IP
-    // straightening as the MCP flexes. Its row runs more toward the user
-    // (−67° from across against −35°), so the end keys miss by 12–14 mm;
-    // fitting all three keys instead gets them no closer. (The thumb at rest,
-    // pressed from the CMC: all 0 but cmc 3.)
-    thumb: { sweep: -23, abduct: 14, twist: 17, curl: 14, mix: -3, cmc: 0.3 } as ThumbPose,
+    thumb: { sweep: 11, abduct: 41, twist: -90, curl: -24, mix: -2.1, cmc: 0.2 } as ThumbPose,
     spacing: 24.5,
     cluster: '1×3',
     // The 1u row, a key's depth from the 1.5u, on the curled side, reached
