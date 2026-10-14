@@ -1240,6 +1240,9 @@ const marks = !import.meta.env.DEV
 if (import.meta.env.DEV && new URLSearchParams(location.search).has('hand'))
   ({ update: handUpdate, buildCase: handCase } = setupHand({
     scene,
+    camera,
+    dom: renderer.domElement,
+    orbit: controls,
     project: () => project,
     snapshot,
     edited,
