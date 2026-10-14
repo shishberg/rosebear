@@ -1377,7 +1377,7 @@ export function setupHand(host: Host) {
   // The test frame (hand-frame.ts): switch holes on pillars, to print and try.
   const frameBox = document.createElement('div');
   frameBox.innerHTML =
-    '<label style="display:block"><input type="checkbox"> Test frame (print this way up, no supports)</label>' +
+    '<label style="display:block"><input type="checkbox"> Test frame (print this way up, with supports)</label>' +
     '<button>Right STL</button><button>Left STL</button><div style="font-size:13px"></div>';
   const frameOn = frameBox.querySelector('input')!,
     [rightStl, leftStl] = frameBox.querySelectorAll('button'),
@@ -1411,9 +1411,7 @@ export function setupHand(host: Host) {
     const wrong = [...(r.pieces > 1 ? [`${r.pieces} separate pieces`] : []), ...r.faults];
     frameNote.innerHTML =
       `${r.size.map((x) => x.toFixed(0)).join(' × ')} mm` +
-      (r.bars
-        ? `; joined along the floor in ${r.bars === 1 ? 'one place' : `${r.bars} places`}`
-        : '') +
+      `; ${r.volume.toFixed(0)} cm³ (${(r.volume * 1.24).toFixed(0)} g of PLA) before supports` +
       (wrong.length ? `<div style="color:#ff9a8a">${wrong.join('<br>')}</div>` : '');
     host.render();
   }
