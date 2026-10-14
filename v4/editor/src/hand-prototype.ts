@@ -526,23 +526,23 @@ export function setupHand(host: Host) {
   // sliders can't); the thumb's home key within 2 mm, its end keys 15–19 mm
   // (its row runs more toward you than the Dactyl's). Earlier defaults: tent
   // 20, curls 25, inner/top/bottom 18, reach mix 0.4, the thumb at rest
-  // pressed from the CMC (all 0 but cmc 3), spacing 19.5. The inner column
-  // turns 80% at the wrist (refitted to the Dactyl's inner keys: 10°; turned
-  // at the knuckle alone it fits at 23° with the bottom keys 11 mm apart).
+  // pressed from the CMC (all 0 but cmc 3), spacing 19.5. The inner column's
+  // wrist share is in the fit too: 0.8 (1 fits as well; turned at the knuckle
+  // alone it fit at 23° with the bottom keys 11 mm apart).
   const s = {
     tent: 15,
     roll: 4,
-    wrist: 12,
+    wrist: 11,
     bend: -2,
-    curl: { index: 15, middle: 16, ring: 13, pinky: 11 } as Record<Finger, number>,
+    curl: { index: 16, middle: 17, ring: 14, pinky: 12 } as Record<Finger, number>,
     inner: 10,
     innerWrist: 0.8,
     top: 17,
-    bottom: 15,
+    bottom: 16,
     from: 'reach',
-    reachMix: 0.4,
+    reachMix: 0.5,
     pressMix: 1.4,
-    thumb: { sweep: 11, abduct: 41, twist: -90, curl: -24, mix: -2.1, cmc: 0.2 } as ThumbPose,
+    thumb: { sweep: 10, abduct: 41, twist: -89, curl: -23, mix: -2.1, cmc: 0.2 } as ThumbPose,
     spacing: 24.5,
     cluster: '1×3',
     // The 1u row, a key's depth from the 1.5u, on the curled side, reached
