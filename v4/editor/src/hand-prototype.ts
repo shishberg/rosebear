@@ -32,7 +32,7 @@ import * as T from 'three';
 import { ConvexGeometry } from 'three/addons/geometries/ConvexGeometry.js';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import hand from '../../hand/left-hand.json';
-import { capSize, columnFrames, frame, ROWS, tentFrame, type Project, type Config, type V3 } from './geometry';
+import { capSize, capTop, columnFrames, frame, ROWS, tentFrame, type Project, type Config, type V3 } from './geometry';
 
 type Host = {
   scene: T.Scene;
@@ -57,7 +57,7 @@ const V = (p: number[]) => new T.Vector3(...(p as V3));
 const Z = new T.Vector3(0, 0, 1);
 const rad = (d: number) => (d * Math.PI) / 180;
 const deg = (r: number) => (r * 180) / Math.PI;
-const capTop = (c: Config) => c.switch.keycap_bottom_above_plate_mm + c.switch.keycap_mm[2];
+const capHeight = (c: Config) => c.switch.keycap_bottom_above_plate_mm + c.switch.keycap_mm[2];
 
 /** Least squares by Gauss–Newton with backtracking. */
 function fit(res: (x: number[]) => number[], x0: number[]) {
@@ -490,12 +490,15 @@ function drawHand(group: T.Group, chains: Record<Finger, Chain>, th: ReturnType<
 
 // ---------------------------------------------------------------- writing the layout
 /** Put each finger key's cap-top centre at the given layout point, facing
- * `normal`. The column takes the home key's place and splay; each key's own
- * offset and tilt go in key_overrides. */
-type KeyTop = { top: T.Vector3; normal: T.Vector3 };
+ * `normal`, its y up the column (`up`, square to the normal, as the checks
+ * have it; not the editor column frame's, which carries the config's column
+ * roll and turned the inner keys a few degrees from the index's). The column
+ * takes the home key's place and splay; each key's own offset and tilt go in
+ * key_overrides. */
+type KeyTop = { top: T.Vector3; normal: T.Vector3; up: T.Vector3 };
 function placeColumns(c: Config, keys: Record<string, KeyTop[]>, splay: Record<string, number>) {
   const g = c.geometry,
-    h = capTop(c),
+    h = capHeight(c),
     over = g.key_overrides as Record<string, { offset_mm?: number[]; rotation_deg?: number[] }>;
   g.columns.forEach((col, ci) => {
     const K = keys[col.name];
@@ -505,14 +508,13 @@ function placeColumns(c: Config, keys: Record<string, KeyTop[]>, splay: Record<s
     const frames = columnFrames(c, ci);
     ROWS.forEach((r, ri) => {
       const z = K[ri].normal,
-        x = new T.Vector3().setFromMatrixColumn(frames[ri], 0),
-        xx = x.addScaledVector(z, -x.dot(z)).normalize(),
+        y = K[ri].up.clone().addScaledVector(z, -K[ri].up.dot(z)).normalize(),
         m = frames[ri]
           .clone()
           .invert()
           .multiply(
             new T.Matrix4()
-              .makeBasis(xx, new T.Vector3().crossVectors(z, xx), z)
+              .makeBasis(new T.Vector3().crossVectors(y, z), y, z)
               .setPosition(K[ri].top.clone().addScaledVector(z, -h)),
           ),
         e = new T.Euler().setFromRotationMatrix(m, 'ZYX');
@@ -532,7 +534,7 @@ const r2 = (v: number) => Math.round(v * 100) / 100;
  * turn, so the arc's step and well are zeroed. */
 function placeThumb(c: Config, tops: T.Matrix4[], two: boolean) {
   const t = c.geometry.thumb,
-    seats = tops.map((m) => m.clone().multiply(new T.Matrix4().makeTranslation(0, 0, -capTop(c)))),
+    seats = tops.map((m) => m.clone().multiply(new T.Matrix4().makeTranslation(0, 0, -capHeight(c)))),
     e = new T.Euler().setFromRotationMatrix(seats[1], 'ZYX');
   t.position_mm = new T.Vector3().setFromMatrixPosition(seats[1]).toArray().map(r2);
   t.rotation_deg = [e.x, e.y, e.z].map((v) => r2(deg(v)));
@@ -595,8 +597,9 @@ function solveHand(s: Settings) {
   return { poses, inner, row: thumbRow(s.thumb, s.spacing, twoOf(s)) };
 }
 type Solved = ReturnType<typeof solveHand>;
-/** A keycap: its top's centre and frame (z out of the cap), and size. */
-type Cap = { name: string; top: T.Matrix4; size: number[] };
+/** A keycap: its top's centre and frame (z out of the cap), its size at the
+ * base, and its top face (x, y), smaller: it tapers. */
+type Cap = { name: string; top: T.Matrix4; size: number[]; face: number[] };
 const capName = (k: string) => k.replace(/^matrix_/, '').replace('_', ' ');
 /** Every keycap in the hand frame. A finger key's y runs up its column. */
 function capsOf(c: Config, h: Solved, two: boolean): Cap[] {
@@ -612,26 +615,45 @@ function capsOf(c: Config, h: Solved, two: boolean): Cap[] {
         name,
         top: new T.Matrix4().makeBasis(new T.Vector3().crossVectors(y, z), y, z).setPosition(p.chain.pad),
         size: capSize(c, name),
+        face: capTop(c, name),
       });
     });
   }
   h.row.forEach((k, i) => {
     const name = `thumb_${['far', 'home', 'near'][i]}`;
-    out.push({ name, top: k.frame.clone().multiply(frame([0, 0, 0], keyTurn(name.slice(6), two))), size: capSize(c, name) });
+    out.push({
+      name,
+      top: k.frame.clone().multiply(frame([0, 0, 0], keyTurn(name.slice(6), two))),
+      size: capSize(c, name),
+      face: capTop(c, name),
+    });
   });
   return out;
 }
 /** A box: centre, unit axes, half-sizes. */
 type Box = { c: T.Vector3; u: T.Vector3[]; e: number[] };
-/** A keycap's room, from its top down `depth` mm, `grow` mm bigger all round. */
-function capBox(k: Cap, depth: number, grow: number): Box {
-  const u = [0, 1, 2].map((i) => new T.Vector3().setFromMatrixColumn(k.top, i));
-  return {
-    c: new T.Vector3(0, 0, -depth / 2).applyMatrix4(k.top),
-    u,
-    e: [k.size[0] / 2 + grow, k.size[1] / 2 + grow, depth / 2],
-  };
+/** A keycap's half-size (x, y) `z` mm down from its top: the taper. */
+const halfAt = (k: Cap, z: number) => {
+  const t = Math.min(Math.max(z / k.size[2], 0), 1);
+  return [0, 1].map((i) => (k.face[i] + (k.size[i] - k.face[i]) * t) / 2);
+};
+/** Slices the taper is checked in (each as wide as at its middle: within 0.15 mm). */
+const SLICES = 8;
+/** A keycap's room as boxes, `grow` mm bigger all round: the tapered cap, in
+ * slices, and below it its base's footprint on down `below` mm (the travel). */
+function capBoxes(k: Cap, grow: number, below = 0): Box[] {
+  const u = [0, 1, 2].map((i) => new T.Vector3().setFromMatrixColumn(k.top, i)),
+    box = (top: number, depth: number, half: number[]) => ({
+      c: new T.Vector3(0, 0, -top - depth / 2).applyMatrix4(k.top),
+      u,
+      e: [half[0] + grow, half[1] + grow, depth / 2],
+    }),
+    h = k.size[2] / SLICES,
+    out = Array.from({ length: SLICES }, (_, i) => box(i * h, h, halfAt(k, (i + 0.5) * h)));
+  if (below > 0) out.push(box(k.size[2], below, halfAt(k, k.size[2])));
+  return out;
 }
+const overlap = (a: Box[], b: Box[]) => Math.max(...a.flatMap((x) => b.map((y) => boxOverlap(x, y))));
 /** How far two boxes overlap (mm, along the axis that separates them best;
  * 0 when apart), by separating axes. */
 function boxOverlap(a: Box, b: Box) {
@@ -655,12 +677,12 @@ type Hit = { a: string; b: string; depth: number };
 function capHits(c: Config, caps: Cap[]) {
   const sw = c.switch as { travel_mm?: number; keycap_clearance_mm?: number },
     travel = sw.travel_mm ?? 4,
-    rest = caps.map((k) => capBox(k, k.size[2], 0)),
-    pressed = caps.map((k) => capBox(k, k.size[2] + travel, sw.keycap_clearance_mm ?? 0.3)),
+    rest = caps.map((k) => capBoxes(k, 0)),
+    pressed = caps.map((k) => capBoxes(k, sw.keycap_clearance_mm ?? 0.3, travel)),
     out: Hit[] = [];
   for (let i = 0; i < caps.length; i++)
     for (let j = i + 1; j < caps.length; j++) {
-      const depth = Math.max(boxOverlap(pressed[i], rest[j]), boxOverlap(rest[i], pressed[j]));
+      const depth = Math.max(overlap(pressed[i], rest[j]), overlap(rest[i], pressed[j]));
       if (depth > 0) out.push({ a: caps[i].name, b: caps[j].name, depth });
     }
   return out;
@@ -684,12 +706,14 @@ function handHits(caps: Cap[], chains: Record<Finger, Chain>, th: ReturnType<typ
   segs.push(['thumb', C, th.M, 11, own], ['thumb', th.M, th.I, 10.5, own], ['thumb', th.I, th.axis, cmc.pad_below_distal_axis_mm, own]);
   const out: Hit[] = [];
   for (const k of caps) {
-    const box = capBox(k, k.size[2], 0),
-      inv = new T.Matrix4().makeBasis(box.u[0], box.u[1], box.u[2]).setPosition(box.c).invert(),
-      /** How far a point is outside the box (0 inside). */
+    const inv = k.top.clone().invert(),
+      /** How far a point is outside the tapered cap (0 inside; near enough,
+       * measured square to its axis at the nearest height). */
       outside = (p: T.Vector3) => {
-        const l = p.clone().applyMatrix4(inv);
-        return Math.hypot(...[l.x, l.y, l.z].map((v, i) => Math.max(0, Math.abs(v) - box.e[i])));
+        const l = p.clone().applyMatrix4(inv),
+          down = Math.min(Math.max(-l.z, 0), k.size[2]),
+          half = halfAt(k, down);
+        return Math.hypot(Math.max(0, Math.abs(l.x) - half[0]), Math.max(0, Math.abs(l.y) - half[1]), -l.z - down);
       },
       depth: Record<string, number> = {};
     for (const [who, a, b, r, own] of segs) {
@@ -710,9 +734,12 @@ function heightOf(c: Config, caps: Cap[], R: T.Matrix4) {
   for (const k of caps) {
     const m = R.clone().multiply(k.top),
       seat = -k.size[2] - sw.keycap_bottom_above_plate_mm - sw.body_below_plate_mm;
-    for (const x of [-k.size[0] / 2, k.size[0] / 2])
-      for (const y of [-k.size[1] / 2, k.size[1] / 2])
-        for (const h of [-k.size[2], 0]) high = Math.max(high, new T.Vector3(x, y, h).applyMatrix4(m).z);
+    for (const [w, h] of [
+      [k.size, -k.size[2]],
+      [k.face, 0],
+    ] as const)
+      for (const x of [-w[0] / 2, w[0] / 2])
+        for (const y of [-w[1] / 2, w[1] / 2]) high = Math.max(high, new T.Vector3(x, y, h).applyMatrix4(m).z);
     for (const x of [-sw.body_mm[0] / 2, sw.body_mm[0] / 2])
       for (const y of [-sw.body_mm[1] / 2, sw.body_mm[1] / 2])
         low = Math.min(low, new T.Vector3(x, y, seat).applyMatrix4(m).z);
@@ -787,15 +814,16 @@ const DACTYL: Settings = {
  * against one at rest), the hand passes through no key, every row is in reach
  * and the board fits the 66 mm keyboard tray. It comes out at rest: the
  * fingers and thumb as measured (the thumb pressing like a finger, IP with
- * the MCP), the board tented 2° (the steep top rows of an uncurled hand and
- * the thumb's near-vertical keys use up the tray). */
+ * the MCP), the board tented 1° (the steep top rows of an uncurled hand and
+ * the thumb's near-vertical keys use up the tray). Fitted to the measured
+ * keycaps (18.5 mm, tapering to 14, 11 high): 65 mm tall. */
 const NATURAL: Settings = {
-  tent: 2,
+  tent: 1,
   roll: 0,
   wrist: 0,
   bend: 0,
   curl: { index: 0, middle: 0, ring: 0, pinky: 0 },
-  innerGap: 18.5,
+  innerGap: 18.8,
   innerAngle: 0,
   top: 17,
   bottom: 17,
@@ -803,7 +831,7 @@ const NATURAL: Settings = {
   reachMix: 0.4,
   pressMix: 1.4,
   thumb: { sweep: 0, abduct: 0, twist: 0, curl: 0, mix: 1, cmc: 0, bend: 0 },
-  spacing: 21.5,
+  spacing: 22.1,
   cluster: '1×3',
   two: { gap: 19.5, from: 'press', reachMix: 0.4 },
 };
@@ -835,7 +863,7 @@ export function setupHand(host: Host) {
     o = (c0.geometry.key_overrides as Record<string, { offset_mm?: number[]; rotation_deg?: number[] }>)
       .matrix_middle_home,
     // Through the key's own tilt too, or every reload moves the anchor.
-    anchor = V([0, 0, capTop(c0)]).applyMatrix4(
+    anchor = V([0, 0, capHeight(c0)]).applyMatrix4(
       columnFrames(c0, mi)[1].multiply(frame(o?.offset_mm, o?.rotation_deg)),
     );
 
@@ -877,14 +905,15 @@ export function setupHand(host: Host) {
       splay: Record<string, number> = {};
     c.geometry.tent_deg = s.tent;
     for (const col of Object.keys(poses)) {
-      keys[col] = poses[col].map((p) => ({
-        top: p.chain.pad.clone().applyMatrix4(L),
-        normal: p.n.clone().transformDirection(L),
-      }));
       // The column runs the way the fingertip travels, bottom key to top, seen
       // from above. (Knuckle to fingertip points steeply down when curled, so
       // a little roll swung it, and the keys, ~2° per degree.)
       const d = poses[col][0].chain.pad.clone().sub(poses[col][2].chain.pad).transformDirection(L);
+      keys[col] = poses[col].map((p) => ({
+        top: p.chain.pad.clone().applyMatrix4(L),
+        normal: p.n.clone().transformDirection(L),
+        up: d,
+      }));
       splay[col] = deg(Math.atan2(-d.x, d.y));
     }
     placeColumns(c, keys, splay);
@@ -975,7 +1004,7 @@ export function setupHand(host: Host) {
       ...r.short.map(([k, m]) => `${k} out of reach (${m.toFixed(0)} mm)`),
       ...r.stiff.map(([k, d]) => `thumb ${k} out of reach (MCP/IP ${d.toFixed(0)}° past limit)`),
       ...(r.innerShort ? ['inner column out of reach'] : []),
-      ...(r.height.all > TRAY ? [`${r.height.all.toFixed(0)} mm tall (tray ${TRAY} mm)`] : []),
+      ...(r.height.all > TRAY ? [`${r.height.all.toFixed(1)} mm tall (tray ${TRAY} mm)`] : []),
     ];
     note.innerHTML = wrong.length
       ? `<div style="color:#ff9a8a">Not valid:<ul style="margin:2px 0;padding-left:18px">${wrong.map((w) => `<li>${w}</li>`).join('')}</ul></div>`
