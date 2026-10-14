@@ -40,13 +40,6 @@ type Row = (typeof ROWS)[number];
 const SCALE: Record<Finger, number> = { index: 1, middle: 1, ring: 0.95, pinky: 0.85 };
 /** The fingertip's radius, as drawn. */
 const TIP_R = (f: Finger) => 7 * SCALE[f];
-const TYPIST: Record<string, Finger> = {
-  inner: 'index',
-  index: 'index',
-  middle: 'middle',
-  ring: 'ring',
-  pinky: 'pinky',
-};
 const V = (p: number[]) => new T.Vector3(...(p as V3));
 const Z = new T.Vector3(0, 0, 1);
 const rad = (d: number) => (d * Math.PI) / 180;
@@ -214,9 +207,11 @@ function rowPose(f: Finger, curl: number, abd: number, dist: number, way: Way): 
  * toward the thumb here carries the fingertips sideways much further than
  * turning a finger at its knuckle. */
 const WRIST = rest.middle.mcp.clone().add(new T.Vector3(-8, -85, -12));
-/** The pose with the whole hand turned `a` degrees toward the thumb at the wrist. */
-function atWrist(p: Pose, a: number): Pose {
-  const q = (v: T.Vector3) => v.clone().sub(WRIST).applyAxisAngle(Z, rad(a)).add(WRIST),
+/** The pose turned `a` degrees toward the thumb about a vertical axis through
+ * `about`: at the wrist, the whole hand; at the knuckle, the finger alone (the
+ * same as rowPose's abduction, since the walk turns with the finger). */
+function turned(p: Pose, about: T.Vector3, a: number): Pose {
+  const q = (v: T.Vector3) => v.clone().sub(about).applyAxisAngle(Z, rad(a)).add(about),
     c = p.chain;
   return {
     ...p,
@@ -224,6 +219,26 @@ function atWrist(p: Pose, a: number): Pose {
     t: p.t.clone().applyAxisAngle(Z, rad(a)),
     n: p.n.clone().applyAxisAngle(Z, rad(a)),
   };
+}
+/** The inner column: the index column turned `angle` degrees toward the thumb
+ * (0 = parallel to it) with its closest key `gap` mm (centre to centre) toward
+ * the thumb from the index column's. Turning at the wrist carries the fingertip
+ * sideways further than turning at the knuckle, so the two settle the split:
+ * the hand turns `wrist` degrees and the index `angle − wrist` at its knuckle
+ * (parallel: the hand turns in, the index back by as much). */
+function innerColumn(index: Pose[], gap: number, angle: number) {
+  const at = (w: number) => index.map((p) => turned(turned(p, p.chain.mcp, angle - w), WRIST, w)),
+    // Signed: negative while the inner column is on the pinky side.
+    gapAt = (w: number) =>
+      Math.min(...at(w).map((p, i) => p.chain.pad.distanceTo(index[i].chain.pad) * Math.sign(index[i].chain.pad.x - p.chain.pad.x))),
+    lim = [-40, 60];
+  let [lo, hi] = lim;
+  for (let i = 0; i < 40; i++) {
+    const m = (lo + hi) / 2;
+    if (gapAt(m) < gap) lo = m;
+    else hi = m;
+  }
+  return { poses: at(hi), wrist: hi, knuckle: angle - hi, limited: hi >= lim[1] - 0.01 || hi <= lim[0] + 0.01 };
 }
 /** To press straight along −n: degrees the PIP and DIP straighten (together)
  * per degree the MCP flexes. Jindrich et al. 2004 measured about 1.4. */
@@ -521,28 +536,27 @@ export function setupHand(host: Host) {
   // The closest fit to the Dactyl Manuform (DM_right): every hand slider at
   // once, least squares over all 18 keys' cap tops (per 2 mm) and facings (per
   // 3°), relative to the middle home key, before tenting. The finger keys come
-  // out 2–3 mm off in the middle and ring columns, 6–13 mm in the inner, index
+  // out 2–3 mm off in the middle and ring columns, 6–11 mm in the inner, index
   // and pinky (the Dactyl raises its outer columns into a bowl, which these
-  // sliders can't); the thumb's home key within 2 mm, its end keys 15–19 mm
-  // (its row runs more toward you than the Dactyl's). Earlier defaults: tent
-  // 20, curls 25, inner/top/bottom 18, reach mix 0.4, the thumb at rest
-  // pressed from the CMC (all 0 but cmc 3), spacing 19.5. The inner column's
-  // wrist share is in the fit too: 0.8 (1 fits as well; turned at the knuckle
-  // alone it fit at 23° with the bottom keys 11 mm apart).
+  // sliders can't); the thumb's home key within 3 mm, its end keys 16–18 mm
+  // (its row runs more toward you than the Dactyl's). The inner column is
+  // parallel to the index, as on the Dactyl (fanned 9° fits about as well).
+  // Earlier defaults: tent 20, curls 25, inner/top/bottom 18, reach mix 0.4,
+  // the thumb at rest pressed from the CMC (all 0 but cmc 3), spacing 19.5.
   const s = {
     tent: 15,
-    roll: 4,
+    roll: 5,
     wrist: 11,
     bend: -2,
-    curl: { index: 16, middle: 17, ring: 14, pinky: 12 } as Record<Finger, number>,
-    inner: 10,
-    innerWrist: 0.8,
-    top: 17,
+    curl: { index: 16, middle: 18, ring: 14, pinky: 13 } as Record<Finger, number>,
+    innerGap: 19.5,
+    innerAngle: 0,
+    top: 18,
     bottom: 16,
     from: 'reach',
     reachMix: 0.5,
     pressMix: 1.4,
-    thumb: { sweep: 10, abduct: 41, twist: -89, curl: -23, mix: -2.1, cmc: 0.2 } as ThumbPose,
+    thumb: { sweep: 8, abduct: 43, twist: -85, curl: -21, mix: -2.2, cmc: 0.2 } as ThumbPose,
     spacing: 24.5,
     cluster: '1×3',
     // The 1u row, a key's depth from the 1.5u, on the curled side, reached
@@ -578,17 +592,11 @@ export function setupHand(host: Host) {
   // Each column: every row's pose and its key.
   function solve() {
     const poses: Record<string, Pose[]> = {};
-    for (const col of cfg().geometry.columns.map((k) => k.name)) {
-      const f = TYPIST[col],
-        inner = col === 'inner',
-        // The inner column: the index turned in, part at the wrist, the rest at its knuckle.
-        abd = inner ? s.inner * (1 - s.innerWrist) : 0;
-      poses[col] = ROWS.map((r) => {
-        const p = rowPose(f, s.curl[f], abd, r === 'top' ? s.top : r === 'bottom' ? -s.bottom : 0, way);
-        return inner ? atWrist(p, s.inner * s.innerWrist) : p;
-      });
-    }
-    return { poses };
+    for (const f of FINGERS)
+      poses[f] = ROWS.map((r) => rowPose(f, s.curl[f], 0, r === 'top' ? s.top : r === 'bottom' ? -s.bottom : 0, way));
+    const inner = innerColumn(poses.index, s.innerGap, s.innerAngle);
+    poses.inner = inner.poses;
+    return { poses, inner };
   }
 
   function apply() {
@@ -620,7 +628,7 @@ export function setupHand(host: Host) {
   const note = document.createElement('p');
   function update() {
     const c = cfg(),
-      { poses } = solve(),
+      { poses, inner } = solve(),
       ri = ROWS.indexOf(s.row),
       L = toLayout();
     const row = thumbKeys(),
@@ -658,7 +666,7 @@ export function setupHand(host: Host) {
             .join(' / ');
         return `${f}: ${d(t)} / ${d(b)}; press ${pr}; keys ${tilt}°`;
       }).join('<br>') +
-      `<br>Inner column from the index column, top / home / bottom (centre to centre): ${ROWS.map((_, ri) =>
+      `<br>Inner column: the hand turns ${sign(inner.wrist)}° at the wrist (+ toward the thumb) and the index ${sign(inner.knuckle)}° at its knuckle${inner.limited ? ' (out of reach: the wrist at its limit)' : ''}; from the index column, top / home / bottom (centre to centre): ${ROWS.map((_, ri) =>
         poses.inner[ri].chain.pad.distanceTo(poses.index[ri].chain.pad).toFixed(1),
       ).join(' / ')} mm.` +
       (() => {
@@ -868,19 +876,19 @@ export function setupHand(host: Host) {
       40,
     );
   slider(
-    'inner column: index turned in',
-    () => s.inner,
-    (v) => (s.inner = v),
-    5,
-    35,
+    'inner column: closest key from the index column (mm, centre to centre; caps are 18)',
+    () => s.innerGap,
+    (v) => (s.innerGap = v),
+    18,
+    30,
+    0.5,
   );
   slider(
-    'inner column: share turned at the wrist (0 = the index alone, at its knuckle; 1 = the whole hand)',
-    () => s.innerWrist,
-    (v) => (s.innerWrist = v),
-    0,
-    1,
-    0.05,
+    'inner column: turned from the index column (degrees, + toward the thumb; 0 = parallel)',
+    () => s.innerAngle,
+    (v) => (s.innerAngle = v),
+    -10,
+    30,
   );
   heading('Rows (mm from home, along the keyboard)');
   const fromBox = document.createElement('div');
