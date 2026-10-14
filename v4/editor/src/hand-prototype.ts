@@ -38,6 +38,8 @@ const FINGERS = ['index', 'middle', 'ring', 'pinky'] as const;
 type Finger = (typeof FINGERS)[number];
 type Row = (typeof ROWS)[number];
 const SCALE: Record<Finger, number> = { index: 1, middle: 1, ring: 0.95, pinky: 0.85 };
+/** The fingertip's radius, as drawn. */
+const TIP_R = (f: Finger) => 7 * SCALE[f];
 const TYPIST: Record<string, Finger> = {
   inner: 'index',
   index: 'index',
@@ -96,7 +98,10 @@ function fit(res: (x: number[]) => number[], x0: number[]) {
 }
 
 // ---------------------------------------------------------------- fingers
-type Chain = { mcp: T.Vector3; pip: T.Vector3; dip: T.Vector3; pad: T.Vector3; tip: T.Vector3 };
+/** pad: where the finger touches (at rest, the measured print; on a key, the
+ * ball's lowest point along the press). ball: the fingertip's centre, a ball
+ * of TIP_R fixed to the last segment, resting on the paper at the print. */
+type Chain = { mcp: T.Vector3; pip: T.Vector3; dip: T.Vector3; pad: T.Vector3; ball: T.Vector3; tip: T.Vector3 };
 const rest = Object.fromEntries(
   FINGERS.map((f) => {
     const r = hand.fingers[f].rest,
@@ -109,7 +114,7 @@ const rest = Object.fromEntries(
         .clone()
         .addScaledVector(heading, Math.cos(p) * L)
         .addScaledVector(Z, -Math.sin(p) * L);
-    return [f, { mcp, pip: V(r.joints.pip), dip, pad: V(r.pad), tip, heading }];
+    return [f, { mcp, pip: V(r.joints.pip), dip, pad: V(r.pad), ball: V(r.pad).addScaledVector(Z, TIP_R(f)), tip, heading }];
   }),
 ) as Record<Finger, Chain & { heading: T.Vector3 }>;
 
@@ -122,16 +127,17 @@ function finger(f: Finger, mcp: number, pip: number, abd = 0): Chain {
       pip: r.pip.clone(),
       dip: r.dip.clone(),
       pad: r.pad.clone(),
+      ball: r.ball.clone(),
       tip: r.tip.clone(),
     },
     bend = (about: T.Vector3, a: number, pts: T.Vector3[]) =>
       pts.forEach((p) => p.sub(about).applyAxisAngle(across, -rad(a)).add(about));
-  bend(c.mcp, mcp, [c.pip, c.dip, c.pad, c.tip]);
-  bend(c.pip, pip, [c.dip, c.pad, c.tip]);
+  bend(c.mcp, mcp, [c.pip, c.dip, c.pad, c.ball, c.tip]);
+  bend(c.pip, pip, [c.dip, c.pad, c.ball, c.tip]);
   // The DIP follows the PIP, but straightens no further than straight (or its
   // resting angle, where pressing on the paper already bent it back).
-  bend(c.dip, Math.max((pip * 2) / 3, Math.min(0, -DIP_BEND[f])), [c.pad, c.tip]);
-  for (const p of [c.pip, c.dip, c.pad, c.tip]) p.sub(c.mcp).applyAxisAngle(Z, rad(abd)).add(c.mcp);
+  bend(c.dip, Math.max((pip * 2) / 3, Math.min(0, -DIP_BEND[f])), [c.pad, c.ball, c.tip]);
+  for (const p of [c.pip, c.dip, c.pad, c.ball, c.tip]) p.sub(c.mcp).applyAxisAngle(Z, rad(abd)).add(c.mcp);
   return c;
 }
 const curled = (f: Finger, curl: number, abd = 0) => finger(f, 0.4 * curl, curl, abd);
@@ -161,11 +167,11 @@ type Pose = {
   n: T.Vector3;
 };
 const dipOf = (f: Finger, pip: number) => Math.max((pip * 2) / 3, Math.min(0, -DIP_BEND[f]));
-/** At a pose: how the pad moves per degree at the MCP, and per degree at the
+/** At a pose: how the fingertip moves per degree at the MCP, and per degree at the
  * PIP (the DIP following, `ip` degrees of PIP and DIP together). */
 type Rates = { vm: T.Vector3; vp: T.Vector3; ip: number };
 function rates(f: Finger, abd: number, m: number, p: number): Rates {
-  const pad = (dm: number, dp: number) => finger(f, m + dm, p + dp, abd).pad,
+  const pad = (dm: number, dp: number) => finger(f, m + dm, p + dp, abd).ball,
     o = pad(0, 0);
   return {
     vm: pad(0.01, 0).sub(o).divideScalar(0.01),
@@ -175,7 +181,7 @@ function rates(f: Finger, abd: number, m: number, p: number): Rates {
 }
 /** How the MCP and PIP move together to reach between rows, at a pose. */
 type Way = (r: Rates) => [mcp: number, pip: number];
-/** Walk the pad `dist` mm (+ away from you) from home along the path `way`
+/** Walk the fingertip `dist` mm (+ away from you) from home along the path `way`
  * gives, step by step. The path is the keyboard: each key lies along it and
  * faces square off it, at that point. */
 function rowPose(f: Finger, curl: number, abd: number, dist: number, way: Way): Pose {
@@ -199,7 +205,10 @@ function rowPose(f: Finger, curl: number, abd: number, dist: number, way: Way): 
     left -= Math.abs(step);
   }
   const n = Z.clone().multiplyScalar(t.dot(h)).addScaledVector(h, -t.dot(Z)).normalize();
-  return { chain: finger(f, m, p, abd), mcp: m, pip: p, short: left, t, n };
+  // It touches the key at the ball's lowest point along the press.
+  const chain = finger(f, m, p, abd);
+  chain.pad = chain.ball.clone().addScaledVector(n, -TIP_R(f));
+  return { chain, mcp: m, pip: p, short: left, t, n };
 }
 /** To press straight along −n: degrees the PIP and DIP straighten (together)
  * per degree the MCP flexes. Jindrich et al. 2004 measured about 1.4. */
@@ -383,7 +392,7 @@ function drawHand(group: T.Group, chains: Record<Finger, Chain>, th: ReturnType<
     group.add(
       capsule(c.mcp, c.pip, 9.5 * s),
       capsule(c.pip, c.dip, 8 * s),
-      capsule(c.dip, c.tip, 7 * s),
+      capsule(c.dip, c.ball, TIP_R(f)),
     );
   }
   group.add(capsule(C, th.M, 11), capsule(th.M, th.I, 10.5), capsule(th.I, th.axis, cmc.pad_below_distal_axis_mm));
@@ -538,7 +547,7 @@ export function setupHand(host: Host) {
     new T.Matrix4()
       .makeTranslation(anchor)
       .multiply(turn())
-      .multiply(new T.Matrix4().makeTranslation(curled('middle', s.curl.middle).pad.negate()));
+      .multiply(new T.Matrix4().makeTranslation(rowPose('middle', s.curl.middle, 0, 0, way).chain.pad.negate()));
 
   /** The reach: either as set, or square to the press as set. */
   const way: Way = (r) => {
@@ -913,10 +922,10 @@ export function setupHand(host: Host) {
     50,
   );
   slider(
-    'press: IP degrees per MCP degree',
+    'press: IP degrees per MCP degree (− straightens)',
     () => s.thumb.mix,
     (v) => (s.thumb.mix = v),
-    0,
+    -3,
     3,
     0.1,
   );
