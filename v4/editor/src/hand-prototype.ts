@@ -32,7 +32,29 @@ import * as T from 'three';
 import { ConvexGeometry } from 'three/addons/geometries/ConvexGeometry.js';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import hand from '../../hand/left-hand.json';
-import { capSize, capTop, columnFrames, frame, ROWS, tentFrame, type Project, type Config, type V3 } from './geometry';
+import {
+  capSize,
+  capTop,
+  columnFrames,
+  frame,
+  ROWS,
+  tentFrame,
+  type Project,
+  type Config,
+  type V3,
+} from './geometry';
+import type { ManifoldToplevel } from 'manifold-3d';
+import wasmUrl from 'manifold-3d/manifold.wasm?url';
+import { buildFrame, frameStl } from './hand-frame';
+
+/** The geometry kernel, here on the page for the test frame (it builds in tens of ms). */
+let kernel: Promise<ManifoldToplevel> | undefined;
+const manifold = () =>
+  (kernel ??= import('manifold-3d').then(async (m) => {
+    const w = await m.default({ locateFile: () => wasmUrl });
+    w.setup();
+    return w;
+  }));
 
 type Host = {
   scene: T.Scene;
@@ -107,7 +129,14 @@ function fit(res: (x: number[]) => number[], x0: number[]) {
 /** pad: where the finger touches (at rest, the measured print; on a key, the
  * ball's lowest point along the press). ball: the fingertip's centre, a ball
  * of TIP_R fixed to the last segment, resting on the paper at the print. */
-type Chain = { mcp: T.Vector3; pip: T.Vector3; dip: T.Vector3; pad: T.Vector3; ball: T.Vector3; tip: T.Vector3 };
+type Chain = {
+  mcp: T.Vector3;
+  pip: T.Vector3;
+  dip: T.Vector3;
+  pad: T.Vector3;
+  ball: T.Vector3;
+  tip: T.Vector3;
+};
 const rest = Object.fromEntries(
   FINGERS.map((f) => {
     const r = hand.fingers[f].rest,
@@ -120,7 +149,18 @@ const rest = Object.fromEntries(
         .clone()
         .addScaledVector(heading, Math.cos(p) * L)
         .addScaledVector(Z, -Math.sin(p) * L);
-    return [f, { mcp, pip: V(r.joints.pip), dip, pad: V(r.pad), ball: V(r.pad).addScaledVector(Z, TIP_R(f)), tip, heading }];
+    return [
+      f,
+      {
+        mcp,
+        pip: V(r.joints.pip),
+        dip,
+        pad: V(r.pad),
+        ball: V(r.pad).addScaledVector(Z, TIP_R(f)),
+        tip,
+        heading,
+      },
+    ];
   }),
 ) as Record<Finger, Chain & { heading: T.Vector3 }>;
 
@@ -143,7 +183,8 @@ function finger(f: Finger, mcp: number, pip: number, abd = 0): Chain {
   // The DIP follows the PIP, but straightens no further than straight (or its
   // resting angle, where pressing on the paper already bent it back).
   bend(c.dip, Math.max((pip * 2) / 3, Math.min(0, -DIP_BEND[f])), [c.pad, c.ball, c.tip]);
-  for (const p of [c.pip, c.dip, c.pad, c.ball, c.tip]) p.sub(c.mcp).applyAxisAngle(Z, rad(abd)).add(c.mcp);
+  for (const p of [c.pip, c.dip, c.pad, c.ball, c.tip])
+    p.sub(c.mcp).applyAxisAngle(Z, rad(abd)).add(c.mcp);
   return c;
 }
 const curled = (f: Finger, curl: number, abd = 0) => finger(f, 0.4 * curl, curl, abd);
@@ -224,7 +265,14 @@ function moved(p: Pose, about: T.Vector3, a: number, by = new T.Vector3()): Pose
     c = p.chain;
   return {
     ...p,
-    chain: { mcp: q(c.mcp), pip: q(c.pip), dip: q(c.dip), pad: q(c.pad), ball: q(c.ball), tip: q(c.tip) },
+    chain: {
+      mcp: q(c.mcp),
+      pip: q(c.pip),
+      dip: q(c.dip),
+      pad: q(c.pad),
+      ball: q(c.ball),
+      tip: q(c.tip),
+    },
     t: p.t.clone().applyAxisAngle(Z, rad(a)),
     n: p.n.clone().applyAxisAngle(Z, rad(a)),
   };
@@ -236,10 +284,17 @@ function moved(p: Pose, about: T.Vector3, a: number, by = new T.Vector3()): Pose
 function innerColumn(index: Pose[], gap: number, angle: number) {
   const d = index[0].chain.pad.clone().sub(index[2].chain.pad).setZ(0).normalize(),
     side = new T.Vector3(-d.y, d.x, 0),
-    at = (m: number) => index.map((p) => moved(p, p.chain.mcp, angle, side.clone().multiplyScalar(m))),
+    at = (m: number) =>
+      index.map((p) => moved(p, p.chain.mcp, angle, side.clone().multiplyScalar(m))),
     // Signed: negative while the inner column is on the pinky side.
     gapAt = (m: number) =>
-      Math.min(...at(m).map((p, i) => p.chain.pad.distanceTo(index[i].chain.pad) * Math.sign(p.chain.pad.clone().sub(index[i].chain.pad).dot(side)))),
+      Math.min(
+        ...at(m).map(
+          (p, i) =>
+            p.chain.pad.distanceTo(index[i].chain.pad) *
+            Math.sign(p.chain.pad.clone().sub(index[i].chain.pad).dot(side)),
+        ),
+      ),
     lim = [-40, 80];
   let [lo, hi] = lim;
   for (let i = 0; i < 40; i++) {
@@ -311,7 +366,8 @@ type ThumbPose = {
 /** How far the thumb's MCP and IP go, degrees: a guess (they hyperextend a little). */
 const MCP_RANGE = [-10, 90],
   IP_RANGE = [-20, 90];
-const inRange = (q: number[]) => q[3] >= MCP_RANGE[0] && q[3] <= MCP_RANGE[1] && q[4] >= IP_RANGE[0] && q[4] <= IP_RANGE[1];
+const inRange = (q: number[]) =>
+  q[3] >= MCP_RANGE[0] && q[3] <= MCP_RANGE[1] && q[4] >= IP_RANGE[0] && q[4] <= IP_RANGE[1];
 const clamp = (v: number, [lo, hi]: number[]) => Math.min(hi, Math.max(lo, v));
 /** The 1u row of a 1.5u + 2×1u cluster: `gap` mm from the 1.5u along the pad's
  * path (+ curled), reached like a finger between rows: MCP degrees per IP
@@ -346,7 +402,7 @@ function thumbRow(t: ThumbPose, spacing: number, two?: TwoRows) {
         v = along(q),
         mcp = from[3],
         ip = from[4];
-      for (let left = dist; left > 1e-6; ) {
+      for (let left = dist; left > 1e-6;) {
         const step = Math.min(0.25, left),
           r = thumb(q).pad.sub(C),
           turn = new T.Matrix4().makeRotationAxis(
@@ -390,8 +446,12 @@ function thumbRow(t: ThumbPose, spacing: number, two?: TwoRows) {
       /** The joints' step and the pad's way along the path, at q. */
       way = (q: number[], prev?: number[]) => {
         const p0 = pad(q),
-          vm = pad([...q.slice(0, 3), q[3] + 0.1, q[4]]).sub(p0).divideScalar(0.1),
-          vi = pad([...q.slice(0, 4), q[4] + 0.1]).sub(p0).divideScalar(0.1),
+          vm = pad([...q.slice(0, 3), q[3] + 0.1, q[4]])
+            .sub(p0)
+            .divideScalar(0.1),
+          vi = pad([...q.slice(0, 4), q[4] + 0.1])
+            .sub(p0)
+            .divideScalar(0.1),
           p = press(q);
         let [a, b] = two.from === 'reach' ? [two.reachMix, 1] : [vi.dot(p), -vm.dot(p)];
         // Curling (or straightening) at the start; then on along the same path.
@@ -417,7 +477,9 @@ function thumbRow(t: ThumbPose, spacing: number, two?: TwoRows) {
     ends = [key(1, q, spacing / 2, -bend / 2), key(-1, q, spacing / 2, bend / 2)];
     // The 1u keys: the CMC carries the path's direction round with the thumb.
     const back = rotQ(q).invert();
-    paths = [ends[0].q, qh, ends[1].q].map((qk, i) => (i === 1 ? t0 : w.dir.clone().transformDirection(rotQ(qk).multiply(back))));
+    paths = [ends[0].q, qh, ends[1].q].map((qk, i) =>
+      i === 1 ? t0 : w.dir.clone().transformDirection(rotQ(qk).multiply(back)),
+    );
   }
   const stiff = [ends[0].stiff, 0, ends[1].stiff];
   return [ends[0].q, qh, ends[1].q].map((q, i) => {
@@ -461,7 +523,11 @@ function drawHand(group: T.Group, chains: Record<Finger, Chain>, th: ReturnType<
       capsule(c.dip, c.ball, TIP_R(f)),
     );
   }
-  group.add(capsule(C, th.M, 11), capsule(th.M, th.I, 10.5), capsule(th.I, th.axis, cmc.pad_below_distal_axis_mm));
+  group.add(
+    capsule(C, th.M, 11),
+    capsule(th.M, th.I, 10.5),
+    capsule(th.I, th.axis, cmc.pad_below_distal_axis_mm),
+  );
   const wrist = chains.middle.mcp.clone().add(new T.Vector3(-8, -85, -12)),
     hull: T.Vector3[] = [C.clone(), th.M.clone()];
   for (const f of FINGERS) {
@@ -534,21 +600,25 @@ const r2 = (v: number) => Math.round(v * 100) / 100;
  * turn, so the arc's step and well are zeroed. */
 function placeThumb(c: Config, tops: T.Matrix4[], two: boolean) {
   const t = c.geometry.thumb,
-    seats = tops.map((m) => m.clone().multiply(new T.Matrix4().makeTranslation(0, 0, -capHeight(c)))),
+    seats = tops.map((m) =>
+      m.clone().multiply(new T.Matrix4().makeTranslation(0, 0, -capHeight(c))),
+    ),
     e = new T.Euler().setFromRotationMatrix(seats[1], 'ZYX');
   t.position_mm = new T.Vector3().setFromMatrixPosition(seats[1]).toArray().map(r2);
   t.rotation_deg = [e.x, e.y, e.z].map((v) => r2(deg(v)));
   t.arc = { ...t.arc, step_deg: 0, well_deg: 0 };
   const inv = frame(t.position_mm, t.rotation_deg).invert();
-  (t.keys as { name: string; offset_mm?: number[]; rotation_deg?: number[] }[]).forEach((key, i) => {
-    const m = inv
-        .clone()
-        .multiply(seats[i])
-        .multiply(frame([0, 0, 0], keyTurn(key.name, two))),
-      ke = new T.Euler().setFromRotationMatrix(m, 'ZYX');
-    key.offset_mm = new T.Vector3().setFromMatrixPosition(m).toArray().map(r2);
-    key.rotation_deg = [ke.x, ke.y, ke.z].map((v) => r2(deg(v)));
-  });
+  (t.keys as { name: string; offset_mm?: number[]; rotation_deg?: number[] }[]).forEach(
+    (key, i) => {
+      const m = inv
+          .clone()
+          .multiply(seats[i])
+          .multiply(frame([0, 0, 0], keyTurn(key.name, two))),
+        ke = new T.Euler().setFromRotationMatrix(m, 'ZYX');
+      key.offset_mm = new T.Vector3().setFromMatrixPosition(m).toArray().map(r2);
+      key.rotation_deg = [ke.x, ke.y, ke.z].map((v) => r2(deg(v)));
+    },
+  );
 }
 
 // ---------------------------------------------------------------- the layout from the settings
@@ -591,7 +661,9 @@ function solveHand(s: Settings) {
   const way = wayOf(s),
     poses: Record<string, Pose[]> = {};
   for (const f of FINGERS)
-    poses[f] = ROWS.map((r) => rowPose(f, s.curl[f], 0, r === 'top' ? s.top : r === 'bottom' ? -s.bottom : 0, way));
+    poses[f] = ROWS.map((r) =>
+      rowPose(f, s.curl[f], 0, r === 'top' ? s.top : r === 'bottom' ? -s.bottom : 0, way),
+    );
   const inner = innerColumn(poses.index, s.innerGap, s.innerAngle);
   poses.inner = inner.poses;
   return { poses, inner, row: thumbRow(s.thumb, s.spacing, twoOf(s)) };
@@ -613,7 +685,9 @@ function capsOf(c: Config, h: Solved, two: boolean): Cap[] {
         name = `matrix_${col}_${ROWS[ri]}`;
       out.push({
         name,
-        top: new T.Matrix4().makeBasis(new T.Vector3().crossVectors(y, z), y, z).setPosition(p.chain.pad),
+        top: new T.Matrix4()
+          .makeBasis(new T.Vector3().crossVectors(y, z), y, z)
+          .setPosition(p.chain.pad),
         size: capSize(c, name),
         face: capTop(c, name),
       });
@@ -653,7 +727,8 @@ function capBoxes(k: Cap, grow: number, below = 0): Box[] {
   if (below > 0) out.push(box(k.size[2], below, halfAt(k, k.size[2])));
   return out;
 }
-const overlap = (a: Box[], b: Box[]) => Math.max(...a.flatMap((x) => b.map((y) => boxOverlap(x, y))));
+const overlap = (a: Box[], b: Box[]) =>
+  Math.max(...a.flatMap((x) => b.map((y) => boxOverlap(x, y))));
 /** How far two boxes overlap (mm, along the axis that separates them best;
  * 0 when apart), by separating axes. */
 function boxOverlap(a: Box, b: Box) {
@@ -691,7 +766,13 @@ function capHits(c: Config, caps: Cap[]) {
  * pass through a keycap at rest, more than 1 mm in. Not through the key the
  * digit is on: it lies on that one (the thumb along a 1.5u, its pad a point
  * under its axis wherever the key isn't square to it). */
-function handHits(caps: Cap[], chains: Record<Finger, Chain>, th: ReturnType<typeof thumb>, row: string, thumbOn: string) {
+function handHits(
+  caps: Cap[],
+  chains: Record<Finger, Chain>,
+  th: ReturnType<typeof thumb>,
+  row: string,
+  thumbOn: string,
+) {
   const segs: [string, T.Vector3, T.Vector3, number, string][] = FINGERS.flatMap((f) => {
     const c = chains[f],
       s = SCALE[f],
@@ -703,7 +784,11 @@ function handHits(caps: Cap[], chains: Record<Finger, Chain>, th: ReturnType<typ
     ] as [string, T.Vector3, T.Vector3, number, string][];
   });
   const own = `thumb_${thumbOn}`;
-  segs.push(['thumb', C, th.M, 11, own], ['thumb', th.M, th.I, 10.5, own], ['thumb', th.I, th.axis, cmc.pad_below_distal_axis_mm, own]);
+  segs.push(
+    ['thumb', C, th.M, 11, own],
+    ['thumb', th.M, th.I, 10.5, own],
+    ['thumb', th.I, th.axis, cmc.pad_below_distal_axis_mm, own],
+  );
   const out: Hit[] = [];
   for (const k of caps) {
     const inv = k.top.clone().invert(),
@@ -713,14 +798,20 @@ function handHits(caps: Cap[], chains: Record<Finger, Chain>, th: ReturnType<typ
         const l = p.clone().applyMatrix4(inv),
           down = Math.min(Math.max(-l.z, 0), k.size[2]),
           half = halfAt(k, down);
-        return Math.hypot(Math.max(0, Math.abs(l.x) - half[0]), Math.max(0, Math.abs(l.y) - half[1]), -l.z - down);
+        return Math.hypot(
+          Math.max(0, Math.abs(l.x) - half[0]),
+          Math.max(0, Math.abs(l.y) - half[1]),
+          -l.z - down,
+        );
       },
       depth: Record<string, number> = {};
     for (const [who, a, b, r, own] of segs) {
       if (own === k.name) continue;
-      for (let i = 0; i <= 12; i++) depth[who] = Math.max(depth[who] ?? 0, r - 1 - outside(a.clone().lerp(b, i / 12)));
+      for (let i = 0; i <= 12; i++)
+        depth[who] = Math.max(depth[who] ?? 0, r - 1 - outside(a.clone().lerp(b, i / 12)));
     }
-    for (const [who, d] of Object.entries(depth)) if (d > 0) out.push({ a: who, b: k.name, depth: d });
+    for (const [who, d] of Object.entries(depth))
+      if (d > 0) out.push({ a: who, b: k.name, depth: d });
   }
   return out;
 }
@@ -739,7 +830,8 @@ function heightOf(c: Config, caps: Cap[], R: T.Matrix4) {
       [k.face, 0],
     ] as const)
       for (const x of [-w[0] / 2, w[0] / 2])
-        for (const y of [-w[1] / 2, w[1] / 2]) high = Math.max(high, new T.Vector3(x, y, h).applyMatrix4(m).z);
+        for (const y of [-w[1] / 2, w[1] / 2])
+          high = Math.max(high, new T.Vector3(x, y, h).applyMatrix4(m).z);
     for (const x of [-sw.body_mm[0] / 2, sw.body_mm[0] / 2])
       for (const y of [-sw.body_mm[1] / 2, sw.body_mm[1] / 2])
         low = Math.min(low, new T.Vector3(x, y, seat).applyMatrix4(m).z);
@@ -756,7 +848,10 @@ function check(c: Config, s: Settings, h = solveHand(s)) {
     // The fingers on each row in turn, the thumb on its far, home and near key with them.
     hands: Record<string, Hit> = {};
   ROWS.forEach((r, ri) => {
-    const on = Object.fromEntries(FINGERS.map((f) => [f, h.poses[f][ri].chain])) as Record<Finger, Chain>;
+    const on = Object.fromEntries(FINGERS.map((f) => [f, h.poses[f][ri].chain])) as Record<
+      Finger,
+      Chain
+    >;
     for (const x of handHits(caps, on, thumb(h.row[ri].q), r, ['far', 'home', 'near'][ri]))
       if (!(hands[x.a + x.b]?.depth > x.depth)) hands[x.a + x.b] = x;
   });
@@ -771,7 +866,9 @@ function check(c: Config, s: Settings, h = solveHand(s)) {
     ].filter(([, m]) => m > 0.5),
     /** The arm can't carry the hand far enough sideways for the inner column. */
     innerShort: h.inner.limited,
-    stiff: h.row.map((k, i) => [['far', 'home', 'near'][i], k.stiff] as const).filter(([, d]) => d > 0.5),
+    stiff: h.row
+      .map((k, i) => [['far', 'home', 'near'][i], k.stiff] as const)
+      .filter(([, d]) => d > 0.5),
     height: heightOf(c, caps, deskOf(s)),
   };
 }
@@ -844,7 +941,9 @@ function nearest(e: T.Euler, prev: number[]) {
     mid = e.order[1] === 'X' ? 0 : 1,
     b = a.map((v, i) => wrap(i === mid ? 180 - v : v + 180)),
     off = (x: number[]) => x.reduce((s, v, i) => s + Math.abs(wrap(v - prev[i])), 0);
-  return (off(a) <= off(b) ? a : b).map((v, i) => Math.round((prev[i] + wrap(v - prev[i])) * 10) / 10);
+  return (off(a) <= off(b) ? a : b).map(
+    (v, i) => Math.round((prev[i] + wrap(v - prev[i])) * 10) / 10,
+  );
 }
 
 // ---------------------------------------------------------------- the panel
@@ -860,8 +959,9 @@ export function setupHand(host: Host) {
   // The middle home keycap stays where it is; everything else follows the hand.
   const c0 = cfg(),
     mi = c0.geometry.columns.findIndex((k) => k.name === 'middle'),
-    o = (c0.geometry.key_overrides as Record<string, { offset_mm?: number[]; rotation_deg?: number[] }>)
-      .matrix_middle_home,
+    o = (
+      c0.geometry.key_overrides as Record<string, { offset_mm?: number[]; rotation_deg?: number[] }>
+    ).matrix_middle_home,
     // Through the key's own tilt too, or every reload moves the anchor.
     anchor = V([0, 0, capHeight(c0)]).applyMatrix4(
       columnFrames(c0, mi)[1].multiply(frame(o?.offset_mm, o?.rotation_deg)),
@@ -882,7 +982,10 @@ export function setupHand(host: Host) {
   const restore = (j: string) => {
     const v = JSON.parse(j);
     for (const k of Object.keys(v) as (keyof typeof s)[])
-      if (k in s) typeof s[k] === 'object' ? Object.assign(s[k] as object, v[k]) : Object.assign(s, { [k]: v[k] });
+      if (k in s)
+        typeof s[k] === 'object'
+          ? Object.assign(s[k] as object, v[k])
+          : Object.assign(s, { [k]: v[k] });
   };
   try {
     restore(localStorage.getItem(SAVED) ?? '{}');
@@ -895,7 +998,11 @@ export function setupHand(host: Host) {
     new T.Matrix4()
       .makeTranslation(anchor)
       .multiply(turnOf(s))
-      .multiply(new T.Matrix4().makeTranslation(rowPose('middle', s.curl.middle, 0, 0, wayOf(s)).chain.pad.negate()));
+      .multiply(
+        new T.Matrix4().makeTranslation(
+          rowPose('middle', s.curl.middle, 0, 0, wayOf(s)).chain.pad.negate(),
+        ),
+      );
 
   function apply() {
     const c = cfg(),
@@ -956,7 +1063,11 @@ export function setupHand(host: Host) {
       // rotQ: Rz(yaw) Ry(pitch) Rx(roll), from rest.
       const base = tent.multiply(rotation(toLayout())),
         q = solveHand(s).row[1].q,
-        [x, y, z] = nearest(new T.Euler().setFromRotationMatrix(base.invert().multiply(R), 'ZYX'), [q[2], q[1], q[0]]),
+        [x, y, z] = nearest(new T.Euler().setFromRotationMatrix(base.invert().multiply(R), 'ZYX'), [
+          q[2],
+          q[1],
+          q[0],
+        ]),
         r1 = (v: number) => Math.round(v * 10) / 10;
       Object.assign(s.thumb, {
         sweep: r1(thumbRest[0] - z),
@@ -991,8 +1102,13 @@ export function setupHand(host: Host) {
       { poses, row } = r.h,
       ri = ROWS.indexOf(s.row),
       L = toLayout(),
-      th = thumb(s.thumbOn === 'rest' ? thumbRest : row[['far', 'home', 'near'].indexOf(s.thumbOn)].q);
-    const shown = Object.fromEntries(FINGERS.map((f) => [f, poses[f][ri].chain])) as Record<Finger, Chain>;
+      th = thumb(
+        s.thumbOn === 'rest' ? thumbRest : row[['far', 'home', 'near'].indexOf(s.thumbOn)].q,
+      );
+    const shown = Object.fromEntries(FINGERS.map((f) => [f, poses[f][ri].chain])) as Record<
+      Finger,
+      Chain
+    >;
     drawHand(handGroup, shown, th);
     handGroup.matrix.copy(L);
     group.matrix.copy(tentFrame(c));
@@ -1010,6 +1126,7 @@ export function setupHand(host: Host) {
       ? `<div style="color:#ff9a8a">Not valid:<ul style="margin:2px 0;padding-left:18px">${wrong.map((w) => `<li>${w}</li>`).join('')}</ul></div>`
       : `<div style="color:#9be39b">Valid (${r.height.all.toFixed(0)} mm tall).</div>`;
     host.render();
+    queueFrame();
   }
 
   // Controls.
@@ -1097,14 +1214,21 @@ export function setupHand(host: Host) {
   }
   /** One slider for several settings: it shows their mean and moves them all
    * by the same amount, each kept in its own range. */
-  function together(label: string, parts: [get: () => number, set: (v: number) => void, min: number, max: number][], min: number, max: number, step: number) {
+  function together(
+    label: string,
+    parts: [get: () => number, set: (v: number) => void, min: number, max: number][],
+    min: number,
+    max: number,
+    step: number,
+  ) {
     const mean = () => Math.round((parts.reduce((t, [g]) => t + g(), 0) / parts.length) * 10) / 10;
     slider(
       label,
       mean,
       (v) => {
         const d = v - mean();
-        for (const [g, st, lo, hi] of parts) st(Math.min(hi, Math.max(lo, Math.round((g() + d) * 10) / 10)));
+        for (const [g, st, lo, hi] of parts)
+          st(Math.min(hi, Math.max(lo, Math.round((g() + d) * 10) / 10)));
       },
       min,
       max,
@@ -1129,7 +1253,14 @@ export function setupHand(host: Host) {
     // Every setting, keeping which keys the hand is shown on, how rows are
     // reached, the cluster and the handle; one Undo step.
     b.addEventListener('click', () => {
-      const keep = { row: s.row, thumbOn: s.thumbOn, from: s.from, cluster: s.cluster, handle: s.handle, advanced: s.advanced },
+      const keep = {
+          row: s.row,
+          thumbOn: s.thumbOn,
+          from: s.from,
+          cluster: s.cluster,
+          handle: s.handle,
+          advanced: s.advanced,
+        },
         twoFrom = s.two.from;
       Object.assign(s, structuredClone(p), keep);
       s.two.from = twoFrom;
@@ -1242,6 +1373,66 @@ export function setupHand(host: Host) {
   const caseOn = caseBox.querySelector('input')!;
   caseOn.addEventListener('change', host.rebuild);
   basic.append(advBox, caseBox);
+
+  // The test frame (hand-frame.ts): switch holes on pillars, to print and try.
+  const frameBox = document.createElement('div');
+  frameBox.innerHTML =
+    '<label style="display:block"><input type="checkbox"> Test frame (print this way up, no supports)</label>' +
+    '<button>Right STL</button><button>Left STL</button><div style="font-size:13px"></div>';
+  const frameOn = frameBox.querySelector('input')!,
+    [rightStl, leftStl] = frameBox.querySelectorAll('button'),
+    frameNote = frameBox.querySelector('div')!,
+    frameView = new T.Mesh(
+      new T.BufferGeometry(),
+      new T.MeshStandardMaterial({
+        color: '#c8b48c',
+        roughness: 0.8,
+        transparent: true,
+        opacity: 0.85,
+      }),
+    );
+  host.scene.add(frameView);
+  basic.append(frameBox);
+  let frameTimer: ReturnType<typeof setTimeout> | undefined;
+  async function showFrame() {
+    frameView.visible = frameOn.checked;
+    rightStl.disabled = leftStl.disabled = !frameOn.checked;
+    if (!frameOn.checked) {
+      frameNote.textContent = '';
+      return host.render();
+    }
+    const r = buildFrame(await manifold(), cfg()),
+      g = new T.BufferGeometry();
+    g.setAttribute('position', new T.BufferAttribute(r.mesh.positions, 3));
+    g.setIndex(new T.BufferAttribute(r.mesh.indices, 1));
+    g.computeVertexNormals();
+    frameView.geometry.dispose();
+    frameView.geometry = g;
+    const wrong = [...(r.pieces > 1 ? [`${r.pieces} separate pieces`] : []), ...r.faults];
+    frameNote.innerHTML =
+      `${r.size.map((x) => x.toFixed(0)).join(' × ')} mm` +
+      (r.bars
+        ? `; joined along the floor in ${r.bars === 1 ? 'one place' : `${r.bars} places`}`
+        : '') +
+      (wrong.length ? `<div style="color:#ff9a8a">${wrong.join('<br>')}</div>` : '');
+    host.render();
+  }
+  const queueFrame = () => {
+    clearTimeout(frameTimer);
+    frameTimer = setTimeout(() => void showFrame(), 150);
+  };
+  frameOn.addEventListener('change', queueFrame);
+  const saveFrame = async (left: boolean) => {
+    const r = buildFrame(await manifold(), cfg()),
+      a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([frameStl(r.mesh, r.floor, left).buffer as ArrayBuffer]));
+    a.download = `rosebear-hand-frame-${left ? 'left' : 'right'}.stl`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  };
+  rightStl.onclick = () => void saveFrame(false);
+  leftStl.onclick = () => void saveFrame(true);
+  rightStl.disabled = leftStl.disabled = true;
 
   // ---- advanced
   box = advanced;
