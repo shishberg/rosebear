@@ -13,8 +13,7 @@
  * point. Either the reach mix is set (MCP degrees per PIP degree) and the
  * fingertip's path is the keyboard, or the press mix is set (PIP+DIP degrees
  * straightened per MCP degree) and the finger reaches square to it at every
- * point. The readout gives the other mix. The inner column is left out of the
- * readout: it's reached with the wrist.
+ * point (Jindrich et al. 2004 measured a press mix of about 1.4).
  * Thumb: a ball joint at the assumed CMC, hinges at the MCP and IP. Its home
  * pose is set by joint angles; it presses like a finger, curling the MCP and
  * IP (with as much CMC abduction blended in as a slider says), and the CMC
@@ -249,13 +248,6 @@ function innerColumn(index: Pose[], gap: number, angle: number) {
     else hi = m;
   }
   return { poses: at(hi), slide: hi, limited: hi >= lim[1] - 0.01 || hi <= lim[0] + 0.01 };
-}
-/** To press straight along −n: degrees the PIP and DIP straighten (together)
- * per degree the MCP flexes. Jindrich et al. 2004 measured about 1.4. */
-function pressRatio(f: Finger, abd: number, p: Pose) {
-  const { vm, vp, ip } = rates(f, abd, p.mcp, p.pip);
-  // a·vm + b·vp is square to t: a ∝ vp·t, b ∝ −vm·t.
-  return (vm.dot(p.t) * ip) / vp.dot(p.t);
 }
 
 // ---------------------------------------------------------------- thumb
@@ -709,46 +701,23 @@ function handHits(caps: Cap[], chains: Record<Finger, Chain>, th: ReturnType<typ
   return out;
 }
 /** How tall the board stands, hand frame turned onto the desk by `R`: from the
- * highest keycap corner down to the lowest switch body's bottom, plus the base.
- * Also the finger keys alone, and without the far thumb key (1×3). */
+ * highest keycap corner down to the lowest switch body's bottom, plus the base. */
 function heightOf(c: Config, caps: Cap[], R: T.Matrix4) {
   const sw = c.switch,
-    base = (c as { chassis?: { base_thickness_mm?: number } }).chassis?.base_thickness_mm ?? 2,
-    hi = (keep: (k: Cap) => boolean) => {
-      let z = -Infinity,
-        key = '';
-      for (const k of caps.filter(keep)) {
-        const m = R.clone().multiply(k.top);
-        for (const x of [-k.size[0] / 2, k.size[0] / 2])
-          for (const y of [-k.size[1] / 2, k.size[1] / 2])
-            for (const h of [-k.size[2], 0]) {
-              const p = new T.Vector3(x, y, h).applyMatrix4(m);
-              if (p.z > z) [z, key] = [p.z, k.name];
-            }
-      }
-      return { z, key };
-    };
-  let low = Infinity,
-    lowKey = '';
+    base = (c as { chassis?: { base_thickness_mm?: number } }).chassis?.base_thickness_mm ?? 2;
+  let high = -Infinity,
+    low = Infinity;
   for (const k of caps) {
     const m = R.clone().multiply(k.top),
       seat = -k.size[2] - sw.keycap_bottom_above_plate_mm - sw.body_below_plate_mm;
+    for (const x of [-k.size[0] / 2, k.size[0] / 2])
+      for (const y of [-k.size[1] / 2, k.size[1] / 2])
+        for (const h of [-k.size[2], 0]) high = Math.max(high, new T.Vector3(x, y, h).applyMatrix4(m).z);
     for (const x of [-sw.body_mm[0] / 2, sw.body_mm[0] / 2])
-      for (const y of [-sw.body_mm[1] / 2, sw.body_mm[1] / 2]) {
-        const p = new T.Vector3(x, y, seat).applyMatrix4(m);
-        if (p.z < low) [low, lowKey] = [p.z, k.name];
-      }
+      for (const y of [-sw.body_mm[1] / 2, sw.body_mm[1] / 2])
+        low = Math.min(low, new T.Vector3(x, y, seat).applyMatrix4(m).z);
   }
-  const all = hi(() => true),
-    fingers = hi((k) => k.name.startsWith('matrix_')),
-    noFar = hi((k) => k.name !== 'thumb_far');
-  return {
-    all: all.z - low + base,
-    tallest: all.key,
-    lowest: lowKey,
-    fingers: fingers.z - low + base,
-    noFar: noFar.z - low + base,
-  };
+  return { all: high - low + base };
 }
 /** The hand frame onto the desk (rotation only): the tent, then the hand's turn. */
 const deskOf = (s: Settings) => frame([0, 0, 0], [0, s.tent, 0]).multiply(turnOf(s));
@@ -980,14 +949,14 @@ export function setupHand(host: Host) {
     pivot.updateMatrixWorld();
   }
 
-  const note = document.createElement('p');
+  const note = document.createElement('div');
+  note.id = 'hand-note';
   function update() {
     const c = cfg(),
       r = check(c, s),
-      { poses, inner, row } = r.h,
+      { poses, row } = r.h,
       ri = ROWS.indexOf(s.row),
       L = toLayout(),
-      two = !!twoOf(s),
       th = thumb(s.thumbOn === 'rest' ? thumbRest : row[['far', 'home', 'near'].indexOf(s.thumbOn)].q);
     const shown = Object.fromEntries(FINGERS.map((f) => [f, poses[f][ri].chain])) as Record<Finger, Chain>;
     drawHand(handGroup, shown, th);
@@ -995,66 +964,16 @@ export function setupHand(host: Host) {
     group.matrix.copy(tentFrame(c));
     group.matrixWorldNeedsUpdate = true;
     placeHandle(c, L, row[1].q);
-    const sign = (v: number) => `${v >= 0 ? '+' : '−'}${Math.abs(v).toFixed(0)}`,
-      // Valid or not, first.
-      wrong = [
-        ...r.capHits.map((x) => `${capName(x.a)} hits ${capName(x.b)} (${x.depth.toFixed(1)} mm)`),
-        ...r.handHits.map((x) => `the ${x.a} goes through ${capName(x.b)} (${x.depth.toFixed(1)} mm)`),
-        ...r.short.map(([k, m]) => `${k} out of reach by ${m.toFixed(0)} mm`),
-        ...r.stiff.map(([k, d]) => `thumb ${k} out of reach (the MCP or IP ${d.toFixed(0)}° past its limit)`),
-        ...(r.height.all > TRAY ? [`${r.height.all.toFixed(0)} mm tall, over the ${TRAY} mm tray`] : []),
-      ];
-    note.innerHTML =
-      (wrong.length
-        ? `<span style="color:#ff9a8a">Not valid: ${wrong.join('; ')}.</span>`
-        : `<span style="color:#9be39b">Valid: no keycap hits another (pressed against one at rest), the hand passes through no key, every key is in reach and the board fits the ${TRAY} mm tray.</span>`) +
-      '<br>From home to the top / bottom row, degrees (+ curls); then to press, how far the PIP and DIP straighten per MCP degree on the top / home / bottom key (Jindrich measured 1.4). Keys tilt (+ far edge down) top / home / bottom:<br>' +
-      FINGERS.map((f) => {
-        const [t, h, b] = poses[f],
-          d = (p: Pose) => `MCP ${sign(p.mcp - h.mcp)} PIP ${sign(p.pip - h.pip)}`,
-          pr = poses[f].map((p) => pressRatio(f, 0, p).toFixed(1)).join(' / '),
-          tilt = poses[f]
-            .map((p) => {
-              const n = p.n.clone().transformDirection(L);
-              return sign(deg(Math.atan2(n.y, n.z)));
-            })
-            .join(' / ');
-        return `${f}: ${d(t)} / ${d(b)}; press ${pr}; keys ${tilt}°`;
-      }).join('<br>') +
-      `<br>Inner column: the arm moves the hand ${sign(inner.slide)} mm toward the thumb and the index turns ${sign(s.innerAngle)}° at its knuckle${inner.limited ? ' (out of reach)' : ''}; from the index column, top / home / bottom (centre to centre): ${ROWS.map((_, ri) =>
-        poses.inner[ri].chain.pad.distanceTo(poses.index[ri].chain.pad).toFixed(1),
-      ).join(' / ')} mm.` +
-      (() => {
-        const at = row[1].pad.clone().applyMatrix4(L).sub(anchor),
-          n = new T.Vector3().setFromMatrixColumn(row[1].frame, 2).transformDirection(L),
-          m = poses.middle[1].n.clone().transformDirection(L),
-          dir = row[0].pad.clone().sub(row[2].pad).transformDirection(L);
-        return (
-          `<br>Thumb home key from the middle home key: ${sign(at.x)} toward the pinky, ${sign(at.y)} away, ${sign(at.z)} up (mm). ` +
-          `It faces ${deg(n.angleTo(Z)).toFixed(0)}° from straight up, toward the thumb side turned ${sign(deg(Math.atan2(-n.y, -n.x)))}° toward you (${deg(n.angleTo(m)).toFixed(0)}° from the middle home key). ` +
-          `Dactyl's: −49, −54, −11 mm; 37° from up, turned +33° toward you (38°). ` +
-          `The row runs ${sign(deg(Math.atan2(dir.y, -dir.x)))}° from straight across (+ far key away from you), ${sign(deg(Math.asin(dir.z)))}° up toward the far key. ` +
-          (() => {
-            const wrap = (d: number) => ((((d + 180) % 360) + 360) % 360) - 180,
-              [f, h, e] = [row[0].q, row[1].q, row[2].q];
-            if (two) {
-              const g = row[0].pad.clone().add(row[2].pad).multiplyScalar(0.5).sub(row[1].pad).applyMatrix4(new T.Matrix4().extractRotation(L)),
-                n0 = new T.Vector3().setFromMatrixColumn(row[1].frame, 2),
-                n1 = new T.Vector3().setFromMatrixColumn(row[0].frame, 2).add(new T.Vector3().setFromMatrixColumn(row[2].frame, 2)).normalize();
-              return `Pressed ${row[1].off.toFixed(0)}° off square to the 1.5u, ${row[0].off.toFixed(0)}° / ${row[2].off.toFixed(0)}° to the 1u keys. ` + (row[0].short > 0.5 ? `The 1u row is out of reach by ${row[0].short.toFixed(0)} mm (the MCP or IP at its limit). ` : '') + `The 1u row from the 1.5u: MCP ${sign(f[3] - h[3])}° IP ${sign(f[4] - h[4])}° (+ curls); its centre is ${sign(g.x)} toward the pinky, ${sign(g.y)} away, ${sign(g.z)} up (mm), and its keys face ${deg(n1.angleTo(n0)).toFixed(0)}° from the 1.5u. Between the two 1u keys the CMC sweeps ${sign(wrap(row[2].q[0] - f[0]))}°.`;
-            }
-            return `To reach the far key the CMC sweeps ${sign(wrap(h[0] - f[0]))}°, abducts ${sign(wrap(f[1] - h[1]))}° and twists ${sign(wrap(f[2] - h[2]))}°, the MCP and IP ${sign(f[3] - h[3])}° / ${sign(f[4] - h[4])}°; to the near key the MCP and IP ${sign(e[3] - h[3])}° / ${sign(e[4] - h[4])}° (+ curls).`;
-          })()
-        );
-      })() +
-      `<br>Height: ${r.height.all.toFixed(0)} mm from the base to the highest keycap corner (${capName(r.height.tallest)}; lowest switch: ${capName(r.height.lowest)}); the finger keys alone: ${r.height.fingers.toFixed(0)} mm${two ? '' : `; without the far thumb key: ${r.height.noFar.toFixed(0)} mm`}. Keyboard tray: ${TRAY} mm.` +
-      // As measured on the Dactyl Manuform (12.7–12.8° on every row at its nominal 15°).
-      `<br>Index to pinky cap tops slope (+ pinky side lower), top / home / bottom: ${ROWS.map((_, ri) => {
-        const world = tentFrame(c),
-          at = (col: string) => poses[col][ri].chain.pad.clone().applyMatrix4(L).applyMatrix4(world),
-          d = at('pinky').sub(at('index'));
-        return deg(Math.atan2(-d.z, Math.hypot(d.x, d.y))).toFixed(1);
-      }).join(' / ')}°. Dactyl Manuform: 12.8° (15° tent).`;
+    const wrong = [
+      ...r.capHits.map((x) => `${capName(x.a)} hits ${capName(x.b)} (${x.depth.toFixed(1)} mm)`),
+      ...r.handHits.map((x) => `${x.a} through ${capName(x.b)} (${x.depth.toFixed(1)} mm)`),
+      ...r.short.map(([k, m]) => `${k} out of reach (${m.toFixed(0)} mm)`),
+      ...r.stiff.map(([k, d]) => `thumb ${k} out of reach (MCP/IP ${d.toFixed(0)}° past limit)`),
+      ...(r.height.all > TRAY ? [`${r.height.all.toFixed(0)} mm tall (tray ${TRAY} mm)`] : []),
+    ];
+    note.innerHTML = wrong.length
+      ? `<div style="color:#ff9a8a">Not valid:<ul style="margin:2px 0;padding-left:18px">${wrong.map((w) => `<li>${w}</li>`).join('')}</ul></div>`
+      : `<div style="color:#9be39b">Valid (${r.height.all.toFixed(0)} mm tall).</div>`;
     host.render();
   }
 
@@ -1062,9 +981,9 @@ export function setupHand(host: Host) {
   const sec = document.createElement('section'),
     basic = document.createElement('div'),
     advanced = document.createElement('div');
-  sec.innerHTML = `<h2>Prototype: hand</h2><small>The keys follow your measured hand. Sliders and the rotation handle rewrite the layout; Undo restores it.</small>`;
+  sec.innerHTML = `<h2>Prototype: hand</h2><small>The keys follow your measured hand.</small>`;
   sec.append(basic, advanced, note);
-  note.style.cssText = 'color:#ffd36b;min-height:1em';
+  note.style.cssText = 'margin:8px 0 0;min-height:1em;font-size:13px';
   document.querySelector('aside')!.prepend(sec);
   let box = basic,
     touched = false;
@@ -1170,7 +1089,7 @@ export function setupHand(host: Host) {
     b.textContent = name;
     b.title =
       name === 'Natural'
-        ? 'The least change from your resting hand that makes a valid layout: no keycaps colliding, the hand through no key, every key in reach, under the 66 mm tray.'
+        ? 'The least change from your resting hand that is valid.'
         : 'The closest fit to the Dactyl Manuform.';
     // Every setting, keeping which keys the hand is shown on, how rows are
     // reached, the cluster and the handle; one Undo step.
@@ -1192,14 +1111,14 @@ export function setupHand(host: Host) {
   const copy = document.createElement('button'),
     paste = document.createElement('button');
   copy.textContent = 'Copy settings';
-  copy.title = 'Every hand setting, as JSON, to the clipboard.';
+  copy.title = 'Copy every hand setting as JSON.';
   copy.addEventListener('click', async () => {
     await navigator.clipboard.writeText(JSON.stringify(s));
     copy.textContent = 'Copied';
     setTimeout(() => (copy.textContent = 'Copy settings'), 1500);
   });
   paste.textContent = 'Paste settings';
-  paste.title = 'Settings copied with Copy settings (one Undo step).';
+  paste.title = 'Paste settings from Copy settings.';
   paste.addEventListener('click', () => {
     const j = prompt('Paste the settings (JSON):');
     if (!j) return;
@@ -1230,25 +1149,21 @@ export function setupHand(host: Host) {
     (v) => (s.thumbOn = v),
   );
   radios(
-    'Rotation handle turns the',
+    'Rotation handle:',
     ['hand', 'thumb', 'off'],
     () => s.handle,
     (v) => (s.handle = v),
   );
-  box.insertAdjacentHTML(
-    'beforeend',
-    '<small>Hand: on the middle home key, the hand on the board (roll, wrist, bend). Thumb: at its base (the CMC), the thumb (sweep, abduction, twist). Drag a ring; the white one turns about the view.</small>',
-  );
   heading('Basic');
   together(
-    'finger curl at home (all four, degrees: + curled)',
+    'finger curl (°, + curled)',
     FINGERS.map((f) => [() => s.curl[f], (v: number) => (s.curl[f] = v), -30, 40]),
     -30,
     40,
     1,
   );
   together(
-    'key spacing (mm, centre to centre; every gap: rows, inner column, thumb)',
+    'key spacing (mm, every gap)',
     [
       [() => s.top, (v) => (s.top = v), 5, 35],
       [() => s.bottom, (v) => (s.bottom = v), 5, 35],
@@ -1260,7 +1175,7 @@ export function setupHand(host: Host) {
     0.5,
   );
   slider(
-    'thumb curl: MCP and IP, degrees past rest',
+    'thumb curl (°, + curled)',
     () => s.thumb.curl,
     (v) => (s.thumb.curl = v),
     -30,
@@ -1287,7 +1202,7 @@ export function setupHand(host: Host) {
   advOn.checked = s.advanced;
   advanced.hidden = !s.advanced;
   const caseBox = document.createElement('label');
-  caseBox.innerHTML = '<input type="checkbox"> Build the case (often fails on these layouts)';
+  caseBox.innerHTML = '<input type="checkbox"> Build the case (often fails)';
   caseBox.style.display = 'block';
   const caseOn = caseBox.querySelector('input')!;
   caseOn.addEventListener('change', host.rebuild);
@@ -1295,9 +1210,9 @@ export function setupHand(host: Host) {
 
   // ---- advanced
   box = advanced;
-  heading('Hand on the board (degrees; the hand handle sets roll, wrist and bend)');
+  heading('Hand on the board (°)');
   slider(
-    'tent (the board)',
+    'tent',
     () => s.tent,
     (v) => (s.tent = v),
     0,
@@ -1318,13 +1233,13 @@ export function setupHand(host: Host) {
     25,
   );
   slider(
-    'wrist: + bent toward the pinky',
+    'wrist bend: + toward the pinky',
     () => s.bend,
     (v) => (s.bend = v),
     -25,
     25,
   );
-  heading('Curl at home (degrees: + curled, − straighter)');
+  heading('Curl at home (°, + curled)');
   for (const f of FINGERS)
     slider(
       f,
@@ -1334,7 +1249,7 @@ export function setupHand(host: Host) {
       40,
     );
   slider(
-    'inner column: closest key from the index column (mm, centre to centre; caps are 18)',
+    'inner column gap (mm)',
     () => s.innerGap,
     (v) => (s.innerGap = v),
     18,
@@ -1342,17 +1257,17 @@ export function setupHand(host: Host) {
     0.5,
   );
   slider(
-    'inner column: index turned at its knuckle (degrees, + toward the thumb; 0 = parallel to the index column)',
+    'inner column angle (°, + to thumb)',
     () => s.innerAngle,
     (v) => (s.innerAngle = v),
     -10,
     30,
   );
-  heading('Rows (mm from home, along the keyboard)');
+  heading('Rows (mm from home)');
   const fromBox = document.createElement('div');
   box.append(fromBox);
   slider(
-    'reach mix: MCP degrees per PIP degree between rows (+ both curl, − opposite)',
+    'reach mix: MCP° per PIP°',
     () => s.reachMix,
     (v) => (s.reachMix = v),
     -1,
@@ -1361,7 +1276,7 @@ export function setupHand(host: Host) {
     () => s.from === 'reach',
   );
   slider(
-    'press mix: PIP+DIP degrees straightened per MCP degree flexed',
+    'press mix: PIP+DIP° per MCP°',
     () => s.pressMix,
     (v) => (s.pressMix = v),
     -1,
@@ -1394,30 +1309,30 @@ export function setupHand(host: Host) {
     5,
     35,
   );
-  heading('Thumb (the thumb handle sets sweep, abduction and twist)');
+  heading('Thumb (°)');
   slider(
-    'sweep: + across toward the fingers (CMC, degrees from rest)',
+    'sweep: + toward the fingers',
     () => s.thumb.sweep,
     (v) => (s.thumb.sweep = v),
     -80,
     30,
   );
   slider(
-    'abduction: + down, away from the palm (CMC)',
+    'abduction: + away from the palm',
     () => s.thumb.abduct,
     (v) => (s.thumb.abduct = v),
     -30,
     60,
   );
   slider(
-    'twist: + pad turned to face down (CMC)',
+    'twist: + pad down',
     () => s.thumb.twist,
     (v) => (s.thumb.twist = v),
     -180,
     180,
   );
   slider(
-    'press: IP degrees per MCP degree (− straightens; the keys face against the press)',
+    'press: IP°/MCP° (− straightens)',
     () => s.thumb.mix,
     (v) => (s.thumb.mix = v),
     -3,
@@ -1425,7 +1340,7 @@ export function setupHand(host: Host) {
     0.01,
   );
   slider(
-    'key spacing (mm, centre to centre)',
+    'key spacing (mm)',
     () => s.spacing,
     (v) => (s.spacing = v),
     17,
@@ -1433,14 +1348,14 @@ export function setupHand(host: Host) {
     0.5,
   );
   slider(
-    'row bend: MCP and IP degrees per key (+ curls toward the near key, straightens toward the far; 0 = the CMC alone)',
+    'row bend (°/key, + curls near)',
     () => s.thumb.bend ?? 0,
     (v) => (s.thumb.bend = v),
     -40,
     40,
   );
   slider(
-    '1u row: mm from the 1.5u along the pad\'s path (+ curled, − straighter)',
+    '1u row gap (mm, + curled)',
     () => s.two.gap,
     (v) => (s.two.gap = v),
     -35,
@@ -1451,7 +1366,7 @@ export function setupHand(host: Host) {
   const twoBox = document.createElement('div');
   box.append(twoBox);
   slider(
-    '1u row reach mix: MCP degrees per IP degree',
+    '1u row reach mix: MCP° per IP°',
     () => s.two.reachMix,
     (v) => (s.two.reachMix = v),
     -1,
