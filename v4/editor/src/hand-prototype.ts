@@ -518,12 +518,14 @@ export function setupHand(host: Host) {
     from: 'reach',
     reachMix: 0.4,
     pressMix: 1.4,
-    // The home key at the thumb's rest, pressed like a finger: from the base
-    // (the CMC, the thumb's knuckle), the MCP following a little and the IP
-    // still. (Sweep −47, abduction 31, curl 19, pressed by curling, reaches
-    // the Dactyl Manuform's middle thumb key, facing down.)
-    thumb: { sweep: 0, abduct: 0, twist: 0, curl: 0, mix: 0, cmc: 3 } as ThumbPose,
-    spacing: 19.5,
+    // The closest fit to the Dactyl Manuform's thumb keys, relative to the
+    // middle home key: its middle thumb key within 1 mm and 1°, the IP
+    // straightening as the MCP flexes. Its row runs more toward the user
+    // (−67° from across against −35°), so the end keys miss by 12–14 mm;
+    // fitting all three keys instead gets them no closer. (The thumb at rest,
+    // pressed from the CMC: all 0 but cmc 3.)
+    thumb: { sweep: -23, abduct: 14, twist: 17, curl: 14, mix: -3, cmc: 0.3 } as ThumbPose,
+    spacing: 24.5,
     cluster: '1×3',
     // The 1u row, a key's depth from the 1.5u, on the curled side, reached
     // square to the press. (A reach mix like the fingers' 0.4 moves the thumb's
