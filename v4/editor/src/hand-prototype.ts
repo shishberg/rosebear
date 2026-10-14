@@ -732,6 +732,8 @@ export function setupHand(host: Host) {
     min: number,
     max: number,
     step = 1,
+    /** Whether it does anything with the other settings as they are. */
+    on = () => true,
   ) {
     const l = document.createElement('label');
     l.style.cssText =
@@ -739,7 +741,11 @@ export function setupHand(host: Host) {
     l.innerHTML = `<span>${label}</span><output style="text-align:right"></output><input type="range" min="${min}" max="${max}" step="${step}" style="grid-column:1/3;width:100%">`;
     const i = l.querySelector('input')!,
       out = l.querySelector('output')!;
-    const show = () => (i.value = out.textContent = String(get()));
+    const show = () => {
+      i.value = out.textContent = String(get());
+      i.disabled = !on();
+      l.style.opacity = on() ? '' : '0.4';
+    };
     show();
     shows.push(show);
     i.addEventListener('input', () => {
@@ -841,6 +847,7 @@ export function setupHand(host: Host) {
     -1,
     3,
     0.1,
+    () => s.from === 'reach',
   );
   slider(
     'press mix: PIP+DIP degrees straightened per MCP degree flexed',
@@ -849,6 +856,7 @@ export function setupHand(host: Host) {
     -1,
     4,
     0.1,
+    () => s.from === 'press',
   );
   radios(
     'Set the',
@@ -856,6 +864,7 @@ export function setupHand(host: Host) {
     () => s.from,
     (v) => {
       s.from = v;
+      shows.forEach((f) => f());
       change();
     },
     fromBox,
@@ -933,6 +942,7 @@ export function setupHand(host: Host) {
     () => s.cluster,
     (v) => {
       s.cluster = v;
+      shows.forEach((f) => f());
       change();
     },
   );
@@ -943,6 +953,7 @@ export function setupHand(host: Host) {
     -35,
     35,
     0.5,
+    () => s.cluster !== '1×3',
   );
   const twoBox = document.createElement('div');
   box.append(twoBox);
@@ -953,6 +964,7 @@ export function setupHand(host: Host) {
     -1,
     3,
     0.1,
+    () => s.cluster !== '1×3' && s.two.from === 'reach',
   );
   radios(
     'Reach the 1u row',
@@ -960,6 +972,7 @@ export function setupHand(host: Host) {
     () => s.two.from,
     (v) => {
       s.two.from = v;
+      shows.forEach((f) => f());
       change();
     },
     twoBox,
