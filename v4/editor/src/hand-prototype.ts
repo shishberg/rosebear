@@ -15,10 +15,12 @@
  * straightened per MCP degree) and the finger reaches square to it at every
  * point (Jindrich et al. 2004 measured a press mix of about 1.4).
  * Thumb: a ball joint at the assumed CMC, hinges at the MCP and IP. Its home
- * pose is set by joint angles; it presses like a finger, curling the MCP and
- * IP (with as much CMC abduction blended in as a slider says), and the CMC
- * reaches between keys, square to the press at each one, the MCP and IP
- * curling toward the near key (straightening toward the far) as set.
+ * pose is set by joint angles; it presses by curling the MCP and IP, by
+ * swinging the whole thumb at the CMC, or a blend, as set (curling alone
+ * makes the keys stand nearly on edge and runs the row along the MCP/IP
+ * hinge), and the CMC reaches between keys, square to the press at each one,
+ * the MCP and IP curling toward the near key (straightening toward the far)
+ * as set. Each key lines up with the row through it.
  * The palm is a sketch.
  * Settings: two presets (the closest fit to the Dactyl Manuform; the least
  * change from the resting hand that makes a valid layout), a rotation handle
@@ -330,13 +332,27 @@ function thumb(q: number[]) {
     pad: axis.clone().addScaledVector(up(q[3] + q[4]), -cmc.pad_below_distal_axis_mm),
   };
 }
-/** Which way the pad moves as the thumb presses: the MCP curls, the IP `mix`
- * times as much, and the CMC abducts (down, away from the palm) `cmc` times as
- * much. */
-const pressDir = (q: number[], mix: number, cmc: number) =>
-  thumb([q[0], q[1] + cmc, q[2], q[3] + 1, q[4] + mix])
-    .pad.sub(thumb(q).pad)
+/** Which way the pad moves as the thumb presses: a blend of curling (the MCP,
+ * and the IP `mix` times as much) and the whole thumb moving at the CMC
+ * (`cmcDir`: 0 abducts it, down and away from the palm; + toward the fingers),
+ * `byCmc` of the way from the one to the other. Curling alone moves the pad
+ * square to the MCP and IP's hinge, so the row (square to the press and to the
+ * line from the CMC) would always run along that hinge. */
+const pressDir = (q: number[], t: Pick<ThumbPose, 'mix' | 'byCmc' | 'cmcDir'>) => {
+  const p0 = thumb(q).pad,
+    a = rad(t.cmcDir ?? 0),
+    w = t.byCmc ?? 0,
+    curl = thumb([q[0], q[1], q[2], q[3] + 1, q[4] + t.mix])
+      .pad.sub(p0)
+      .normalize(),
+    whole = thumb([q[0] - Math.sin(a), q[1] + Math.cos(a), q[2], q[3], q[4]])
+      .pad.sub(p0)
+      .normalize();
+  return curl
+    .multiplyScalar(1 - w)
+    .addScaledVector(whole, w)
     .normalize();
+};
 const arc = hand.thumb.arc_through_prints_1_to_4;
 const arcPoint = (a: number) =>
   new T.Vector3(
@@ -356,9 +372,12 @@ type ThumbPose = {
   twist: number;
   /** MCP and IP, degrees past rest. */
   curl: number;
-  /** The press: IP degrees per MCP degree, CMC abduction degrees per MCP degree. */
+  /** The press (pressDir): IP degrees per MCP degree as it curls; how much of
+   * it is the whole thumb moving at the CMC (0–1); which way the CMC moves it
+   * (degrees: 0 abducted, down and away from the palm; + toward the fingers). */
   mix: number;
-  cmc: number;
+  byCmc?: number;
+  cmcDir?: number;
   /** Along the row, MCP and IP degrees per key: + curls toward the near key
    * and straightens toward the far one (0: the CMC alone moves). */
   bend?: number;
@@ -389,7 +408,7 @@ function thumbRow(t: ThumbPose, spacing: number, two?: TwoRows) {
       thumbRest[3] + t.curl,
       thumbRest[4] + t.curl,
     ],
-    press = (q: number[]) => pressDir(q, t.mix, t.cmc),
+    press = (q: number[]) => pressDir(q, t),
     /** Along the row, away from the fingers. */
     along = (q: number[], prev?: T.Vector3) => {
       const v = thumb(q).pad.sub(C).cross(press(q)).normalize();
@@ -481,11 +500,19 @@ function thumbRow(t: ThumbPose, spacing: number, two?: TwoRows) {
       i === 1 ? t0 : w.dir.clone().transformDirection(rotQ(qk).multiply(back)),
     );
   }
-  const stiff = [ends[0].stiff, 0, ends[1].stiff];
-  return [ends[0].q, qh, ends[1].q].map((q, i) => {
-    const pad = thumb(q).pad,
+  const stiff = [ends[0].stiff, 0, ends[1].stiff],
+    qs = [ends[0].q, qh, ends[1].q],
+    pads = qs.map((q) => thumb(q).pad),
+    /** Each key lines up with the row through it, as the finger keys do with
+     * their column: x along the line from its neighbour (the 1u row's, on a
+     * 1.5u + 2×1u cluster), not the CMC's sweep alone, which the row leaves
+     * as soon as the MCP and IP bend along it. */
+    line = (i: number) =>
+      two || i === 1 ? pads[2].clone().sub(pads[0]) : pads[i / 2 + 1].clone().sub(pads[i / 2]);
+  return qs.map((q, i) => {
+    const pad = pads[i],
       pressed = press(q).negate(),
-      x = along(q).negate(),
+      x = line(i).normalize(),
       t = paths[i],
       z = t ? x.clone().cross(t).normalize() : pressed.clone();
     if (z.dot(pressed) < 0) z.negate();
@@ -897,7 +924,16 @@ const DACTYL: Settings = {
   from: 'reach',
   reachMix: 0.4,
   pressMix: 1.4,
-  thumb: { sweep: 9.9, abduct: 30.9, twist: -3.8, curl: -27.5, mix: -2.34, cmc: 0, bend: 10.6 },
+  thumb: {
+    sweep: 9.9,
+    abduct: 30.9,
+    twist: -3.8,
+    curl: -27.5,
+    mix: -2.34,
+    byCmc: 0,
+    cmcDir: 0,
+    bend: 10.6,
+  },
   spacing: 19.5,
   cluster: '1×3',
   // The 1u row, a key's depth from the 1.5u, on the curled side, reached
@@ -927,7 +963,7 @@ const NATURAL: Settings = {
   from: 'reach',
   reachMix: 0.4,
   pressMix: 1.4,
-  thumb: { sweep: 0, abduct: 0, twist: 0, curl: 0, mix: 1, cmc: 0, bend: 0 },
+  thumb: { sweep: 0, abduct: 0, twist: 0, curl: 0, mix: 1, byCmc: 0, cmcDir: 0, bend: 0 },
   spacing: 22.1,
   cluster: '1×3',
   two: { gap: 19.5, from: 'press', reachMix: 0.4 },
@@ -1556,12 +1592,28 @@ export function setupHand(host: Host) {
     180,
   );
   slider(
-    'press: IP°/MCP° (− straightens)',
+    'press by the whole thumb at the CMC (0: curling only, 1: CMC only)',
+    () => s.thumb.byCmc ?? 0,
+    (v) => (s.thumb.byCmc = v),
+    0,
+    1,
+    0.05,
+  );
+  slider(
+    'CMC press direction: 0 down (abducting), + toward the fingers',
+    () => s.thumb.cmcDir ?? 0,
+    (v) => (s.thumb.cmcDir = v),
+    -180,
+    180,
+  );
+  slider(
+    'curling press: IP° per MCP° (− straightens the IP)',
     () => s.thumb.mix,
     (v) => (s.thumb.mix = v),
     -3,
     3,
     0.01,
+    () => (s.thumb.byCmc ?? 0) < 1,
   );
   slider(
     'key spacing (mm)',
@@ -1572,7 +1624,7 @@ export function setupHand(host: Host) {
     0.5,
   );
   slider(
-    'row bend (°/key, + curls near)',
+    'row: MCP and IP curl per key (+ curls toward the near key)',
     () => s.thumb.bend ?? 0,
     (v) => (s.thumb.bend = v),
     -40,
@@ -1615,3 +1667,22 @@ export function setupHand(host: Host) {
   touched = false;
   return { update, buildCase: () => caseOn.checked };
 }
+
+/** For scripts that fit presets (in the browser, through Vite). */
+export const _test = {
+  T,
+  fit,
+  thumb,
+  rotQ,
+  pressDir,
+  thumbRow,
+  C,
+  thumbRest,
+  solveHand,
+  capsOf,
+  check,
+  turnOf,
+  deskOf,
+  NATURAL,
+  DACTYL,
+};
