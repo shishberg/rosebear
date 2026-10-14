@@ -738,7 +738,12 @@ function check(c: Config, s: Settings, h = solveHand(s)) {
     caps,
     capHits: capHits(c, caps),
     handHits: Object.values(hands),
-    short: FINGERS.flatMap((f) => ROWS.map((r, ri) => [`${f} ${r}`, h.poses[f][ri].short] as const).filter(([, m]) => m > 0.5)),
+    short: [
+      ...FINGERS.flatMap((f) => ROWS.map((r, ri) => [`${f} ${r}`, h.poses[f][ri].short] as const)),
+      ...(two ? [['thumb 1u row', h.row[0].short] as const] : []),
+    ].filter(([, m]) => m > 0.5),
+    /** The arm can't carry the hand far enough sideways for the inner column. */
+    innerShort: h.inner.limited,
     stiff: h.row.map((k, i) => [['far', 'home', 'near'][i], k.stiff] as const).filter(([, d]) => d > 0.5),
     height: heightOf(c, caps, deskOf(s)),
   };
@@ -969,6 +974,7 @@ export function setupHand(host: Host) {
       ...r.handHits.map((x) => `${x.a} through ${capName(x.b)} (${x.depth.toFixed(1)} mm)`),
       ...r.short.map(([k, m]) => `${k} out of reach (${m.toFixed(0)} mm)`),
       ...r.stiff.map(([k, d]) => `thumb ${k} out of reach (MCP/IP ${d.toFixed(0)}° past limit)`),
+      ...(r.innerShort ? ['inner column out of reach'] : []),
       ...(r.height.all > TRAY ? [`${r.height.all.toFixed(0)} mm tall (tray ${TRAY} mm)`] : []),
     ];
     note.innerHTML = wrong.length
