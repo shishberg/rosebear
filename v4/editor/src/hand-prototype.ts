@@ -203,15 +203,11 @@ function rowPose(f: Finger, curl: number, abd: number, dist: number, way: Way): 
   chain.pad = chain.ball.clone().addScaledVector(n, -TIP_R(f));
   return { chain, mcp: m, pip: p, short: left, t, n };
 }
-/** The wrist, where the palm sketch ends (not measured): turning the hand
- * toward the thumb here carries the fingertips sideways much further than
- * turning a finger at its knuckle. */
-const WRIST = rest.middle.mcp.clone().add(new T.Vector3(-8, -85, -12));
 /** The pose turned `a` degrees toward the thumb about a vertical axis through
- * `about`: at the wrist, the whole hand; at the knuckle, the finger alone (the
- * same as rowPose's abduction, since the walk turns with the finger). */
-function turned(p: Pose, about: T.Vector3, a: number): Pose {
-  const q = (v: T.Vector3) => v.clone().sub(about).applyAxisAngle(Z, rad(a)).add(about),
+ * `about` (at the knuckle, the same as rowPose's abduction, since the walk
+ * turns with the finger), then moved by `by`. */
+function moved(p: Pose, about: T.Vector3, a: number, by = new T.Vector3()): Pose {
+  const q = (v: T.Vector3) => v.clone().sub(about).applyAxisAngle(Z, rad(a)).add(about).add(by),
     c = p.chain;
   return {
     ...p,
@@ -220,25 +216,25 @@ function turned(p: Pose, about: T.Vector3, a: number): Pose {
     n: p.n.clone().applyAxisAngle(Z, rad(a)),
   };
 }
-/** The inner column: the index column turned `angle` degrees toward the thumb
- * (0 = parallel to it) with its closest key `gap` mm (centre to centre) toward
- * the thumb from the index column's. Turning at the wrist carries the fingertip
- * sideways further than turning at the knuckle, so the two settle the split:
- * the hand turns `wrist` degrees and the index `angle − wrist` at its knuckle
- * (parallel: the hand turns in, the index back by as much). */
+/** The inner column: the arm carries the hand sideways toward the thumb,
+ * square to the index column, and the index turns `angle` degrees toward the
+ * thumb at its knuckle (0 = parallel to the index column), until the closest
+ * key is `gap` mm (centre to centre) from the index column's. */
 function innerColumn(index: Pose[], gap: number, angle: number) {
-  const at = (w: number) => index.map((p) => turned(turned(p, p.chain.mcp, angle - w), WRIST, w)),
+  const d = index[0].chain.pad.clone().sub(index[2].chain.pad).setZ(0).normalize(),
+    side = new T.Vector3(-d.y, d.x, 0),
+    at = (m: number) => index.map((p) => moved(p, p.chain.mcp, angle, side.clone().multiplyScalar(m))),
     // Signed: negative while the inner column is on the pinky side.
-    gapAt = (w: number) =>
-      Math.min(...at(w).map((p, i) => p.chain.pad.distanceTo(index[i].chain.pad) * Math.sign(index[i].chain.pad.x - p.chain.pad.x))),
-    lim = [-40, 60];
+    gapAt = (m: number) =>
+      Math.min(...at(m).map((p, i) => p.chain.pad.distanceTo(index[i].chain.pad) * Math.sign(p.chain.pad.clone().sub(index[i].chain.pad).dot(side)))),
+    lim = [-40, 80];
   let [lo, hi] = lim;
   for (let i = 0; i < 40; i++) {
     const m = (lo + hi) / 2;
     if (gapAt(m) < gap) lo = m;
     else hi = m;
   }
-  return { poses: at(hi), wrist: hi, knuckle: angle - hi, limited: hi >= lim[1] - 0.01 || hi <= lim[0] + 0.01 };
+  return { poses: at(hi), slide: hi, limited: hi >= lim[1] - 0.01 || hi <= lim[0] + 0.01 };
 }
 /** To press straight along −n: degrees the PIP and DIP straighten (together)
  * per degree the MCP flexes. Jindrich et al. 2004 measured about 1.4. */
@@ -426,7 +422,7 @@ function drawHand(group: T.Group, chains: Record<Finger, Chain>, th: ReturnType<
     );
   }
   group.add(capsule(C, th.M, 11), capsule(th.M, th.I, 10.5), capsule(th.I, th.axis, cmc.pad_below_distal_axis_mm));
-  const wrist = WRIST,
+  const wrist = chains.middle.mcp.clone().add(new T.Vector3(-8, -85, -12)),
     hull: T.Vector3[] = [C.clone(), th.M.clone()];
   for (const f of FINGERS) {
     const k = chains[f].mcp;
@@ -538,25 +534,26 @@ export function setupHand(host: Host) {
   // 3°), relative to the middle home key, before tenting. The finger keys come
   // out 2–3 mm off in the middle and ring columns, 6–11 mm in the inner, index
   // and pinky (the Dactyl raises its outer columns into a bowl, which these
-  // sliders can't); the thumb's home key within 3 mm, its end keys 16–18 mm
+  // sliders can't); the thumb's home key within 1 mm, its end keys 15–19 mm
   // (its row runs more toward you than the Dactyl's). The inner column is
-  // parallel to the index, as on the Dactyl (fanned 9° fits about as well).
+  // parallel to the index, as on the Dactyl (the index turned 8° at its
+  // knuckle fits about as well).
   // Earlier defaults: tent 20, curls 25, inner/top/bottom 18, reach mix 0.4,
   // the thumb at rest pressed from the CMC (all 0 but cmc 3), spacing 19.5.
   const s = {
     tent: 15,
     roll: 5,
-    wrist: 11,
-    bend: -2,
-    curl: { index: 16, middle: 18, ring: 14, pinky: 13 } as Record<Finger, number>,
+    wrist: 10,
+    bend: -4,
+    curl: { index: 17, middle: 17, ring: 14, pinky: 13 } as Record<Finger, number>,
     innerGap: 19.5,
     innerAngle: 0,
-    top: 18,
+    top: 17,
     bottom: 16,
     from: 'reach',
-    reachMix: 0.5,
+    reachMix: 0.4,
     pressMix: 1.4,
-    thumb: { sweep: 8, abduct: 43, twist: -85, curl: -21, mix: -2.2, cmc: 0.2 } as ThumbPose,
+    thumb: { sweep: 11, abduct: 40, twist: -90, curl: -25, mix: -2.1, cmc: 0.2 } as ThumbPose,
     spacing: 24.5,
     cluster: '1×3',
     // The 1u row, a key's depth from the 1.5u, on the curled side, reached
@@ -666,7 +663,7 @@ export function setupHand(host: Host) {
             .join(' / ');
         return `${f}: ${d(t)} / ${d(b)}; press ${pr}; keys ${tilt}°`;
       }).join('<br>') +
-      `<br>Inner column: the hand turns ${sign(inner.wrist)}° at the wrist (+ toward the thumb) and the index ${sign(inner.knuckle)}° at its knuckle${inner.limited ? ' (out of reach: the wrist at its limit)' : ''}; from the index column, top / home / bottom (centre to centre): ${ROWS.map((_, ri) =>
+      `<br>Inner column: the arm moves the hand ${sign(inner.slide)} mm toward the thumb and the index turns ${sign(s.innerAngle)}° at its knuckle${inner.limited ? ' (out of reach)' : ''}; from the index column, top / home / bottom (centre to centre): ${ROWS.map((_, ri) =>
         poses.inner[ri].chain.pad.distanceTo(poses.index[ri].chain.pad).toFixed(1),
       ).join(' / ')} mm.` +
       (() => {
@@ -884,7 +881,7 @@ export function setupHand(host: Host) {
     0.5,
   );
   slider(
-    'inner column: turned from the index column (degrees, + toward the thumb; 0 = parallel)',
+    'inner column: index turned at its knuckle (degrees, + toward the thumb; 0 = parallel to the index column)',
     () => s.innerAngle,
     (v) => (s.innerAngle = v),
     -10,
