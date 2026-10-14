@@ -509,9 +509,11 @@ export function setupHand(host: Host) {
     from: 'reach',
     reachMix: 0.4,
     pressMix: 1.4,
-    // Defaults reach the Dactyl Manuform's middle thumb key (DM_right.scad),
-    // at the thumb's resting twist.
-    thumb: { sweep: -47, abduct: 31, twist: 0, curl: 19, mix: 1, cmc: 0 } as ThumbPose,
+    // The home key at the thumb's rest, pressed like a finger: from the base
+    // (the CMC, the thumb's knuckle), the MCP following a little and the IP
+    // still. (Sweep −47, abduction 31, curl 19, pressed by curling, reaches
+    // the Dactyl Manuform's middle thumb key, facing down.)
+    thumb: { sweep: 0, abduct: 0, twist: 0, curl: 0, mix: 0, cmc: 3 } as ThumbPose,
     spacing: 19.5,
     cluster: '1×3',
     // The 1u row, a key's depth from the 1.5u, on the curled side, reached
