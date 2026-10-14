@@ -873,6 +873,20 @@ export function setupHand(host: Host) {
     handle: 'hand',
     advanced: false,
   };
+  // The settings persist in this browser, so a reload keeps the layout they
+  // made (the editor autosaves the keys, not these). Nested objects merge, so
+  // a setting added since keeps its default.
+  const SAVED = 'rosebear-hand-prototype';
+  const restore = (j: string) => {
+    const v = JSON.parse(j);
+    for (const k of Object.keys(v) as (keyof typeof s)[])
+      if (k in s) typeof s[k] === 'object' ? Object.assign(s[k] as object, v[k]) : Object.assign(s, { [k]: v[k] });
+  };
+  try {
+    restore(localStorage.getItem(SAVED) ?? '{}');
+  } catch {
+    // Start from the Dactyl fit.
+  }
 
   /** Hand frame → layout. */
   const toLayout = () =>
@@ -1057,6 +1071,11 @@ export function setupHand(host: Host) {
   const change = () => {
     if (!touched) host.snapshot();
     touched = true;
+    try {
+      localStorage.setItem(SAVED, JSON.stringify(s));
+    } catch {
+      // Not kept past a reload.
+    }
     apply();
     host.edited(); // → preview → update()
   };
@@ -1167,6 +1186,37 @@ export function setupHand(host: Host) {
     presets.append(b);
   }
   basic.append(presets);
+  // To share a layout (paste it into a chat) or bring one back.
+  const share = document.createElement('div');
+  share.style.margin = '6px 0';
+  const copy = document.createElement('button'),
+    paste = document.createElement('button');
+  copy.textContent = 'Copy settings';
+  copy.title = 'Every hand setting, as JSON, to the clipboard.';
+  copy.addEventListener('click', async () => {
+    await navigator.clipboard.writeText(JSON.stringify(s));
+    copy.textContent = 'Copied';
+    setTimeout(() => (copy.textContent = 'Copy settings'), 1500);
+  });
+  paste.textContent = 'Paste settings';
+  paste.title = 'Settings copied with Copy settings (one Undo step).';
+  paste.addEventListener('click', () => {
+    const j = prompt('Paste the settings (JSON):');
+    if (!j) return;
+    try {
+      restore(j);
+    } catch (e) {
+      alert('Not settings: ' + String(e));
+      return;
+    }
+    advOn.checked = s.advanced;
+    advanced.hidden = !s.advanced;
+    shows.forEach((f) => f());
+    change();
+    touched = false;
+  });
+  share.append(copy, paste);
+  basic.append(share);
   radios(
     'Fingers on',
     [...ROWS],
@@ -1234,7 +1284,8 @@ export function setupHand(host: Host) {
     s.advanced = advOn.checked;
     advanced.hidden = !s.advanced;
   });
-  advanced.hidden = true;
+  advOn.checked = s.advanced;
+  advanced.hidden = !s.advanced;
   const caseBox = document.createElement('label');
   caseBox.innerHTML = '<input type="checkbox"> Build the case (often fails on these layouts)';
   caseBox.style.display = 'block';
