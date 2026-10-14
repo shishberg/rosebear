@@ -22,7 +22,7 @@
  * the MCP and IP curling toward the near key (straightening toward the far)
  * as set. Each key lines up with the row through it.
  * The palm is a sketch.
- * Settings: two presets (the closest fit to the Dactyl Manuform; the least
+ * Settings: two presets (near the Dactyl Manuform, valid and tuned by eye; the least
  * change from the resting hand that makes a valid layout), a rotation handle
  * (the hand on the board at the middle home key, or the thumb at its CMC), a
  * few basic sliders that move several settings together, and the rest under
@@ -901,40 +901,32 @@ function check(c: Config, s: Settings, h = solveHand(s)) {
 }
 
 // ---------------------------------------------------------------- presets
-/** The closest fit to the Dactyl Manuform (DM_right): least squares over all
- * 18 keys' cap tops (per 2 mm) and facings (per 3°), relative to the middle
- * home key, before tenting; the hand first, then the thumb with the hand
- * fixed. The finger keys come out 2–3 mm off in the middle and ring columns,
- * 6–11 mm in the inner, index and pinky (the Dactyl raises its outer columns
- * into a bowl, which these settings can't); the thumb's keys 2.5 (home), 8.5
- * (near) and 14 mm (far: further from the CMC than the thumb reaches, since
- * on the Dactyl you press its corner). The inner column is parallel to the
- * index, as on the Dactyl. Its keycaps are lower than ours, so with ours some
- * of its keys collide. */
+/** Near the Dactyl Manuform (DM_right) from Natural: the finger curl that
+ * comes closest to its keys' cap tops and facings (14°; past 15° the middle,
+ * ring and pinky bottom keycaps touch), the thumb pressing by swinging at the
+ * CMC toward the fingers (which lays its keys 30–40° flatter, within 32–36° of
+ * the Dactyl's facings; curling alone stands them nearly on edge), then the
+ * gaps tuned by eye on a printed frame: rows closer, the inner column further
+ * out, the thumb keys further apart. The fingers come out 3–8 mm off the
+ * Dactyl's in the index, middle and ring columns, more in the inner and pinky
+ * (the Dactyl raises its outer columns into a bowl, which these settings
+ * can't). The thumb rests as measured, its home key about 24 mm from the
+ * Dactyl's. Valid with the 1×3 cluster, 57 mm tall. */
 const DACTYL: Settings = {
-  tent: 15,
-  roll: 5,
-  wrist: 10,
-  bend: -4,
-  curl: { index: 17, middle: 17, ring: 14, pinky: 13 },
-  innerGap: 19.5,
+  tent: 1,
+  roll: 0,
+  wrist: 0,
+  bend: 0,
+  curl: { index: 14, middle: 14, ring: 14, pinky: 14 },
+  innerGap: 20.5,
   innerAngle: 0,
-  top: 17,
-  bottom: 16,
+  top: 15.7,
+  bottom: 15.7,
   from: 'reach',
   reachMix: 0.4,
   pressMix: 1.4,
-  thumb: {
-    sweep: 9.9,
-    abduct: 30.9,
-    twist: -3.8,
-    curl: -27.5,
-    mix: -2.34,
-    byCmc: 0,
-    cmcDir: 0,
-    bend: 10.6,
-  },
-  spacing: 19.5,
+  thumb: { sweep: 0, abduct: 0, twist: 0, curl: 0, mix: 1, byCmc: 1, cmcDir: 25, bend: 0 },
+  spacing: 24.5,
   cluster: '1×3',
   // The 1u row, a key's depth from the 1.5u, on the curled side, reached
   // square to the press. (A reach mix like the fingers' 0.4 moves the thumb's
@@ -1285,7 +1277,7 @@ export function setupHand(host: Host) {
     b.title =
       name === 'Natural'
         ? 'The least change from your resting hand that is valid.'
-        : 'The closest fit to the Dactyl Manuform.';
+        : 'Near the Dactyl Manuform: Natural with the fingers curled 14°, the thumb pressing at the CMC and the gaps tuned on a printed frame.';
     // Every setting, keeping which keys the hand is shown on, how rows are
     // reached, the cluster and the handle; one Undo step.
     b.addEventListener('click', () => {
@@ -1681,6 +1673,7 @@ export const _test = {
   solveHand,
   capsOf,
   check,
+  handHits,
   turnOf,
   deskOf,
   NATURAL,
