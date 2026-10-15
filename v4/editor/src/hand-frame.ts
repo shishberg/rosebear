@@ -8,12 +8,11 @@
  * - Neighbours (the finger matrix's rows and columns, the thumb keys, and any
  *   thumb and finger keys that come close) are joined by a web between their
  *   facing edges, and the matrix's four-key corners are filled.
- * - A space frame holds them up. The keys joined by webs are one piece (the
- *   finger matrix, the thumb cluster), each held at its outer corners: each
- *   such corner on three struts to a triangle of floor corners, a
- *   tetrahedron. The floor's corners, round the keys, are triangulated by
- *   rails; where a pressed keycap would tip the frame, an outrigger reaches
- *   out past the press.
+ * - Legs hold them up. Each plate of joined keys stands on its
+ *   outer corners: from each, a bracket out and down clear of its switch,
+ *   on a leg straight down. A rail runs round each plate's feet, and one
+ *   ties the thumb's to the fingers'. A press that would push the frame
+ *   well outside its base is a warning.
  * - Every switch (down past its pins), keycap (pressed to rest) and switch top
  *   is cut out of all of it except the switch seats (the clip land round each
  *   hole); where that leaves one hitting a seat or the frame, the result says
@@ -44,19 +43,18 @@ export const FRAME = {
   joinGap: 10,
   /** The floor rails: width and height. */
   rail: [3, 2],
+  /** How far a corner's bracket reaches out past it, and down (more, in
+   * these steps, up to five, until its leg misses everything). */
+  bracket: 4,
   /** The struts' square. */
   strut: 2.4,
   /** Between a strut and a switch or keycap. */
   strutClear: 0.3,
-  /** Key corners this close are one node of the truss. */
-  merge: 6,
-  /** The least distance between the corners a piece stands on, and (half
-   * it) between floor corners. */
-  spacing: 25,
   /** Round the keycap (pressed to rest) and the switch's top housing. */
   capMargin: 0.5,
-  /** How far inside the rails' footprint every press must land. */
-  inside: 1,
+  /** A press that pushes further than this outside the base (seen from the
+   * keycap corner) warns that it may tip the frame. */
+  tip: 10,
 };
 
 export type FrameResult = {
@@ -68,6 +66,8 @@ export type FrameResult = {
   pieces: number;
   /** What's wrong: seats cut, keycaps hitting the frame. */
   faults: string[];
+  /** What may be wrong: presses that may tip it. */
+  warnings: string[];
   /** In cm³, without supports. */
   volume: number;
 };
@@ -101,7 +101,7 @@ export function presses(
       [-1, 1].map((sy) => {
         const p = point(frames[key], [sx * half[0], sy * half[1], top]),
           k = (p[2] - floor) / n[2];
-        return { key, corner: [sx, sy], at: [p[0] - n[0] * k, p[1] - n[1] * k] };
+        return { key, corner: [sx, sy], from: p, at: [p[0] - n[0] * k, p[1] - n[1] * k] };
       }),
     );
   });
@@ -132,73 +132,6 @@ export function inside(poly: number[][], p: number[]) {
   );
 }
 
-/** A convex polygon (anticlockwise) grown by `by`, its corners mitred, then
- * with any corner nearer than `gap` to the last one kept dropped. */
-export function outline(poly: number[][], by: number, gap: number) {
-  const n = poly.length,
-    out = poly.map((p, i) => {
-      const a = poly[(i + n - 1) % n],
-        b = poly[(i + 1) % n],
-        u = [p[0] - a[0], p[1] - a[1]],
-        v = [b[0] - p[0], b[1] - p[1]],
-        lu = Math.hypot(...u),
-        lv = Math.hypot(...v),
-        // The outward normals of the two edges, and their mitre.
-        nu = [u[1] / lu, -u[0] / lu],
-        nv = [v[1] / lv, -v[0] / lv],
-        m = [nu[0] + nv[0], nu[1] + nv[1]],
-        k = by / Math.max(0.2, m[0] * nu[0] + m[1] * nu[1]);
-      return [p[0] + m[0] * k, p[1] + m[1] * k];
-    }),
-    kept: number[][] = [];
-  for (const p of out)
-    if (
-      !kept.length ||
-      Math.hypot(p[0] - kept[kept.length - 1][0], p[1] - kept[kept.length - 1][1]) >= gap
-    )
-      kept.push(p);
-  // Dropping a corner cuts the polygon in a little; grow it back.
-  return convex(kept);
-}
-/** A polygon's area (anticlockwise: positive). */
-export const area = (poly: number[][]) =>
-  poly.reduce((t, a, i) => {
-    const b = poly[(i + 1) % poly.length];
-    return t + (a[0] * b[1] - b[0] * a[1]) / 2;
-  }, 0);
-/** The Delaunay triangles of points in the plane (Bowyer–Watson), as index triples. */
-export function delaunay(ps: number[][]) {
-  const n = ps.length,
-    big = 1e5,
-    pts = [...ps, [-big, -big], [big, -big], [0, big]],
-    circle = (t: number[]) => {
-      const [a, b, c] = t.map((i) => pts[i]),
-        d = 2 * (a[0] * (b[1] - c[1]) + b[0] * (c[1] - a[1]) + c[0] * (a[1] - b[1])),
-        s = (p: number[]) => p[0] * p[0] + p[1] * p[1],
-        x = (s(a) * (b[1] - c[1]) + s(b) * (c[1] - a[1]) + s(c) * (a[1] - b[1])) / d,
-        y = (s(a) * (c[0] - b[0]) + s(b) * (a[0] - c[0]) + s(c) * (b[0] - a[0])) / d;
-      return { x, y, r2: (a[0] - x) ** 2 + (a[1] - y) ** 2 };
-    };
-  let tris = [{ t: [n, n + 1, n + 2], c: circle([n, n + 1, n + 2]) }];
-  for (let i = 0; i < n; i++) {
-    const p = pts[i],
-      bad = tris.filter(({ c }) => (p[0] - c.x) ** 2 + (p[1] - c.y) ** 2 < c.r2),
-      edges = new Map<string, number[]>();
-    for (const { t } of bad)
-      for (const e of [
-        [t[0], t[1]],
-        [t[1], t[2]],
-        [t[2], t[0]],
-      ]) {
-        const k = `${Math.min(...e)} ${Math.max(...e)}`;
-        if (edges.has(k)) edges.delete(k);
-        else edges.set(k, e);
-      }
-    tris = tris.filter((x) => !bad.includes(x));
-    for (const [a, b] of edges.values()) tris.push({ t: [a, b, i], c: circle([a, b, i]) });
-  }
-  return tris.map(({ t }) => t).filter((t) => t.every((i) => i < n));
-}
 /** Whether a strut of radius `r` from a to b clears every switch (its hole,
  * and its pocket down past the pins) and keycap (pressed to rest, with the
  * switch top under it): each a box in its key's frame. */
@@ -274,11 +207,16 @@ export function buildFrame(wasm: ManifoldToplevel, cfg: Config): FrameResult {
     centre = (n: string) => frames[n].elements.slice(12, 15),
     dist3 = (n: string, m: string) => Math.hypot(...centre(n).map((x, i) => x - centre(m)[i])),
     /** Key n's ring edge facing key m: its two corners, at the top and the lip's bottom. */
-    edge = (n: string, m: string) => {
+    /** Which side of key n faces key m: its axis (0 across, 1 along the
+     * column) and sign. */
+    side = (n: string, m: string) => {
       const d = centre(m).map((x, i) => x - centre(n)[i]),
         out = [0, 1].map((i) => axis(n, i).reduce((s, x, k) => s + x * d[k], 0)),
-        ax = Math.abs(out[0]) / hp[0] > Math.abs(out[1]) / hp[1] ? 0 : 1,
-        s = Math.sign(out[ax]) || 1;
+        ax = Math.abs(out[0]) / hp[0] > Math.abs(out[1]) / hp[1] ? 0 : 1;
+      return [ax, Math.sign(out[ax]) || 1];
+    },
+    edge = (n: string, m: string) => {
+      const [ax, s] = side(n, m);
       return [-1, 1].flatMap((t) =>
         [0, -FRAME.lip].map((z) =>
           ax === 0 ? at(n, s * hp[0], t * hp[1], z) : at(n, t * hp[0], s * hp[1], z),
@@ -347,11 +285,12 @@ export function buildFrame(wasm: ManifoldToplevel, cfg: Config): FrameResult {
       ),
       keepOut = union(keys.flatMap((n) => [switchAt(n), ...room[n]]));
 
-    // The space frame. Its top nodes are the keys' ring corners at the lip's
-    // bottom (corners of neighbouring keys that meet are one node, with a knot
-    // joining them); its floor nodes, the corners of an outline that every
-    // keycap corner's press lands inside (so the frame can't rock). Struts
-    // that would pass through a switch or a keycap aren't used.
+    // The legs. The keys joined by webs (the finger matrix, the thumb
+    // cluster) are each one stiff plate, standing on its outer corners: those
+    // whose key has no neighbour across either of the corner's sides. Each
+    // corner has a bracket out past it along its row and down, clear of its
+    // switch (a steep key's switch hangs under its corner), on a leg straight
+    // down.
     const corners = [-1, 1].flatMap((sx) => [-1, 1].map((sy) => [sx, sy])),
       [w, h] = FRAME.rail,
       rail = (a: number[], b: number[]) =>
@@ -371,151 +310,99 @@ export function buildFrame(wasm: ManifoldToplevel, cfg: Config): FrameResult {
             ),
           ),
         ),
-      nodes: { p: Vec3; of: { key: string; p: Vec3; q: Vec3 }[] }[] = [];
-    for (const key of keys)
-      for (const [sx, sy] of corners) {
-        const c = {
-            key,
-            p: at(key, sx * hp[0], sy * hp[1], -FRAME.lip),
-            q: at(key, sx * hp[0], sy * hp[1], 0),
-          },
-          m = nodes.find((m) => Math.hypot(...m.p.map((x, i) => x - c.p[i])) < FRAME.merge);
-        if (!m) nodes.push({ p: c.p, of: [c] });
-        else {
-          m.of.push(c);
-          m.p = [0, 1, 2].map((i) => m.of.reduce((t, o) => t + o.p[i], 0) / m.of.length) as Vec3;
-        }
-      }
-    for (const m of nodes) if (m.of.length > 1) solids.push(hull(m.of.flatMap((o) => [o.p, o.q])));
-    // The keys joined by webs are one piece, stiff as a plate.
+      clear = clearOf(cfg, frames, keys, r + FRAME.strutClear),
+      sides = new Set(joined.flatMap(([n, m]) => [`${n} ${side(n, m)}`, `${m} ${side(m, n)}`])),
+      legs = keys.flatMap((key) =>
+        corners
+          .filter(([sx, sy]) => !sides.has(`${key} ${[0, sx]}`) && !sides.has(`${key} ${[1, sy]}`))
+          .map(([sx, sy]) => {
+            // The bracket reaches out along the row and down until a leg
+            // straight down from it misses everything.
+            const reach = (b: number) => {
+              const top = at(key, sx * (hp[0] + b), sy * hp[1], -FRAME.lip - b);
+              return { top, foot: [top[0], top[1], floor + h / 2] as Vec3 };
+            };
+            let b = FRAME.bracket;
+            while (b < FRAME.bracket * 5 && !clear(reach(b).top, reach(b).foot)) b += FRAME.bracket;
+            return {
+              key,
+              p: at(key, sx * hp[0], sy * hp[1], -FRAME.lip),
+              q: at(key, sx * hp[0], sy * hp[1], 0),
+              ...reach(b),
+            };
+          }),
+      );
+    for (const { key, p, q, top, foot } of legs) {
+      if (!clear(top, foot))
+        faults.push(`${label(key)}: the leg under its corner hits a switch or keycap`);
+      solids.push(strut(p, top), strut(q, top), strut(top, foot));
+    }
+    // The base: a rail round each plate's feet, and one from each plate's
+    // to the nearest foot of those before it, so it prints as one piece.
     const piece = Object.fromEntries(keys.map((k) => [k, k])),
       root = (k: string): string => (piece[k] === k ? k : root(piece[k]));
     for (const [a, b] of joined) piece[root(a)] = root(b);
-    // The floor: the corners of an outline round every key node from above
-    // and the presses (keycap corners pushed along their switches) that meet
-    // the floor less than `spacing` outside them; and any added under a
-    // corner, below.
-    const tops = convex(nodes.map((m) => [m.p[0], m.p[1]])),
-      flat = outline(
-        convex([
-          ...tops,
-          ...presses(cfg, frames, keys, floor)
-            .map((p) => p.at)
-            .filter((p) => inside(tops, p) > -FRAME.spacing),
-        ]),
-        FRAME.inside + 1,
-        FRAME.spacing / 2,
+    const plates = [...new Set(keys.map(root))].map((g) => {
+        const own = legs.filter((l) => root(l.key) === g).map((l) => l.foot),
+          mid = [0, 1].map((k) => own.reduce((t, f) => t + f[k], 0) / own.length),
+          turn = (f: Vec3) => Math.atan2(f[1] - mid[1], f[0] - mid[0]);
+        return own.sort((a, b) => turn(a) - turn(b));
+      }),
+      gap = (a: Vec3, b: Vec3) => Math.hypot(a[0] - b[0], a[1] - b[1]);
+    plates.forEach((own, i) => {
+      if (own.length > 1)
+        own.forEach((f, j) => {
+          if (own.length > 2 || j === 0) solids.push(rail(f, own[(j + 1) % own.length]));
+        });
+      const before = plates.slice(0, i).flat(),
+        tie = own
+          .flatMap((a) => before.map((b) => ({ a, b, d: gap(a, b) })))
+          .sort((x, y) => x.d - y.d)[0];
+      if (tie) solids.push(rail(tie.a, tie.b));
+    });
+    // Pressing a keycap corner pushes along its switch; where that line meets
+    // the floor outside the base, a hard enough press tips the frame. How far
+    // out: the angle, seen from the corner, from that point to the base's
+    // nearest edge.
+    const base = convex(
+        legs.flatMap(({ foot: [x, y] }) =>
+          corners.map(([sx, sy]) => [x + (sx * w) / 2, y + (sy * w) / 2]),
+        ),
       ),
-      foot = (i: number) => [flat[i][0], flat[i][1], floor + h / 2] as Vec3;
-    // Each piece stands on its outer corners (those round it from above, at
-    // least `spacing` apart): each corner on three struts to a triangle of
-    // floor corners it clears, a tetrahedron. A corner with no clear triangle
-    // is skipped; three that aren't in a line hold a piece, so where fewer
-    // stand, its other corners, furthest out first, are tried.
-    const clear = clearOf(cfg, frames, keys, r + FRAME.strutClear),
-      tetra = (m: (typeof nodes)[number], drop = true): boolean => {
-        const under = [m.p[0], m.p[1]],
-          near = flat
-            .map((p, i) => ({ i, d: Math.hypot(p[0] - under[0], p[1] - under[1]) }))
-            .sort((a, b) => a.d - b.d)
-            .filter(({ i }) => clear(m.p, foot(i)))
-            .slice(0, 10)
-            .map(({ i }) => i);
-        let best: { t: number[]; score: number; in: number } | undefined;
-        for (let a = 0; a < near.length; a++)
-          for (let b = a + 1; b < near.length; b++)
-            for (let c = b + 1; c < near.length; c++) {
-              const t = [near[a], near[b], near[c]],
-                tri = convex(t.map((i) => flat[i]));
-              if (tri.length < 3 || area(tri) < FRAME.spacing ** 2 / 4) continue;
-              // Round the point under the corner (to 5 mm in), then short.
-              const at = Math.min(5, inside(tri, under)),
-                score =
-                  at * 10 -
-                  t.reduce((l, i) => l + Math.hypot(...foot(i).map((x, k) => x - m.p[k])), 0);
-              if (!best || score > best.score) best = { t, score, in: at };
-            }
-        // None round it: a floor corner under it, if it clears.
-        if ((!best || best.in < 0) && drop && clear(m.p, [...under, floor + h / 2] as Vec3)) {
-          flat.push(under);
-          return tetra(m, false);
-        }
-        if (best) for (const i of best.t) solids.push(strut(m.p, foot(i)));
-        return !!best;
-      },
-      spread = (ps: Vec3[]) =>
-        ps.some((a, i) =>
-          ps.slice(i + 1).some((b, j) =>
-            ps.slice(i + j + 2).some((c) => {
-              const u = a.map((x, k) => b[k] - x),
-                v = a.map((x, k) => c[k] - x);
-              return (
-                Math.hypot(
-                  u[1] * v[2] - u[2] * v[1],
-                  u[2] * v[0] - u[0] * v[2],
-                  u[0] * v[1] - u[1] * v[0],
-                ) > 50
-              );
-            }),
-          ),
-        );
-    for (const r of new Set(keys.map(root))) {
-      const own = nodes.filter((m) => m.of.some((o) => root(o.key) === r)),
-        mid = [0, 1].map((k) => own.reduce((t, m) => t + m.p[k], 0) / own.length),
-        out = (m: (typeof nodes)[number]) => Math.hypot(m.p[0] - mid[0], m.p[1] - mid[1]),
-        round = convex(own.map((m) => [m.p[0], m.p[1], own.indexOf(m)])).map((p) => own[p[2]]),
-        apart: typeof nodes = [];
-      for (const m of [...round].sort((a, b) => out(b) - out(a)))
-        if (apart.every((n) => Math.hypot(n.p[0] - m.p[0], n.p[1] - m.p[1]) >= FRAME.spacing))
-          apart.push(m);
-      const held = apart.filter((m) => tetra(m)).map((m) => m.p);
-      for (const m of own.filter((m) => !apart.includes(m)).sort((a, b) => out(b) - out(a)))
-        if (!spread(held) && tetra(m)) held.push(m.p);
-      if (!spread(held))
-        faults.push(
-          `${keys
-            .filter((k) => root(k) === r)
-            .map(label)
-            .join(', ')}: fewer than three corners stand on struts`,
-        );
-    }
-    // The floor rails: its corners triangulated.
-    const seen = new Set<string>();
-    for (const t of delaunay(flat))
-      for (const [a, b] of [
-        [t[0], t[1]],
-        [t[1], t[2]],
-        [t[2], t[0]],
-      ]) {
-        const k = `${Math.min(a, b)} ${Math.max(a, b)}`;
-        if (seen.has(k)) continue;
-        seen.add(k);
-        solids.push(rail(flat[a], flat[b]));
-      }
-    // Where a press still meets the floor outside it, the frame would tip:
-    // an outrigger, the furthest out
-    // first, a little past it, railed to the two floor corners nearest.
-    const body = flat.length,
-      mid = [0, 1].map((k) => flat.reduce((t, p) => t + p[k], 0) / body);
-    for (const p of presses(cfg, frames, keys, floor)
-      .map((p) => p.at)
-      .sort((a, b) => inside(convex(flat), a) - inside(convex(flat), b))) {
-      if (inside(convex(flat), p) >= FRAME.inside) continue;
-      const d = [p[0] - mid[0], p[1] - mid[1]],
-        l = Math.hypot(...d),
-        o = [0, 1].map((k) => p[k] + (d[k] / l) * 3 * (FRAME.inside + 1));
-      for (const q of flat
-        .slice(0, body)
-        .sort((a, b) => Math.hypot(a[0] - o[0], a[1] - o[1]) - Math.hypot(b[0] - o[0], b[1] - o[1]))
-        .slice(0, 2))
-        solids.push(rail(o, q));
-      flat.push(o);
-    }
-    const footprint = convex(
-        flat.flatMap(([x, y]) => corners.map(([sx, sy]) => [x + (sx * w) / 2, y + (sy * w) / 2])),
-      ),
-      outside = () =>
-        presses(cfg, frames, keys, floor).filter((p) => inside(footprint, p.at) < FRAME.inside);
+      tips = presses(cfg, frames, keys, floor)
+        .filter((p) => inside(base, p.at) < 0)
+        .map((p) => {
+          const edge = base
+              .map((a, i) => {
+                const b = base[(i + 1) % base.length],
+                  d = [b[0] - a[0], b[1] - a[1]],
+                  t = Math.max(
+                    0,
+                    Math.min(
+                      1,
+                      ((p.at[0] - a[0]) * d[0] + (p.at[1] - a[1]) * d[1]) / (d[0] ** 2 + d[1] ** 2),
+                    ),
+                  );
+                return [a[0] + d[0] * t, a[1] + d[1] * t];
+              })
+              .sort(
+                (a, b) =>
+                  Math.hypot(a[0] - p.at[0], a[1] - p.at[1]) -
+                  Math.hypot(b[0] - p.at[0], b[1] - p.at[1]),
+              )[0],
+            u = [p.at[0] - p.from[0], p.at[1] - p.from[1], floor - p.from[2]],
+            v = [edge[0] - p.from[0], edge[1] - p.from[1], floor - p.from[2]],
+            cos = (u[0] * v[0] + u[1] * v[1] + u[2] * v[2]) / (Math.hypot(...u) * Math.hypot(...v));
+          return { key: p.key, deg: (Math.acos(Math.min(1, cos)) * 180) / Math.PI };
+        }),
+      warnings = [...new Set(tips.map((t) => t.key))].flatMap((key) => {
+        const deg = Math.max(...tips.filter((t) => t.key === key).map((t) => t.deg));
+        return deg > FRAME.tip
+          ? [
+              `pressing ${label(key)} may tip the frame: it pushes ${deg.toFixed(0)}° outside the base`,
+            ]
+          : [];
+      });
 
     const solid = keep(union(solids).subtract(keep(keepOut.subtract(lands))));
 
@@ -535,8 +422,6 @@ export function buildFrame(wasm: ManifoldToplevel, cfg: Config): FrameResult {
           );
       });
     }
-    for (const key of new Set(outside().map((p) => p.key)))
-      faults.push(`pressing ${label(key)} rocks the frame`);
     // Flush cuts leave zero-volume slivers; leave them out.
     const parts = solid.decompose();
     made.push(...parts);
@@ -553,6 +438,7 @@ export function buildFrame(wasm: ManifoldToplevel, cfg: Config): FrameResult {
       size: [0, 1, 2].map((i) => bb.max[i] - bb.min[i]) as Vec3,
       pieces: real.length,
       faults,
+      warnings,
       volume: out.volume() / 1000,
     };
   } finally {

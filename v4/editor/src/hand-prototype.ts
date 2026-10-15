@@ -1789,7 +1789,8 @@ export function setupHand(host: Host) {
     frameNote.innerHTML =
       `${r.size.map((x) => x.toFixed(0)).join(' × ')} mm` +
       `; ${r.volume.toFixed(0)} cm³ (${(r.volume * 1.24).toFixed(0)} g of PLA) before supports` +
-      (wrong.length ? `<div style="color:#ff9a8a">${wrong.join('<br>')}</div>` : '');
+      (wrong.length ? `<div style="color:#ff9a8a">${wrong.join('<br>')}</div>` : '') +
+      (r.warnings.length ? `<div style="color:#e8c46a">${r.warnings.join('<br>')}</div>` : '');
     host.render();
   }
   frameOn.addEventListener('change', () => showFrame());
