@@ -26,5 +26,9 @@ test('the hand readout checks every reach against the keycaps and the frame', as
   // The frame shown is the one checked.
   await page.getByText('Test frame (print this way up, with supports)').click();
   await expect(page.getByText(/cm³/)).toBeVisible();
+  // It stays shown after a reload.
+  await page.reload();
+  await expect(page.getByLabel('Test frame (print this way up, with supports)')).toBeChecked();
+  await expect(page.getByText(/cm³/)).toBeVisible({ timeout: 30000 });
   expect(errors).toEqual([]);
 });

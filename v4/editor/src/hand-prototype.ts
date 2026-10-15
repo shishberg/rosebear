@@ -1793,7 +1793,21 @@ export function setupHand(host: Host) {
       (r.warnings.length ? `<div style="color:#e8c46a">${r.warnings.join('<br>')}</div>` : '');
     host.render();
   }
-  frameOn.addEventListener('change', () => showFrame());
+  // Shown or not is kept for next time.
+  const FRAME_ON = 'rosebear-hand-frame-on';
+  try {
+    frameOn.checked = localStorage.getItem(FRAME_ON) === '1';
+  } catch {
+    // Off.
+  }
+  frameOn.addEventListener('change', () => {
+    try {
+      localStorage.setItem(FRAME_ON, frameOn.checked ? '1' : '0');
+    } catch {
+      // Not kept past a reload.
+    }
+    showFrame();
+  });
   const saveFrame = (left: boolean) => {
     const r = shownFrame!,
       a = document.createElement('a');
