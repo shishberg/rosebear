@@ -4,8 +4,8 @@ import { test, type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import Module from 'manifold-3d';
-import { clone, defaults } from '../src/geometry';
-import { buildFrame } from '../src/hand-frame';
+import { clone, componentFrames, defaults } from '../src/geometry';
+import { buildFrame, convex, frameKeys, FRAME, inside, presses } from '../src/hand-frame';
 import { _test as hand } from '../src/hand-prototype';
 
 const { T } = hand;
@@ -246,4 +246,31 @@ test("Dactyl fit: of the valid layouts, the finger curl and reach mix that put t
   }
   assert.deepEqual(wrongOf(shaped(best.c, best.m), true), []);
   assert.deepEqual([hand.DACTYL.curl.middle, hand.DACTYL.reachMix], [best.c, best.m]);
+});
+
+test("the test frame doesn't rock: every keycap corner, pressed, pushes down within what it stands on", (t) => {
+  for (const s of [hand.DACTYL, hand.NATURAL]) {
+    const { c, frame } = layout(s),
+      P = frame.mesh.positions,
+      // What touches the floor: the mesh's lowest vertices, seen from above.
+      base: number[][] = [];
+    for (let i = 0; i < P.length; i += 3)
+      if (P[i + 2] < frame.floor + 0.01) base.push([P[i], P[i + 1]]);
+    const fp = convex(base),
+      worst = presses(c, componentFrames(c), frameKeys(c), frame.floor)
+        .map((p) => ({ ...p, in: inside(fp, p.at) }))
+        .sort((a, b) => a.in - b.in)[0];
+    t.diagnostic(
+      `${s === hand.DACTYL ? 'Dactyl fit' : 'Natural'}: ${frame.pieces} piece(s), ${frame.volume.toFixed(1)} cm³; closest press to the edge: ${worst.key} ${worst.corner}, ${worst.in.toFixed(1)} mm in; ${frame.faults.join('; ') || 'no faults'}`,
+    );
+    assert.ok(
+      worst.in >= FRAME.inside - 0.01,
+      `${worst.key} ${worst.corner}: ${worst.in.toFixed(1)} mm`,
+    );
+    assert.equal(frame.pieces, 1);
+    assert.deepEqual(
+      frame.faults.filter((f) => f.includes('rocks')),
+      [],
+    );
+  }
 });

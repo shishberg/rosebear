@@ -16,7 +16,15 @@
  *   so.
  */
 import type { Manifold, ManifoldToplevel, Vec3 } from 'manifold-3d';
-import { capSize, componentFrames, point, ROWS, type Config, type MeshData } from './geometry';
+import {
+  capSize,
+  capTop,
+  componentFrames,
+  point,
+  ROWS,
+  type Config,
+  type MeshData,
+} from './geometry';
 
 /** Sizes in mm. */
 export const FRAME = {
@@ -38,6 +46,8 @@ export const FRAME = {
   rail: [3, 2],
   /** Round the keycap (pressed to rest) and the switch's top housing. */
   capMargin: 0.5,
+  /** How far inside the rails' footprint every press must land. */
+  inside: 1,
 };
 
 export type FrameResult = {
@@ -62,6 +72,56 @@ export function frameKeys(cfg: Config) {
 }
 
 const label = (n: string) => n.replace(/^matrix_/, '').replace('_', ' ');
+
+/** Where pressing each corner of each key's cap top pushes the frame: the
+ * press, along the switch, met with the floor (keys facing within 80° of
+ * sideways only; one facing further pushes the frame along the desk). */
+export function presses(
+  cfg: Config,
+  frames: ReturnType<typeof componentFrames>,
+  keys: string[],
+  floor: number,
+) {
+  return keys.flatMap((key) => {
+    const e = frames[key].elements,
+      n = [e[8], e[9], e[10]],
+      half = capTop(cfg, key).map((x) => x / 2),
+      top = cfg.switch.keycap_bottom_above_plate_mm + capSize(cfg, key)[2];
+    if (n[2] < Math.cos((80 * Math.PI) / 180)) return [];
+    return [-1, 1].flatMap((sx) =>
+      [-1, 1].map((sy) => {
+        const p = point(frames[key], [sx * half[0], sy * half[1], top]),
+          k = (p[2] - floor) / n[2];
+        return { key, corner: [sx, sy], at: [p[0] - n[0] * k, p[1] - n[1] * k] };
+      }),
+    );
+  });
+}
+/** The convex hull of points in the plane, anticlockwise. */
+export function convex(ps: number[][]) {
+  const s = [...ps].sort((a, b) => a[0] - b[0] || a[1] - b[1]),
+    turn = (o: number[], a: number[], b: number[]) =>
+      (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]),
+    half = (pts: number[][]) => {
+      const h: number[][] = [];
+      for (const p of pts) {
+        while (h.length > 1 && turn(h[h.length - 2], h[h.length - 1], p) <= 0) h.pop();
+        h.push(p);
+      }
+      return h.slice(0, -1);
+    };
+  return [...half(s), ...half(s.reverse())];
+}
+/** How far point p is inside a convex polygon (anticlockwise), mm; negative outside. */
+export function inside(poly: number[][], p: number[]) {
+  return Math.min(
+    ...poly.map((a, i) => {
+      const b = poly[(i + 1) % poly.length],
+        l = Math.hypot(b[0] - a[0], b[1] - a[1]);
+      return ((b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0])) / l;
+    }),
+  );
+}
 
 export function buildFrame(wasm: ManifoldToplevel, cfg: Config): FrameResult {
   const M = wasm.Manifold,
@@ -168,35 +228,39 @@ export function buildFrame(wasm: ManifoldToplevel, cfg: Config): FrameResult {
     // it), or failing that the one that clashes least.
     const middle = Math.floor(cols.length / 2),
       ends = [0, middle, cols.length - 1],
-      feet: Record<string, number[]> = {};
+      feet: Record<string, number[]> = {},
+      corners = [-1, 1].flatMap((sx) => [-1, 1].map((sy) => [sx, sy])),
+      /** A post down from key n's ring at one of `at` corners, the first that's clear. */
+      post = (n: string, at: number[][]) => {
+        const block = (sx: number, sy: number, o: number) =>
+            [sx * (pocket[0] + o), sx * (pocket[0] + o + FRAME.post)].flatMap((x) =>
+              [sy * (pocket[1] + o), sy * (pocket[1] + o + FRAME.post)].flatMap((y) =>
+                [0, -FRAME.lip].map((z) => point(frames[n], [x, y, z])),
+              ),
+            ),
+          posts = FRAME.postOut.flatMap((o) =>
+            at
+              .map(([sx, sy]) => {
+                const ps = block(sx, sy, o);
+                return {
+                  ps,
+                  low: lowest(ps),
+                  post: union([hull(down(ps)), hull([...block(sx, sy, 0), ...ps])]),
+                };
+              })
+              .sort((a, b) => a.low - b.low),
+          ),
+          clash = posts.map((p) => keep(p.post.intersect(keepOut)).volume()),
+          best =
+            posts[clash.findIndex((v) => v < 0.05)] ?? posts[clash.indexOf(Math.min(...clash))];
+        solids.push(best.post);
+        return [0, 1].map((k) => best.ps.reduce((s, p) => s + p[k], 0) / best.ps.length);
+      };
     for (const n of new Set([
       ...ends.flatMap((ci) => [grid(ci, 0), grid(ci, ROWS.length - 1)]),
       ...thumbs,
-    ])) {
-      const block = (sx: number, sy: number, o: number) =>
-          [sx * (pocket[0] + o), sx * (pocket[0] + o + FRAME.post)].flatMap((x) =>
-            [sy * (pocket[1] + o), sy * (pocket[1] + o + FRAME.post)].flatMap((y) =>
-              [0, -FRAME.lip].map((z) => at(n, x, y, z)),
-            ),
-          ),
-        posts = FRAME.postOut.flatMap((o) =>
-          [-1, 1]
-            .flatMap((sx) => [-1, 1].map((sy) => [sx, sy]))
-            .map(([sx, sy]) => {
-              const ps = block(sx, sy, o);
-              return {
-                ps,
-                low: lowest(ps),
-                post: union([hull(down(ps)), hull([...block(sx, sy, 0), ...ps])]),
-              };
-            })
-            .sort((a, b) => a.low - b.low),
-        ),
-        clash = posts.map((p) => keep(p.post.intersect(keepOut)).volume()),
-        best = posts[clash.findIndex((v) => v < 0.05)] ?? posts[clash.indexOf(Math.min(...clash))];
-      solids.push(best.post);
-      feet[n] = [0, 1].map((k) => best.ps.reduce((s, p) => s + p[k], 0) / best.ps.length);
-    }
+    ]))
+      feet[n] = post(n, corners);
     // The rails: round the matrix's posts, along the thumb keys', and from
     // the thumb keys to the nearest two of the matrix's.
     const [w, h] = FRAME.rail,
@@ -222,7 +286,54 @@ export function buildFrame(wasm: ManifoldToplevel, cfg: Config): FrameResult {
           .flatMap((t) => loop.map((m) => [t, m]))
           .sort(([a, b], [p, q]) => gap(a, b) - gap(p, q)),
         second = pairs.find(([, m]) => m !== pairs[0][1]) ?? pairs[0];
-      for (const [t, m] of [pairs[0], second]) solids.push(rail(feet[t], feet[m]));
+      // The closest two pairs, and each thumb key to its closest.
+      const struts = new Set([
+        pairs[0],
+        second,
+        ...thumbs.map((t) => pairs.find(([a]) => a === t)!),
+      ]);
+      for (const [t, m] of struts) solids.push(rail(feet[t], feet[m]));
+    }
+
+    // Pressing a keycap anywhere on its top pushes along the switch: where
+    // that line meets the floor has to be within the rails, or the frame rocks.
+    // Where a corner's isn't, a post goes down from that corner of the key,
+    // railed to the nearest two feet; if its line still lands outside (a
+    // tilted key's lands well out from under it), a rail runs out to it.
+    const spots = Object.values(feet),
+      tryAt = new Set<string>(),
+      footprint = () =>
+        convex(
+          spots.flatMap(([x, y]) =>
+            corners.map(([sx, sy]) => [x + (sx * w) / 2, y + (sy * w) / 2]),
+          ),
+        ),
+      outside = () => {
+        const fp = footprint();
+        return presses(cfg, frames, keys, floor)
+          .map((p) => ({ ...p, by: -inside(fp, p.at) }))
+          .filter((p) => p.by > -FRAME.inside)
+          .sort((a, b) => b.by - a.by);
+      },
+      nearest = (p: number[], k: number) =>
+        [...spots]
+          .sort(
+            (a, b) => Math.hypot(a[0] - p[0], a[1] - p[1]) - Math.hypot(b[0] - p[0], b[1] - p[1]),
+          )
+          .slice(0, k);
+    for (let out = outside(), i = 0; out.length && i < 40; out = outside(), i++) {
+      const p = out[0],
+        id = `${p.key} ${p.corner}`;
+      if (!tryAt.has(id)) {
+        tryAt.add(id);
+        const foot = post(p.key, [p.corner]);
+        for (const q of nearest(foot, 2)) solids.push(rail(foot, q));
+        spots.push(foot);
+      } else {
+        const [q] = nearest(p.at, 1);
+        solids.push(rail(q, p.at));
+        spots.push(p.at);
+      }
     }
 
     const solid = keep(union(solids).subtract(keep(keepOut.subtract(lands))));
@@ -244,6 +355,8 @@ export function buildFrame(wasm: ManifoldToplevel, cfg: Config): FrameResult {
           );
       });
     }
+    for (const key of new Set(outside().map((p) => p.key)))
+      faults.push(`pressing ${label(key)} rocks the frame`);
     // Flush cuts leave zero-volume slivers; leave them out.
     const parts = solid.decompose();
     made.push(...parts);
