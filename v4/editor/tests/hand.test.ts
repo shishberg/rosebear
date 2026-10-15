@@ -2,6 +2,7 @@
 // the printed test frame (hand-frame.ts) included.
 import { test, type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import Module from 'manifold-3d';
 import { clone, defaults } from '../src/geometry';
 import { buildFrame } from '../src/hand-frame';
@@ -125,4 +126,124 @@ test("down to the slider's lowest reach mix, the fingertip moves along the board
           assert.ok(along > 0.15, `${f}, curl ${curl}, mix ${mix}, ${d} mm: ${along.toFixed(2)}`);
         }
       }
+});
+
+// The Dactyl Manuform's keys (tests/dactyl-keys.json says where from).
+const DM = JSON.parse(readFileSync(new URL('./dactyl-keys.json', import.meta.url), 'utf8'))
+  .keys as Record<string, [number[], number[]]>;
+/** Degrees a key faces toward you (its far edge up), before tenting. */
+const tilt = (n: InstanceType<typeof T.Vector3>) => (Math.atan2(-n.y, n.z) * 180) / Math.PI;
+/** How far settings `s` put the finger keys from the Dactyl's, relative to the
+ * middle home key, before tenting: squared, per 2 mm and per 3° (0.05 in the
+ * facing). Infinite where a row is out of reach. */
+function offDactyl(s: Settings) {
+  const h = hand.solveHand(s),
+    caps = hand.capsOf(clone(defaults).config, h, false),
+    R = hand.turnOf(s),
+    at = (k: (typeof caps)[number]) => new T.Vector3().setFromMatrixPosition(k.top),
+    o = at(caps.find((k) => k.name === 'matrix_middle_home')!),
+    keys = caps
+      .filter((k) => k.name.startsWith('matrix_'))
+      .map((k) => {
+        const name = k.name.slice(7),
+          p = at(k).sub(o).applyMatrix4(R),
+          n = new T.Vector3().setFromMatrixColumn(k.top, 2).transformDirection(R),
+          [p0, n0] = DM[name].map((v) => new T.Vector3(...v));
+        return {
+          name,
+          mm: p.distanceTo(p0),
+          cost:
+            p.sub(p0).divideScalar(2).lengthSq() + n.clone().sub(n0).divideScalar(0.05).lengthSq(),
+          tilt: tilt(n),
+          dm: tilt(n0),
+        };
+      }),
+    short = Object.values(h.poses).some((P) => P.some((p) => p.short > 0.5));
+  return { cost: short ? Infinity : keys.reduce((a, k) => a + k.cost, 0), keys };
+}
+const shaped = (curl: number, mix: number): Settings => ({
+  ...structuredClone(hand.DACTYL),
+  curl: { index: curl, middle: curl, ring: curl, pinky: curl },
+  reachMix: mix,
+});
+
+/** Why settings `s` aren't valid (the keycaps and the hand; the frame too if `frame`). */
+function wrongOf(s: Settings, frame = false) {
+  if (frame) return hand.problems(layout(s).r);
+  const c = clone(defaults).config;
+  hand.applyHand(c, s, hand.anchorOf(c));
+  return hand.problems(hand.check(c, s));
+}
+
+test("Dactyl fit: of the valid layouts, the finger curl and reach mix that put the finger keys closest to the Dactyl's", (t) => {
+  const r2 = (v: number) => Math.round(v * 100) / 100,
+    costs = new Map<string, number>(),
+    cost = (c: number, m: number) => {
+      const k = `${c} ${m}`;
+      if (!costs.has(k)) costs.set(k, offDactyl(shaped(c, m)).cost);
+      return costs.get(k)!;
+    },
+    oks = new Map<string, boolean>(),
+    ok = (c: number, m: number) => {
+      const k = `${c} ${m}`;
+      if (!oks.has(k)) oks.set(k, !wrongOf(shaped(c, m)).length);
+      return oks.get(k)!;
+    },
+    /** From `p`, to the closest point within a curl degree and 0.02 of reach
+     * mix (valid, if asked), until none is closer. */
+    descend = (p: { c: number; m: number }, valid: boolean) => {
+      for (let moved = true; moved;) {
+        moved = false;
+        const near = [];
+        for (let dc = -1; dc <= 1; dc++)
+          for (let dm = -2; dm <= 2; dm++) near.push({ c: p.c + dc, m: r2(p.m + dm / 100) });
+        for (const q of near
+          .filter((q) => q.m >= hand.MIX_MIN && q.c >= -30 && q.c <= 40)
+          .sort((x, y) => cost(x.c, x.m) - cost(y.c, y.m))) {
+          if (cost(q.c, q.m) >= cost(p.c, p.m)) break;
+          if (!valid || ok(q.c, q.m)) {
+            p = q;
+            moved = true;
+            break;
+          }
+        }
+      }
+      return p;
+    },
+    // A grid over the sliders' ranges, closest first. The valid layouts are
+    // scattered, so the search starts from the five closest valid ones.
+    grid: { c: number; m: number }[] = [];
+  for (let c = -30; c <= 40; c += 2)
+    for (let m = -40; m <= 300; m += m < 60 ? 5 : 50) grid.push({ c, m: m / 100 });
+  grid.sort((a, b) => cost(a.c, a.m) - cost(b.c, b.m));
+  const starts = [];
+  for (const p of grid) if (starts.length < 5 && ok(p.c, p.m)) starts.push(p);
+  const closest = descend(grid[0], false),
+    best = starts.map((p) => descend(p, true)).sort((x, y) => cost(x.c, x.m) - cost(y.c, y.m))[0],
+    say = (p: { c: number; m: number }) =>
+      `curl ${p.c}, reach mix ${p.m}, cost ${cost(p.c, p.m).toFixed(0)}`;
+  t.diagnostic(`closest: ${say(closest)}; ${wrongOf(shaped(closest.c, closest.m)).join('; ')}`);
+  t.diagnostic(`closest valid: ${say(best)}`);
+  for (const k of offDactyl(shaped(best.c, best.m)).keys)
+    t.diagnostic(
+      `${k.name}: ${k.mm.toFixed(1)} mm off; faces you ${k.tilt.toFixed(1)}° (Dactyl ${k.dm.toFixed(1)}°)`,
+    );
+  // At each reach mix, the closest curl and the closest valid one, and how the
+  // middle column's keys face: below 0 they turn far more from row to row
+  // than the Dactyl's 15°; flatter, the bottom keys run into others.
+  const faces = (p: { c: number; m: number }) => {
+    const K = Object.fromEntries(offDactyl(shaped(p.c, p.m)).keys.map((k) => [k.name, k]));
+    return `middle top / home / bottom face you ${['top', 'home', 'bottom'].map((r) => K[`middle_${r}`].tilt.toFixed(0)).join(' / ')}°`;
+  };
+  for (const m of [-0.3, -0.2, -0.1, 0, 0.2, best.m, 0.4]) {
+    const curls = [];
+    for (let c = -30; c <= 40; c++) curls.push({ c, m });
+    curls.sort((x, y) => cost(x.c, x.m) - cost(y.c, y.m));
+    const v = curls.find((p) => ok(p.c, p.m));
+    t.diagnostic(
+      `mix ${m}: closest ${say(curls[0])}, ${faces(curls[0])}, ${wrongOf(shaped(curls[0].c, m))[0] ?? 'valid'}; closest valid ${v ? `${say(v)}, ${faces(v)}` : 'none'}`,
+    );
+  }
+  assert.deepEqual(wrongOf(shaped(best.c, best.m), true), []);
+  assert.deepEqual([hand.DACTYL.curl.middle, hand.DACTYL.reachMix], [best.c, best.m]);
 });

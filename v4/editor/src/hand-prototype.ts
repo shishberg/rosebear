@@ -1214,9 +1214,11 @@ function check(
 
 // ---------------------------------------------------------------- presets
 /** Near the Dactyl Manuform (DM_right) from Natural: tented 15° like the
- * Dactyl, the finger curl that comes closest to its keys' cap tops and
- * facings (14°; past 15° the middle, ring and pinky bottom keycaps touch),
- * the thumb pressing by swinging at the CMC toward the fingers (which lays its
+ * Dactyl, the finger curl and reach mix that put the finger keys' cap tops
+ * and facings closest to its keys, of the valid layouts (15°, 0.29: the
+ * fitting is a test, in tests/hand.test.ts; its home keys face you 13°, the
+ * Dactyl's 7.5°: closer, the bottom keys run into the thumb keys or each
+ * other), the thumb pressing by swinging at the CMC toward the fingers (which lays its
  * keys 30–40° flatter; curling alone stands them nearly on edge) and turned
  * forward from rest by eye (sweep -1.9, abduction 7.6, twist 6.6); the gaps
  * tuned by eye on a printed frame: rows closer, the inner column further out,
@@ -1230,13 +1232,13 @@ const DACTYL: Settings = {
   roll: 0,
   wrist: 0,
   bend: 0,
-  curl: { index: 14, middle: 14, ring: 14, pinky: 14 },
+  curl: { index: 15, middle: 15, ring: 15, pinky: 15 },
   innerGap: 20.5,
   innerAngle: 0,
   top: 17.7,
   bottom: 17.7,
   from: 'reach',
-  reachMix: 0.4,
+  reachMix: 0.29,
   pressMix: 1.4,
   thumb: { sweep: -1.9, abduct: 7.6, twist: 6.6, curl: 0, mix: 1, byCmc: 1, cmcDir: 25, bend: 0 },
   spacing: 24.5,
@@ -1278,6 +1280,16 @@ const NATURAL: Settings = {
   two: { gap: 19.5, from: 'press', reachMix: 0.4 },
 };
 const TRAY = 66;
+/** Why a checked layout isn't valid, as the readout says it (none: valid). */
+const problems = (r: ReturnType<typeof check>) => [
+  ...r.capHits.map((x) => `${capName(x.a)} hits ${capName(x.b)} (${x.depth.toFixed(1)} mm)`),
+  ...r.handHits.map((x) => `${x.a} ${x.during}: into ${x.b} (${x.depth.toFixed(1)} mm)`),
+  ...r.short.map(([k, m]) => `${k} out of reach (${m.toFixed(0)} mm)`),
+  ...r.stiff.map(([k, d]) => `thumb ${k} out of reach (MCP/IP ${d.toFixed(0)}° past limit)`),
+  ...r.side.map(([k, d]) => `thumb ${k} pressed ${d.toFixed(0)}° off square (${SIDE}° at most)`),
+  ...(r.innerShort ? ['inner column out of reach'] : []),
+  ...(r.height.all > TRAY ? [`${r.height.all.toFixed(1)} mm tall (tray ${TRAY} mm)`] : []),
+];
 /** The settings (degrees) that `apply` makes of a rotation, nearest `prev`:
  * of the two ways to write it with the middle angle, the one that moves least. */
 function nearest(e: T.Euler, prev: number[]) {
@@ -1475,17 +1487,7 @@ export function setupHand(host: Host) {
     group.matrix.copy(tentFrame(c));
     group.matrixWorldNeedsUpdate = true;
     placeHandle(c, L, row[1].q);
-    const wrong = [
-      ...r.capHits.map((x) => `${capName(x.a)} hits ${capName(x.b)} (${x.depth.toFixed(1)} mm)`),
-      ...r.handHits.map((x) => `${x.a} ${x.during}: into ${x.b} (${x.depth.toFixed(1)} mm)`),
-      ...r.short.map(([k, m]) => `${k} out of reach (${m.toFixed(0)} mm)`),
-      ...r.stiff.map(([k, d]) => `thumb ${k} out of reach (MCP/IP ${d.toFixed(0)}° past limit)`),
-      ...r.side.map(
-        ([k, d]) => `thumb ${k} pressed ${d.toFixed(0)}° off square (${SIDE}° at most)`,
-      ),
-      ...(r.innerShort ? ['inner column out of reach'] : []),
-      ...(r.height.all > TRAY ? [`${r.height.all.toFixed(1)} mm tall (tray ${TRAY} mm)`] : []),
-    ];
+    const wrong = problems(r);
     note.innerHTML = wrong.length
       ? `<div style="color:#ff9a8a">Not valid:<ul style="margin:2px 0;padding-left:18px">${wrong.map((w) => `<li>${w}</li>`).join('')}</ul></div>`
       : r.frameChecked
@@ -1618,7 +1620,7 @@ export function setupHand(host: Host) {
     b.title =
       name === 'Natural'
         ? 'The least change from your resting hand (fitted under an earlier check).'
-        : 'Near the Dactyl Manuform: Natural with the fingers curled 14°, the thumb pressing at the CMC and the gaps tuned on a printed frame.';
+        : 'Near the Dactyl Manuform: the finger curl and reach mix closest to its keys (15°, 0.29), the thumb pressing at the CMC and the gaps tuned on a printed frame.';
     // Every setting, keeping which keys the hand is shown on, how rows are
     // reached, the cluster and the handle; one Undo step.
     b.addEventListener('click', () => {
@@ -2050,4 +2052,5 @@ export const _test = {
   NATURAL,
   DACTYL,
   MIX_MIN,
+  problems,
 };
