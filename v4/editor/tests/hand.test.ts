@@ -94,3 +94,35 @@ test('Dactyl fit, the thumb nudged across and down: pressing the near key, it to
 // Natural's printed frame: the index brushed the thumb cluster, which the
 // model doesn't (yet) reproduce. Reported, not asserted.
 test('Natural', (t) => report(t, layout(hand.NATURAL)));
+
+const FINGERS = ['index', 'middle', 'ring', 'pinky'] as const;
+const reaching = (mix: number) => hand.wayOf({ ...structuredClone(hand.DACTYL), reachMix: mix });
+// The reach mix slider's range near its low end, where the MCP curls as the PIP straightens.
+const MIXES = [hand.MIX_MIN, -0.3, -0.2, -0.1, 0, 0.4, 1, 3];
+
+test('every row is its set distance from home, centre to centre, or out of reach', () => {
+  for (const mix of MIXES)
+    for (const curl of [0, 14])
+      for (const f of FINGERS)
+        for (const d of [17.7, -17.7]) {
+          const way = reaching(mix),
+            home = hand.rowPose(f, curl, 0, 0, way),
+            p = hand.rowPose(f, curl, 0, d, way),
+            at = `${f}, curl ${curl}, mix ${mix}, ${d} mm`;
+          if (p.short > 0.5) assert.ok(p.pip < -15, `${at}: short only where the finger is flat`);
+          else assert.ok(Math.abs(p.chain.pad.distanceTo(home.chain.pad) - 17.7) < 0.05, at);
+        }
+});
+
+test("down to the slider's lowest reach mix, the fingertip moves along the board between rows", () => {
+  for (const mix of MIXES.filter((m) => m <= 0.4))
+    for (const curl of [-15, 0, 14, 25])
+      for (const f of FINGERS) {
+        const way = reaching(mix),
+          h = hand.rowPose(f, curl, 0, 0, way).t.clone().setZ(0).normalize();
+        for (let d = -25; d <= 25; d += 2.5) {
+          const along = hand.rowPose(f, curl, 0, d, way).t.dot(h);
+          assert.ok(along > 0.15, `${f}, curl ${curl}, mix ${mix}, ${d} mm: ${along.toFixed(2)}`);
+        }
+      }
+});

@@ -10,8 +10,10 @@
  * Fingers: chains MCP–PIP–DIP–pad from the resting pose. Curl at home bends
  * the PIP, the MCP by 0.4 of that and the DIP by 2/3. At every key, reaching
  * (between rows) is along the keyboard and pressing is square to it, at that
- * point. Either the reach mix is set (MCP degrees per PIP degree) and the
- * fingertip's path is the keyboard, or the press mix is set (PIP+DIP degrees
+ * point, and each row is set as its distance from home, centre to centre.
+ * Either the reach mix is set (MCP degrees per PIP degree; negative, the MCP
+ * curls as the PIP straightens) and the fingertip's path is the keyboard, or
+ * the press mix is set (PIP+DIP degrees
  * straightened per MCP degree) and the finger reaches square to it at every
  * point (Jindrich et al. 2004 measured a press mix of about 1.4).
  * Thumb: a ball joint at the assumed CMC, hinges at the MCP and IP. Its home
@@ -237,34 +239,42 @@ function rates(f: Finger, abd: number, m: number, p: number): Rates {
 }
 /** How the MCP and PIP move together to reach between rows, at a pose. */
 type Way = (r: Rates) => [mcp: number, pip: number];
-/** Walk the fingertip `dist` mm (+ away from you) from home along the path `way`
- * gives, step by step. The path is the keyboard: each key lies along it and
- * faces square off it, at that point. */
+/** Walk the fingertip (+ away from you) from home along the path `way` gives,
+ * step by step, until the key is `dist` mm from the home key, centre to
+ * centre. The path is the keyboard: each key lies along it and faces square
+ * off it, at that point. */
 function rowPose(f: Finger, curl: number, abd: number, dist: number, way: Way): Pose {
   const h = rest[f].heading.clone().applyAxisAngle(Z, rad(abd)),
     flat = -PIP_BEND[f];
   let m = 0.4 * curl,
-    p = curl,
-    left = Math.abs(dist),
-    t = h;
-  for (let i = 0; i < 4000; i++) {
+    p = curl;
+  /** The keyboard under the fingertip as it is: which way it runs (`t`) and faces
+   * (`n`), the key's centre (where the ball touches it, its lowest point along
+   * the press), and the joint steps per mm the ball moves along it. */
+  const here = () => {
     const r = rates(f, abd, m, p),
       [a, b] = way(r),
       w = r.vm.clone().multiplyScalar(a).addScaledVector(r.vp, b),
-      k = (w.dot(h) < 0 ? -1 : 1) / w.length(); // joint step per mm the pad moves away
-    t = w.multiplyScalar(k);
-    if (left < 1e-6) break;
-    const step = Math.min(0.25, left) * Math.sign(dist);
-    if (p + b * k * step < flat) break;
-    m += a * k * step;
-    p += b * k * step;
-    left -= Math.abs(step);
+      k = (w.dot(h) < 0 ? -1 : 1) / w.length(),
+      t = w.multiplyScalar(k),
+      n = Z.clone().multiplyScalar(t.dot(h)).addScaledVector(h, -t.dot(Z)).normalize(),
+      chain = finger(f, m, p, abd);
+    chain.pad = chain.ball.clone().addScaledVector(n, -TIP_R(f));
+    return { chain, t, n, dm: a * k, dp: b * k };
+  };
+  let k = here();
+  const home = k.chain.pad.clone(),
+    left = () => Math.abs(dist) - k.chain.pad.distanceTo(home);
+  // The key moves further than the ball where the path bends (it's below the
+  // ball), so the steps shrink as the key nears its place.
+  for (let i = 0; i < 8000 && left() > 1e-3; i++) {
+    const step = Math.min(0.25, left() / 2) * Math.sign(dist);
+    if (p + k.dp * step < flat) break;
+    m += k.dm * step;
+    p += k.dp * step;
+    k = here();
   }
-  const n = Z.clone().multiplyScalar(t.dot(h)).addScaledVector(h, -t.dot(Z)).normalize();
-  // It touches the key at the ball's lowest point along the press.
-  const chain = finger(f, m, p, abd);
-  chain.pad = chain.ball.clone().addScaledVector(n, -TIP_R(f));
-  return { chain, mcp: m, pip: p, short: left, t, n };
+  return { chain: k.chain, mcp: m, pip: p, short: Math.max(0, left()), t: k.t, n: k.n };
 }
 /** The pose turned `a` degrees toward the thumb about a vertical axis through
  * `about` (at the knuckle, the same as rowPose's abduction, since the walk
@@ -704,11 +714,15 @@ const turnOf = (s: Settings) =>
     .makeRotationZ(rad(-s.bend))
     .multiply(new T.Matrix4().makeRotationX(rad(-s.wrist)))
     .multiply(new T.Matrix4().makeRotationY(rad(s.roll)));
+/** The lowest reach mix (the MCP curling as the PIP straightens). Toward -0.5
+ * the two cancel: the fingertip hardly moves along the board, and the path
+ * turns straight down or doubles back. */
+const MIX_MIN = -0.4;
 /** The reach between rows: either as set, or square to the press as set. */
 const wayOf =
   (s: Settings): Way =>
   (r) => {
-    if (s.from === 'reach') return [s.reachMix, 1];
+    if (s.from === 'reach') return [Math.max(MIX_MIN, s.reachMix), 1];
     const press = r.vm.clone().addScaledVector(r.vp, -s.pressMix / r.ip);
     return [r.vp.dot(press), -r.vm.dot(press)];
   };
@@ -1219,8 +1233,8 @@ const DACTYL: Settings = {
   curl: { index: 14, middle: 14, ring: 14, pinky: 14 },
   innerGap: 20.5,
   innerAngle: 0,
-  top: 15.7,
-  bottom: 15.7,
+  top: 17.7,
+  bottom: 17.7,
   from: 'reach',
   reachMix: 0.4,
   pressMix: 1.4,
@@ -1253,8 +1267,8 @@ const NATURAL: Settings = {
   curl: { index: 0, middle: 0, ring: 0, pinky: 0 },
   innerGap: 18.8,
   innerAngle: 0,
-  top: 17,
-  bottom: 17,
+  top: 19.1,
+  bottom: 19.1,
   from: 'reach',
   reachMix: 0.4,
   pressMix: 1.4,
@@ -1517,6 +1531,8 @@ export function setupHand(host: Host) {
     step = 1,
     /** Whether it does anything with the other settings as they are. */
     on = () => true,
+    /** The value at a slider position, and back (min, max and step are positions). */
+    scale = { at: (i: number) => i, of: (v: number) => v },
   ) {
     const l = document.createElement('label');
     l.style.cssText =
@@ -1525,14 +1541,15 @@ export function setupHand(host: Host) {
     const i = l.querySelector('input')!,
       out = l.querySelector('output')!;
     const show = () => {
-      i.value = out.textContent = String(Math.round(get() * 100) / 100);
+      out.textContent = String(Math.round(get() * 100) / 100);
+      i.value = String(scale.of(get()));
       i.disabled = !on();
       l.style.opacity = on() ? '' : '0.4';
     };
     show();
     shows.push(show);
     i.addEventListener('input', () => {
-      set(+i.value);
+      set(scale.at(+i.value));
       shows.forEach((f) => f());
       change();
     });
@@ -1836,14 +1853,19 @@ export function setupHand(host: Host) {
   heading('Rows (mm from home)');
   const fromBox = document.createElement('div');
   box.append(fromBox);
+  // Hundredths from MIX_MIN to 0.4, then tenths to 3.
   slider(
     'reach mix: MCP° per PIP°',
     () => s.reachMix,
     (v) => (s.reachMix = v),
-    -1,
-    3,
-    0.1,
+    Math.round(MIX_MIN * 100),
+    66,
+    1,
     () => s.from === 'reach',
+    {
+      at: (i) => (i <= 40 ? i / 100 : 0.4 + (i - 40) / 10),
+      of: (v) => (v <= 0.4 ? v * 100 : 40 + (v - 0.4) * 10),
+    },
   );
   slider(
     'press mix: PIP+DIP° per MCP°',
@@ -2027,4 +2049,5 @@ export const _test = {
   deskOf,
   NATURAL,
   DACTYL,
+  MIX_MIN,
 };
