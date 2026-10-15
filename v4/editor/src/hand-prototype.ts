@@ -1245,7 +1245,7 @@ export function setupHand(host: Host) {
   const sec = document.createElement('section'),
     basic = document.createElement('div'),
     advanced = document.createElement('div');
-  sec.innerHTML = `<h2>Prototype: hand</h2><small>The keys follow your measured hand.</small>`;
+  sec.innerHTML = '<h2>Prototype: hand</h2>';
   sec.append(basic, advanced, note);
   note.style.cssText = 'margin:8px 0 0;min-height:1em;font-size:13px';
   document.querySelector('aside')!.prepend(sec);
@@ -1389,14 +1389,12 @@ export function setupHand(host: Host) {
   const copy = document.createElement('button'),
     paste = document.createElement('button');
   copy.textContent = 'Copy settings';
-  copy.title = 'Copy every hand setting as JSON.';
   copy.addEventListener('click', async () => {
     await navigator.clipboard.writeText(JSON.stringify(s));
     copy.textContent = 'Copied';
     setTimeout(() => (copy.textContent = 'Copy settings'), 1500);
   });
   paste.textContent = 'Paste settings';
-  paste.title = 'Paste settings from Copy settings.';
   paste.addEventListener('click', () => {
     const j = prompt('Paste the settings (JSON):');
     if (!j) return;

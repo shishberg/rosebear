@@ -27,10 +27,10 @@ const VIEW_STORAGE = 'rosebear-chassis-editor:view';
 const TOGGLES = ['edit', 'caps', 'parts', 'wires', 'adapter', 'base', 'bounds', 'edges'];
 $('app').innerHTML =
   `<header><div><h1>Rosebear / chassis editor</h1><p>Right hand · C64 chassis</p></div><span id="save-state">Local project</span></header><main><aside>
-<section><h2>Key layout</h2><label><input id="edit" type="checkbox" checked> Show handles</label><small>Top view: drag in plan; Front and Inner views: heights. Gold: a finger key (up/down: height; along the column: stagger). Cyan: a thumb cluster's centre. Pink: turns a thumb cluster.</small><div id="selection" aria-live="polite"><small>Click a handle to edit its numbers.</small></div><small>Before tenting: +X pinky, +Y away, +Z up.</small><button id="undo">Undo</button><button id="redo">Redo</button><button id="reset">Reset model</button></section>
+<section><h2>Key layout</h2><label><input id="edit" type="checkbox" checked> Show handles</label><div id="selection" aria-live="polite"></div><button id="undo">Undo</button><button id="redo">Redo</button><button id="reset">Reset model</button></section>
 <section><h2>View</h2><label><input id="caps" type="checkbox"> Keycaps</label><label><input id="parts" type="checkbox" checked> Tiles and components</label><label><input id="wires" type="checkbox" checked> Wiring and pads</label><label><input id="adapter" type="checkbox" checked> Adapter and ribbons</label><label><input id="base" type="checkbox" checked> Bottom section</label><label><input id="bounds" type="checkbox"> Show bounding box</label><label><input id="edges" type="checkbox"> Show wireframe</label><small id="size">Size: waiting for the chassis</small><label>Chassis opacity<input id="opacity" type="range" min="0.1" max="1" step="0.05" value="1"></label><button id="rebuild">Rebuild & check</button></section>
 <section><h2>Clearance checks</h2><label>Keycap bottom at full press (mm above the switch plane) <input id="bottom-out" type="number" min="0" max="20" step="0.1"></label><label><input id="show-failures" type="checkbox" checked> Highlight failures in 3D</label><small id="fit-legend"><span class="rest">Red: at-rest / hardware collision</span><br><span class="travel">Orange: travel + clearance collision</span><br><span class="opening">Pink: opening / switch-seat defect / loose piece</span><br><span class="wire">Cyan: wire into the chassis / blocked soldering access</span></small><button id="all-failures">Show all failures</button><div id="fit-focus" aria-live="polite"></div><div id="fit-badge">Starting geometry engine…</div><ul id="fit-list"></ul><button id="report" disabled>Save report</button></section>
-<section><h2>Wiring</h2><small>Provisional pads and adapter. 4 × 5 matrix per hand; thumbs on row RX.</small><div id="wiring-summary"></div><details><summary>Matrix and ribbon pins</summary><table id="matrix-table"></table></details><details><summary>Cut list</summary><table id="cut-list"></table></details></section>
+<section><h2>Wiring</h2><div id="wiring-summary"></div><details><summary>Matrix and ribbon pins</summary><table id="matrix-table"></table></details><details><summary>Cut list</summary><table id="cut-list"></table></details></section>
 <section><h2>Project</h2><button class="primary" id="export">Save project</button><button id="import">Open project</button><input id="file" type="file" accept=".json,application/json" hidden><button id="stl" disabled>Export review STL</button><button id="stl-base" disabled>Export bottom section STL</button><div id="load-error"></div><details><summary>All configuration</summary><textarea id="config" aria-label="Configuration"></textarea><button id="apply-config">Apply configuration</button></details></section></aside>
 <div id="viewport"><div id="viewbar">${['3D', 'Top', 'Underside', 'Front', 'Inner'].map((v) => `<button data-view="${v}">${v}</button>`).join('')}</div><div id="view-state">Loading model…</div></div></main>`;
 let project = clone(defaults),
@@ -310,10 +310,10 @@ function updateSelection() {
   const box = $('selection'),
     { title, list } = fields(selected);
   if (!title) {
-    box.innerHTML = '<small>Click a handle to edit its numbers.</small>';
+    box.innerHTML = '';
     return;
   }
-  box.innerHTML = `<strong>${title}</strong><div class="params">${list.map(([label], i) => `<label>${label}<input type="number" step="0.5" data-field="${i}"></label>`).join('')}</div>`;
+  box.innerHTML = `<strong>${title}</strong><small>+X pinky, +Y away, +Z up, before tenting</small><div class="params">${list.map(([label], i) => `<label>${label}<input type="number" step="0.5" data-field="${i}"></label>`).join('')}</div>`;
   box.querySelectorAll<HTMLInputElement>('input').forEach((input) => {
     const path = list[Number(input.dataset.field)][1];
     input.value = String(+getAt(project.config, path).toFixed(3));
