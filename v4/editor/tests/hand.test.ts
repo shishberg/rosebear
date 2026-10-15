@@ -248,7 +248,7 @@ test("Dactyl fit: of the valid layouts, the finger curl and reach mix that put t
   assert.deepEqual([hand.DACTYL.curl.middle, hand.DACTYL.reachMix], [best.c, best.m]);
 });
 
-test("the test frame doesn't rock: every keycap corner, pressed, pushes down within what it stands on", (t) => {
+test("the test frame stands and doesn't rock: every piece on struts, and every keycap corner, pressed, pushes down within what it stands on", (t) => {
   for (const s of [hand.DACTYL, hand.NATURAL]) {
     const { c, frame } = layout(s),
       P = frame.mesh.positions,
@@ -268,9 +268,7 @@ test("the test frame doesn't rock: every keycap corner, pressed, pushes down wit
       `${worst.key} ${worst.corner}: ${worst.in.toFixed(1)} mm`,
     );
     assert.equal(frame.pieces, 1);
-    assert.deepEqual(
-      frame.faults.filter((f) => f.includes('rocks')),
-      [],
-    );
+    // No faults: none rocks it, every piece stands on struts, nothing cut.
+    assert.deepEqual(frame.faults, []);
   }
 });

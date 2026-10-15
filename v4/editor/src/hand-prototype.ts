@@ -1464,6 +1464,14 @@ export function setupHand(host: Host) {
   const note = document.createElement('div');
   note.id = 'hand-note';
   function update() {
+    try {
+      draw();
+    } catch (e) {
+      note.innerHTML = `<div style="color:#ff9a8a">Couldn't check: ${e instanceof Error ? e.message : e}</div>`;
+      throw e;
+    }
+  }
+  function draw() {
     const c = cfg(),
       built = wasm && buildFrame(wasm, c),
       r = check(
