@@ -293,21 +293,48 @@ export function buildFrame(wasm: ManifoldToplevel, cfg: Config): FrameResult {
     // down.
     const corners = [-1, 1].flatMap((sx) => [-1, 1].map((sy) => [sx, sy])),
       [w, h] = FRAME.rail,
-      rail = (a: number[], b: number[]) =>
-        hull(
-          [a, b].flatMap(([x, y]) =>
-            corners.flatMap(([sx, sy]) =>
-              [floor, floor + h].map((z) => [x + (sx * w) / 2, y + (sy * w) / 2, z] as Vec3),
+      /** A rectangular bar on the floor from a to b, past each end by half
+       * its width so bars meeting at an angle overlap. */
+      rail = (a: number[], b: number[]) => {
+        const l = Math.hypot(b[0] - a[0], b[1] - a[1]),
+          d = [(b[0] - a[0]) / l, (b[1] - a[1]) / l],
+          u = [-d[1], d[0]];
+        return hull(
+          [a, b].flatMap((p, e) =>
+            [-1, 1].flatMap((s) =>
+              [floor, floor + h].map(
+                (z) =>
+                  [
+                    p[0] + ((e ? 1 : -1) * d[0] + s * u[0]) * (w / 2),
+                    p[1] + ((e ? 1 : -1) * d[1] + s * u[1]) * (w / 2),
+                    z,
+                  ] as Vec3,
+              ),
             ),
           ),
-        ),
+        );
+      },
       r = FRAME.strut / 2,
-      strut = (a: Vec3, b: Vec3) =>
-        hull(
+      /** A square bar from a to b, one side level (a vertical one's ends are
+       * level too, so a leg stands flat on the floor). */
+      strut = (a: Vec3, b: Vec3) => {
+        const d = b.map((x, i) => x - a[i]),
+          l = Math.hypot(...d),
+          f = d.map((x) => x / l),
+          side = Math.hypot(f[0], f[1]) < 1e-6 ? [1, 0, 0] : [f[1], -f[0], 0],
+          u = side.map((x) => x / Math.hypot(...side)),
+          v = [f[1] * u[2] - f[2] * u[1], f[2] * u[0] - f[0] * u[2], f[0] * u[1] - f[1] * u[0]];
+        return hull(
           [a, b].flatMap((p) =>
-            corners.flatMap(([sx, sy]) =>
-              [-r, r].map((dz) => [p[0] + sx * r, p[1] + sy * r, p[2] + dz] as Vec3),
-            ),
+            corners.map(([su, sv]) => p.map((x, i) => x + r * (su * u[i] + sv * v[i])) as Vec3),
+          ),
+        );
+      },
+      /** Where bars meet: a cube a bar wide. */
+      knot = (p: Vec3) =>
+        hull(
+          corners.flatMap(([sx, sy]) =>
+            [-r, r].map((dz) => [p[0] + sx * r, p[1] + sy * r, p[2] + dz] as Vec3),
           ),
         ),
       clear = clearOf(cfg, frames, keys, r + FRAME.strutClear),
@@ -320,7 +347,7 @@ export function buildFrame(wasm: ManifoldToplevel, cfg: Config): FrameResult {
             // straight down from it misses everything.
             const reach = (b: number) => {
               const top = at(key, sx * (hp[0] + b), sy * hp[1], -FRAME.lip - b);
-              return { top, foot: [top[0], top[1], floor + h / 2] as Vec3 };
+              return { top, foot: [top[0], top[1], floor] as Vec3 };
             };
             let b = FRAME.bracket;
             while (b < FRAME.bracket * 5 && !clear(reach(b).top, reach(b).foot)) b += FRAME.bracket;
@@ -335,7 +362,7 @@ export function buildFrame(wasm: ManifoldToplevel, cfg: Config): FrameResult {
     for (const { key, p, q, top, foot } of legs) {
       if (!clear(top, foot))
         faults.push(`${label(key)}: the leg under its corner hits a switch or keycap`);
-      solids.push(strut(p, top), strut(q, top), strut(top, foot));
+      solids.push(strut(p, top), strut(q, top), knot(top), strut(top, foot));
     }
     // The base: a rail round each plate's feet, and one from each plate's
     // to the nearest foot of those before it, so it prints as one piece.
@@ -404,7 +431,10 @@ export function buildFrame(wasm: ManifoldToplevel, cfg: Config): FrameResult {
           : [];
       });
 
-    const solid = keep(union(solids).subtract(keep(keepOut.subtract(lands))));
+    // Nothing below the floor: the slicer would support it.
+    const solid = keep(
+      keep(union(solids).trimByPlane([0, 0, 1], floor)).subtract(keep(keepOut.subtract(lands))),
+    );
 
     // What's wrong: a switch or keycap that reaches a seat, or the frame.
     const seats = (r: Manifold, but = '') =>

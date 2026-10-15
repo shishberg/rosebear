@@ -248,13 +248,35 @@ test("Dactyl fit: of the valid layouts, the finger curl and reach mix that put t
   assert.deepEqual([hand.DACTYL.curl.middle, hand.DACTYL.reachMix], [best.c, best.m]);
 });
 
-test("the test frame is one piece on legs under the plates' outer corners, with no faults", (t) => {
+test("the test frame is one piece on legs under the plates' outer corners, flat on the floor, with no faults", (t) => {
   for (const s of [hand.DACTYL, hand.NATURAL]) {
     const { frame } = layout(s);
     t.diagnostic(
       `${s === hand.DACTYL ? 'Dactyl fit' : 'Natural'}: ${frame.pieces} piece(s), ${frame.volume.toFixed(1)} cm³, ${frame.size.map((x) => x.toFixed(0)).join('×')} mm; ${frame.faults.join('; ') || 'no faults'}; ${frame.warnings.join('; ') || 'no warnings'}`,
     );
     assert.equal(frame.pieces, 1);
+    // Flat on the floor: nothing below it, and no face looking down just
+    // above it (the slicer would put a sliver of support under it).
+    const P = frame.mesh.positions,
+      I = frame.mesh.indices,
+      v = (i: number) => [P[i * 3], P[i * 3 + 1], P[i * 3 + 2] - frame.floor];
+    for (let t = 0; t < I.length; t += 3) {
+      const [a, b, c] = [I[t], I[t + 1], I[t + 2]].map(v),
+        u = [0, 1, 2].map((k) => b[k] - a[k]),
+        w = [0, 1, 2].map((k) => c[k] - a[k]),
+        n = [u[1] * w[2] - u[2] * w[1], u[2] * w[0] - u[0] * w[2], u[0] * w[1] - u[1] * w[0]],
+        low = Math.min(a[2], b[2], c[2]);
+      assert.ok(low > -0.01, `below the floor: ${low.toFixed(2)} mm`);
+      // (Booleans leave the odd sliver of no area; the slicer ignores them.)
+      if (n[2] < 0 && Math.hypot(...n) / 2 > 0.01 && Math.max(a[2], b[2], c[2]) < 1)
+        assert.ok(
+          low < 0.01,
+          `a face looking down ${low.toFixed(2)} mm above the floor at ${a
+            .slice(0, 2)
+            .map((x) => x.toFixed(0))
+            .join(', ')}`,
+        );
+    }
     // No faults: every leg clears every switch and keycap, nothing cut.
     assert.deepEqual(frame.faults, []);
   }
