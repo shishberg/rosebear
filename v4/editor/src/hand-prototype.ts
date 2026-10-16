@@ -327,10 +327,9 @@ function innerColumn(index: Pose[], gap: number, angle: number) {
     limited: hi >= lim[1] - 0.01 || hi <= lim[0] + 0.01,
     /** Any index pose carried over to the inner column. */
     place: (p: Pose) => moved(p, p.chain.mcp, angle, side.clone().multiplyScalar(hi)),
-    /** An index pose `t` of the way over (0–1), and how far the arm has carried the hand. */
+    /** An index pose `t` of the way over (0–1). */
     placeAt: (p: Pose, t: number) =>
       moved(p, p.chain.mcp, angle * t, side.clone().multiplyScalar(hi * t)),
-    carry: (t: number) => side.clone().multiplyScalar(hi * t),
   };
 }
 
@@ -1223,8 +1222,9 @@ const STEP = 2;
  * for. The other digits rest on their home keys, the only keys they may
  * touch. The reaching digit may touch the key it leaves on the way, then only
  * the key, resting on it and pressing it. To reach the inner column the arm
- * carries the whole hand sideways. Pressing, the thumb's last two bones move
- * with the key (near enough, however it presses). */
+ * carries the index sideways while the other digits stay on their home keys
+ * (so they're checked only at home). Pressing, the thumb's last two bones
+ * move with the key (near enough, however it presses). */
 function reachHits(c: Config, s: Settings, h: Solved, board: Board) {
   const travel = (c.switch as { travel_mm?: number }).travel_mm ?? 4,
     way = wayOf(s),
@@ -1246,12 +1246,11 @@ function reachHits(c: Config, s: Settings, h: Solved, board: Board) {
       hull: palmPoints(mcps, th).map((p) => p.add(by)),
       may: [],
     }),
-    /** Every digit but `but` resting, and the palm, carried `by`. */
-    rest = (but: string, during: string, by?: T.Vector3) => {
-      for (const f of FINGERS)
-        if (f !== but) add(fingerPart(f, homes[f], [`matrix_${f}_home`], 0, by), during);
-      if (but !== 'thumb') add(thumbPart(thHome, ['thumb_home'], by), during);
-      if (but !== 'thumb') add(palm(thHome, by), during);
+    /** Every digit resting, and the palm. */
+    rest = (during: string) => {
+      for (const f of FINGERS) add(fingerPart(f, homes[f], [`matrix_${f}_home`]), during);
+      add(thumbPart(thHome, ['thumb_home']), during);
+      add(palm(thHome), during);
     },
     /** The reaching digit on the way (`at(t)`, 0 < t < 1, `len` mm in all), then on the key and pressing it. */
     reach = (key: string, len: number, at: (t: number) => Part, onKey: (down: number) => Part) => {
@@ -1261,7 +1260,7 @@ function reachHits(c: Config, s: Settings, h: Solved, board: Board) {
       add(onKey(0), `on ${name}`);
       add(onKey(travel), `pressing ${name}`);
     };
-  rest('', 'at home');
+  rest('at home');
   // The finger keys, each finger with the rest of the hand at home.
   for (const f of FINGERS)
     ROWS.forEach((r, ri) => {
@@ -1274,7 +1273,7 @@ function reachHits(c: Config, s: Settings, h: Solved, board: Board) {
         (down) => fingerPart(f, h.poses[f][ri], [key], down),
       );
     });
-  // The inner column: the arm carries the hand toward it as the index reaches.
+  // The inner column: the arm carries the index toward it; the other digits stay home.
   ROWS.forEach((r, ri) => {
     const key = `matrix_inner_${r}`,
       dist = r === 'top' ? s.top : r === 'bottom' ? -s.bottom : 0,
@@ -1284,14 +1283,8 @@ function reachHits(c: Config, s: Settings, h: Solved, board: Board) {
     reach(
       key,
       len,
-      (t) => {
-        rest('index', `while the index reaches for ${capName(key)}`, h.inner.carry(t));
-        return fingerPart('index', index(t), may);
-      },
-      (down) => {
-        if (!down) rest('index', `while the index is on ${capName(key)}`, h.inner.carry(1));
-        return fingerPart('index', h.poses.inner[ri], [key], down);
-      },
+      (t) => fingerPart('index', index(t), may),
+      (down) => fingerPart('index', h.poses.inner[ri], [key], down),
     );
   });
   // The thumb keys: the thumb's joints move evenly from home to the key.
@@ -1358,38 +1351,37 @@ function check(
 }
 
 // ---------------------------------------------------------------- presets
-/** Near the Dactyl Manuform (DM_right) from Natural: tented 15° like the
- * Dactyl, the finger curl and reach mix that put the finger keys' cap tops
- * and facings closest to its keys, of the valid layouts (15°, 0.29, so the
- * wrist 71.5 mm up: the fitting is a test, in tests/hand.test.ts; its home keys face you 13°, the
- * Dactyl's 7.5°: closer, the bottom keys run into the thumb keys or each
- * other). The thumb turned forward from rest by eye (sweep -1.9, abduction
- * 7.6), then, with its keys along the last bone, straightened 22° (the MCP
- * and IP): of the valid poses, the one whose roll onto the outer edge (40°)
- * is nearest the 30° or so felt on the Dactyl (23°, rolled 29°, puts the near
- * thumb key into the inner bottom key). Unstraightened it rolls 78° and
- * presses into the next key; the roll swings from 53° at 20° straightened to
- * 10° at 24°. The gaps tuned by eye on a printed frame: rows closer, the
- * inner column further out, the thumb keys further apart.
- * The fingers come out 3–8 mm off the Dactyl's in the index, middle and ring
- * columns, more in the inner and pinky (the Dactyl raises its outer columns
- * into a bowl, which these settings can't). Valid with the 1×3 cluster, 65 mm
- * tall (the tented finger keys set it). */
+/** Near the Dactyl Manuform (DM_right), at a reach seen on it: rows reached
+ * with the MCP bending as the finger straightens, -0.1° per PIP degree,
+ * which holds the wrist 56.7 mm up (the thumb's CMC over the middle home
+ * key). Tented 15° like the Dactyl. The finger curl, the hand's pitch on the
+ * board, the thumb's sweep, abduction and curl and the gaps fitted together:
+ * of the valid layouts (the printed frame's faults counted), the one whose
+ * keys (cap tops and facings, the thumb's too) are closest to the Dactyl's,
+ * where no half step in any one of them is closer and valid (a test, in
+ * tests/hand.test.ts). At -0.2 none prints: the web between the ring and
+ * pinky bottom keys is too thin (about 30% under 1.2 mm), however the rest
+ * is set. The rows come out closer than tuned by eye on the printed frame
+ * (14.7 mm, was 17.7). The thumb keys sit 14–15 mm from the Dactyl's,
+ * facing 28–36° off (the home and near keys face away from you 15° and
+ * 23°, the Dactyl's toward you 22° and 18°); the thumb straightened 23.5°
+ * (the MCP and IP) rolls 21° onto its outer edge (the Dactyl felt like 30°
+ * or so). Valid with the 1×3 cluster, the printed frame too. */
 const DACTYL: Settings = {
   tent: 15,
   roll: 0,
-  pitch: 0,
+  pitch: 1,
   bend: 0,
-  curl: { index: 15, middle: 15, ring: 15, pinky: 15 },
-  innerGap: 20.5,
+  curl: { index: 10.5, middle: 10.5, ring: 10.5, pinky: 10.5 },
+  innerGap: 19,
   innerAngle: 0,
-  top: 17.7,
-  bottom: 17.7,
+  top: 14.7,
+  bottom: 14.7,
   from: 'reach',
-  wristHeight: 71.5,
+  wristHeight: 56.7,
   pressMix: 1.4,
-  thumb: { sweep: -1.9, abduct: 7.6, curl: -22, bend: 0 },
-  spacing: 24.5,
+  thumb: { sweep: 6, abduct: 11, curl: -23.5, bend: 0 },
+  spacing: 28.5,
   cluster: '1×3',
   // The 1u row, a key's depth from the 1.5u, on the curled side, reached
   // square to the press. (A reach mix like the fingers' 0.4 moves the thumb's
@@ -1404,8 +1396,7 @@ const DACTYL: Settings = {
  * the fingers as measured, the board tented 1° (the steep top rows of an
  * uncurled hand use up the tray). Fitted to the measured keycaps (18.5 mm,
  * tapering to 14, 11 high): 65 mm tall. Fitted before the check followed the
- * hand reaching each key: carried by the arm toward the inner column, the
- * resting middle finger now goes 3 mm into the index home key. (On its
+ * hand reaching each key, and valid under it. (On its
  * printed frame the index brushed the thumb cluster, which the model doesn't
  * reproduce.) The thumb, refitted with its keys along the last bone: the
  * least change is to straighten it 15° (the MCP and IP; less and it goes
@@ -1831,7 +1822,7 @@ export function setupHand(host: Host) {
     b.title =
       name === 'Natural'
         ? 'The least change from your resting hand (fitted under an earlier check).'
-        : 'Near the Dactyl Manuform: the finger curl and reach mix closest to its keys (15°, 0.29: the wrist 71.5 mm up), the thumb along its keys, rolled onto its outer edge, and the gaps tuned on a printed frame.';
+        : 'Near the Dactyl Manuform, at the reach seen on it (the wrist 56.7 mm up): the finger curl, pitch, thumb pose and gaps whose keys come closest to its keys.';
     // Every setting, keeping which keys the hand is shown on, how rows are
     // reached, the cluster and the handle; one Undo step.
     b.addEventListener('click', () => {

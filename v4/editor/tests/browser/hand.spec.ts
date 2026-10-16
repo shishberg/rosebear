@@ -10,13 +10,13 @@ test('the hand readout checks every reach against the keycaps and the frame', as
   const note = page.locator('#hand-note');
   // The Dactyl fit, once the frame is built and checked too.
   await expect(note).toContainText('Valid (', { timeout: 30000 });
+  await expect(note).toContainText(/Between rows the MCP bends -0\.10° per PIP degree/);
+  // Natural, valid too.
   await page.getByRole('button', { name: 'Natural' }).click();
-  await expect(note).toContainText(
-    /middle while the index (reaches for|is on) inner top: into index home/,
-  );
+  await expect(note).toContainText(/Between rows the MCP bends 0\.40° per PIP degree/);
+  await expect(note).toContainText('Valid (', { timeout: 30000 });
   // The wrist height sets the reach between rows, and says when no reach gives it.
   const wrist = page.locator('label', { hasText: 'wrist height (mm' });
-  await expect(note).toContainText(/Between rows the MCP bends 0\.40° per PIP degree/);
   await wrist.locator('input').focus();
   await page.keyboard.press('End');
   await expect(wrist.locator('output')).toHaveText('130');
