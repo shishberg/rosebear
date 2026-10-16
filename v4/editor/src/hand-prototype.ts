@@ -790,7 +790,7 @@ type Settings = {
   /** Degrees: the board's tent, then the hand on it. */
   tent: number;
   roll: number;
-  wrist: number;
+  pitch: number;
   bend: number;
   curl: Record<Finger, number>;
   innerGap: number;
@@ -798,7 +798,10 @@ type Settings = {
   top: number;
   bottom: number;
   from: string;
-  reachMix: number;
+  /** mm: how high the wrist is held over the keys: the thumb's CMC above the
+   * middle home key's top, square to it. It sets how the fingers reach
+   * between rows (mixFor). */
+  wristHeight: number;
   pressMix: number;
   thumb: ThumbPose;
   spacing: number;
@@ -809,17 +812,54 @@ type Settings = {
 const turnOf = (s: Settings) =>
   new T.Matrix4()
     .makeRotationZ(rad(-s.bend))
-    .multiply(new T.Matrix4().makeRotationX(rad(-s.wrist)))
+    .multiply(new T.Matrix4().makeRotationX(rad(-s.pitch)))
     .multiply(new T.Matrix4().makeRotationY(rad(s.roll)));
 /** The lowest reach mix (the MCP curling as the PIP straightens). Toward -0.5
  * the two cancel: the fingertip hardly moves along the board, and the path
  * turns straight down or doubles back. */
-const MIX_MIN = -0.4;
-/** The reach between rows: either as set, or square to the press as set. */
+const MIX_MIN = -0.4,
+  /** The highest: the MCP curling 3° per degree at the PIP. */
+  MIX_MAX = 3;
+/** How high the wrist is held (Settings.wristHeight) at a finger curl and a
+ * reach mix (MCP degrees per PIP degree between rows). The reach sets which
+ * way the home key faces, and so, with the fingertip on it, how high the hand
+ * is over it: the more the MCP curls as the PIP does, the higher (the more
+ * it straightens, the lower). */
+function wristHeightAt(curl: number, mix: number) {
+  const p = rowPose('middle', curl, 0, 0, () => [mix, 1]);
+  return C.clone().sub(p.chain.pad).dot(p.n);
+}
+const mixes = new Map<string, { mix: number; off: number }>();
+/** The reach mix that holds the wrist `height` mm up at a finger curl (the
+ * middle finger's), by bisection: the height rises with the mix. `off`: how
+ * far the height is past what the reach mixes allow (0: none). */
+function mixFor(curl: number, height: number) {
+  const key = `${curl} ${height}`;
+  let r = mixes.get(key);
+  if (!r) {
+    let lo = MIX_MIN,
+      hi = MIX_MAX;
+    const low = wristHeightAt(curl, lo),
+      high = wristHeightAt(curl, hi);
+    if (height <= low) r = { mix: lo, off: height - low };
+    else if (height >= high) r = { mix: hi, off: height - high };
+    else {
+      for (let i = 0; i < 30; i++) {
+        const m = (lo + hi) / 2;
+        if (wristHeightAt(curl, m) < height) lo = m;
+        else hi = m;
+      }
+      r = { mix: (lo + hi) / 2, off: 0 };
+    }
+    mixes.set(key, r);
+  }
+  return r;
+}
+/** The reach between rows: from the wrist height, or square to the press as set. */
 const wayOf =
   (s: Settings): Way =>
   (r) => {
-    if (s.from === 'reach') return [Math.max(MIX_MIN, s.reachMix), 1];
+    if (s.from === 'reach') return [mixFor(s.curl.middle, s.wristHeight).mix, 1];
     const press = r.vm.clone().addScaledVector(r.vp, -s.pressMix / r.ip);
     return [r.vp.dot(press), -r.vm.dot(press)];
   };
@@ -1303,6 +1343,8 @@ function check(
     ].filter(([, m]) => m > 0.5),
     /** The arm can't carry the hand far enough sideways for the inner column. */
     innerShort: h.inner.limited,
+    /** mm the wrist height is past what any reach gives at this curl. */
+    wristOff: s.from === 'reach' ? mixFor(s.curl.middle, s.wristHeight).off : 0,
     /** Thumb keys it can't press straight down with its pad: met with the
      * back of the thumb (rolled past 90°), or the thumb pointing at the CMC. */
     crooked: h.row
@@ -1318,8 +1360,8 @@ function check(
 // ---------------------------------------------------------------- presets
 /** Near the Dactyl Manuform (DM_right) from Natural: tented 15° like the
  * Dactyl, the finger curl and reach mix that put the finger keys' cap tops
- * and facings closest to its keys, of the valid layouts (15°, 0.29: the
- * fitting is a test, in tests/hand.test.ts; its home keys face you 13°, the
+ * and facings closest to its keys, of the valid layouts (15°, 0.29, so the
+ * wrist 71.5 mm up: the fitting is a test, in tests/hand.test.ts; its home keys face you 13°, the
  * Dactyl's 7.5°: closer, the bottom keys run into the thumb keys or each
  * other). The thumb turned forward from rest by eye (sweep -1.9, abduction
  * 7.6), then, with its keys along the last bone, straightened 22° (the MCP
@@ -1336,7 +1378,7 @@ function check(
 const DACTYL: Settings = {
   tent: 15,
   roll: 0,
-  wrist: 0,
+  pitch: 0,
   bend: 0,
   curl: { index: 15, middle: 15, ring: 15, pinky: 15 },
   innerGap: 20.5,
@@ -1344,7 +1386,7 @@ const DACTYL: Settings = {
   top: 17.7,
   bottom: 17.7,
   from: 'reach',
-  reachMix: 0.29,
+  wristHeight: 71.5,
   pressMix: 1.4,
   thumb: { sweep: -1.9, abduct: 7.6, curl: -22, bend: 0 },
   spacing: 24.5,
@@ -1372,7 +1414,7 @@ const DACTYL: Settings = {
 const NATURAL: Settings = {
   tent: 1,
   roll: 0,
-  wrist: 0,
+  pitch: 0,
   bend: 0,
   curl: { index: 0, middle: 0, ring: 0, pinky: 0 },
   innerGap: 18.8,
@@ -1380,7 +1422,7 @@ const NATURAL: Settings = {
   top: 19.1,
   bottom: 19.1,
   from: 'reach',
-  reachMix: 0.4,
+  wristHeight: 107.8,
   pressMix: 1.4,
   thumb: { sweep: 0, abduct: 0, curl: -15, bend: 0 },
   spacing: 27,
@@ -1400,6 +1442,11 @@ const problems = (r: ReturnType<typeof check>) => [
       : `thumb ${k} met with the back of the thumb (rolled ${Math.abs(t.roll).toFixed(0)}°)`,
   ),
   ...(r.innerShort ? ['inner column out of reach'] : []),
+  ...(Math.abs(r.wristOff) > 0.5
+    ? [
+        `wrist ${Math.abs(r.wristOff).toFixed(0)} mm too ${r.wristOff > 0 ? 'high' : 'low'} for this curl`,
+      ]
+    : []),
   ...(r.height.all > TRAY ? [`${r.height.all.toFixed(1)} mm tall (tray ${TRAY} mm)`] : []),
 ];
 /** The settings (degrees) that `apply` makes of a rotation, nearest `prev`:
@@ -1497,6 +1544,10 @@ export function setupHand(host: Host) {
   const SAVED = 'rosebear-hand-prototype';
   const restore = (j: string) => {
     const v = JSON.parse(j);
+    if (typeof v.reachMix === 'number' && v.wristHeight === undefined)
+      v.wristHeight =
+        Math.round(wristHeightAt(v.curl?.middle ?? s.curl.middle, v.reachMix) * 2) / 2;
+    if (typeof v.wrist === 'number' && v.pitch === undefined) v.pitch = v.wrist;
     for (const k of Object.keys(v) as (keyof typeof s)[])
       if (k in s)
         typeof s[k] === 'object'
@@ -1513,7 +1564,7 @@ export function setupHand(host: Host) {
     apply = () => applyHand(cfg(), s, anchor);
 
   // The rotation handle: on the middle home key it turns the hand on the
-  // board (roll, wrist, bend; the tent stays), on the thumb's CMC it turns
+  // board (roll, pitch, bend; the tent stays), on the thumb's CMC it turns
   // the thumb there (sweep, abduction; its turn about the metacarpal comes
   // with them).
   const pivot = new T.Object3D(),
@@ -1535,12 +1586,12 @@ export function setupHand(host: Host) {
     const R = new T.Matrix4().makeRotationFromQuaternion(pivot.quaternion),
       tent = rotation(tentFrame(cfg()));
     if (s.handle === 'hand') {
-      // turnOf: Rz(−bend) Rx(−wrist) Ry(roll).
+      // turnOf: Rz(−bend) Rx(−pitch) Ry(roll).
       const [x, y, z] = nearest(
         new T.Euler().setFromRotationMatrix(tent.invert().multiply(R), 'ZXY'),
-        [-s.wrist, s.roll, -s.bend],
+        [-s.pitch, s.roll, -s.bend],
       );
-      Object.assign(s, { wrist: -x, roll: y, bend: -z });
+      Object.assign(s, { pitch: -x, roll: y, bend: -z });
     } else {
       // rotQ: Rz(yaw) Ry(pitch) Rx(roll), from rest.
       const base = tent.multiply(rotation(toLayout())),
@@ -1646,6 +1697,11 @@ export function setupHand(host: Host) {
       'beforeend',
       `<div>Thumb rolled onto its outer edge: ${row.map((k, i) => `${['far', 'home', 'near'][i]} ${k.roll.toFixed(0)}°`).join(', ')}.</div>`,
     );
+    if (s.from === 'reach')
+      note.insertAdjacentHTML(
+        'beforeend',
+        `<div>Between rows the MCP bends ${mixFor(s.curl.middle, s.wristHeight).mix.toFixed(2)}° per PIP degree (the reach mix).</div>`,
+      );
     showFrame(built);
     host.render();
   }
@@ -1717,6 +1773,8 @@ export function setupHand(host: Host) {
     get: () => string,
     set: (v: string) => void,
     d = document.createElement('div'),
+    /** What each option is called, where not its value. */
+    names: Record<string, string> = {},
   ) {
     d.style.margin = '4px 0';
     d.innerHTML =
@@ -1725,7 +1783,7 @@ export function setupHand(host: Host) {
       options
         .map(
           (v) =>
-            `<label style="display:inline;margin-right:6px"><input type="radio" value="${v}" ${v === get() ? 'checked' : ''}>${v}</label>`,
+            `<label style="display:inline;margin-right:6px"><input type="radio" value="${v}" ${v === get() ? 'checked' : ''}>${names[v] ?? v}</label>`,
         )
         .join('');
     d.addEventListener('change', (e) => {
@@ -1773,7 +1831,7 @@ export function setupHand(host: Host) {
     b.title =
       name === 'Natural'
         ? 'The least change from your resting hand (fitted under an earlier check).'
-        : 'Near the Dactyl Manuform: the finger curl and reach mix closest to its keys (15°, 0.29), the thumb along its keys, rolled onto its outer edge, and the gaps tuned on a printed frame.';
+        : 'Near the Dactyl Manuform: the finger curl and reach mix closest to its keys (15°, 0.29: the wrist 71.5 mm up), the thumb along its keys, rolled onto its outer edge, and the gaps tuned on a printed frame.';
     // Every setting, keeping which keys the hand is shown on, how rows are
     // reached, the cluster and the handle; one Undo step.
     b.addEventListener('click', () => {
@@ -1867,6 +1925,15 @@ export function setupHand(host: Host) {
     -30,
     40,
     1,
+  );
+  slider(
+    "wrist height (mm, the thumb's CMC above the home row)",
+    () => s.wristHeight,
+    (v) => (s.wristHeight = v),
+    -30,
+    130,
+    0.5,
+    () => s.from === 'reach',
   );
   together(
     'key spacing (mm, every gap)',
@@ -2001,9 +2068,9 @@ export function setupHand(host: Host) {
     30,
   );
   slider(
-    'wrist: + higher',
-    () => s.wrist,
-    (v) => (s.wrist = v),
+    'pitch: + far edge down',
+    () => s.pitch,
+    (v) => (s.pitch = v),
     -25,
     25,
   );
@@ -2041,20 +2108,6 @@ export function setupHand(host: Host) {
   heading('Rows (mm from home)');
   const fromBox = document.createElement('div');
   box.append(fromBox);
-  // Hundredths from MIX_MIN to 0.4, then tenths to 3.
-  slider(
-    'reach mix: MCP° per PIP°',
-    () => s.reachMix,
-    (v) => (s.reachMix = v),
-    Math.round(MIX_MIN * 100),
-    66,
-    1,
-    () => s.from === 'reach',
-    {
-      at: (i) => (i <= 40 ? i / 100 : 0.4 + (i - 40) / 10),
-      of: (v) => (v <= 0.4 ? v * 100 : 40 + (v - 0.4) * 10),
-    },
-  );
   slider(
     'press mix: PIP+DIP° per MCP°',
     () => s.pressMix,
@@ -2065,7 +2118,7 @@ export function setupHand(host: Host) {
     () => s.from === 'press',
   );
   radios(
-    'Set the',
+    'Rows reached from the',
     ['reach', 'press'],
     () => s.from,
     (v) => {
@@ -2074,6 +2127,7 @@ export function setupHand(host: Host) {
       change();
     },
     fromBox,
+    { reach: 'wrist height', press: 'press mix' },
   );
   slider(
     'top: forward',
@@ -2192,5 +2246,7 @@ export const _test = {
   NATURAL,
   DACTYL,
   MIX_MIN,
+  wristHeightAt,
+  mixFor,
   problems,
 };

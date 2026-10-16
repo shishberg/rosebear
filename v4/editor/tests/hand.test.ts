@@ -150,9 +150,32 @@ test("a thumb key it can't press straight down with its pad isn't valid", () => 
 });
 
 const FINGERS = ['index', 'middle', 'ring', 'pinky'] as const;
-const reaching = (mix: number) => hand.wayOf({ ...structuredClone(hand.DACTYL), reachMix: mix });
-// The reach mix slider's range near its low end, where the MCP curls as the PIP straightens.
+/** Rows reached with the MCP curling `mix` degrees per PIP degree. */
+const reaching =
+  (mix: number): ReturnType<typeof hand.wayOf> =>
+  () => [mix, 1];
+// The reach mixes the wrist height gives, near the low end, where the MCP curls as the PIP straightens.
 const MIXES = [hand.MIX_MIN, -0.3, -0.2, -0.1, 0, 0.4, 1, 3];
+
+test('the wrist height rises with the reach mix, so each height is one reach (or past them all)', () => {
+  for (const curl of [-15, 0, 15, 25, 40]) {
+    let prev = -Infinity;
+    for (let m = hand.MIX_MIN; m <= 3.001; m += 0.05) {
+      const h = hand.wristHeightAt(curl, m);
+      assert.ok(h > prev, `curl ${curl}, mix ${m.toFixed(2)}: ${h.toFixed(1)} mm`);
+      prev = h;
+    }
+    for (const m of [-0.3, -0.2, 0, 0.29, 1]) {
+      const r = hand.mixFor(curl, hand.wristHeightAt(curl, m));
+      assert.ok(Math.abs(r.mix - m) < 1e-4 && r.off === 0, `curl ${curl}, mix ${m}`);
+    }
+    const top = hand.wristHeightAt(curl, 3);
+    assert.ok(
+      Math.abs(hand.mixFor(curl, top + 10).off - 10) < 1e-6,
+      `curl ${curl}: 10 mm too high`,
+    );
+  }
+});
 
 test('every row is its set distance from home, centre to centre, or out of reach', () => {
   for (const mix of MIXES)
@@ -217,7 +240,7 @@ function offDactyl(s: Settings) {
 const shaped = (curl: number, mix: number): Settings => ({
   ...structuredClone(hand.DACTYL),
   curl: { index: curl, middle: curl, ring: curl, pinky: curl },
-  reachMix: mix,
+  wristHeight: hand.wristHeightAt(curl, mix),
 });
 
 /** Why settings `s` aren't valid (the keycaps and the hand; the frame too if `frame`). */
@@ -298,7 +321,9 @@ test("Dactyl fit: of the valid layouts, the finger curl and reach mix that put t
     );
   }
   assert.deepEqual(wrongOf(shaped(best.c, best.m), true), []);
-  assert.deepEqual([hand.DACTYL.curl.middle, hand.DACTYL.reachMix], [best.c, best.m]);
+  // The preset's wrist height gives that reach, to the nearest half mm.
+  const { mix } = hand.mixFor(hand.DACTYL.curl.middle, hand.DACTYL.wristHeight);
+  assert.deepEqual([hand.DACTYL.curl.middle, Math.round(mix * 100) / 100], [best.c, best.m]);
 });
 
 test("the test frame is one piece on legs under the plates' outer corners, flat on the floor, with no faults", (t) => {

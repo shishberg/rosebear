@@ -11,18 +11,18 @@ test('the hand readout checks every reach against the keycaps and the frame', as
   // The Dactyl fit, once the frame is built and checked too.
   await expect(note).toContainText('Valid (', { timeout: 30000 });
   await page.getByRole('button', { name: 'Natural' }).click();
-  await expect(note).toContainText('middle while the index reaches for inner top: into index home');
-  // The reach mix goes down to -0.4 in hundredths.
-  await page.getByText('Advanced settings').click();
-  const mix = page.locator('label', { hasText: 'reach mix: MCP° per PIP°' });
-  const range = mix.locator('input');
-  await range.focus();
-  await page.keyboard.press('Home');
-  await expect(mix.locator('output')).toHaveText('-0.4');
-  await page.keyboard.press('ArrowRight');
-  await expect(mix.locator('output')).toHaveText('-0.39');
+  await expect(note).toContainText(
+    /middle while the index (reaches for|is on) inner top: into index home/,
+  );
+  // The wrist height sets the reach between rows, and says when no reach gives it.
+  const wrist = page.locator('label', { hasText: 'wrist height (mm' });
+  await expect(note).toContainText(/Between rows the MCP bends 0\.40° per PIP degree/);
+  await wrist.locator('input').focus();
   await page.keyboard.press('End');
-  await expect(mix.locator('output')).toHaveText('3');
+  await expect(wrist.locator('output')).toHaveText('130');
+  await expect(note).toContainText(/wrist \d+ mm too high for this curl/);
+  await page.keyboard.press('ArrowLeft');
+  await expect(wrist.locator('output')).toHaveText('129.5');
   // The thumb shown pressing its key, over and over.
   await page.getByText('Show the thumb pressing it').click();
   await page.waitForTimeout(500);
