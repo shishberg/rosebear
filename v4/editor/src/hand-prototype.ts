@@ -405,27 +405,28 @@ function thumb(q: number[]) {
   };
 }
 /** Where the thumb meets a key facing `n` (out of the cap toward the thumb;
- * keyAxes, straight up by default, as the paper was in the photos). The
- * thumb touches it with the last section's point furthest into it where it
- * touched the paper (the print, ip_pad past the IP): its flat pad and round
- * edges, either side of the bone. `roll`: how far the nail tilts from
- * parallel to the key, + toward the outer edge (away from the index; 0: the
- * key flat on the pad). */
+ * straight up by default, as the paper was in the photos): the last
+ * section's point furthest into it (its flat pad and round edges either side
+ * of the bone, its round end). On a key square to the pad that's the print
+ * (ip_pad past the IP); the pad is soft, so as the key tilts across the bone
+ * where it bears moves to the flat's edge over about 15°, and as it tilts
+ * along the bone, to the round end (tip down) or toward the IP (tip up).
+ * `roll`: how far the nail tilts from parallel to the key, + toward the
+ * outer edge (away from the index; 0: the key flat on the pad). */
 function touch(q: number[], n = Z) {
   const th = thumb(q),
-    mid = th.axis,
     side = th.side,
-    out = Math.sign(side.dot(mid.clone().sub(INDEX_MCP))) || 1,
-    // Into the key, across the bone: to the flat's edge when it tilts at all.
-    g = n.clone().negate().addScaledVector(th.u, th.u.dot(n)).normalize(),
-    // The pad is soft: as the key tilts across it, where it bears moves from
-    // the middle of the flat to its edge over about 15°.
-    across = Math.max(-1, Math.min(1, g.dot(side) / Math.sin(rad(15))));
+    out = Math.sign(side.dot(th.axis.clone().sub(INDEX_MCP))) || 1,
+    into = n.clone().negate(),
+    soft = (x: number) => Math.max(-1, Math.min(1, x / Math.sin(rad(15)))),
+    across = soft(into.dot(side)),
+    along = Math.max(0, soft(into.dot(th.u)));
   return {
-    p: mid
+    p: th.axis
       .clone()
+      .addScaledVector(th.u, along * (along > 0 ? THUMB_END - THUMB_R - TL[2] : TL[2]))
       .addScaledVector(side, across * THUMB_EDGE)
-      .addScaledVector(g, THUMB_R),
+      .addScaledVector(into, THUMB_R),
     n,
     roll: deg(n.angleTo(th.nail)) * Math.sign(-n.dot(side) * out),
   };
@@ -1460,7 +1461,7 @@ function check(
 const DACTYL: Settings = {
   tent: 15,
   roll: 0,
-  pitch: 5,
+  pitch: 5.5,
   bend: 0,
   curl: { index: 10.5, middle: 10.5, ring: 10.5, pinky: 10.5 },
   innerGap: 19,
@@ -1470,8 +1471,8 @@ const DACTYL: Settings = {
   from: 'reach',
   wristHeight: 56.0,
   pressMix: 1.4,
-  thumb: { around: 124, drop: 12, reach: { palmar: -0.3, curl: 0.3 }, press: -45 },
-  spacing: 24,
+  thumb: { around: 124, drop: 13, reach: { palmar: -0.3, curl: 0.3 }, press: -45 },
+  spacing: 24.5,
   cluster: '1×3',
   // The 1u row a key's depth inside the 1.5u, the thumb curled in under the
   // hand.
