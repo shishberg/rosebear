@@ -541,17 +541,24 @@ export function check(
       ...thumbs.map(({ key, k }) => [key, k.miss] as const),
     ].filter(([, m]) => m > 0.5),
     /** Thumb keys where the MCP or IP goes past its range (degrees), on the
-     * key or pressing it to the bottom. */
+     * key or pressing it to the bottom (unless the press moves off it). */
     pastJoints: thumbs
       .map(({ key, k }) => ({
         key,
-        past: Math.max(pastJoints(k.q), pastJoints(pressed(k.q, c.switch.travel_mm, k.press))),
+        past: Math.max(
+          pastJoints(k.q),
+          k.away ? 0 : pastJoints(pressed(k.q, c.switch.travel_mm, k.press)),
+        ),
       }))
       .filter((x) => x.past > 0.5),
     /** Thumb keys met with the back of the thumb: on its side past
-     * BACK_OF_THUMB (in the photos it lay at about 100–107° on the paper). */
+     * BACK_OF_THUMB (in the photos it lay at about 100–107° on the paper).
+     * Not the extra keys: the model presses with the thumb's tip, and those
+     * are pressed with its side or base, which it doesn't model. */
     backOfThumb: thumbs.flatMap(({ key, k }) =>
-      Math.abs(k.roll) > BACK_OF_THUMB ? [{ key, roll: Math.abs(k.roll) }] : [],
+      !key.startsWith('thumb x') && Math.abs(k.roll) > BACK_OF_THUMB
+        ? [{ key, roll: Math.abs(k.roll) }]
+        : [],
     ),
     /** Thumb keys the press moves the thumb off. */
     pressAway: thumbs.flatMap(({ key, k }) => (k.away ? [key] : [])),

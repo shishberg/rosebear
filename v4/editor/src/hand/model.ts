@@ -618,53 +618,130 @@ function thumbKey(q: number[], miss: number, t: ThumbPose, face?: { frame: T.Mat
 type ThumbKey = ReturnType<typeof thumbKey>;
 /** mm the thumb lifts off the row, halfway, on its way to an extra key. */
 export const EXTRA_LIFT = 15;
-/** The two extra thumb keys, if on: a second row `south` mm from the thumb
- * row toward the thumb's base, seen from above (square to the far-near
- * line): x1 beside the home key, x2 beside the far key. The thumb is curled
- * `curl` more than on the key beside it, then swung and lowered until it
- * touches the key there. Each faces against its press, or with `t.parallel`
- * keeps the x of the key beside it and tilts across the row toward its press.
- * `miss`: mm off its place. */
-export type Extra = { on: boolean; curl: number; press: number; south: number };
-export function extraKeys(row: ThumbKey[], t: ThumbPose, { curl, press, south }: Extra) {
+/** The two extra thumb keys, if on: a second row hung off the thumb row
+ * like the next key down a column, x1 under the gap between the home and
+ * near keys, x2 under the one between the far and home keys. From the gap
+ * (halfway between the two keys' cap tops, facing halfway between them, the
+ * row along their shared x), the row's face carries on `south` / 2 mm
+ * toward the thumb's base, then bends `tilt` degrees about the row (+: the
+ * face turns toward the thumb's base and the palm) and carries on another
+ * `south` / 2 mm to the key's centre. The row curves, so hung off it the two
+ * close in, and turn to each other; each then moves away from the other,
+ * along the line between them, until they are as far apart as the row's keys
+ * (the gaps are closer). Last, each sits `lower` mm down
+ * along its face's normal (the thumb presses further to reach it). Set by
+ * those alone, not by the thumb. The thumb's pose on each (for the checks and the
+ * readout) is the one that touches its centre with the key facing that way,
+ * its press `press` (as the row's); `miss`: mm short of it. */
+export type Extra = { on: boolean; south: number; tilt: number; lower: number; press: number };
+export function extraKeys(row: ThumbKey[], t: ThumbPose, { south, tilt, lower, press }: Extra) {
   const te = { ...t, press },
-    x = row[2].at.clone().sub(row[0].at).setZ(0).normalize(),
-    y = new T.Vector3(-x.y, x.x, 0),
-    base = thumb(row[1].q).M.clone().sub(row[1].at),
-    out = y.multiplyScalar(Math.sign(base.dot(y)) || 1);
-  return [row[1], row[0]].map((by) => {
-    const target = by.at.clone().addScaledVector(out, south),
-      q0 = by.q.map((v, j) => v + (j > 2 ? curl : 0)),
-      at = (u: number[]) => moveBy(q0, [u[0], u[1], 0]),
-      facing = (q: number[]) => (t.parallel ? hinged(q, te, by, 0) : keyAt(q, te).n),
-      // Off the place, seen from above.
-      off = (u: number[]) => {
-        const q = at(u),
-          d = touch(q, facing(q)).p.sub(target);
-        return [d.dot(x), d.dot(out)];
-      };
-    // Newton's method on the swing and the lowering, a step at most 10°.
-    let u = [0, 0];
-    for (let i = 0; i < 40; i++) {
-      const f = off(u);
-      if (Math.hypot(...f) < TOL.residual) break;
-      const h = 0.05,
-        J = [0, 1].map((k) => {
-          const e = [0, 0];
-          e[k] = h;
-          const g = off([u[0] + e[0], u[1] + e[1]]);
-          return [(g[0] - f[0]) / h, (g[1] - f[1]) / h];
-        }),
-        det = J[0][0] * J[1][1] - J[1][0] * J[0][1];
-      if (Math.abs(det) < TOL.degenerate) break;
-      let step = [
-        (-f[0] * J[1][1] + f[1] * J[1][0]) / det,
-        (-f[1] * J[0][0] + f[0] * J[0][1]) / det,
-      ];
-      const big = Math.hypot(...step);
-      if (big > 10) step = step.map((v) => (v * 10) / big);
-      u = [u[0] + step[0], u[1] + step[1]];
-    }
-    return thumbKey(at(u), Math.hypot(...off(u)), te, t.parallel ? by : undefined, 0);
+    base = thumb(row[1].q).M;
+  const hung = [
+    [1, 2],
+    [0, 1],
+  ].map(([a, b]) => {
+    const A = row[a],
+      B = row[b],
+      col = (k: ThumbKey, i: number) => new T.Vector3().setFromMatrixColumn(k.frame, i),
+      n = A.n.clone().add(B.n).normalize(),
+      x = col(A, 0).add(col(B, 0)),
+      p = A.at.clone().add(B.at).multiplyScalar(0.5);
+    x.addScaledVector(n, -x.dot(n)).normalize();
+    const y = new T.Vector3().crossVectors(n, x),
+      out = y.multiplyScalar(Math.sign(base.clone().sub(p).dot(y)) || 1),
+      th = rad(tilt),
+      face = n.clone().multiplyScalar(Math.cos(th)).addScaledVector(out, Math.sin(th)),
+      on = out.clone().multiplyScalar(Math.cos(th)).addScaledVector(n, -Math.sin(th)),
+      at = p
+        .clone()
+        .addScaledVector(out, south / 2)
+        .addScaledVector(on, south / 2);
+    return { A, B, n, x, p, face, at };
   });
+  const [h1, h2] = hung,
+    apart = h1.at.clone().sub(h2.at),
+    keys = (row[0].at.distanceTo(row[1].at) + row[1].at.distanceTo(row[2].at)) / 2,
+    spread = Math.max(0, keys - apart.length()) / 2;
+  apart.normalize();
+  h1.at.addScaledVector(apart, spread);
+  h2.at.addScaledVector(apart, -spread);
+  for (const h of hung) h.at.addScaledVector(h.face, -lower);
+  return hung.map(({ A, B, n, x, face, at }) => {
+    const frame = new T.Matrix4()
+        .makeBasis(x, new T.Vector3().crossVectors(face, x), face)
+        .setPosition(at),
+      fit = reachKey(
+        at,
+        face,
+        A.q.map((v, j) => (v + B.q[j]) / 2),
+        n,
+      ),
+      k = keyFacing(fit.q, te, face);
+    return {
+      slant: k.slant,
+      at,
+      q: fit.q,
+      n: face,
+      frame,
+      miss: fit.miss,
+      roll: k.roll,
+      around: aroundOf(at),
+      press: k.press,
+      away: k.away,
+    };
+  });
+}
+/** The thumb's pose touching `at` on a key facing `n`: its swing, lowering
+ * and curl (radial and palmar abduction, the MCP and IP alike) from `q0`,
+ * where it touches a key facing `n0`. Many poses touch the one point; this
+ * follows one, moving the point and the facing there from `q0`'s in
+ * twentieths, a few damped Newton steps (each at most 5°) on each, so it
+ * changes smoothly as the key does. `miss`: mm short. */
+function reachKey(at: T.Vector3, n: T.Vector3, q0: number[], n0: T.Vector3) {
+  const from = touch(q0, n0).p,
+    pose = (u: number[]) => moveBy(q0, u);
+  let u = [0, 0, 0],
+    f = [0, 0, 0];
+  for (let step = 1; step <= 20; step++) {
+    const s = step / 20,
+      to = from.clone().lerp(at, s),
+      face = n0.clone().lerp(n, s).normalize(),
+      off = (u: number[]) => touch(pose(u), face).p.sub(to).toArray();
+    f = off(u);
+    let lambda = 1e-3;
+    for (let i = 0; i < 15 && Math.hypot(...f) > TOL.residual; i++) {
+      const h = 0.05,
+        J = [0, 1, 2].map((k) => {
+          const e = [0, 0, 0];
+          e[k] = h;
+          const g = off(u.map((v, j) => v + e[j]));
+          return g.map((v, j) => (v - f[j]) / h);
+        }),
+        // (Jᵀ J + λ) d = −Jᵀ f, J's rows per movement.
+        M = [0, 1, 2].map((r) =>
+          [0, 1, 2].map(
+            (c) => J[r].reduce((a, v, j) => a + v * J[c][j], 0) + (r === c ? lambda : 0),
+          ),
+        ),
+        g = [0, 1, 2].map((r) => -J[r].reduce((a, v, j) => a + v * f[j], 0));
+      let d = solve3(M, g);
+      const big = Math.hypot(...d);
+      if (big > 5) d = d.map((v) => (v * 5) / big);
+      const next = u.map((v, j) => v + d[j]),
+        fn = off(next);
+      if (Math.hypot(...fn) < Math.hypot(...f)) [u, f, lambda] = [next, fn, lambda / 3];
+      else lambda *= 4;
+    }
+  }
+  return { q: pose(u), miss: Math.hypot(...f) };
+}
+/** M x = g for a 3×3 M (Cramer's rule). */
+function solve3(M: number[][], g: number[]) {
+  const det = (m: number[][]) =>
+      m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1]) -
+      m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0]) +
+      m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0]),
+    D = det(M);
+  return [0, 1, 2].map((c) => det(M.map((r, i) => r.map((v, j) => (j === c ? g[i] : v)))) / D);
 }

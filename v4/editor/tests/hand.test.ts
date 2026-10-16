@@ -436,7 +436,7 @@ test("far and near thumb keys keep the home key's y, tilted only along the row",
   assert.ok(near.slant < 5, `${near.slant}`);
   assert.ok(own.every((k) => k.slant === 0));
 });
-test('the extra thumb keys sit south mm beside the home and far keys, and exist only when on', () => {
+test('the extra thumb keys hang off the row under its gaps, and exist only when on', () => {
   const on = {
       ...structuredClone(hand.YOURS),
       extra: { ...hand.START.extra, on: true },
@@ -445,26 +445,37 @@ test('the extra thumb keys sit south mm beside the home and far keys, and exist 
     anchor = hand.anchorOf(clone(defaults).config),
     world = hand.worldOf(c, anchor, on),
     f = componentFrames(c),
-    [far, home, near] = r.h.row,
-    along = near.at.clone().sub(far.at).setZ(0).normalize();
+    row = r.h.row,
+    base = hand.thumb(row[1].q).M,
+    gaps = [
+      [1, 2],
+      [0, 1],
+    ].map(([a, b]) => ({
+      p: row[a].at.clone().add(row[b].at).multiplyScalar(0.5),
+      n: row[a].n.clone().add(row[b].n).normalize(),
+    })),
+    // Each with `lower` 0, to see the lowering.
+    up = hand.solveHand({ ...on, extra: { ...on.extra, lower: 0 } }).extra;
   assert.equal(r.h.extra.length, 2);
-  [home, far].forEach((by, i) => {
-    const k = r.h.extra[i],
-      name = `thumb_x${i + 1}`;
-    // Curled more than on the key beside it, at the MCP and IP alike.
-    assert.ok(Math.abs(k.q[3] - by.q[3] - on.extra.curl) < 1e-9);
-    assert.ok(Math.abs(k.q[4] - by.q[4] - on.extra.curl) < 1e-9);
-    // Seen from above, `south` mm from it, square to the row, toward the
-    // thumb's base (where the thumb curls back to).
-    const d = k.at.clone().sub(by.at).setZ(0);
+  // The row curves, so the two are moved apart to the row's spacing (before
+  // they're lowered).
+  assert.ok(Math.abs(up[0].at.distanceTo(up[1].at) - on.spacing) < 0.01);
+  r.h.extra.forEach((k, i) => {
+    const name = `thumb_x${i + 1}`,
+      gap = gaps[i];
     assert.ok(k.miss < 0.01, `${name}: ${k.miss} mm off`);
-    assert.ok(Math.abs(d.dot(along)) < 0.01);
-    assert.ok(Math.abs(d.length() - on.extra.south) < 0.01);
-    const base = hand.thumb(home.q).M.clone().sub(home.at).setZ(0);
-    assert.ok(d.dot(base) > 0, `${name}: away from the thumb's base`);
-    // The edges between the rows parallel: the x of the key beside it.
-    const x = (m: InstanceType<typeof T.Matrix4>) => new T.Vector3().setFromMatrixColumn(m, 0);
-    assert.ok(x(k.frame).angleTo(x(by.frame)) < 1e-9);
+    // Facing `tilt` degrees off the gap's facing, turned toward the thumb's base.
+    assert.ok(Math.abs(T.MathUtils.radToDeg(k.n.angleTo(gap.n)) - on.extra.tilt) < 1e-6, name);
+    assert.ok(k.n.clone().sub(gap.n).dot(base.clone().sub(gap.p)) > 0, name);
+    // Toward the thumb's base from the gap, about `south` mm across the faces.
+    const d = k.at.clone().sub(gap.p);
+    assert.ok(d.dot(base.clone().sub(gap.p)) > 0, `${name}: away from the thumb's base`);
+    assert.ok(Math.abs(d.length() - on.extra.south) < 5, `${name}: ${d.length()} mm`);
+    // `lower` mm down along its normal.
+    const down = k.at.clone().sub(up[i].at);
+    assert.ok(down.distanceTo(k.n.clone().multiplyScalar(-on.extra.lower)) < 1e-6, name);
+    // The frame square to the face.
+    assert.ok(Math.abs(new T.Vector3().setFromMatrixColumn(k.frame, 0).dot(k.n)) < 1e-9);
     // In the extra cluster where the hand puts it: its cap top straight up
     // from its seat (the layout rounds both to 0.01 mm and 0.01°).
     const seat = f[name],
@@ -474,6 +485,9 @@ test('the extra thumb keys sit south mm beside the home and far keys, and exist 
     // Checked like the row's keys, and in the frame.
     assert.ok(r.caps.some((x) => x.name === name));
   });
+  // Clear of each other and the row (and not checked for the back of the
+  // thumb, though the thumb's tip, all the model presses with, meets them so).
+  assert.ok(r.h.extra.every((k) => Math.abs(k.roll) > hand.BACK_OF_THUMB));
   assert.deepEqual(wrongOf(on), []);
   const off = layout(hand.YOURS);
   assert.ok(frame.volume > off.frame.volume + 0.5, 'the frame holds the extra keys');
