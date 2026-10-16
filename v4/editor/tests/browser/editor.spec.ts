@@ -261,3 +261,96 @@ test('column fields follow the column by name in the project', async ({ page }) 
     page.locator('#selection label').filter({ hasText: 'X offset' }).locator('input'),
   ).toHaveValue(String(+x.toFixed(3)));
 });
+test('every commit kind is one undo step, and redo returns through them', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  const states = [await project(page)];
+  const undo = page.locator('#undo'),
+    redo = page.locator('#redo');
+  // A column field edit.
+  await page.locator('[data-view="Front"]').click();
+  const h = await page.evaluate(() =>
+    (window as any).rosebearEditor.handleScreen('key:matrix_ring_home'),
+  );
+  await page.mouse.click(h.x, h.y);
+  const field = page
+    .locator('#selection label')
+    .filter({ hasText: 'home key height' })
+    .locator('input');
+  await field.fill(String(Number(await field.inputValue()) + 1));
+  await field.press('Tab');
+  states.push(await project(page));
+  // The bottom-out field.
+  await page.locator('#bottom-out').fill('3');
+  await page.locator('#bottom-out').press('Tab');
+  states.push(await project(page));
+  // Apply configuration.
+  const cfg = JSON.parse(await page.locator('#config').inputValue());
+  cfg.switch.travel_mm += 0.1;
+  await page.getByText('All configuration').click();
+  await page.locator('#config').fill(JSON.stringify(cfg));
+  await page.locator('#apply-config').click();
+  states.push(await project(page));
+  // Reset, then a file import.
+  await page.locator('#reset').click();
+  states.push(await project(page));
+  await page.locator('#file').setInputFiles({
+    name: 'p.json',
+    mimeType: 'application/json',
+    buffer: Buffer.from(JSON.stringify(states[1])),
+  });
+  await expect.poll(() => project(page)).toEqual(states[1]);
+  states.push(states[1]);
+  expect(new Set(states.map((s) => JSON.stringify(s))).size).toBe(4);
+  for (let i = states.length - 2; i >= 0; i--) {
+    await undo.click();
+    expect(await project(page)).toEqual(states[i]);
+  }
+  await expect(undo).toBeDisabled();
+  for (let i = 1; i < states.length; i++) {
+    await redo.click();
+    expect(await project(page)).toEqual(states[i]);
+  }
+  await expect(redo).toBeDisabled();
+  await rebuilt(page);
+  expect(errors).toEqual([]);
+});
+test('failure highlights take their colour from their kind', async ({ page }) => {
+  const cfg = JSON.parse(await page.locator('#config').inputValue());
+  cfg.switch.keycap_bottom_above_plate_mm = cfg.switch.travel_mm - 2;
+  await page.getByText('All configuration').click();
+  await page.locator('#config').fill(JSON.stringify(cfg));
+  await page.locator('#apply-config').click();
+  await rebuilt(page);
+  const hl = await page.evaluate(() => (window as any).rosebearEditor.getHighlights());
+  const colour: Record<string, number> = { rest: 0xff303e, travel: 0xffa124, room: 0xffa124 };
+  const seen = new Set<string>();
+  for (const h of hl) {
+    seen.add(h.kind);
+    expect(h.color, h.kind).toBe(colour[h.kind] ?? h.color);
+  }
+  expect(seen.has('rest') || seen.has('travel')).toBe(true);
+  // The legend swatches match the meshes.
+  const swatches = await page
+    .locator('#fit-legend span')
+    .evaluateAll((els) => els.map((e) => getComputedStyle(e).color));
+  const rgb = (n: number) => `rgb(${n >> 16}, ${(n >> 8) & 255}, ${n & 255})`;
+  expect(swatches).toEqual([0xff303e, 0xffa124, 0xf16bd8, 0x40e0ff].map(rgb));
+});
+test('prototype URL overrides are built and recorded in the saved report', async ({ page }) => {
+  await page.goto('/?plates=narrow&slope=55&recess=1.5');
+  await rebuilt(page);
+  const saved = page.waitForEvent('download');
+  await page.locator('#report').click();
+  const fs = await import('node:fs/promises'),
+    json = JSON.parse(await fs.readFile((await (await saved).path())!, 'utf8'));
+  expect(json.evaluatedProject.config.chassis).toMatchObject({
+    plate_style: 'narrow',
+    plate_slope: 55,
+    deck_lift: 1.5,
+  });
+  // The editable project itself never carries them.
+  const own = (await project(page)).config.chassis;
+  expect(own.plate_style).toBeUndefined();
+  expect(own.deck_lift).toBeUndefined();
+});

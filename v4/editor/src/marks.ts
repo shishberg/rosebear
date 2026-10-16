@@ -7,6 +7,7 @@
 // ?mark=<id> opens on a saved mark's view; ?marks=0 hides the saved marks.
 import * as T from 'three';
 import type { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { disposeChildren, disposeMesh, placeCamera, clientToNdc } from './three-util';
 
 type Hit = { p: number[]; n: number[]; on: string } | null;
 type Stroke = { screen: number[][]; hits: Hit[] };
@@ -79,19 +80,10 @@ export function setupMarks(o: {
     }
     return meshes;
   }
-  // Frees the GPU buffers; removing a mesh from its group alone leaves them.
-  function free(m: T.Mesh) {
-    m.geometry.dispose();
-    (m.material as T.Material).dispose();
-  }
-  function empty(g: T.Group) {
-    g.children.forEach((m) => free(m as T.Mesh));
-    g.clear();
-  }
   // The stroke being drawn is the only one that changes, so only it is rebuilt.
   let live: T.Mesh[] = [];
   const redraw = () => {
-    empty(current);
+    disposeChildren(current);
     strokes.forEach((s) => draw(s, 0xff2a2a, current));
     live = [];
     render();
@@ -99,13 +91,13 @@ export function setupMarks(o: {
   function redrawLive() {
     for (const m of live) {
       current.remove(m);
-      free(m);
+      disposeMesh(m);
     }
     live = draw(stroke!, 0xff2a2a, current);
     render();
   }
   function showSaved() {
-    empty(saved);
+    disposeChildren(saved);
     saved.visible = $<HTMLInputElement>('mk-show').checked;
     for (const m of marks) m.strokes.forEach((s) => draw(s, 0xffd21a, saved));
     $('mk-list').innerHTML = marks.length
@@ -124,13 +116,7 @@ export function setupMarks(o: {
     showSaved();
   }
   function go(m: Mark) {
-    camera.up.set(...(m.camera.up as [number, number, number]));
-    if ('fov' in camera && m.camera.fov) camera.fov = m.camera.fov;
-    if (!('fov' in camera) && m.camera.zoom) camera.zoom = m.camera.zoom;
-    camera.position.set(...(m.camera.position as [number, number, number]));
-    controls.target.set(...(m.camera.target as [number, number, number]));
-    camera.updateProjectionMatrix();
-    controls.update();
+    placeCamera(camera, controls, m.camera);
     render();
   }
 
@@ -219,7 +205,7 @@ export function setupMarks(o: {
     const r = canvas.getBoundingClientRect(),
       u = (e.clientX - r.left) / r.width,
       v = (e.clientY - r.top) / r.height;
-    ray.setFromCamera(new T.Vector2(u * 2 - 1, 1 - v * 2), camera);
+    ray.setFromCamera(clientToNdc(canvas, e.clientX, e.clientY), camera);
     const targets = o.targets().filter(([obj]) => obj.visible),
       hit = ray.intersectObjects(
         targets.map(([obj]) => obj),

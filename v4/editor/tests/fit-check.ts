@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import Module from 'manifold-3d';
 import { defaults, clone, validateProject } from '../src/geometry';
 import { buildSolid } from '../src/solid';
+import { reportLines } from '../src/report-lines';
 const project = process.argv[2]
   ? JSON.parse(readFileSync(process.argv[2], 'utf8'))
   : clone(defaults);
@@ -11,27 +12,7 @@ const wasm = await Module();
 wasm.setup();
 const { report } = buildSolid(wasm, project);
 console.log(report.passed ? 'CLEARANCE PASS' : 'CLEARANCE FAIL');
-for (const s of report.seats)
-  if (!s.passed) console.log(`${s.name}: switch seat or clip relief fails`);
-for (const k of report.keycaps)
-  if (!k.passed)
-    console.log(
-      `${k.name}: at rest ${k.atRest.toFixed(3)} mm³; travel + ${k.margin} mm clearance ${k.swept.toFixed(3)} mm³`,
-    );
-if (report.pieces.length > 1)
-  console.log(`${report.pieces.length} pieces without the bottom plate`);
-if (report.footprint.length > 1) console.log(`${report.footprint.length} separate footprints`);
-for (const c of report.roomCuts)
-  console.log(`${c.name}: keycap room cut ${c.volume.toFixed(2)} mm³ out of the chassis`);
-for (const o of report.openings) if (!o.passed) console.log(`${o.name}: opening incomplete`);
-for (const x of report.hardware)
-  console.log(`${x.name}: ${x.volume.toFixed(3)} mm³ hardware overlap`);
-for (const c of report.capGaps) if (c.gap <= 0) console.log(`${c.between}: keycaps touching`);
-for (const w of report.wires)
-  console.log(`${w.name}: wire runs ${w.volume.toFixed(3)} mm³ into the chassis`);
-for (const c of report.crossings) console.log(`${c} run into each other`);
-for (const p of report.solder)
-  console.log(`${p.name}: soldering iron's way blocked, ${p.volume.toFixed(3)} mm³`);
+for (const l of reportLines(report)) console.log(l.text);
 const wr = report.wiring;
 console.log(`wiring: ${wr.wires} wires, ${wr.joints} joints, ${(wr.length / 1000).toFixed(2)} m`);
 process.exitCode = report.passed ? 0 : 1;

@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "build": "tsc --noEmit && vite build",
-    "test": "node --import tsx --test tests/geometry.test.ts tests/hand.test.ts tests/solid-checks.test.ts tests/wiring.test.ts",
+    "test": "node --import tsx --test tests/geometry.test.ts tests/hand.test.ts tests/solid-checks.test.ts tests/wiring.test.ts tests/report-lines.test.ts",
     "test:browser": "playwright test",
     "test:hand": "playwright test -c playwright.hand.config.ts",
     "test:fit": "node --import tsx tests/fit-check.ts",

@@ -19,6 +19,9 @@ import type { BuildResult, Report, Highlight } from './solid';
 import type { Wiring } from './wiring';
 import { setupMarks } from './marks';
 import { setupHand } from './hand-prototype';
+import { disposeChildren, placeCamera, clientToNdc, worldToClient } from './three-util';
+import { reportLines, prettyKey } from './report-lines';
+import { prototypeOverrides } from './prototype-overrides';
 import './style.css';
 const $ = <E extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as E;
 const STORAGE = 'rosebear-chassis-editor:v2';
@@ -29,10 +32,40 @@ $('app').innerHTML =
   `<header><div><h1>Rosebear / chassis editor</h1><p>Right hand · C64 chassis</p></div><span id="save-state">Local project</span></header><main><aside>
 <section><h2>Key layout</h2><label><input id="edit" type="checkbox" checked> Show handles</label><div id="selection" aria-live="polite"></div><button id="undo">Undo</button><button id="redo">Redo</button><button id="reset">Reset model</button></section>
 <section><h2>View</h2><label><input id="caps" type="checkbox"> Keycaps</label><label><input id="parts" type="checkbox" checked> Tiles and components</label><label><input id="wires" type="checkbox" checked> Wiring and pads</label><label><input id="adapter" type="checkbox" checked> Adapter and ribbons</label><label><input id="base" type="checkbox" checked> Bottom section</label><label><input id="bounds" type="checkbox"> Show bounding box</label><label><input id="edges" type="checkbox"> Show wireframe</label><small id="size">Size: waiting for the chassis</small><label>Chassis opacity<input id="opacity" type="range" min="0.1" max="1" step="0.05" value="1"></label><button id="rebuild">Rebuild & check</button></section>
-<section><h2>Clearance checks</h2><label>Keycap bottom at full press (mm above the switch plane) <input id="bottom-out" type="number" min="0" max="20" step="0.1"></label><label><input id="show-failures" type="checkbox" checked> Highlight failures in 3D</label><small id="fit-legend"><span class="rest">Red: at-rest / hardware collision</span><br><span class="travel">Orange: travel + clearance collision</span><br><span class="opening">Pink: opening / switch-seat defect / loose piece</span><br><span class="wire">Cyan: wire into the chassis / blocked soldering access</span></small><button id="all-failures">Show all failures</button><div id="fit-focus" aria-live="polite"></div><div id="fit-badge">Starting geometry engine…</div><ul id="fit-list"></ul><button id="report" disabled>Save report</button></section>
+<section><h2>Clearance checks</h2><label>Keycap bottom at full press (mm above the switch plane) <input id="bottom-out" type="number" min="0" max="20" step="0.1"></label><label><input id="show-failures" type="checkbox" checked> Highlight failures in 3D</label><small id="fit-legend"></small><button id="all-failures">Show all failures</button><div id="fit-focus" aria-live="polite"></div><div id="fit-badge">Starting geometry engine…</div><ul id="fit-list"></ul><button id="report" disabled>Save report</button></section>
 <section><h2>Wiring</h2><div id="wiring-summary"></div><details><summary>Matrix and ribbon pins</summary><table id="matrix-table"></table></details><details><summary>Cut list</summary><table id="cut-list"></table></details></section>
 <section><h2>Project</h2><button class="primary" id="export">Save project</button><button id="import">Open project</button><input id="file" type="file" accept=".json,application/json" hidden><button id="stl" disabled>Export review STL</button><button id="stl-base" disabled>Export bottom section STL</button><div id="load-error"></div><details><summary>All configuration</summary><textarea id="config" aria-label="Configuration"></textarea><button id="apply-config">Apply configuration</button></details></section></aside>
 <div id="viewport"><div id="viewbar">${['3D', 'Top', 'Underside', 'Front', 'Inner'].map((v) => `<button data-view="${v}">${v}</button>`).join('')}</div><div id="view-state">Loading model…</div></div></main>`;
+/** How each failure kind is drawn in the 3D view; the legend lists one kind per colour. */
+const KIND_STYLE: Record<Highlight['kind'], { color: number; order: number }> = {
+  rest: { color: 0xff303e, order: 6 },
+  hardware: { color: 0xff303e, order: 6 },
+  travel: { color: 0xffa124, order: 5 },
+  room: { color: 0xffa124, order: 6 },
+  opening: { color: 0xf16bd8, order: 6 },
+  seat: { color: 0xf16bd8, order: 6 },
+  loose: { color: 0xf16bd8, order: 6 },
+  wire: { color: 0x40e0ff, order: 6 },
+  solder: { color: 0x40e0ff, order: 6 },
+};
+const LEGEND: [Highlight['kind'], string][] = [
+  ['rest', 'Red: at-rest / hardware collision'],
+  ['travel', 'Orange: travel + clearance collision'],
+  ['opening', 'Pink: opening / switch-seat defect / loose piece'],
+  ['wire', 'Cyan: wire into the chassis / blocked soldering access'],
+];
+$('fit-legend').replaceChildren(
+  ...LEGEND.flatMap(([kind, text], i) => {
+    const span = document.createElement('span');
+    span.textContent = text;
+    span.style.color = '#' + KIND_STYLE[kind].color.toString(16).padStart(6, '0');
+    return i ? [document.createElement('br'), span] : [span];
+  }),
+);
+const setBadge = (kind: '' | 'pass' | 'fail', text: string) => {
+  $('fit-badge').className = kind;
+  $('fit-badge').textContent = text;
+};
 let project = clone(defaults),
   loadProblem = '';
 try {
@@ -132,12 +165,7 @@ const failures = new T.Group();
 scene.add(failures);
 let focusedFailure: string | undefined;
 function clearFailures() {
-  for (const child of [...failures.children]) {
-    const mesh = child as T.Mesh;
-    mesh.geometry.dispose();
-    (mesh.material as T.Material).dispose();
-    failures.remove(mesh);
-  }
+  disposeChildren(failures);
   focusedFailure = undefined;
   $('fit-focus').textContent = '';
   render();
@@ -145,14 +173,7 @@ function clearFailures() {
 function updateFailures(items: Highlight[]) {
   clearFailures();
   for (const item of items) {
-    const color =
-      item.kind === 'travel' || item.kind === 'room'
-        ? 0xffa124
-        : item.kind === 'opening' || item.kind === 'seat' || item.kind === 'loose'
-          ? 0xf16bd8
-          : item.kind === 'wire' || item.kind === 'solder'
-            ? 0x40e0ff
-            : 0xff303e;
+    const { color, order } = KIND_STYLE[item.kind];
     const mesh = new T.Mesh(
       geometry(item.mesh, false),
       new T.MeshBasicMaterial({
@@ -166,7 +187,7 @@ function updateFailures(items: Highlight[]) {
     );
     mesh.name = item.name;
     mesh.userData.kind = item.kind;
-    mesh.renderOrder = item.kind === 'travel' ? 5 : 6;
+    mesh.renderOrder = order;
     failures.add(mesh);
   }
   failureVisibility();
@@ -175,9 +196,7 @@ function failureVisibility() {
   failures.visible = $('show-failures').matches(':checked');
   for (const mesh of failures.children)
     mesh.visible = focusedFailure === undefined || mesh.name === focusedFailure;
-  $('fit-focus').textContent = focusedFailure
-    ? `Showing: ${focusedFailure.replaceAll('_', ' ')}`
-    : '';
+  $('fit-focus').textContent = focusedFailure ? `Showing: ${prettyKey(focusedFailure)}` : '';
   document
     .querySelectorAll<HTMLButtonElement>('#fit-list button')
     .forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.failure === focusedFailure)));
@@ -330,11 +349,7 @@ function updateSelection() {
         if (!Number.isFinite(v)) throw Error('Not a number');
         const next = clone(project);
         setAt(next.config, path, v);
-        validateProject(next);
-        snapshot();
-        project = next;
-        refreshInputs();
-        edited();
+        commit(next);
       } catch (e) {
         $('load-error').textContent = String(e);
         input.value = String(getAt(project.config, path));
@@ -346,12 +361,7 @@ const handleColors = { key: 0xffd48b, cluster: 0x60dfff, turn: 0xff8fd8 };
 const handleGroup = new T.Group();
 scene.add(handleGroup);
 function updateHandles() {
-  for (const o of [...handleGroup.children]) {
-    const pts = o as T.Points;
-    pts.geometry.dispose();
-    (pts.material as T.Material).dispose();
-    handleGroup.remove(o);
-  }
+  disposeChildren(handleGroup);
   const hs = handles(project);
   for (const [kind, color] of Object.entries(handleColors)) {
     const ps = hs.filter((h) => h.kind === kind);
@@ -489,23 +499,38 @@ function resize() {
 }
 new ResizeObserver(resize).observe(viewport);
 function preset(name: string) {
-  camera.up.set(0, 0, 1);
-  let offset: V3 = [-140, -170, 150];
-  if (name === 'Top') {
-    offset = [0, 0, 250];
-    camera.up.set(0, 1, 0);
-  }
-  if (name === 'Underside') {
-    offset = [0, 0, -250];
-    camera.up.set(0, -1, 0);
-  }
-  if (name === 'Front') offset = [0, -250, 0];
-  if (name === 'Inner') offset = [-250, 0, 0];
-  camera.position.copy(controls.target).add(new T.Vector3(...offset));
-  camera.zoom = 1;
-  camera.lookAt(controls.target);
-  camera.updateProjectionMatrix();
-  controls.update();
+  const offsets: Record<string, [V3, V3]> = {
+    '3D': [
+      [-140, -170, 150],
+      [0, 0, 1],
+    ],
+    Top: [
+      [0, 0, 250],
+      [0, 1, 0],
+    ],
+    Underside: [
+      [0, 0, -250],
+      [0, -1, 0],
+    ],
+    Front: [
+      [0, -250, 0],
+      [0, 0, 1],
+    ],
+    Inner: [
+      [-250, 0, 0],
+      [0, 0, 1],
+    ],
+  };
+  const [offset, up] = offsets[name] ?? offsets['3D'];
+  placeCamera(camera, controls, {
+    position: controls.target
+      .clone()
+      .add(new T.Vector3(...offset))
+      .toArray(),
+    target: controls.target.toArray(),
+    up,
+    zoom: 1,
+  });
   render();
 }
 document
@@ -531,14 +556,6 @@ const wireColors: Record<string, number> = {
   ground: 0x222222,
 };
 const ADAPTER_GROUPS = ['adapter', 'ribbon'];
-function clearGroup(g: T.Group) {
-  for (const o of [...g.children]) {
-    g.remove(o);
-    const m = o as T.Mesh;
-    m.geometry.dispose();
-    (m.material as T.Material).dispose();
-  }
-}
 // The port panel's end face as last built: the ribbon is drawn out through it.
 let panel: number | undefined;
 // A box tapering from size (x, y at its bottom, z its height, centred) to a
@@ -554,7 +571,7 @@ const taperedBox = (size: number[], top: number[]) => {
   return g;
 };
 function updateHardware() {
-  clearGroup(parts);
+  disposeChildren(parts);
   for (const p of hardware(project, undefined, panel)) {
     const g = p.cylinder
         ? new T.CylinderGeometry(p.cylinder, p.cylinder, p.size[2], 48).rotateX(Math.PI / 2)
@@ -578,7 +595,7 @@ function updateHardware() {
 let routed: Wiring | undefined;
 function updateWiring(w: Wiring) {
   routed = w;
-  clearGroup(wires);
+  disposeChildren(wires);
   const pieces: Record<string, T.BufferGeometry[]> = {};
   const up = new T.Vector3(0, 1, 0);
   for (const wire of w.wires) {
@@ -613,7 +630,7 @@ function showWiring(w: Wiring) {
   const total = w.wires.reduce((t, x) => t + x.length, 0);
   $('wiring-summary').innerHTML =
     `<small>${w.wires.length} wires, ${w.nets.reduce((t, n) => t + n.joints, 0)} solder joints, ${(total / 1000).toFixed(2)} m cut length per hand, including ${project.config.wiring.service_loop_mm} mm service loop on each feed and ${project.config.wiring.end_allowance_mm} mm at each end.</small>`;
-  const nice = (k: string) => k.replace(/^(matrix|thumb)_/, '').replace('_', ' ');
+  const nice = (k: string) => prettyKey(k.replace(/^(matrix|thumb)_/, ''));
   const pin = (net: string) => w.nets.find((n) => n.name === net)?.pin ?? '';
   $('matrix-table').innerHTML =
     '<tr><th>Key</th><th>Row</th><th>Column</th></tr>' +
@@ -672,6 +689,15 @@ function historyButtons() {
   $<HTMLButtonElement>('undo').disabled = !undo.length;
   $<HTMLButtonElement>('redo').disabled = !redo.length;
 }
+/** One undoable change: the new project replaces the old, the inputs follow and a build is scheduled. Throws, changing nothing, if it is invalid. */
+function commit(next: Project, deselect = false) {
+  validateProject(next);
+  snapshot();
+  project = next;
+  if (deselect) selected = '';
+  refreshInputs();
+  edited();
+}
 function markStale() {
   clearFailures();
   revision++;
@@ -680,8 +706,7 @@ function markStale() {
   $<HTMLButtonElement>('stl').disabled = true;
   $<HTMLButtonElement>('stl-base').disabled = true;
   $<HTMLButtonElement>('report').disabled = true;
-  $('fit-badge').className = '';
-  $('fit-badge').textContent = 'Not checked for this edit';
+  setBadge('', 'Not checked for this edit');
   $('fit-list').replaceChildren();
   $('view-state').textContent = hasShell
     ? 'Editing — showing the previous chassis until rebuild'
@@ -715,6 +740,8 @@ function refreshInputs() {
   $<HTMLTextAreaElement>('config').value = JSON.stringify(project.config, null, 2);
   updateSelection();
 }
+// What the worker is building: the saved report records exactly this.
+let inFlight: { id: number; project: Project } | undefined, evaluated: Project | undefined;
 let worker: Worker,
   workerBuilds = 0;
 // A safety net: a fresh worker takes over every 8 builds, in case a build leaves
@@ -725,14 +752,10 @@ function startWorker() {
   worker.onmessage = (e: MessageEvent<BuildResult & { id: number; error?: string }>) => {
     clearTimeout(timeout);
     busy = false;
-    if (++workerBuilds >= 8) {
-      worker.terminate();
-      startWorker();
-    }
+    if (++workerBuilds >= 8) restartWorker();
     if (e.data.id === revision) {
       if (e.data.error) {
-        $('fit-badge').className = 'fail';
-        $('fit-badge').textContent = 'Invalid geometry';
+        setBadge('fail', 'Invalid geometry');
         $('view-state').textContent = e.data.error + ' — edit or undo to recover';
         $('fit-list').replaceChildren();
       } else {
@@ -740,6 +763,7 @@ function startWorker() {
         updateWiring(e.data.wiring);
         updateFailures(e.data.highlights);
         report = e.data.report;
+        if (inFlight?.id === e.data.id) evaluated = inFlight.project;
         solidRevision = revision;
         showReport(report);
         $<HTMLButtonElement>('stl').disabled = false;
@@ -758,12 +782,14 @@ function startWorker() {
     clearTimeout(timeout);
     busy = false;
     pending = false;
-    $('fit-badge').className = 'fail';
-    $('fit-badge').textContent = 'Geometry worker failed';
+    setBadge('fail', 'Geometry worker failed');
     $('view-state').textContent = e.message;
-    worker.terminate();
-    startWorker();
+    restartWorker();
   };
+}
+function restartWorker() {
+  worker.terminate();
+  startWorker();
 }
 function requestBuild() {
   clearTimeout(timer);
@@ -780,37 +806,27 @@ function requestBuild() {
   pending = false;
   busy = true;
   const id = revision;
-  $('fit-badge').className = '';
-  $('fit-badge').textContent = 'Building chassis & checking fit…';
-  // PROTOTYPE: ?plates=narrow[&slope=deg] (plates.ts narrowPlates), ?recess=mm.
-  const sent = clone(project),
-    q = new URLSearchParams(location.search);
-  if (q.get('plates'))
-    (sent.config.chassis as { plate_style?: string }).plate_style = q.get('plates')!;
-  if (q.get('slope'))
-    (sent.config.chassis as { plate_slope?: number }).plate_slope = +q.get('slope')!;
-  // PROTOTYPE: ?recess=mm, the finger deck this far above the plates' tops (shell/common.ts Bin.lift).
-  if (q.get('recess'))
-    (sent.config.chassis as { deck_lift?: number }).deck_lift = +q.get('recess')!;
+  setBadge('', 'Building chassis & checking fit…');
+  const sent = prototypeOverrides(project, location.search);
+  inFlight = { id, project: sent };
   worker.postMessage({ id, project: sent });
   timeout = setTimeout(() => {
-    worker.terminate();
     busy = false;
     pending = false;
-    startWorker();
-    $('fit-badge').className = 'fail';
-    $('fit-badge').textContent = 'Rebuild timed out';
+    restartWorker();
+    setBadge('fail', 'Rebuild timed out');
     $('view-state').textContent =
       'Worker stopped after 30 seconds. Undo the last change or try Rebuild again.';
   }, 30000);
 }
 function showReport(r: Report) {
-  const badge = $('fit-badge');
-  badge.className = r.passed ? 'pass' : 'fail';
-  badge.textContent = r.passed ? 'Clearance checks PASS' : 'Clearance checks FAIL';
+  setBadge(
+    r.passed ? 'pass' : 'fail',
+    r.passed ? 'Clearance checks PASS' : 'Clearance checks FAIL',
+  );
   const list = $('fit-list');
   list.replaceChildren();
-  const add = (text: string, name?: string) => {
+  for (const { text, name } of reportLines(r)) {
     const li = document.createElement('li');
     if (name) {
       const b = document.createElement('button');
@@ -821,98 +837,20 @@ function showReport(r: Report) {
       li.append(b);
     } else li.textContent = text;
     list.append(li);
-  };
-  add(
-    `${r.seats.filter((s) => s.passed).length}/${r.seats.length} flat switch seats pass thickness and clip-clearance checks.`,
-  );
-  add(
-    r.pieces.length === 1
-      ? 'The case is one piece without the bottom section.'
-      : `The case is ${r.pieces.length} pieces without the bottom section.`,
-  );
-  for (let i = 1; i < r.pieces.length; i++)
-    add(`loose piece ${i}: ${(r.pieces[i] / 1000).toFixed(1)} cm³`, `loose piece ${i}`);
-  add(
-    r.footprint.length === 1
-      ? 'The case holds together along the parting line without the bottom section.'
-      : `The case meets the parting line in ${r.footprint.length} separate pieces.`,
-  );
-  for (let i = 1; i < r.footprint.length; i++)
-    add(`separate footprint ${i}: ${r.footprint[i].toFixed(0)} mm²`, `separate footprint ${i}`);
-  add(
-    r.roomCuts.length
-      ? `${r.roomCuts.length} keycap rooms had to cut into the chassis.`
-      : 'No chassis was built where a keycap goes.',
-  );
-  for (const c of r.roomCuts)
-    add(
-      `${c.name.replaceAll('_', ' ')}: its keycap room cut ${c.volume.toFixed(1)} mm³ out of the chassis`,
-      `${c.name} keycap room`,
-    );
-  for (const seat of r.seats)
-    if (!seat.passed)
-      add(
-        `${seat.name}: switch seat defect (${seat.missing.toFixed(2)} mm³ missing, ${seat.excess.toFixed(2)} mm³ outside seating planes, ${seat.clipBlocked.toFixed(2)} mm³ clip obstruction)`,
-        seat.name,
-      );
-  for (const k of r.keycaps)
-    if (!k.passed)
-      add(
-        `${k.name.replaceAll('_', ' ')}: ${k.atRest.toFixed(2)} mm³ at rest; ${k.swept.toFixed(2)} mm³ through travel + ${k.margin} mm clearance`,
-        k.name,
-      );
-  for (const h of r.hardware)
-    add(`${h.name}: ${h.volume.toFixed(2)} mm³ ${h.group}/chassis overlap`, h.name);
-  add(
-    r.wires.length
-      ? `${r.wires.length} wires run into the chassis.`
-      : `All ${r.wiring.wires} wires are clear of the chassis.`,
-  );
-  for (const w of r.wires) add(`${w.name}: ${w.volume.toFixed(2)} mm³ into the chassis`, w.name);
-  add(
-    r.crossings.length
-      ? `${r.crossings.length} pairs of wires run into each other.`
-      : 'No wire runs into another.',
-  );
-  for (const c of r.crossings) add(`${c} run into each other`, c);
-  add(
-    r.solder.length
-      ? `${r.solder.length} pads cannot be reached with a soldering iron.`
-      : 'Every pad can be reached with a soldering iron from below.',
-  );
-  for (const p of r.solder)
-    add(`${p.name.replaceAll('_', ' ')}: soldering iron's way blocked`, p.name);
-  for (const o of r.openings)
-    if (!o.passed)
-      add(`${o.name}: incomplete opening (${o.covered}/9 probes, ${o.blocked} blocked)`, o.name);
-  for (const g of r.capGaps)
-    add(`Closest keycaps, ${g.between}: ${g.gap <= 0 ? 'touching' : g.gap.toFixed(1) + ' mm'}`);
-  if (r.passed) add('No chassis intersections with the checked hardware and keycap envelopes.');
+  }
 }
-$('undo').onclick = () => {
-  const p = undo.pop();
+function step(from: Project[], to: Project[]) {
+  const p = from.pop();
   if (!p) return;
-  redo.push(clone(project));
+  to.push(clone(project));
   project = p;
   historyButtons();
   refreshInputs();
   edited();
-};
-$('redo').onclick = () => {
-  const p = redo.pop();
-  if (!p) return;
-  undo.push(clone(project));
-  project = p;
-  historyButtons();
-  refreshInputs();
-  edited();
-};
-$('reset').onclick = () => {
-  snapshot();
-  project = clone(defaults);
-  refreshInputs();
-  edited();
-};
+}
+$('undo').onclick = () => step(undo, redo);
+$('redo').onclick = () => step(redo, undo);
+$('reset').onclick = () => commit(clone(defaults));
 for (const id of TOGGLES)
   $(id).onchange = () => {
     visibility();
@@ -969,13 +907,10 @@ function restoreView() {
     vec(c.up) &&
     Number.isFinite(c.zoom)
   ) {
-    camera.up.fromArray(c.up);
-    camera.position.fromArray(c.position);
-    controls.target.fromArray(c.target);
-    camera.zoom = Math.min(controls.maxZoom, Math.max(controls.minZoom, c.zoom));
-    camera.lookAt(controls.target);
-    camera.updateProjectionMatrix();
-    controls.update();
+    placeCamera(camera, controls, {
+      ...c,
+      zoom: Math.min(controls.maxZoom, Math.max(controls.minZoom, c.zoom)),
+    });
   }
   if (v.toggles && typeof v.toggles === 'object')
     for (const id of TOGGLES)
@@ -994,20 +929,15 @@ $('bottom-out').onchange = () => {
     refreshInputs();
     return;
   }
-  snapshot();
-  project.config.switch.keycap_bottom_above_plate_mm = project.config.switch.travel_mm + n;
-  refreshInputs();
-  edited();
+  const next = clone(project);
+  next.config.switch.keycap_bottom_above_plate_mm = next.config.switch.travel_mm + n;
+  commit(next);
 };
 $('apply-config').onclick = () => {
   try {
     const next = clone(project);
     next.config = JSON.parse($<HTMLTextAreaElement>('config').value);
-    validateProject(next);
-    snapshot();
-    project = next;
-    refreshInputs();
-    edited();
+    commit(next);
     $('load-error').textContent = '';
   } catch (e) {
     $('load-error').textContent = String(e);
@@ -1024,29 +954,24 @@ function download(name: string, data: BlobPart, type: string) {
 $('export').onclick = () =>
   download('rosebear-chassis-project.json', JSON.stringify(project, null, 2), 'application/json');
 $('report').onclick = () => {
-  if (solidRevision === revision && report)
+  if (solidRevision === revision && report && evaluated)
     download(
       'rosebear-clearance-report.json',
-      JSON.stringify({ report, evaluatedProject: project }, null, 2),
+      JSON.stringify({ report, evaluatedProject: evaluated }, null, 2),
       'application/json',
     );
 };
-$('stl').onclick = () => {
-  if (solidRevision !== revision) return;
-  download(
-    'rosebear-right-review.stl',
-    new STLExporter().parse(shell, { binary: true }) as DataView<ArrayBuffer>,
-    'application/octet-stream',
-  );
-};
-$('stl-base').onclick = () => {
-  if (solidRevision !== revision) return;
-  download(
-    'rosebear-right-bottom.stl',
-    new STLExporter().parse(basePlate, { binary: true }) as DataView<ArrayBuffer>,
-    'application/octet-stream',
-  );
-};
+const exportStl = (id: string, name: string, mesh: T.Mesh) =>
+  ($(id).onclick = () => {
+    if (solidRevision !== revision) return;
+    download(
+      name,
+      new STLExporter().parse(mesh, { binary: true }) as DataView<ArrayBuffer>,
+      'application/octet-stream',
+    );
+  });
+exportStl('stl', 'rosebear-right-review.stl', shell);
+exportStl('stl-base', 'rosebear-right-bottom.stl', basePlate);
 $('import').onclick = () => $<HTMLInputElement>('file').click();
 $('file').onchange = async () => {
   const input = $<HTMLInputElement>('file'),
@@ -1055,12 +980,7 @@ $('file').onchange = async () => {
   try {
     if (file.size > 2_000_000) throw Error('Project file exceeds 2 MB');
     const next = JSON.parse(await file.text());
-    validateProject(next);
-    snapshot();
-    project = next;
-    selected = '';
-    refreshInputs();
-    edited();
+    commit(next, true);
     $('load-error').textContent = '';
   } catch (e) {
     $('load-error').textContent = String(e);
@@ -1081,19 +1001,9 @@ let drag:
     }
   | undefined;
 function cursor(e: PointerEvent) {
-  const r = renderer.domElement.getBoundingClientRect();
-  pointer.set(((e.clientX - r.left) / r.width) * 2 - 1, (-(e.clientY - r.top) / r.height) * 2 + 1);
-  ray.setFromCamera(pointer, camera);
+  ray.setFromCamera(clientToNdc(renderer.domElement, e.clientX, e.clientY, pointer), camera);
 }
-const screen = (p: T.Vector3) => {
-  const r = renderer.domElement.getBoundingClientRect(),
-    q = p.clone().project(camera);
-  return {
-    x: r.left + ((q.x + 1) * r.width) / 2,
-    y: r.top + ((1 - q.y) * r.height) / 2,
-    visible: q.z >= -1 && q.z <= 1,
-  };
-};
+const screen = (p: T.Vector3) => worldToClient(renderer.domElement, camera, p);
 renderer.domElement.addEventListener(
   'pointerdown',
   (e) => {
@@ -1229,6 +1139,7 @@ Object.assign(window, {
         kind: m.userData.kind,
         visible: failures.visible && m.visible,
         triangles: (m as T.Mesh).geometry.getIndex()!.count / 3,
+        color: ((m as T.Mesh).material as T.MeshBasicMaterial).color.getHex(),
       })),
   },
 });

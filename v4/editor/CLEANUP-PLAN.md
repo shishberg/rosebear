@@ -636,7 +636,7 @@ are listed but not done.
 | T13 | pending | |
 | T14 | pending | |
 | T15 | pending | |
-| T16 | pending | |
+| T16 | done | |
 | T17 | pending | |
 | T18 | pending | |
 | T19 | pending | |
