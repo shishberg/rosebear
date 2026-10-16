@@ -343,18 +343,20 @@ const cmc = hand.thumb.assumed_cmc,
   thumbRest = cmc.poses['1'],
   /** The last section: wider than deep, a flat pad THUMB_R below the bone
    * with round edges (radius THUMB_R), THUMB_W across (an estimate, not
-   * measured); its end THUMB_END past the IP (the traced outline's tip,
-   * photo A). */
+   * measured; the fit of the assumed CMC uses the same shape); its end
+   * THUMB_END past the IP (the traced outline's tip, photo A). */
   THUMB_R = cmc.pad_below_distal_axis_mm,
-  THUMB_W = 22,
+  THUMB_W = cmc.pad_width_mm,
   THUMB_END = hand.thumb.segment_mm.ip_end,
   /** How far each round edge's centre is from the bone, sideways. */
   THUMB_EDGE = THUMB_W / 2 - THUMB_R,
   /** The index knuckle, to tell the thumb's outer edge (away from it) from its inner. */
   INDEX_MCP = V(hand.fingers.index.rest.joints.mcp);
-/** The thumb's turn about the metacarpal (q[2], + the pad toward the palm)
- * for a CMC swing to `yaw`, `pitch`: not a movement of its own, it comes with
- * the swing. Crisco et al. 2015 ("The envelope of physiological motion of the
+/** The thumb's turn about the metacarpal (q[2]) for a CMC swing to `yaw`,
+ * `pitch`: not a movement of its own, it comes with the swing. (+q[2] turns
+ * the pad away from the palm: the frame is mirrored, so the turn toward it,
+ * which comes with flexing and abducting, is subtracted.) Only the change
+ * from one swing to another is used, added to a pose's own turn. Crisco et al. 2015 ("The envelope of physiological motion of the
  * first carpometacarpal joint", J Biomech Eng 137(10)) measured it: a swing
  * of θ from neutral turns the thumb θ·sin(ele), where ele follows the swing's
  * direction (azi: 0° adduction, 90° flexion, 180° abduction) as a first-order
@@ -369,7 +371,7 @@ const twistAt = (yaw: number, pitch: number) => {
     th = Math.hypot(flex, abd);
   if (th < 1e-9) return thumbRest[2];
   const ele = rad(7.5) + rad(36.6) * Math.cos(Math.atan2(flex, -abd) - rad(130));
-  return thumbRest[2] + th * Math.sin(ele);
+  return thumbRest[2] - th * Math.sin(ele);
 };
 /** q = yaw, pitch, roll (the CMC), mcp, ip: as in v4/hand/tools/thumb_cmc.py. */
 const rotQ = (q: number[]) =>
@@ -406,17 +408,17 @@ function thumb(q: number[]) {
  * straight down lies in a plane through the CMC; and the key lies along the
  * last bone (as on the Dactyl with the wrist low: the thumb along the key,
  * pressing straight down by abduction). So the key is the plane through the
- * CMC along the last bone that touches the last section halfway along it, on
- * its outer edge (away from the index), where the Dactyl's thumb keys meet it;
- * the press is straight into it, the swing that moves the thumb out of that
- * plane. `roll`: how far the nail tilts from parallel to the key, + toward the
+ * CMC along the last bone that touches the last section where it touched the
+ * paper in the photos (the print, ip_pad past the IP), on its outer edge
+ * (away from the index); the press is straight into it, the swing that moves
+ * the thumb out of that plane. `roll`: how far the nail tilts from parallel to the key, + toward the
  * outer edge (0: the key flat on the pad). */
 function touch(q: number[]) {
   const th = thumb(q),
-    mid = th.I.clone().addScaledVector(th.u, THUMB_END / 2),
+    mid = th.axis,
     side = th.side,
     out = Math.sign(side.dot(mid.clone().sub(INDEX_MCP))) || 1,
-    // The outer edge's centre, halfway along.
+    // The outer edge's centre, at the print.
     edge = mid.clone().addScaledVector(side, out * THUMB_EDGE),
     w = edge.clone().sub(C);
   w.addScaledVector(th.u, -w.dot(th.u));
@@ -468,7 +470,7 @@ function pressed(q: number[], mm: number) {
     go = (q: number[], yaw: number, pitch: number) => {
       const y = q[0] + yaw,
         p = q[1] + pitch;
-      return [y, p, twistAt(y, p), q[3], q[4]];
+      return [y, p, q[2] + twistAt(y, p) - twistAt(q[0], q[1]), q[3], q[4]];
     },
     want = t0.n.clone().multiplyScalar(-Math.sign(mm));
   for (let left = Math.abs(mm); left > 1e-6;) {
@@ -539,24 +541,35 @@ const clamp = (v: number, [lo, hi]: number[]) => Math.min(hi, Math.max(lo, v));
  * where the thumb curled in under the hand in the photos (+) or away. */
 type TwoRows = { gap: number };
 /** The photos' thumb poses (the assumed CMC's) by their prints' place round
- * the arc, rest and swept in, out and back; between them, interpolated, and
- * past the ends carried on as between the last two. */
+ * the arc, rest and swept in, out and back; between them, interpolated.
+ * Swept in, carried on up to SWEEP_IN past the print (as between it and rest,
+ * where the bends hardly change): at rest the thumb sits nearly under the
+ * index, further in than the print. Pulled back, not past the print: there
+ * the metacarpal points across the hand, and further it'd point back past
+ * the CMC. Beyond those, held, and `past` says by how much (degrees). */
 const PRINT_POSES = ['2', '1', '3', '4']
   .map((k) => ({ a: printAngle(k), q: (cmc.poses as Record<string, number[]>)[k] }))
   .sort((x, y) => x.a - y.a);
+const SWEEP_IN = 20,
+  AROUND = [PRINT_POSES[0].a - SWEEP_IN, PRINT_POSES[PRINT_POSES.length - 1].a];
 function photoPose(a: number) {
   const P = PRINT_POSES,
-    next = P.findIndex((p) => p.a > a),
+    c = clamp(a, AROUND),
+    next = P.findIndex((p) => p.a > c),
     i = next < 0 ? P.length - 2 : Math.max(0, next - 1),
-    t = (a - P[i].a) / (P[i + 1].a - P[i].a);
-  return P[i].q.map((v, j) => v + (P[i + 1].q[j] - v) * t);
+    t = (c - P[i].a) / (P[i + 1].a - P[i].a);
+  return Object.assign(
+    P[i].q.map((v, j) => v + (P[i + 1].q[j] - v) * t),
+    { past: Math.abs(a - c) },
+  );
 }
 /** The thumb's pose `a` degrees round the arc (photoPose), `curl` of the way
  * toward its pose curled in under the hand (print 5; negative, away), its
  * CMC abducted until the key it touches (touch()) is at height `z` in the
  * hand frame: the abduction lowers the thumb and carries it toward you. Its
- * turn about the metacarpal comes with the swing (twistAt). `miss`: mm short
- * of `z`, within ±60° of abduction (0: reached). */
+ * turn about the metacarpal is the photos', and what comes with the
+ * abduction (twistAt). `miss`: mm short of `z` within ±40° of abduction, and
+ * along the arc past the photos (0: reached). */
 function thumbAt(a: number, z: number, curl = 0) {
   const p0 = photoPose(a),
     p5 = (cmc.poses as Record<string, number[]>)['5'],
@@ -564,14 +577,14 @@ function thumbAt(a: number, z: number, curl = 0) {
     qOf = (d: number) => [
       b[0],
       b[1] + d,
-      twistAt(b[0], b[1] + d),
+      b[2] + twistAt(b[0], b[1] + d) - twistAt(b[0], b[1]),
       clamp(b[3], MCP_RANGE),
       clamp(b[4], IP_RANGE),
     ],
     zOf = (d: number) => touch(qOf(d)).p.z;
   // The touch drops as the thumb abducts: bisect.
-  let lo = -60,
-    hi = 60;
+  let lo = -40,
+    hi = 40;
   if (zOf(lo) < z) hi = lo;
   else if (zOf(hi) > z) lo = hi;
   else
@@ -581,7 +594,7 @@ function thumbAt(a: number, z: number, curl = 0) {
       else hi = m;
     }
   const q = qOf((lo + hi) / 2);
-  return { q, miss: Math.abs(touch(q).p.z - z), a };
+  return { q, miss: Math.abs(touch(q).p.z - z) + rad(p0.past) * arc.radius_mm, a };
 }
 /** From `from` (the thumb at `a0` degrees round the arc), the thumb further
  * round (sign +1, away from the fingers) or back, at the same height and curl,
@@ -592,7 +605,7 @@ function thumbAlong(from: T.Vector3, a0: number, sign: number, gap: number, z: n
   // Out in 2° steps until past `gap`, then bisect.
   let lo = a0,
     hi = a0;
-  while (Math.abs(hi - a0) < 120 && off(hi) < 0) [lo, hi] = [hi, hi + sign * 2];
+  while (Math.abs(hi - a0) < 90 && off(hi) < 0) [lo, hi] = [hi, hi + sign * 2];
   for (let i = 0; i < 30; i++) {
     const m = (lo + hi) / 2;
     if (off(m) < 0) lo = m;
@@ -2159,6 +2172,10 @@ export const _test = {
   printAngle,
   C,
   thumbRest,
+  cmcPoses: cmc.poses,
+  prints: hand.measured.thumb_prints,
+  THUMB_R,
+  THUMB_EDGE,
   solveHand,
   capsOf,
   check,

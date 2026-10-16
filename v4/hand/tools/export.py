@@ -68,7 +68,14 @@ model = {
     'fingers': fingers,
     'thumb': {
         'segment_mm': {'mcp_ip': round(float(b1), 1), 'ip_pad': round(float(b2), 1), 'ip_end': round(float(b_end), 1)},
-        'rest': {'pad': prints['1'], 'joints': {'mcp': to(JM), 'ip': to(JI)}},
+        'rest': {'pad': prints['1'], 'joints': {'mcp': to(JM), 'ip': to(JI)},
+                 # The camera's line of sight through each knuckle's skin dot: where it
+                 # meets the paper, and how far it moves (x, y) per mm up.
+                 'dot_sightlines': {k: {'on_paper': to(S.CB.at_height(S.imgB['thumb ' + k.upper()], 0)),
+                                        'per_mm_up': [round(float(v), 3) for v in
+                                                      (np.array(to(S.CB.at_height(S.imgB['thumb ' + k.upper()], 100)))
+                                                       - to(S.CB.at_height(S.imgB['thumb ' + k.upper()], 0)))[:2] / 100]}
+                                    for k in ('mcp', 'ip')}},
         'arc_through_prints_1_to_4': {'centre': [round(float(v), 1) for v in arc.x[:2]], 'radius_mm': round(float(arc.x[2]), 1),
                                       'misses_mm': [round(float(v), 1) for v in arc.fun]},
         'cmc': 'Not measured: the photos show the thumb knuckles at rest only. See assumed_cmc.',

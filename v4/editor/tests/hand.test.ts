@@ -143,14 +143,18 @@ test("the thumb keys: the photos' thumb pose for each place round the arc, lower
       assert.ok(Math.abs(k.at.z - (top - s.thumb.drop)) < 0.01, `${at}: at ${k.at.z.toFixed(2)}`);
       // The photos' pose for its place round the arc (the same swing across
       // the palm, MCP and IP bends), abducted; its turn about the metacarpal
-      // comes with the swing.
+      // the photos', and what comes with the abduction.
       const q0 = hand.photoPose(k.around);
       assert.ok(Math.abs(q0[0] - k.q[0]) < 1e-9, `${at}: swung across the palm`);
       assert.ok(
         Math.abs(q0[3] - k.q[3]) < 0.05 && Math.abs(q0[4] - k.q[4]) < 0.05,
         `${at}: bent ${k.q[3].toFixed(1)}/${k.q[4].toFixed(1)}, the photos ${q0[3].toFixed(1)}/${q0[4].toFixed(1)}`,
       );
-      assert.ok(Math.abs(k.q[2] - hand.twistAt(k.q[0], k.q[1])) < 1e-9, `${at}: twist`);
+      assert.ok(
+        Math.abs(k.q[2] - (q0[2] + hand.twistAt(k.q[0], k.q[1]) - hand.twistAt(q0[0], q0[1]))) <
+          1e-9,
+        `${at}: twist`,
+      );
     });
     // The home key `around` degrees round, and the others spacing from it.
     assert.equal(h.row[1].around, s.thumb.around);
@@ -159,6 +163,29 @@ test("the thumb keys: the photos' thumb pose for each place round the arc, lower
         Math.abs(h.row[i].at.distanceTo(h.row[1].at) - s.spacing) < 0.05,
         `${name}: ${i ? 'near' : 'far'} key ${h.row[i].at.distanceTo(h.row[1].at).toFixed(2)} mm from home`,
       );
+  }
+});
+
+test("the photos' thumb poses put it on each print, above the paper", () => {
+  for (const k of ['1', '2', '3', '4', '5']) {
+    const th = hand.thumb((hand.cmcPoses as Record<string, number[]>)[k]),
+      print = (hand.prints as Record<string, number[]>)[k],
+      // The last section's lowest point across it at `p` on the bone: its
+      // flat pad and round edges, either side of the bone.
+      lowest = (p: InstanceType<typeof T.Vector3>) => {
+        const g = new T.Vector3(0, 0, -1).addScaledVector(th.u, th.u.z).normalize(),
+          across = Math.max(-1, Math.min(1, g.dot(th.side) / 0.05));
+        return p
+          .clone()
+          .addScaledVector(th.side, across * hand.THUMB_EDGE)
+          .addScaledVector(g, hand.THUMB_R);
+      },
+      at = lowest(th.axis);
+    assert.ok(Math.abs(at.z) < 0.2, `print ${k}: the pad ${at.z.toFixed(2)} mm up`);
+    assert.ok(Math.hypot(at.x - print[0], at.y - print[1]) < 0.5, `print ${k}: off the print`);
+    // Nothing else in the paper (a mm into the skin allowed).
+    for (const p of [th.I, th.end]) assert.ok(lowest(p).z > -1.1, `print ${k}: in the paper`);
+    assert.ok(th.M.z > hand.THUMB_R && th.I.z > hand.THUMB_R, `print ${k}: a knuckle in the paper`);
   }
 });
 
@@ -235,7 +262,8 @@ const DM = JSON.parse(readFileSync(new URL('./dactyl-keys.json', import.meta.url
 const tilt = (n: InstanceType<typeof T.Vector3>) => (Math.atan2(-n.y, n.z) * 180) / Math.PI;
 /** How far settings `s` put the keys (the thumb's too) from the Dactyl's,
  * relative to the middle home key, before tenting: squared, per 2 mm and per
- * 3° (0.05 in the facing). Infinite where a row is out of reach. */
+ * 3° (0.05 in the facing; the thumb keys' place only). Infinite where a row
+ * is out of reach. */
 function offDactyl(s: Settings) {
   const h = hand.solveHand(s),
     caps = hand.capsOf(clone(defaults).config, h, false),
@@ -251,8 +279,12 @@ function offDactyl(s: Settings) {
         name,
         mm: p.distanceTo(p0),
         angle: (Math.acos(Math.min(1, n.dot(n0))) * 180) / Math.PI,
+        // The thumb keys by place alone: they face where a swing at the CMC
+        // presses them straight, and the Dactyl's face you, which takes
+        // straightening the thumb to press.
         cost:
-          p.sub(p0).divideScalar(2).lengthSq() + n.clone().sub(n0).divideScalar(0.05).lengthSq(),
+          p.sub(p0).divideScalar(2).lengthSq() +
+          (name.startsWith('thumb') ? 0 : n.clone().sub(n0).divideScalar(0.05).lengthSq()),
         tilt: tilt(n),
         dm: tilt(n0),
       };
