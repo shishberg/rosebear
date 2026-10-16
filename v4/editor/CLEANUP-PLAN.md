@@ -646,6 +646,6 @@ are listed but not done.
 | T15 | done | |
 | T16 | done | |
 | T17 | done | |
-| T18 | pending | |
+| T18 | done | |
 | T19 | pending | |
 | T20 | pending | |

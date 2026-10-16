@@ -1,7 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-const rebuilt = (page: Page) =>
-  expect(page.locator('#view-state')).toContainText('Chassis rebuilt', { timeout: 30000 });
-const project = (page: Page) => page.evaluate(() => (window as any).rosebearEditor.getProject());
+import { project, rebuilt } from './helpers';
 async function dragHandle(page: Page, id: string, dx: number, dy: number) {
   const h = await page.evaluate((id) => (window as any).rosebearEditor.handleScreen(id), id);
   await page.mouse.move(h.x, h.y);

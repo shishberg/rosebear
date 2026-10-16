@@ -4,7 +4,7 @@ import base from './playwright.config';
 
 export default defineConfig({
   ...base,
-  testMatch: 'hand.spec.ts',
+  testMatch: 'hand*.spec.ts',
   testIgnore: [],
   use: { ...base.use, baseURL: 'http://127.0.0.1:5179' },
   webServer: {

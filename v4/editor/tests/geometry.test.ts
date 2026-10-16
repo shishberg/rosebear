@@ -18,6 +18,10 @@ import { buildChassis } from '../src/chassis';
 import { shell } from '../src/shell';
 import { crossings, holes, nets, wiring } from '../src/wiring';
 import ref from './python-reference.json';
+import { solidOf } from './helpers';
+
+const wasm = await Module();
+wasm.setup();
 const pos = (m: { elements: number[] }) => new Vector3(...m.elements.slice(12, 15));
 const normal = (m: { elements: number[] }) => new Vector3(...m.elements.slice(8, 11));
 test('default column heights reproduce the Python reference finger poses', () => {
@@ -99,9 +103,7 @@ test('thumb clusters fan on an arc and tilt into a well', () => {
   delete (none.config.geometry as { thumb_extra?: unknown }).thumb_extra;
   assert(!componentFrames(none.config).thumb_x1);
 });
-test('default chassis passes: one piece on one footprint, clear of the tile pockets, flat seats, clear keycaps, hardware and wires, and reachable pads', async () => {
-  const wasm = await Module();
-  wasm.setup();
+test('default chassis passes: one piece on one footprint, clear of the tile pockets, flat seats, clear keycaps, hardware and wires, and reachable pads', () => {
   const p = clone(defaults),
     r = buildSolid(wasm, p);
   console.log(
@@ -122,9 +124,7 @@ test('default chassis passes: one piece on one footprint, clear of the tile pock
   assert(r.report.capGaps.every((g) => g.gap > 0));
   assert(r.report.openings.length > 0 && r.report.openings.every((o) => o.passed));
   assert(r.report.passed);
-  const mounted = new wasm.Manifold(
-    new wasm.Mesh({ numProp: 3, vertProperties: r.mesh.positions, triVerts: r.mesh.indices }),
-  );
+  const mounted = solidOf(wasm, r.mesh);
   try {
     for (const [name, m] of Object.entries(componentFrames(defaults.config)))
       if (name.startsWith('matrix_') || name.startsWith('thumb_')) {
@@ -172,21 +172,19 @@ test('default chassis passes: one piece on one footprint, clear of the tile pock
   }
 });
 // The bottom section must be one piece: a mount that floats off the floor splits it.
-const basePieces = (wasm: Awaited<ReturnType<typeof Module>>, cfg: typeof defaults.config) =>
+const basePieces = (cfg: typeof defaults.config) =>
   freeAfter(wasm, () => {
     const pieces = buildChassis(wasm, cfg, componentFrames(cfg)).base.decompose();
     const big = pieces.filter((p) => p.volume() > 0.5).length;
     pieces.forEach((p) => p.delete());
     return big;
   });
-test('a thicker skin builds a case that still passes, the adapter mount reaching the floor', async () => {
-  const wasm = await Module();
-  wasm.setup();
+test('a thicker skin builds a case that still passes, the adapter mount reaching the floor', () => {
   const p = clone(defaults);
   p.config.chassis.skin_mm = 3;
   const r = buildSolid(wasm, p);
   assert.equal(r.report.passed, true);
-  assert.equal(basePieces(wasm, p.config), 1);
+  assert.equal(basePieces(p.config), 1);
   assert.throws(
     () =>
       validateProject({
@@ -196,14 +194,10 @@ test('a thicker skin builds a case that still passes, the adapter mount reaching
     /skin_mm/,
   );
 });
-test('the default bottom section is one piece, the adapter mount on its floor', async () => {
-  const wasm = await Module();
-  wasm.setup();
-  assert.equal(basePieces(wasm, defaults.config), 1);
+test('the default bottom section is one piece, the adapter mount on its floor', () => {
+  assert.equal(basePieces(defaults.config), 1);
 });
-test('the checker reports keycap collisions', async () => {
-  const wasm = await Module();
-  wasm.setup();
+test('the checker reports keycap collisions', () => {
   // Keycaps that press 2 mm into the plate must fail, with matching highlight geometry.
   const low = clone(defaults);
   low.config.switch.keycap_bottom_above_plate_mm = low.config.switch.travel_mm - 2;
@@ -216,9 +210,7 @@ test('the checker reports keycap collisions', async () => {
   assert.equal(r.report.passed, false);
   const h = r.highlights.find((h) => h.name === 'thumb_home' && h.kind === 'travel')!;
   assert(h, 'Missing collision geometry');
-  const solid = new wasm.Manifold(
-    new wasm.Mesh({ numProp: 3, vertProperties: h.mesh.positions, triVerts: h.mesh.indices }),
-  );
+  const solid = solidOf(wasm, h.mesh);
   try {
     assert.equal(solid.status(), 'NoError');
     assert(Math.abs(solid.volume() - home.swept) < 0.01);
@@ -226,9 +218,7 @@ test('the checker reports keycap collisions', async () => {
     solid.delete();
   }
 });
-test('the checker reports chassis built where a keycap goes', async () => {
-  const wasm = await Module();
-  wasm.setup();
+test('the checker reports chassis built where a keycap goes', () => {
   // The thumb cluster moved 10 mm toward the fingers: the 1.5u key's room cuts
   // into the fingers' front swept end.
   const close = clone(defaults);
@@ -293,9 +283,7 @@ test('a project saved before the wiring loads with the default adapter, ribbon a
   validateProject(p);
   assert.deepEqual(p.config, defaults.config);
 });
-test('objects made with `new` inside freeAfter are freed too', async () => {
-  const wasm = await Module();
-  wasm.setup();
+test('objects made with `new` inside freeAfter are freed too', () => {
   type Freed = { isDeleted(): boolean };
   let m!: Freed, c!: Freed;
   freeAfter(wasm, () => {
@@ -313,8 +301,6 @@ test('objects made with `new` inside freeAfter are freed too', async () => {
   assert(m.isDeleted() && c.isDeleted());
 });
 test('a failed wire router rejects the build, and the next build still runs', async () => {
-  const wasm = await Module();
-  wasm.setup();
   await assert.rejects(
     buildSolidAsync(wasm, clone(defaults), () => Promise.reject(Error('router crashed'))),
     /router crashed/,
@@ -323,8 +309,6 @@ test('a failed wire router rejects the build, and the next build still runs', as
   assert(r.report.passed);
 });
 test('a shell that throws while the router is still working leaves no unhandled rejection', async () => {
-  const wasm = await Module();
-  wasm.setup();
   const unhandled: unknown[] = [];
   const note = (e: unknown) => unhandled.push(e);
   process.on('unhandledRejection', note);
@@ -369,9 +353,7 @@ test('keycapEnvelope: the measured cap grown by its clearance, down to where it 
   assert.equal(keycapEnvelope(deep, 'matrix_index_home').floor, -2);
   assert.equal(keycapEnvelope(deep, 'matrix_index_home', { clampFloor: true }).floor, 0);
 });
-test('a wide keycap clearance fails the swept check by the taper, not the at-rest one', async () => {
-  const wasm = await Module();
-  wasm.setup();
+test('a wide keycap clearance fails the swept check by the taper, not the at-rest one', () => {
   const p = clone(defaults);
   p.config.switch.keycap_clearance_mm = 6;
   const r = buildSolid(wasm, p),
@@ -380,9 +362,7 @@ test('a wide keycap clearance fails the swept check by the taper, not the at-res
   assert(Math.abs(k.swept - 14.5) < 0.05, String(k.swept));
   assert.equal(r.report.passed, false);
 });
-test("the shell builds the same case when the thumb row's end keys are renamed", async () => {
-  const wasm = await Module();
-  wasm.setup();
+test("the shell builds the same case when the thumb row's end keys are renamed", () => {
   const p = clone(defaults),
     names = { far: 'left', near: 'right' } as Record<string, string>;
   for (const k of p.config.geometry.thumb.keys) k.name = names[k.name] ?? k.name;
