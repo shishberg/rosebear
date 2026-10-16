@@ -8,16 +8,20 @@
  * - Neighbours (the finger matrix's rows and columns, the thumb keys, and any
  *   thumb and finger keys that come close) are joined by a web between their
  *   facing walls, and the matrix's four-key corners are filled. Where one key
- *   sits well above the other, the web is a steep wall; it's a fault if
- *   most of it is too thin to print.
+ *   sits well above the other, the web is a steep wall; one too thin to print is
+ *   left out, the truss and the other webs holding its keys (a fault if the
+ *   frame comes apart without it).
  * - Legs hold them up. Each plate of joined keys stands on its
  *   outer corners: from each, a bracket out and down clear of its switch,
- *   on a leg straight down. Struts stiffen the outside walls between them:
- *   one under each gap between two keys along a plate's outside edge,
- *   straight down from the web, or on a bracket like a corner's where that
- *   would hit a switch. A rail runs round each plate's feet, and one ties
- *   the thumb's to the fingers'. A press that would push the frame well
- *   outside its base is a warning.
+ *   on a leg straight down. A truss stiffens each outside wall between
+ *   them, |\/\/\/|: under each key along it, a diagonal from each end of
+ *   its side (the corner's leg, or the web to the next key, on a bracket
+ *   like a corner's where the switches hang out past the wall) down to one
+ *   foot under the side's middle, moved out until both clear the switches;
+ *   where the plate's too low for a diagonal of 30° or more, a post. A
+ *   rail runs round each plate's feet, and one ties the thumb's to the
+ *   fingers'. A press that would push the frame well outside its base is a
+ *   warning.
  * - Every switch (down past its pins), keycap (pressed to rest) and switch top
  *   is cut out of all of it except the switch seats (the clip land round each
  *   hole); where that leaves one hitting a seat or the frame, the result says
@@ -73,13 +77,26 @@ export type FrameResult = {
   pieces: number;
   /** What's wrong: seats cut, keycaps hitting the frame. */
   faults: string[];
-  /** What may be wrong: presses that may tip it. */
+  /** What may be wrong: presses that may tip it; and the webs left out. */
   warnings: string[];
   /** In cm³, without supports. */
   volume: number;
-  /** The struts along the plates' outside walls: the keys each stands
-   * between, where it leaves the plate (its top) and its foot. */
-  struts: { keys: [string, string]; top: Vec3; foot: Vec3 }[];
+  /** The truss's members along the plates' outside walls: the key each
+   * is under, its side (axis, 0 across or 1 along the column, and sign) and
+   * which end of it (-1 or 1) it leaves the plate at. A diagonal leaves from
+   * a corner's leg, the gap to the next key along, or the plate itself; a
+   * post (a gap too low for a diagonal) goes straight down. Where it leaves
+   * (its top) and its foot. */
+  truss: {
+    key: string;
+    side: [number, number];
+    end: number;
+    node: 'corner' | 'gap' | 'plate' | 'post';
+    top: Vec3;
+    foot: Vec3;
+  }[];
+  /** The webs left out, too thin to print: the keys each was between. */
+  websLeftOut: [string, string][];
 };
 
 /** The keys the hand lays out: the finger matrix and the thumb row. */
@@ -260,7 +277,6 @@ export function buildFrame(wasm: ManifoldToplevel, cfg: Config): FrameResult {
       }),
     );
     const webs = joined.map(([n, m]) => ({ n, m, web: hull([...edge(n, m), ...edge(m, n)]) }));
-    solids.push(...webs.map((w) => w.web));
     // The matrix's four-key corners: the corner of each nearest the middle.
     for (let ci = 0; ci + 1 < cols.length; ci++)
       for (let ri = 0; ri + 1 < ROWS.length; ri++) {
@@ -368,6 +384,7 @@ export function buildFrame(wasm: ManifoldToplevel, cfg: Config): FrameResult {
               b += FRAME.bracket;
             return {
               key,
+              corner: [sx, sy],
               p: at(key, sx * hp[0], sy * hp[1], -FRAME.lip),
               q: at(key, sx * hp[0], sy * hp[1], 0),
               ...reach(b),
@@ -379,84 +396,206 @@ export function buildFrame(wasm: ManifoldToplevel, cfg: Config): FrameResult {
         faults.push(`${label(key)}: the leg under its corner hits a switch or keycap`);
       solids.push(strut(p, top), strut(q, top), knot(top), strut(top, foot));
     }
-    // The struts: under each gap between two joined keys along a plate's
-    // outside edge (a side of each that has no neighbour, facing the same
-    // way), a post from the web's outside wall straight down. Where that
-    // hits a switch (a curved column's switches close in under the gap), a
-    // bracket out and down from the wall's corner instead, as at a leg.
+    // The truss along each outside wall: the plate's edge is its top chord,
+    // the rail its bottom one and the corner legs its ends; between them,
+    // under each key's outside side, a diagonal down from each end of the
+    // side (a corner's leg, or the gap to the next key along) to one foot
+    // under the side's middle: |\/\/\/|. A gap's node is on the web's outside
+    // wall halfway down or, where a diagonal from there can't miss the
+    // switches (a curved column's hang out past the wall), out and down on a
+    // bracket like a corner's, further until they can. Each foot moves
+    // straight out from the wall until both its diagonals clear every switch
+    // and keycap. Where the plate is so close to the floor that a diagonal
+    // would lie under 30° (the leg's short, the rail just under it), there's
+    // none; a gap left with neither diagonal has a post straight down.
+    type Node = {
+      kind: 'corner' | 'gap' | 'plate';
+      top: Vec3;
+      /** A gap's: how far out its bracket reaches, where from, and its end. */
+      b?: number;
+      from?: Vec3[];
+      reach?: (b: number) => Vec3;
+    };
     const add = (a: number[], b: number[], k = 1) => a.map((x, i) => x + b[i] * k) as Vec3,
       unit = (a: number[]) => a.map((x) => x / Math.hypot(...a)),
       dot = (a: number[], b: number[]) => a.reduce((s, x, i) => s + x * b[i], 0),
-      /** Key n's plate corner on side `ax`, `s` of it, at `t` along that side. */
+      /** Key n's plate corner at end `t` of its side `ax`, `s`. */
       cornerOf = (n: string, ax: number, s: number, t: number, z: number) =>
         ax === 0 ? at(n, s * hp[0], t * hp[1], z) : at(n, t * hp[0], s * hp[1], z),
-      struts = joined.flatMap(([n, m]) => {
-        const [a, sa] = side(n, m),
-          [a2, sa2] = side(m, n);
-        return [-1, 1].flatMap((t) => {
-          const outN = axis(n, 1 - a).map((x) => x * t),
-            t2 = Math.sign(dot(axis(m, 1 - a2), outN));
-          if (
-            sides.has(`${n} ${[1 - a, t]}`) ||
-            Math.abs(dot(axis(m, 1 - a2), outN)) < 0.5 ||
-            sides.has(`${m} ${[1 - a2, t2]}`)
-          )
-            return [];
-          const mid = (z: number) =>
-              add(cornerOf(n, a, sa, t, z), cornerOf(m, a2, sa2, t2, z)).map((x) => x / 2) as Vec3,
-            out = unit(add(outN, axis(m, 1 - a2), t2)),
-            down = unit(add(axis(n, 2), axis(m, 2)).map((x) => -x)),
-            p = mid(-FRAME.lip),
-            q = mid(0),
-            // Halfway down the wall, its own width in from the outside.
-            post = add(
-              add(p, q).map((x) => x / 2),
-              out,
-              -r,
-            ),
-            reach = (b: number) => {
-              const top = add(p, add(out, down), b);
-              return { top, foot: [top[0], top[1], floor] as Vec3 };
-            };
-          if (clear(post, [post[0], post[1], floor]))
-            return [
-              {
-                keys: [n, m] as [string, string],
-                p,
-                q,
-                top: post,
-                foot: [post[0], post[1], floor] as Vec3,
-                bracket: false,
-              },
-            ];
-          let b = FRAME.bracket;
-          while (b < FRAME.bracket * 12 && !clear(reach(b).top, reach(b).foot)) b += FRAME.bracket;
-          return [{ keys: [n, m] as [string, string], p, q, ...reach(b), bracket: true }];
-        });
-      });
+      /** The truss's nodes on the plates: by key, side and end. */
+      nodes = new Map<string, Node>(),
+      end = (n: string, ax: number, s: number, t: number) => `${n} ${ax} ${s} ${t}`,
+      most = FRAME.bracket * 12,
+      /** Move a gap's node out on its bracket by another step. */
+      raise = (node: Node) => {
+        node.b = (node.b ?? 0) + FRAME.bracket;
+        node.top = node.reach!(node.b);
+      };
     for (const {
-      keys: [n, m],
-      p,
-      q,
+      key,
+      corner: [sx, sy],
       top,
-      foot,
-      bracket,
-    } of struts) {
-      if (!clear(top, foot))
-        faults.push(`the strut between ${label(n)} and ${label(m)} hits a switch or keycap`);
-      solids.push(strut(top, foot));
-      if (bracket) solids.push(strut(p, top), strut(q, top), knot(top));
+    } of legs) {
+      nodes.set(end(key, 0, sx, sy), { kind: 'corner', top });
+      nodes.set(end(key, 1, sy, sx), { kind: 'corner', top });
     }
+    // The gaps: between two joined keys, along a side of each that has no
+    // neighbour, facing the same way.
+    for (const [n, m] of joined) {
+      const [a, sa] = side(n, m),
+        [a2, sa2] = side(m, n);
+      for (const t of [-1, 1]) {
+        const outN = axis(n, 1 - a).map((x) => x * t),
+          t2 = Math.sign(dot(axis(m, 1 - a2), outN));
+        if (
+          sides.has(`${n} ${[1 - a, t]}`) ||
+          Math.abs(dot(axis(m, 1 - a2), outN)) < 0.5 ||
+          sides.has(`${m} ${[1 - a2, t2]}`)
+        )
+          continue;
+        const mid = (z: number) =>
+            add(cornerOf(n, a, sa, t, z), cornerOf(m, a2, sa2, t2, z)).map((x) => x / 2) as Vec3,
+          out = unit(add(outN, axis(m, 1 - a2), t2)),
+          down = unit(add(axis(n, 2), axis(m, 2)).map((x) => -x)),
+          node: Node = {
+            kind: 'gap',
+            top: mid(-FRAME.lip / 2),
+            from: [mid(-FRAME.lip), mid(0)],
+            reach: (b: number) => add(mid(-FRAME.lip), add(out, down), b),
+          };
+        while ((node.b ?? 0) < most && !clear(node.top, node.top)) raise(node);
+        nodes.set(end(n, 1 - a, t, sa), node);
+        nodes.set(end(m, 1 - a2, t2, sa2), node);
+      }
+    }
+    // Each key's outside sides, and the nodes at their ends.
+    const spans = keys.flatMap((n) =>
+      [0, 1].flatMap((ax) =>
+        [-1, 1].flatMap((s) =>
+          sides.has(`${n} ${[ax, s]}`)
+            ? []
+            : [
+                {
+                  key: n,
+                  side: [ax, s] as [number, number],
+                  out: unit([...axis(n, ax).slice(0, 2), 0].map((x) => x * s)),
+                  ends: [-1, 1].map((t) => ({
+                    t,
+                    node: nodes.get(end(n, ax, s, t)) ?? {
+                      kind: 'plate' as const,
+                      top: cornerOf(n, ax, s, t, -FRAME.lip / 2),
+                    },
+                  })),
+                },
+              ],
+        ),
+      ),
+    );
+    /** A span's foot `d` out from under the middle of its ends. */
+    const footOf = ({ ends, out }: (typeof spans)[number], d: number) => {
+        const mid = add(ends[0].node.top, ends[1].node.top).map((x) => x / 2);
+        return [mid[0] + out[0] * d, mid[1] + out[1] * d, floor] as Vec3;
+      },
+      /** The ends whose diagonal stands 30° or more, with the nodes on the
+       * wall and the foot under it. */
+      used = new Map(
+        spans.map((span) => {
+          const f = footOf(span, 0);
+          return [
+            span,
+            span.ends.filter(
+              ({ node: { top: p } }) =>
+                p[2] - floor > Math.tan(Math.PI / 6) * Math.hypot(p[0] - f[0], p[1] - f[1]),
+            ),
+          ];
+        }),
+      ),
+      /** How far out the nearest foot both diagonals clear from is, if any. */
+      place = (span: (typeof spans)[number]) => {
+        for (let d = 0; d <= most; d++) {
+          const f = footOf(span, d);
+          if (used.get(span)!.every((e) => clear(e.node.top, f))) return d;
+        }
+      };
+    // Where a span's diagonals can't both clear, or only from a foot more
+    // than two bracket steps out (a tilted key's switch hangs out past its
+    // wall), move the gaps' nodes at its ends further out on their brackets
+    // (those that can't clear alone first), and again, until they do or reach
+    // as far as a corner's.
+    for (let round = 0; round < 12; round++) {
+      let moved = false;
+      for (const span of spans) {
+        if ((place(span) ?? most) <= FRAME.bracket * 2) continue;
+        const gaps = used.get(span)!.filter((e) => e.node.reach && (e.node.b ?? 0) < most),
+          alone = gaps.filter(
+            (e) => ![...Array(most + 1).keys()].some((d) => clear(e.node.top, footOf(span, d))),
+          );
+        for (const e of alone.length ? alone : gaps) {
+          raise(e.node);
+          moved = true;
+        }
+      }
+      if (!moved) break;
+    }
+    // The diagonals that still stand 30° or more where they ended up.
+    const steep = (p: Vec3, f: Vec3) =>
+        p[2] - floor > Math.tan(Math.PI / 6) * Math.hypot(p[0] - f[0], p[1] - f[1]),
+      diagonals = spans.flatMap((span) => {
+        const foot = footOf(span, place(span) ?? most);
+        return used
+          .get(span)!
+          .filter((e) => steep(e.node.top, foot))
+          .map(({ t, node }) => ({
+            key: span.key,
+            side: span.side,
+            end: t,
+            node,
+            foot,
+            post: false,
+          }));
+      }),
+      // A gap left with no diagonal (where the plate is low, or one would
+      // have to reach so far out to clear that it lay flatter): a post
+      // straight down from it, as on a leg.
+      held = new Set(diagonals.map((m) => m.node)),
+      posts = [
+        ...new Map(
+          spans.flatMap((span) =>
+            span.ends
+              .filter(({ node }) => node.kind === 'gap' && !held.has(node))
+              .map(
+                ({ t, node }) => [node, { key: span.key, side: span.side, end: t, node }] as const,
+              ),
+          ),
+        ).values(),
+      ].map((m) => {
+        const { node } = m,
+          below = () => [node.top[0], node.top[1], floor] as Vec3;
+        node.b = 0;
+        node.top = add(node.from![0], node.from![1]).map((x) => x / 2) as Vec3;
+        while (node.b < most && !clear(node.top, below())) raise(node);
+        return { ...m, foot: below(), post: true };
+      }),
+      truss = [...diagonals, ...posts];
+    for (const { key, node, foot, post } of truss) {
+      if (!clear(node.top, foot))
+        faults.push(
+          `${label(key)}: ${post ? 'a post' : 'a diagonal'} under its side hits a switch or keycap`,
+        );
+      solids.push(strut(node.top, foot));
+    }
+    for (const { top, b, from } of new Set(truss.map((m) => m.node)))
+      if (b) solids.push(...from!.map((p) => strut(p, top)), knot(top));
     // The base: a rail round each plate's feet, and one from each plate's
     // to the nearest foot of those before it, so it prints as one piece.
     const piece = Object.fromEntries(keys.map((k) => [k, k])),
       root = (k: string): string => (piece[k] === k ? k : root(piece[k]));
     for (const [a, b] of joined) piece[root(a)] = root(b);
     const plates = [...new Set(keys.map(root))].map((g) => {
+        // (A span's diagonals share their foot.)
         const own = [
-            ...legs.filter((l) => root(l.key) === g),
-            ...struts.filter((l) => root(l.keys[0]) === g),
-          ].map((l) => l.foot),
+            ...new Set([...legs, ...truss].filter((l) => root(l.key) === g).map((l) => l.foot)),
+          ],
           mid = [0, 1].map((k) => own.reduce((t, f) => t + f[k], 0) / own.length),
           turn = (f: Vec3) => Math.atan2(f[1] - mid[1], f[0] - mid[0]);
         return own.sort((a, b) => turn(a) - turn(b));
@@ -478,7 +617,7 @@ export function buildFrame(wasm: ManifoldToplevel, cfg: Config): FrameResult {
     // out: the angle, seen from the corner, from that point to the base's
     // nearest edge.
     const base = convex(
-        [...legs, ...struts].flatMap(({ foot: [x, y] }) =>
+        [...legs, ...truss].flatMap(({ foot: [x, y] }) =>
           corners.map(([sx, sy]) => [x + (sx * w) / 2, y + (sy * w) / 2]),
         ),
       ),
@@ -517,32 +656,31 @@ export function buildFrame(wasm: ManifoldToplevel, cfg: Config): FrameResult {
           : [];
       });
 
-    // Nothing below the floor: the slicer would support it.
-    const solid = keep(
-      keep(union(solids).trimByPlane([0, 0, 1], floor)).subtract(keep(keepOut.subtract(lands))),
-    );
-
-    // What's wrong: a switch or keycap that reaches a seat, or the frame.
-    const seats = (r: Manifold, but = '') =>
-      keys
-        .filter((m) => m !== but && keep(r.intersect(land[m])).volume() > 0.05)
-        .map((m) => `${label(m)}'s seat`);
-    for (const n of keys) {
-      const hits = seats(switchAt(n), n);
-      if (hits.length) faults.push(`${label(n)} switch hits ${hits.join(', ')}`);
-      room[n].forEach((r, i) => {
-        const hit = keep(solid.intersect(r)).volume();
-        if (hit > 0.05)
-          faults.push(
-            `${label(n)} ${['keycap', 'switch top'][i]} hits ${seats(r).join(', ') || 'the frame'} (${hit.toFixed(1)} mm³)`,
-          );
-      });
-    }
+    // Nothing below the floor: the slicer would support it. The webs go in
+    // last: one too thin to print is left out (a hole) if the frame holds
+    // together without it, the truss and the other webs holding its keys.
+    const body = union(solids),
+      cut = keep(keepOut.subtract(lands)),
+      build = (ws: typeof webs) =>
+        keep(
+          keep(keep(union([body, ...ws.map((x) => x.web)])).trimByPlane([0, 0, 1], floor)).subtract(
+            cut,
+          ),
+        ),
+      /** The pieces of a solid, leaving out the zero-volume slivers flush
+       * cuts leave. */
+      piecesOf = (s: Manifold) => {
+        const parts = s.decompose();
+        made.push(...parts);
+        return parts.filter((p) => p.volume() > 1);
+      },
+      whole = build(webs);
     // Each web, cut across halfway between its keys: how much of it is too
     // thin to print (what's left when the thin parts are worn away and the
     // rest grown back).
-    for (const { n, m, web } of webs) {
-      const mid = (k: string, l: string) =>
+    const thin = webs.flatMap((w) => {
+      const { n, m, web } = w,
+        mid = (k: string, l: string) =>
           edge(k, l)
             .slice(0, 4)
             .reduce<number[]>((a, p) => a.map((x, i) => x + p[i] / 4), [0, 0, 0]),
@@ -581,20 +719,52 @@ export function buildFrame(wasm: ManifoldToplevel, cfg: Config): FrameResult {
           1,
         ] as Mat4,
         across = keep(
-          keep(keep(solid.transform(T)).slice(0)).intersect(keep(keep(web.transform(T)).slice(0))),
+          keep(keep(whole.transform(T)).slice(0)).intersect(keep(keep(web.transform(T)).slice(0))),
         ),
         r = FRAME.thin / 2,
         thick = keep(keep(across.offset(-r, 'Miter')).offset(r, 'Miter')).area(),
         all = across.area();
-      if (thick < 0.8 * all)
+      return thick < 0.8 * all ? [{ w, under: (100 - (100 * thick) / all).toFixed(0) }] : [];
+    });
+    const left: typeof webs = [];
+    let solid = whole,
+      pieces = piecesOf(whole).length;
+    for (const {
+      w,
+      w: { n, m },
+      under,
+    } of thin) {
+      const why = `${under}% of it is under ${FRAME.thin} mm`,
+        without = build(webs.filter((x) => x !== w && !left.includes(x))),
+        apart = piecesOf(without).length;
+      if (apart > pieces)
         faults.push(
-          `the web between ${label(n)} and ${label(m)} is too thin to print: ${(100 - (100 * thick) / all).toFixed(0)}% of it is under ${FRAME.thin} mm`,
+          `the web between ${label(n)} and ${label(m)} is too thin to print (${why}), and the frame comes apart without it`,
         );
+      else {
+        left.push(w);
+        [solid, pieces] = [without, apart];
+        warnings.push(`the web between ${label(n)} and ${label(m)} is left out: ${why}`);
+      }
     }
-    // Flush cuts leave zero-volume slivers; leave them out.
-    const parts = solid.decompose();
-    made.push(...parts);
-    const real = parts.filter((p) => p.volume() > 1),
+
+    // What's wrong: a switch or keycap that reaches a seat, or the frame.
+    const seats = (r: Manifold, but = '') =>
+      keys
+        .filter((m) => m !== but && keep(r.intersect(land[m])).volume() > 0.05)
+        .map((m) => `${label(m)}'s seat`);
+    for (const n of keys) {
+      const hits = seats(switchAt(n), n);
+      if (hits.length) faults.push(`${label(n)} switch hits ${hits.join(', ')}`);
+      room[n].forEach((r, i) => {
+        const hit = keep(solid.intersect(r)).volume();
+        if (hit > 0.05)
+          faults.push(
+            `${label(n)} ${['keycap', 'switch top'][i]} hits ${seats(r).join(', ') || 'the frame'} (${hit.toFixed(1)} mm³)`,
+          );
+      });
+    }
+    const real = piecesOf(solid),
       out = union(real),
       bb = out.boundingBox(),
       raw = out.getMesh(),
@@ -609,7 +779,15 @@ export function buildFrame(wasm: ManifoldToplevel, cfg: Config): FrameResult {
       faults,
       warnings,
       volume: out.volume() / 1000,
-      struts: struts.map(({ keys, top, foot }) => ({ keys, top, foot })),
+      truss: truss.map(({ key, side, end, node, foot, post }) => ({
+        key,
+        side,
+        end,
+        node: post ? ('post' as const) : node.kind,
+        top: node.top,
+        foot,
+      })),
+      websLeftOut: left.map(({ n, m }) => [n, m] as [string, string]),
     };
   } finally {
     for (const m of new Set(made)) m.delete();

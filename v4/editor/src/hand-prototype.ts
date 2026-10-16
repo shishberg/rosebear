@@ -1515,10 +1515,13 @@ const NATURAL: Settings = {
   cluster: '1×3',
   two: { gap: 19.5 },
 };
-/** Set by hand in the editor from the Dactyl fit (saved 16 Oct 2026): the
- * home key 115° round the arc, the reach lowering the thumb as it swings out
- * (0.85° of palmar abduction per degree), the press nearer palmar abduction
- * (-23°), the rows and inner column a little further out. */
+/** Set by hand in the editor from the Dactyl fit (saved 16 Oct 2026), the
+ * thumb's settings then refitted to keep its keys where they were (within
+ * 1.3–4.8 mm, facing 14–16° off) once the keys touched the thumb where it
+ * reaches them first (the tip, where it points into them): the rows and inner
+ * column a little further out than the Dactyl fit, the home key 116.5° round
+ * the arc, the reach lowering and curling the thumb as it swings out, the
+ * press nearly palmar abduction alone. */
 const YOURS: Settings = {
   tent: 15,
   roll: 0,
@@ -1532,8 +1535,8 @@ const YOURS: Settings = {
   from: 'reach',
   wristHeight: 56,
   pressMix: 1.4,
-  thumb: { around: 115, drop: 12, reach: { palmar: 0.85, curl: 0.3 }, press: -23 },
-  spacing: 24.9,
+  thumb: { around: 116.5, drop: 14.5, reach: { palmar: 0.5, curl: 0.55 }, press: -3 },
+  spacing: 26.8,
   cluster: '1×3',
   two: { gap: 19.5 },
 };

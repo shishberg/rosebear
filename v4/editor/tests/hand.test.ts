@@ -396,11 +396,55 @@ test("Dactyl fit: at the reach seen on the Dactyl, the valid layout whose keys a
     }
 });
 
+const PRESETS = [
+  ['Dactyl fit', hand.DACTYL],
+  ['Natural', hand.NATURAL],
+  ['Yours', hand.YOURS],
+] as const;
+test('every preset is valid: the keycaps, the hand reaching each key, and the printed frame', () => {
+  for (const [name, s] of PRESETS) assert.deepEqual(wrongOf(s), [], name);
+});
+test('on every preset the thumb rests on its keys without going into them (but for the soft pad)', () => {
+  for (const [name, s] of PRESETS) {
+    const c = clone(defaults).config;
+    hand.applyHand(c, s, hand.anchorOf(c));
+    const r = hand.check(c, s);
+    r.h.row.forEach((k, i) => {
+      const key = `thumb_${['far', 'home', 'near'][i]}`,
+        cap = r.caps.find((x) => x.name === key)!,
+        inv = cap.top.clone().invert(),
+        th = hand.thumb(k.q),
+        segs: [InstanceType<typeof T.Vector3>, InstanceType<typeof T.Vector3>, number][] = [
+          [hand.C, th.M, 11],
+          [th.M, th.I, 10.5],
+          ...[-1, 1].map(
+            (e) =>
+              [
+                th.I.clone().addScaledVector(th.side, e * hand.THUMB_EDGE),
+                th.end.clone().addScaledVector(th.side, e * hand.THUMB_EDGE),
+                hand.THUMB_R,
+              ] as [InstanceType<typeof T.Vector3>, InstanceType<typeof T.Vector3>, number],
+          ),
+        ];
+      // How far any part of the thumb is below the keycap's top, over its top.
+      let deep = 0;
+      for (const [a, b, rad] of segs)
+        for (let j = 0; j <= 40; j++) {
+          const p = a
+            .clone()
+            .lerp(b, j / 40)
+            .applyMatrix4(inv);
+          if (Math.abs(p.x) < 7 && Math.abs(p.y) < 7) deep = Math.max(deep, rad - p.z);
+        }
+      assert.ok(deep < 0.8, `${name}, ${key}: ${deep.toFixed(1)} mm into the keycap`);
+    });
+  }
+});
 test("the test frame is one piece on legs under the plates' outer corners, flat on the floor, with no faults", (t) => {
-  for (const s of [hand.DACTYL, hand.NATURAL]) {
+  for (const [name, s] of PRESETS) {
     const { frame } = layout(s);
     t.diagnostic(
-      `${s === hand.DACTYL ? 'Dactyl fit' : 'Natural'}: ${frame.pieces} piece(s), ${frame.volume.toFixed(1)} cm³, ${frame.size.map((x) => x.toFixed(0)).join('×')} mm; ${frame.faults.join('; ') || 'no faults'}; ${frame.warnings.join('; ') || 'no warnings'}`,
+      `${name}: ${frame.pieces} piece(s), ${frame.volume.toFixed(1)} cm³, ${frame.size.map((x) => x.toFixed(0)).join('×')} mm; ${frame.faults.join('; ') || 'no faults'}; ${frame.warnings.join('; ') || 'no warnings'}`,
     );
     assert.equal(frame.pieces, 1);
     // Flat on the floor: nothing below it, and no face looking down just
@@ -430,61 +474,116 @@ test("the test frame is one piece on legs under the plates' outer corners, flat 
   }
 });
 
-test("a strut stands under each gap along the plates' outside edges, solid from the floor up to the plate", () => {
+/** Whether point p is inside the frame's mesh: the faces straight above it, odd or even. */
+function insideMesh(frame: ReturnType<typeof buildFrame>, p: number[]) {
+  const P = frame.mesh.positions,
+    I = frame.mesh.indices,
+    // A little off any vertex or edge the mesh may have on the ray.
+    [x, y] = [p[0] + 0.0137, p[1] + 0.0071];
+  let n = 0;
+  for (let t = 0; t < I.length; t += 3) {
+    const [a, b, d] = [I[t], I[t + 1], I[t + 2]].map((i) => [P[i * 3], P[i * 3 + 1], P[i * 3 + 2]]);
+    if (Math.max(a[2], b[2], d[2]) < p[2]) continue;
+    const area = (u: number[], v: number[]) =>
+        (v[0] - u[0]) * (y - u[1]) - (v[1] - u[1]) * (x - u[0]),
+      [wa, wb, wd] = [area(b, d), area(d, a), area(a, b)],
+      all = wa + wb + wd;
+    if (Math.abs(all) < 1e-12 || !((wa > 0 && wb > 0 && wd > 0) || (wa < 0 && wb < 0 && wd < 0)))
+      continue;
+    if ((wa * a[2] + wb * b[2] + wd * d[2]) / all > p[2]) n++;
+  }
+  return n % 2 === 1;
+}
+
+test("a truss along each outside wall, |\\/\\/|: a diagonal from each end of each key's outside side down to a foot under its middle, each solid from the floor up to the plate", (t) => {
   for (const s of [hand.DACTYL, hand.NATURAL]) {
     const { c, frame } = layout(s),
+      name = s === hand.DACTYL ? 'Dactyl fit' : 'Natural',
       cols = c.geometry.columns.map((x) => x.name),
-      key = (ci: number, ri: number) => `matrix_${cols[ci]}_${ROWS[ri]}`,
       thumbs = c.geometry.thumb.keys.map((k) => `thumb_${k.name}`),
-      // The top and bottom rows' gaps, the outer columns' gaps, and each
-      // thumb gap on both sides.
-      want = [
-        ...cols
-          .slice(1)
-          .flatMap((_, ci) => [0, ROWS.length - 1].map((ri) => [key(ci, ri), key(ci + 1, ri)])),
-        ...ROWS.slice(1).flatMap((_, ri) =>
-          [0, cols.length - 1].map((ci) => [key(ci, ri), key(ci, ri + 1)]),
+      sideOf = (m: (typeof frame.truss)[number]) => `${m.key} ${m.side}`,
+      // The finger matrix's outside sides: the top and bottom rows' (along
+      // the column, + toward the top), the inner and pinky columns' (across).
+      want = cols.flatMap((col, ci) =>
+        ROWS.flatMap((row, ri) =>
+          [
+            ri === 0 && '1,1',
+            ri === ROWS.length - 1 && '1,-1',
+            ci === 0 && '0,-1',
+            ci === cols.length - 1 && '0,1',
+          ]
+            .filter((x) => x)
+            .map((x) => `matrix_${col}_${row} ${x}`),
         ),
-        ...thumbs.slice(1).flatMap((k, i) => [
-          [thumbs[i], k],
-          [thumbs[i], k],
-        ]),
-      ].map((p) => p.sort().join(' / ')),
-      got = frame.struts.map((x) => [...x.keys].sort().join(' / '));
-    assert.deepEqual(got.sort(), want.sort());
-    // Straight down through each strut, a little off its middle (clear of
-    // its edges): solid from the floor to where it leaves the plate.
-    const P = frame.mesh.positions,
-      I = frame.mesh.indices;
-    for (const { keys, top, foot } of frame.struts) {
-      const [x, y] = [foot[0] + 0.37, foot[1] + 0.21],
-        zs: number[] = [];
-      for (let t = 0; t < I.length; t += 3) {
-        const [a, b, d] = [I[t], I[t + 1], I[t + 2]].map((i) => [
-            P[i * 3],
-            P[i * 3 + 1],
-            P[i * 3 + 2],
-          ]),
-          area = (p: number[], q: number[]) =>
-            (q[0] - p[0]) * (y - p[1]) - (q[1] - p[1]) * (x - p[0]),
-          [wa, wb, wd] = [area(b, d), area(d, a), area(a, b)],
-          all = wa + wb + wd;
-        if (
-          Math.abs(all) < 1e-9 ||
-          !((wa >= 0 && wb >= 0 && wd >= 0) || (wa <= 0 && wb <= 0 && wd <= 0))
-        )
-          continue;
-        zs.push((wa * a[2] + wb * b[2] + wd * d[2]) / all - frame.floor);
-      }
-      zs.sort((p, q) => p - q);
-      const where = `${keys.join(' / ')}: crossings ${zs.map((z) => z.toFixed(1)).join(', ')}`;
-      assert.ok(zs.length >= 2 && zs[0] < 0.01, `${where}: not on the floor`);
+      ),
+      got = [...new Set(frame.truss.map(sideOf))];
+    t.diagnostic(
+      `${name}: ${frame.truss.filter((m) => m.node !== 'post').length} diagonals, ${frame.truss.filter((m) => m.node === 'post').length} posts`,
+    );
+    // Every outside side of the matrix has the truss under it, and nothing
+    // else of it does; the thumb row, both its long sides and its ends.
+    assert.deepEqual(got.filter((x) => x.startsWith('matrix_')).sort(), [...want].sort());
+    assert.equal(got.filter((x) => x.startsWith('thumb_')).length, 2 * thumbs.length + 2);
+    for (const k of thumbs)
       assert.ok(
-        zs[1] > top[2] - frame.floor - 0.5,
-        `${where}: not solid up to ${(top[2] - frame.floor).toFixed(1)}`,
+        got.some((x) => x.startsWith(`${k} `)),
+        `${k}: no truss under it`,
       );
+    // Both ends of a side meet at one foot (a V), and every diagonal stands
+    // 30° or more; where a side has only one, the other end is a corner's
+    // leg (too low for one) or a post.
+    for (const side of got) {
+      const ms = frame.truss.filter((m) => sideOf(m) === side && m.node !== 'post');
+      if (ms.length === 2) assert.deepEqual(ms[0].foot, ms[1].foot, `${side}: two feet`);
+      for (const m of ms) {
+        const run = Math.hypot(m.top[0] - m.foot[0], m.top[1] - m.foot[1]),
+          deg = (Math.atan2(m.top[2] - m.foot[2], run) * 180) / Math.PI;
+        assert.ok(deg >= 30, `${side} end ${m.end}: ${deg.toFixed(0)}°`);
+      }
+    }
+    // Each gap along an outside edge (the matrix's outside rows' and
+    // columns', and the thumb row's on both sides) is held: by a diagonal,
+    // or a post.
+    const gaps = new Set(
+      frame.truss.filter((m) => m.node === 'gap' || m.node === 'post').map((m) => m.top.join()),
+    );
+    assert.equal(
+      gaps.size,
+      2 * (cols.length - 1) + 2 * (ROWS.length - 1) + 2 * (thumbs.length - 1),
+      `${name}: gaps held`,
+    );
+    // Solid all along each, from just off the floor to where it leaves the
+    // plate.
+    for (const { key, side, end, top, foot } of frame.truss) {
+      const l = Math.hypot(...top.map((x, i) => x - foot[i])),
+        steps = Math.ceil(l);
+      for (let i = 1; i < steps; i++) {
+        const p = foot.map((x, k) => x + ((top[k] - x) * i) / steps);
+        if (p[2] - frame.floor < 0.3) continue;
+        assert.ok(
+          insideMesh(frame, p),
+          `${name}: ${key} ${side} end ${end}: not solid ${(i / steps).toFixed(2)} of the way up, at ${p.map((x) => x.toFixed(1))}`,
+        );
+      }
     }
   }
+});
+
+test('a web too thin to print is left out, the truss and the other webs holding its keys', () => {
+  // The bottom row 16 mm from home: the pinky's bottom key sits well below
+  // the ring's, so the web between them is a steep wall, a third of it too
+  // thin to print.
+  const { frame } = layout({ ...hand.DACTYL, bottom: 16 });
+  assert.deepEqual(frame.websLeftOut, [['matrix_ring_bottom', 'matrix_pinky_bottom']]);
+  assert.ok(
+    frame.warnings.some((w) =>
+      w.startsWith('the web between ring bottom and pinky bottom is left out'),
+    ),
+  );
+  assert.equal(frame.pieces, 1);
+  assert.deepEqual(frame.faults, []);
+  // The presets have every web.
+  for (const s of [hand.DACTYL, hand.NATURAL]) assert.deepEqual(layout(s).frame.websLeftOut, []);
 });
 
 test('the thumb keys move smoothly as each thumb setting changes, wherever the layout is free of thumb faults', () => {
