@@ -174,6 +174,43 @@ test("the thumb keys: the photos' thumb pose for each place round the arc, strai
   }
 });
 
+test("1.5u + 2×1u: the thumb bent more alike at the MCP and IP until, at the 1.5u's place round the arc, it touches the gap from the 1.5u, the 1u keys half the spacing either side", () => {
+  for (const gap of [19.5, 8]) {
+    const s = { ...structuredClone(hand.DACTYL), cluster: '1.5u + 2×1u', two: { gap } },
+      h = hand.solveHand(s),
+      [a, home, b] = h.row,
+      at = `gap ${gap}`;
+    for (const k of h.row) assert.ok(k.miss < 0.01, `${at}: misses by ${k.miss.toFixed(2)}`);
+    // One extra bend, more for a gap toward the palm (the 1.5u's pose is
+    // bent none), within the joints' range.
+    const z = home.at.z,
+      bend = (() => {
+        // The bend that gives the 1u keys' poses: read off the far one, then
+        // the near one must agree.
+        let lo = -90,
+          hi = 90;
+        for (let i = 0; i < 50; i++) {
+          const m = (lo + hi) / 2;
+          if (hand.thumbAt(a.around, z, s.thumb.roll, m).straight > a.straight) lo = m;
+          else hi = m;
+        }
+        return (lo + hi) / 2;
+      })();
+    for (const k of [a, b]) {
+      const q = hand.thumbAt(k.around, z, s.thumb.roll, bend).q;
+      assert.ok(Math.max(...q.map((v, j) => Math.abs(v - k.q[j]))) < 0.05, `${at}: bent alike`);
+      assert.ok(k.q[3] < 89 && k.q[4] < 89, `${at}: at the joints' end`);
+    }
+    assert.ok(Math.sign(bend) === Math.sign(gap), `${at}: bent ${bend.toFixed(1)}°`);
+    const mid = hand.touch(hand.thumbAt(s.thumb.around, z, s.thumb.roll, bend).q).p;
+    assert.ok(
+      Math.abs(mid.distanceTo(home.at) - Math.abs(gap)) < 0.05,
+      `${at}: ${mid.distanceTo(home.at).toFixed(2)} mm from the 1.5u`,
+    );
+    for (const k of [a, b])
+      assert.ok(Math.abs(k.at.distanceTo(mid) - s.spacing / 2) < 0.05, `${at}: half the spacing`);
+  }
+});
 test("the photos' thumb poses put it on each print, above the paper", () => {
   for (const k of ['1', '2', '3', '4', '5']) {
     const th = hand.thumb((hand.cmcPoses as Record<string, number[]>)[k]),
