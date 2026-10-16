@@ -11,16 +11,6 @@ const pos = (m: { elements: number[] }) => new Vector3(...m.elements.slice(12, 1
 const normal = (m: { elements: number[] }) => new Vector3(...m.elements.slice(8, 11));
 // The defaults with the keycap sizes the chassis was laid out for, before they
 // were measured.
-const oldCaps = () => {
-  const p = clone(defaults),
-    s = p.config.switch as Omit<typeof p.config.switch, 'keycap_top_mm'> & {
-      keycap_top_mm?: number[];
-    };
-  Object.assign(s, { keycap_mm: [18, 18, 9], travel_mm: 4 });
-  delete s.keycap_top_mm;
-  s.keycap_overrides_mm.thumb_home = [27.525, 18, 9];
-  return p;
-};
 test('default column heights reproduce the Python reference finger poses', () => {
   // The heights and sideways tilts were taken from the old paraboloid surface, so
   // the finger keys sit where the Python generator put them.
@@ -74,7 +64,7 @@ test('thumb clusters fan on an arc and tilt into a well', () => {
 test('default chassis passes: one piece on one footprint, clear of the tile pockets, flat seats, clear keycaps, hardware and wires, and reachable pads', async () => {
   const wasm = await Module();
   wasm.setup();
-  const p = oldCaps(),
+  const p = clone(defaults),
     r = buildSolid(wasm, p);
   console.log(
     'WASM build',
@@ -147,11 +137,11 @@ test('the checker reports keycap collisions', async () => {
   const wasm = await Module();
   wasm.setup();
   // Keycaps that press 2 mm into the plate must fail, with matching highlight geometry.
-  const low = oldCaps();
+  const low = clone(defaults);
   low.config.switch.keycap_bottom_above_plate_mm = low.config.switch.travel_mm - 2;
   const r = buildSolid(wasm, low),
     home = r.report.keycaps.find((k) => k.name === 'thumb_home')!;
-  assert.deepEqual(home.size, [27.525, 18, 9]);
+  assert.deepEqual(home.size, [28, 18.5, 11]);
   assert.equal(home.margin, 2.5);
   assert(home.swept > 0.05);
   assert.equal(home.passed, false);

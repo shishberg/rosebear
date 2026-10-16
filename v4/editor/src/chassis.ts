@@ -26,7 +26,7 @@
 // axis. "Plan" means the world XY plane.
 import type { CrossSection, Manifold, ManifoldToplevel, Vec3 } from 'manifold-3d';
 import { Matrix4 } from 'three';
-import { capSize, isKey, point, type Config } from './geometry';
+import { capSize, capTop, isKey, point, type Config } from './geometry';
 import { seatSettings } from './seats';
 import { PLATES, plateEdges, plateHalfWidths, type HalfWidths } from './plates';
 import { shell } from './shell';
@@ -380,9 +380,7 @@ export function buildChassis(
         if (!n) return undefined;
         const o = c.map((v, i) => Math.sign(v - k[i]));
         const q = [o[0] || sx, o[1] || sy];
-        const push = [0, 1].map(
-          (i) => OUT * (o[0] * planDir(n, 0)[i] + o[1] * planDir(n, 1)[i]),
-        );
+        const push = [0, 1].map((i) => OUT * (o[0] * planDir(n, 0)[i] + o[1] * planDir(n, 1)[i]));
         return [0, -plateThickness].map((z) => {
           const p = keyPoint(n, q[0] * flatHalf[0], q[1] * flatHalf[1], z);
           return [p[0] + push[0], p[1] + push[1], p[2]] as Vec3;
@@ -394,8 +392,14 @@ export function buildChassis(
       };
       for (let c = lo[0] - 1; c <= hi[0]; c++)
         for (let r = lo[1] - 1; r <= hi[1]; r++) {
-          const [a, b, d, e] = [[c, r], [c + 1, r], [c, r + 1], [c + 1, r + 1]];
-          if (at.has(a.join(','))) add([corner(a, -1, -1), corner(a, 1, -1), corner(a, 1, 1), corner(a, -1, 1)]);
+          const [a, b, d, e] = [
+            [c, r],
+            [c + 1, r],
+            [c, r + 1],
+            [c + 1, r + 1],
+          ];
+          if (at.has(a.join(',')))
+            add([corner(a, -1, -1), corner(a, 1, -1), corner(a, 1, 1), corner(a, -1, 1)]);
           add([corner(a, 1, -1), corner(a, 1, 1), corner(b, -1, 1), corner(b, -1, -1)]);
           add([corner(a, -1, 1), corner(a, 1, 1), corner(d, 1, -1), corner(d, -1, -1)]);
           add([corner(a, 1, 1), corner(b, -1, 1), corner(e, -1, -1), corner(d, 1, -1)]);
@@ -556,9 +560,11 @@ export function buildChassis(
   );
   const uncarved = solid.subtract(pockets).add(pads);
   // Room above each plate: the switch hole, the switch housing's rim up to the
-  // keycap's lowest point, and the keycap with its clearance above that. What the
-  // rim's and keycap's room remove is kept for the checks: it is chassis that was
-  // built where a keycap goes.
+  // keycap's lowest point, and the keycap with its clearance above that (a
+  // box, the cap's base wide, well above it). What it removes from where the
+  // rim and the keycap go (tapered as measured, from pressed to rest, with its
+  // clearance) is kept for the checks: it is chassis that was built where a
+  // keycap goes. (The box's corners above the cap's taper are not.)
   const capLowest = Math.max(0, sw.keycap_bottom_above_plate_mm - sw.travel_mm);
   const roomCuts: { name: string; cut: Manifold }[] = [];
   const cutters: Manifold[] = [];
@@ -585,7 +591,35 @@ export function buildChassis(
           )
         : undefined;
     const keycapRoom = rim ? room.add(rim) : room;
-    roomCuts.push({ name: n, cut: uncarved.intersect(keycapRoom) });
+    const top = capTop(cfg, n),
+      rest = sw.keycap_bottom_above_plate_mm,
+      [x, y] = [cap[0] / 2 + clearance, cap[1] / 2 + clearance],
+      capGoes = place(
+        M.extrude(
+          [
+            [
+              [-x, -y],
+              [x, -y],
+              [x, y],
+              [-x, y],
+            ],
+          ],
+          cap[2] + clearance,
+          0,
+          0,
+          [(top[0] / 2 + clearance) / x, (top[1] / 2 + clearance) / y],
+        )
+          .translate([0, 0, rest])
+          .add(
+            M.cube([2 * x, 2 * y, rest - capLowest], true).translate([
+              0,
+              0,
+              (rest + capLowest) / 2,
+            ]),
+          ),
+        frames[n],
+      );
+    roomCuts.push({ name: n, cut: uncarved.intersect(rim ? capGoes.add(rim) : capGoes) });
     cutters.push(
       place(M.cube([...sw.cutout_mm, SIZES.switchHoleHeight] as Vec3, true), frames[n]),
       keycapRoom,
