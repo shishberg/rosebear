@@ -26,14 +26,10 @@ test('the hand readout checks every reach against the keycaps and the frame', as
   // The thumb shown pressing its key, over and over.
   await page.getByText('Show the thumb pressing it').click();
   await page.waitForTimeout(500);
-  // The two presses, each setting the press settings only.
-  const curling = page
-    .locator('label', { hasText: 'curling press: IP° per MCP°' })
-    .locator('output');
-  await page.getByRole('button', { name: 'Straighten the tip' }).click();
-  await expect(curling).toHaveText('-2');
-  await page.getByRole('button', { name: 'Swing at the base' }).click();
-  await expect(curling).toHaveText('1');
+  // How far the thumb rolls onto its outer edge for each key.
+  await expect(note).toContainText(
+    /Thumb rolled onto its outer edge: far \d+°, home \d+°, near \d+°/,
+  );
   // The frame shown is the one checked.
   await page.getByText('Test frame (print this way up, with supports)').click();
   await expect(page.getByText(/cm³/)).toBeVisible();

@@ -87,34 +87,66 @@ test('Dactyl fit: the hand reaches every key touching nothing else, and it fits 
   assert.deepEqual(r.r.handHits, []);
   assert.deepEqual(r.r.capHits, []);
   assert.ok(r.r.height.all <= hand.TRAY, `${r.r.height.all.toFixed(1)} mm tall`);
+  assert.deepEqual(hand.problems(r.r), []);
 });
-test('Dactyl fit, the thumb further from the palm, pressing less toward the fingers: pressing the near key, it touches the home key', () => {
-  const r = layout(withThumb(hand.DACTYL, { cmcDir: 45, abduct: 15 }));
+test('Dactyl fit, the thumb not straightened: pressing the near key, it goes into the home key', () => {
+  const r = layout(withThumb(hand.DACTYL, { curl: 0 }));
   assert.ok(r.r.handHits.some((x) => x.a === 'thumb' && x.b === 'thumb home'));
 });
 // Natural's printed frame: the index brushed the thumb cluster, which the
 // model doesn't (yet) reproduce. Reported, not asserted.
 test('Natural', (t) => report(t, layout(hand.NATURAL)));
 
-test('the thumb shown pressing moves its pad along the press, as far as it says', () => {
-  for (const t of [
-    hand.DACTYL.thumb,
-    hand.NATURAL.thumb,
-    { mix: -2, byCmc: 0, cmcDir: 0 },
-    { mix: 1, byCmc: 0.5, cmcDir: 30 },
-  ]) {
-    const q = hand.solveHand({ ...hand.DACTYL, thumb: { ...hand.DACTYL.thumb, ...t } }).row[1].q,
-      pad = (mm: number) => hand.thumb(hand.pressed(q, t, mm)).pad,
-      p0 = hand.thumb(q).pad,
-      start = pad(0.25).sub(p0),
-      deg = (start.angleTo(hand.pressDir(q, t)) * 180) / Math.PI;
-    assert.deepEqual(hand.pressed(q, t, 0), q);
-    assert.ok(deg < 1, `starts ${deg.toFixed(2)}° off the press (${JSON.stringify(t)})`);
-    assert.ok(Math.abs(start.length() - 0.25) < 0.01, `a quarter mm moves ${start.length()}`);
-    // 15 mm round a curve: the straight line a little shorter.
-    const back = pad(-15).distanceTo(p0);
-    assert.ok(back > 14 && back <= 15.01, `15 mm back is ${back.toFixed(2)} mm away`);
-  }
+test('each thumb key lies along the last bone in a plane through the CMC, and the thumb presses it straight down', () => {
+  for (const s of [hand.DACTYL, hand.NATURAL])
+    hand.solveHand(s).row.forEach((k, i) => {
+      const at = `${['far', 'home', 'near'][i]} (${s === hand.DACTYL ? 'Dactyl fit' : 'Natural'})`,
+        th = hand.thumb(k.q),
+        n = new T.Vector3().setFromMatrixColumn(k.frame, 2);
+      assert.ok(Math.abs(n.dot(th.u)) < 1e-6, `${at}: not along the last bone`);
+      assert.ok(
+        Math.abs(n.dot(k.at.clone().sub(hand.C))) < 1e-3,
+        `${at}: its plane misses the CMC`,
+      );
+      // The point touching the key, carried with the last bone as the thumb presses.
+      const side = (t: typeof th) => t.u.clone().cross(t.nail),
+        rel = k.at.clone().sub(th.I),
+        local = [rel.dot(th.u), rel.dot(th.nail), rel.dot(side(th))],
+        point = (mm: number) => {
+          const t = hand.thumb(hand.pressed(k.q, mm));
+          return t.I.clone()
+            .addScaledVector(t.u, local[0])
+            .addScaledVector(t.nail, local[1])
+            .addScaledVector(side(t), local[2]);
+        };
+      assert.deepEqual(hand.pressed(k.q, 0), k.q);
+      // It sets off straight down the key's travel; a swing at the CMC then
+      // carries it round an arc (about 85 mm across), sliding it a little
+      // sideways on the cap over the key's 4 mm.
+      const start = point(0.25).sub(k.at),
+        off = (start.angleTo(n.clone().negate()) * 180) / Math.PI;
+      assert.ok(off < 0.2, `${at}: sets off ${off.toFixed(2)}° from the key's travel`);
+      const down = point(4).sub(k.at),
+        slide = down.clone().addScaledVector(n, -down.dot(n)).length();
+      assert.ok(
+        Math.abs(-down.dot(n) - 4) < 0.05,
+        `${at}: 4 mm goes ${(-down.dot(n)).toFixed(2)} down`,
+      );
+      assert.ok(slide < 0.15, `${at}: slides ${slide.toFixed(2)} mm on the cap`);
+      // The animation's 15 mm back off the key.
+      const back = point(-15).sub(k.at).length();
+      assert.ok(Math.abs(back - 15) < 0.5, `${at}: 15 mm back moves ${back.toFixed(2)}`);
+    });
+});
+
+test("a thumb key it can't press straight down with its pad isn't valid", () => {
+  const problems = (curl: number) =>
+    hand.problems(hand.check(clone(defaults).config, withThumb(hand.DACTYL, { curl })));
+  // Straightened until the last bone points at the CMC, then past it.
+  assert.ok(
+    problems(-25).some((p) => p.includes('pressed off square (the thumb points at the CMC)')),
+  );
+  assert.ok(problems(-35).some((p) => p.includes('met with the back of the thumb')));
 });
 
 const FINGERS = ['index', 'middle', 'ring', 'pinky'] as const;

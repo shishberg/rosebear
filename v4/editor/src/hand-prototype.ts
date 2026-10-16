@@ -3,8 +3,8 @@
  * mirrored into the right half's layout axes) drawn in the editor, laying out
  * the keys: each home key goes under its fingertip, the top and bottom rows
  * where the fingertip lands when it reaches forward or pulls back, and the
- * thumb row where the thumb reaches by pivoting at its base, each key facing
- * the way the thumb presses it or its pad, as set. Opening the page and every
+ * thumb row where the thumb reaches by pivoting at its base, each key along
+ * the thumb's last bone and pressed straight down. Opening the page and every
  * slider move rewrite the finger columns and the thumb row (Undo restores).
  *
  * Fingers: chains MCP–PIP–DIP–pad from the resting pose. Curl at home bends
@@ -17,15 +17,15 @@
  * straightened per MCP degree) and the finger reaches square to it at every
  * point (Jindrich et al. 2004 measured a press mix of about 1.4).
  * Thumb: a ball joint at the assumed CMC, hinges at the MCP and IP. Its home
- * pose is set by joint angles; it presses by curling the MCP and IP, by
- * swinging the whole thumb at the CMC, or a blend, as set (curling alone
- * makes the keys stand nearly on edge and runs the row along the MCP/IP
- * hinge), and the CMC reaches between keys, square to the press at each one,
- * the MCP and IP curling toward the near key (straightening toward the far)
- * as set. The thumb's turn about the metacarpal isn't set: it comes with the
- * CMC's swing (twistAt), as it does in the hand. Each key lines up with
- * the row through it and faces the press (straight down) or the pad (parallel
- * to the last bone: flat under the pad, the press then off square).
+ * pose is set by joint angles. It presses by swinging the whole thumb at the
+ * CMC, so each key lies in a plane through the CMC; the key also lies along
+ * the last bone, touching the last section halfway along it on the thumb's
+ * outer edge (touch: how far the thumb rolls onto that edge falls out of the
+ * pose, and the readout says it). The CMC reaches between keys, square to the
+ * press at each one, the MCP and IP curling toward the near key
+ * (straightening toward the far) as set. The thumb's turn about the
+ * metacarpal isn't set: it comes with the CMC's swing (twistAt), as it does
+ * in the hand. Each key lines up with the row through it.
  * The palm is a sketch.
  * Settings: two presets (near the Dactyl Manuform, valid and tuned by eye; the least
  * change from the resting hand that makes a valid layout), a rotation handle
@@ -35,8 +35,7 @@
  * hits another (pressed to the bottom against one at rest), no part of the
  * hand (palm included) goes into the keyboard (the keycaps and the printed
  * test frame) reaching for any key, except into that key (reachHits), every
- * key is in reach, the thumb presses no key more than SIDE° off square and
- * the board fits the 66 mm tray.
+ * key is in reach and the board fits the 66 mm tray.
  */
 import * as T from 'three';
 import { ConvexGeometry } from 'three/addons/geometries/ConvexGeometry.js';
@@ -339,7 +338,13 @@ function innerColumn(index: Pose[], gap: number, angle: number) {
 const cmc = hand.thumb.assumed_cmc,
   C = V(cmc.cmc),
   TL = [cmc.metacarpal_mm, hand.thumb.segment_mm.mcp_ip, hand.thumb.segment_mm.ip_pad],
-  thumbRest = cmc.poses['1'];
+  thumbRest = cmc.poses['1'],
+  /** The last section: round, the pad THUMB_R below the bone; its end
+   * THUMB_END past the IP (the traced outline's tip, photo A). */
+  THUMB_R = cmc.pad_below_distal_axis_mm,
+  THUMB_END = hand.thumb.segment_mm.ip_end,
+  /** The index knuckle, to tell the thumb's outer edge (away from it) from its inner. */
+  INDEX_MCP = V(hand.fingers.index.rest.joints.mcp);
 /** The thumb's turn about the metacarpal (q[2], + the pad toward the palm)
  * for a CMC swing to `yaw`, `pitch`: not a movement of its own, it comes with
  * the swing. Crisco et al. 2015 ("The envelope of physiological motion of the
@@ -371,60 +376,123 @@ function thumb(q: number[]) {
     up = (a: number) => new T.Vector3(Math.sin(rad(a)), Math.cos(rad(a)), 0).applyMatrix4(R),
     M = C.clone().addScaledVector(d(0), TL[0]),
     I = M.clone().addScaledVector(d(q[3]), TL[1]),
-    axis = I.clone().addScaledVector(d(q[3] + q[4]), TL[2]);
+    u = d(q[3] + q[4]),
+    nail = up(q[3] + q[4]),
+    axis = I.clone().addScaledVector(u, TL[2]);
   return {
     M,
     I,
     axis,
-    pad: axis.clone().addScaledVector(up(q[3] + q[4]), -cmc.pad_below_distal_axis_mm),
+    pad: axis.clone().addScaledVector(nail, -THUMB_R),
+    /** The last bone's direction, and square to it the nail's side. */
+    u,
+    nail,
+    /** Where the last section's centreline stops (round, its end THUMB_R on). */
+    end: I.clone().addScaledVector(u, THUMB_END - THUMB_R),
   };
 }
-/** Which way the pad moves as the thumb presses: a blend of curling (the MCP,
- * and the IP `mix` times as much) and the whole thumb moving at the CMC
- * (`cmcDir`: 0 abducts it, down and away from the palm; + toward the fingers),
- * `byCmc` of the way from the one to the other. Curling alone moves the pad
- * square to the MCP and IP's hinge, so the row (square to the press and to the
- * line from the CMC) would always run along that hinge. */
-const pressDir = (q: number[], t: Pick<ThumbPose, 'mix' | 'byCmc' | 'cmcDir'>) => {
-  const p0 = thumb(q).pad,
-    a = rad(t.cmcDir ?? 0),
-    w = t.byCmc ?? 0,
-    curl = thumb([q[0], q[1], q[2], q[3] + 1, q[4] + t.mix])
-      .pad.sub(p0)
-      .normalize(),
-    yaw = q[0] - Math.sin(a),
-    pitch = q[1] + Math.cos(a),
-    whole = thumb([yaw, pitch, twistAt(yaw, pitch), q[3], q[4]])
-      .pad.sub(p0)
-      .normalize();
-  return curl
-    .multiplyScalar(1 - w)
-    .addScaledVector(whole, w)
-    .normalize();
-};
-/** The thumb `mm` along its press from `q` (− back off the key): the joints
- * moving as pressDir has them (a degree of curling and a degree at the CMC,
- * each scaled to move the pad as far, blended), a quarter mm at a time. */
-function pressed(q: number[], t: Pick<ThumbPose, 'mix' | 'byCmc' | 'cmcDir'>, mm: number) {
-  const a = rad(t.cmcDir ?? 0),
-    w = t.byCmc ?? 0,
-    curl = [0, 0, 0, 1, t.mix],
-    whole = [-Math.sin(a), Math.cos(a), 0, 0, 0],
-    go = (q: number[], d: number[]) => {
-      const yaw = q[0] + d[0],
-        pitch = q[1] + d[1];
-      return [yaw, pitch, twistAt(yaw, pitch), q[3] + d[3], q[4] + d[4]];
-    };
+/** Where the thumb meets a key and which way the key faces (`n`, out of the
+ * cap toward the thumb). The thumb presses by swinging at the CMC, which moves
+ * every point of it square to the line from the CMC, so a key it presses
+ * straight down lies in a plane through the CMC; and the key lies along the
+ * last bone (as on the Dactyl with the wrist low: the thumb along the key,
+ * pressing straight down by abduction). So the key is the plane through the
+ * CMC along the last bone that touches the round last section halfway along
+ * it, on the pad's side of the two; the press is straight into it, the swing
+ * that moves the thumb out of that plane. `roll`: degrees from the middle of
+ * the pad to where it touches, + toward its outer edge (away from the index). */
+function touch(q: number[]) {
+  const th = thumb(q),
+    mid = th.I.clone().addScaledVector(th.u, THUMB_END / 2),
+    w = mid.clone().sub(C),
+    side = th.u.clone().cross(th.nail);
+  w.addScaledVector(th.u, -w.dot(th.u));
+  // n·(mid − C) = THUMB_R puts the touching point, THUMB_R down n from mid, in the plane.
+  // Of the two such planes, one each side of the thumb, the one on its outer
+  // edge (the side away from the index), where the Dactyl's thumb keys meet it.
+  // (The CMC, MCP and IP bend in one plane, the nail's, so the two are mirror
+  // images and the pad can't choose between them.)
+  // (With the thumb straight out from the CMC, the last bone's line passing
+  // within THUMB_R of it, no such plane touches the thumb: the nearest, under
+  // the pad, misses the CMC by the difference.)
+  const miss = Math.max(0, THUMB_R - w.length()),
+    c = Math.min(1, THUMB_R / w.length()),
+    wn = w.normalize(),
+    out = Math.sign(side.dot(mid.clone().sub(INDEX_MCP))) || 1,
+    [n] = [1, -1]
+      .map((k) =>
+        wn
+          .clone()
+          .multiplyScalar(c)
+          .addScaledVector(th.u.clone().cross(wn), k * Math.sqrt(1 - c * c)),
+      )
+      .sort((a, b) => a.dot(side) * out - b.dot(side) * out);
+  return {
+    p: mid.clone().addScaledVector(n, -THUMB_R),
+    n,
+    roll: deg(n.angleTo(th.nail)) * Math.sign(-n.dot(side) * out),
+    /** How far the key's plane misses the CMC, mm (0 but for a thumb
+     * pointing straight out from it): the press is then off square. */
+    miss,
+  };
+}
+/** Which way the thumb presses at q: straight into the key it touches. */
+const pressDir = (q: number[]) => touch(q).n.negate();
+/** The thumb `mm` along its press from `q` (− back off the key): swinging at
+ * the CMC (the turn about the metacarpal coming with the swing) so the point
+ * touching the key moves straight down the key's travel, a quarter mm at a
+ * time. */
+function pressed(q: number[], mm: number) {
+  const t0 = touch(q),
+    th0 = thumb(q),
+    // The touching point, held in the last bone's frame as the thumb moves.
+    rel = t0.p.clone().sub(th0.I),
+    local = [rel.dot(th0.u), rel.dot(th0.nail), rel.dot(th0.u.clone().cross(th0.nail))],
+    at = (q: number[]) => {
+      const th = thumb(q);
+      return th.I.clone()
+        .addScaledVector(th.u, local[0])
+        .addScaledVector(th.nail, local[1])
+        .addScaledVector(th.u.clone().cross(th.nail), local[2]);
+    },
+    go = (q: number[], yaw: number, pitch: number) => {
+      const y = q[0] + yaw,
+        p = q[1] + pitch;
+      return [y, p, twistAt(y, p), q[3], q[4]];
+    },
+    want = t0.n.clone().multiplyScalar(-Math.sign(mm));
   for (let left = Math.abs(mm); left > 1e-6;) {
     const step = Math.min(0.25, left),
-      p0 = thumb(q).pad,
-      by = (d: number[]) => thumb(go(q, d)).pad.distanceTo(p0),
-      d = curl.map((c, i) => ((1 - w) * c) / by(curl) + (w * whole[i]) / by(whole)),
-      at = (k: number) => d.map((x) => x * k);
-    // Scaled to the step, measured again at its own size and way (the path curves).
-    let k = (Math.sign(mm) * step) / by(d);
-    for (let i = 0; i < 2; i++) k *= step / by(at(k));
-    q = go(q, at(k));
+      p0 = at(q),
+      // A twentieth of a degree each way, and the mix of them that moves the point `want`.
+      a = at(go(q, 0.05, 0))
+        .sub(p0)
+        .divideScalar(0.05),
+      b = at(go(q, 0, 0.05))
+        .sub(p0)
+        .divideScalar(0.05),
+      [aa, ab, bb, aw, bw] = [a.dot(a), a.dot(b), b.dot(b), a.dot(want), b.dot(want)],
+      det = aa * bb - ab * ab,
+      x = [(bb * aw - ab * bw) / det, (aa * bw - ab * aw) / det],
+      // The turn about the metacarpal bends with the swing's direction (sharply
+      // at rest), so that mix is only a start: the swing's direction is then
+      // found by trial, `r` degrees of swing at angle `f`, until the point
+      // moves along `want` and not across it.
+      across = p0.clone().sub(C).cross(want).normalize(),
+      by = (f: number, r: number) => go(q, r * Math.cos(f), r * Math.sin(f)),
+      miss = (f: number, r: number) => at(by(f, r)).sub(p0).dot(across);
+    let r = step / a.clone().multiplyScalar(x[0]).addScaledVector(b, x[1]).length(),
+      f = Math.atan2(x[1], x[0]);
+    r *= Math.hypot(x[0], x[1]);
+    for (let i = 0; i < 3; i++) {
+      // Secant on the direction, then the size again for this step (the path curves).
+      const h = 1e-3,
+        m0 = miss(f, r),
+        m1 = miss(f + h, r);
+      if (m1 !== m0) f -= (m0 * h) / (m1 - m0);
+      r *= step / at(by(f, r)).distanceTo(p0);
+    }
+    q = by(f, r);
     left -= step;
   }
   return q;
@@ -448,19 +516,9 @@ type ThumbPose = {
   abduct: number;
   /** MCP and IP, degrees past rest. */
   curl: number;
-  /** The press (pressDir): IP degrees per MCP degree as it curls; how much of
-   * it is the whole thumb moving at the CMC (0–1); which way the CMC moves it
-   * (degrees: 0 abducted, down and away from the palm; + toward the fingers). */
-  mix: number;
-  byCmc?: number;
-  cmcDir?: number;
   /** Along the row, MCP and IP degrees per key: + curls toward the near key
    * and straightens toward the far one (0: the CMC alone moves). */
   bend?: number;
-  /** What each key faces: the press ('press', so it goes straight down), or
-   * the pad ('pad': parallel to the last bone, so the pad lands flat; the
-   * press may then come at it from the side). */
-  facing?: 'press' | 'pad';
 };
 /** How far the thumb's MCP and IP go, degrees: a guess (they hyperextend a little). */
 const MCP_RANGE = [-10, 90],
@@ -468,18 +526,19 @@ const MCP_RANGE = [-10, 90],
 const inRange = (q: number[]) =>
   q[3] >= MCP_RANGE[0] && q[3] <= MCP_RANGE[1] && q[4] >= IP_RANGE[0] && q[4] <= IP_RANGE[1];
 const clamp = (v: number, [lo, hi]: number[]) => Math.min(hi, Math.max(lo, v));
-/** The 1u row of a 1.5u + 2×1u cluster: `gap` mm from the 1.5u along the pad's
- * path (+ curled), reached like a finger between rows: MCP degrees per IP
- * degree as set, or square to the press. */
+/** The 1u row of a 1.5u + 2×1u cluster: `gap` mm from the 1.5u along the
+ * touching point's path (+ curled), reached like a finger between rows: MCP
+ * degrees per IP degree as set, or square to the press. */
 type TwoRows = { gap: number; from: string; reachMix: number };
 /** The thumb row in the hand frame, far key first (far = away from the
- * fingers). Each key faces against the press. Between keys the thumb moves as
- * one piece at the CMC (the pad on a sphere round it), square to both the
- * press and the line from the CMC at each point, while the MCP and IP curl
- * `bend` degrees on the way to the near key (straighten to the far), until the
- * key is `spacing` mm from the home key, centre to centre. Frames: z out of the
- * cap, x toward the near key. `stiff`: degrees the MCP or IP would have to go
- * past its limit (the key is then out of reach). */
+ * fingers). Each key touches the thumb as touch() has it (along the last bone,
+ * in the plane through the CMC, pressed straight down). Between keys the thumb
+ * moves as one piece at the CMC, square to both the press and the line from
+ * the CMC at each point, while the MCP and IP curl `bend` degrees on the way
+ * to the near key (straighten to the far), until the key is `spacing` mm from
+ * the home key, centre to centre. Frames: z out of the cap, x toward the near
+ * key. `stiff`: degrees the MCP or IP would have to go past its limit (the key
+ * is then out of reach). */
 function thumbRow(t: ThumbPose, spacing: number, two?: TwoRows) {
   const qh = [
       thumbRest[0] - t.sweep,
@@ -488,10 +547,10 @@ function thumbRow(t: ThumbPose, spacing: number, two?: TwoRows) {
       thumbRest[3] + t.curl,
       thumbRest[4] + t.curl,
     ],
-    press = (q: number[]) => pressDir(q, t),
+    at = (q: number[]) => touch(q).p,
     /** Along the row, away from the fingers. */
     along = (q: number[], prev?: T.Vector3) => {
-      const v = thumb(q).pad.sub(C).cross(press(q)).normalize();
+      const v = at(q).sub(C).cross(pressDir(q)).normalize();
       return (prev ? v.dot(prev) < 0 : v.x > 0) ? v.negate() : v;
     },
     bend = t.bend ?? 0,
@@ -504,7 +563,7 @@ function thumbRow(t: ThumbPose, spacing: number, two?: TwoRows) {
         ip = from[4];
       for (let left = dist; left > 1e-6;) {
         const step = Math.min(0.25, left),
-          r = thumb(q).pad.sub(C),
+          r = at(q).sub(C),
           turn = new T.Matrix4().makeRotationAxis(
             r.clone().cross(v).normalize(),
             (sign * step) / r.length(),
@@ -524,12 +583,12 @@ function thumbRow(t: ThumbPose, spacing: number, two?: TwoRows) {
       }
       return { q, stiff: Math.max(Math.abs(mcp - q[3]), Math.abs(ip - q[4])) };
     },
-    /** The key `gap` mm (centre to centre) from `from`'s pad, away from the
+    /** The key `gap` mm (centre to centre) from `from`'s, away from the
      * fingers (sign +1) or toward them, the thumb curling `curl` degrees. */
     key = (sign: number, from: number[], gap: number, curl: number) => {
-      const p0 = thumb(from).pad,
-        at = (d: number) => walk(sign, from, d, curl),
-        miss = (d: number) => thumb(at(d).q).pad.distanceTo(p0) - gap;
+      const p0 = at(from),
+        to = (d: number) => walk(sign, from, d, curl),
+        miss = (d: number) => at(to(d).q).distanceTo(p0) - gap;
       // Secant on the distance round the CMC.
       let d0 = gap,
         f0 = miss(d0),
@@ -539,36 +598,32 @@ function thumbRow(t: ThumbPose, spacing: number, two?: TwoRows) {
           d2 = Math.max(0.01, f1 === f0 ? d1 : d1 - (f1 * (d1 - d0)) / (f1 - f0));
         [d0, f0, d1] = [d1, f1, d2];
       }
-      return at(d1);
+      return to(d1);
     };
   // 1.5u + 2×1u: the 1u row is a finger's step from the 1.5u (MCP and IP),
   // and its two keys sit either side of that point along the row.
   let ends = [key(1, qh, spacing, -bend), key(-1, qh, spacing, bend)],
-    short = 0,
-    /** The cluster's keys face square to the row and to the step's path. */
-    paths: (T.Vector3 | undefined)[] = [undefined, undefined, undefined];
+    short = 0;
   if (two) {
-    const pad = (q: number[]) => thumb(q).pad,
-      /** The joints' step and the pad's way along the path, at q. */
-      way = (q: number[], prev?: number[]) => {
-        const p0 = pad(q),
-          vm = pad([...q.slice(0, 3), q[3] + 0.1, q[4]])
-            .sub(p0)
-            .divideScalar(0.1),
-          vi = pad([...q.slice(0, 4), q[4] + 0.1])
-            .sub(p0)
-            .divideScalar(0.1),
-          p = press(q);
-        let [a, b] = two.from === 'reach' ? [two.reachMix, 1] : [vi.dot(p), -vm.dot(p)];
-        // Curling (or straightening) at the start; then on along the same path.
-        if (prev ? a * prev[0] + b * prev[1] < 0 : (a + b) * two.gap < 0) [a, b] = [-a, -b];
-        const w = vm.multiplyScalar(a).addScaledVector(vi, b);
-        return { a, b, len: w.length(), dir: w.normalize() };
-      };
+    /** The joints' step and the touching point's way along the path, at q. */
+    const way = (q: number[], prev?: number[]) => {
+      const p0 = at(q),
+        vm = at([...q.slice(0, 3), q[3] + 0.1, q[4]])
+          .sub(p0)
+          .divideScalar(0.1),
+        vi = at([...q.slice(0, 4), q[4] + 0.1])
+          .sub(p0)
+          .divideScalar(0.1),
+        p = pressDir(q);
+      let [a, b] = two.from === 'reach' ? [two.reachMix, 1] : [vi.dot(p), -vm.dot(p)];
+      // Curling (or straightening) at the start; then on along the same path.
+      if (prev ? a * prev[0] + b * prev[1] < 0 : (a + b) * two.gap < 0) [a, b] = [-a, -b];
+      const w = vm.multiplyScalar(a).addScaledVector(vi, b);
+      return { a, b, len: w.length() };
+    };
     let q = qh,
       w = way(q),
       left = Math.abs(two.gap);
-    const t0 = w.dir.clone();
     while (left > 1e-6) {
       const step = Math.min(0.25, left),
         k = step / w.len,
@@ -581,38 +636,24 @@ function thumbRow(t: ThumbPose, spacing: number, two?: TwoRows) {
     short = left;
     // Each 1u key half the spacing from the row's point, so the two are spacing apart.
     ends = [key(1, q, spacing / 2, -bend / 2), key(-1, q, spacing / 2, bend / 2)];
-    // The 1u keys: the CMC carries the path's direction round with the thumb.
-    const back = rotQ(q).invert();
-    paths = [ends[0].q, qh, ends[1].q].map((qk, i) =>
-      i === 1 ? t0 : w.dir.clone().transformDirection(rotQ(qk).multiply(back)),
-    );
   }
   const stiff = [ends[0].stiff, 0, ends[1].stiff],
     qs = [ends[0].q, qh, ends[1].q],
-    pads = qs.map((q) => thumb(q).pad),
+    touches = qs.map((q) => touch(q)),
+    ats = touches.map((k) => k.p),
     /** Each key lines up with the row through it, as the finger keys do with
      * their column: x along the line from its neighbour (the 1u row's, on a
      * 1.5u + 2×1u cluster), not the CMC's sweep alone, which the row leaves
      * as soon as the MCP and IP bend along it. */
     line = (i: number) =>
-      two || i === 1 ? pads[2].clone().sub(pads[0]) : pads[i / 2 + 1].clone().sub(pads[i / 2]);
+      two || i === 1 ? ats[2].clone().sub(ats[0]) : ats[i / 2 + 1].clone().sub(ats[i / 2]);
   return qs.map((q, i) => {
-    const pad = pads[i],
-      pressed = press(q).negate(),
+    const { p, n, roll } = touches[i],
       x = line(i).normalize(),
-      p = paths[i],
-      // Facing the pad: out of the cap toward the thumb's last bone.
-      z =
-        t.facing === 'pad'
-          ? thumb(q).axis.sub(pad).normalize()
-          : p
-            ? x.clone().cross(p).normalize()
-            : pressed.clone();
-    if (t.facing !== 'pad' && z.dot(pressed) < 0) z.negate();
-    const xx = x.addScaledVector(z, -x.dot(z)).normalize(),
-      m = new T.Matrix4().makeBasis(xx, new T.Vector3().crossVectors(z, xx), z).setPosition(pad);
-    /** Degrees the press is off square to the key. */
-    return { pad, q, frame: m, short, stiff: stiff[i], off: deg(z.angleTo(pressed)) };
+      xx = x.addScaledVector(n, -x.dot(n)).normalize(),
+      m = new T.Matrix4().makeBasis(xx, new T.Vector3().crossVectors(n, xx), n).setPosition(p);
+    /** `at`: where the thumb touches the key (its cap top's centre). */
+    return { at: p, q, frame: m, short, stiff: stiff[i], roll };
   });
 }
 
@@ -882,9 +923,6 @@ function capHits(c: Config, caps: Cap[]) {
   return out;
 }
 // ---------------------------------------------------------------- the hand against the keyboard
-/** How far off square to a key the thumb may press it, degrees: a guess
- * (the stem binds and the press feels sideways past it). */
-const SIDE = 20;
 /** A part of the hand: capsules (segments of a radius) or a convex hull (the
  * palm), and the keys it may touch. */
 type Part = {
@@ -916,7 +954,7 @@ const thumbPart = (th: Thumb, may: string[], by = new T.Vector3()): Part => {
     segs: [
       [v(C), v(th.M), 11],
       [v(th.M), v(th.I), 10.5],
-      [v(th.I), v(th.axis), cmc.pad_below_distal_axis_mm],
+      [v(th.I), v(th.end), THUMB_R],
     ],
     may,
   };
@@ -1207,7 +1245,7 @@ function reachHits(c: Config, s: Settings, h: Solved, board: Board) {
       z = new T.Vector3().setFromMatrixColumn(k.frame, 2);
     reach(
       key,
-      k.pad.distanceTo(h.row[1].pad),
+      k.at.distanceTo(h.row[1].at),
       (t) => {
         const th = thumb(qs(t));
         add(palm(th), `while the thumb reaches for ${capName(key)}`);
@@ -1217,7 +1255,7 @@ function reachHits(c: Config, s: Settings, h: Solved, board: Board) {
         const th = thumb(k.q),
           by = z.clone().multiplyScalar(-down);
         if (!down) add(palm(th), `while the thumb is on ${capName(key)}`);
-        return thumbPart({ ...th, I: th.I.clone().add(by), axis: th.axis.clone().add(by) }, [key]);
+        return thumbPart({ ...th, I: th.I.clone().add(by), end: th.end.clone().add(by) }, [key]);
       },
     );
   });
@@ -1249,13 +1287,14 @@ function check(
     ].filter(([, m]) => m > 0.5),
     /** The arm can't carry the hand far enough sideways for the inner column. */
     innerShort: h.inner.limited,
+    /** Thumb keys it can't press straight down with its pad: met with the
+     * back of the thumb (rolled past 90°), or the thumb pointing at the CMC. */
+    crooked: h.row
+      .map((k, i) => [['far', 'home', 'near'][i], touch(k.q)] as const)
+      .filter(([, t]) => Math.abs(t.roll) > 90 || t.miss > 0.5),
     stiff: h.row
       .map((k, i) => [['far', 'home', 'near'][i], k.stiff] as const)
       .filter(([, d]) => d > 0.5),
-    /** Thumb keys pressed further than SIDE off square (the stem binds). */
-    side: h.row
-      .map((k, i) => [['far', 'home', 'near'][i], k.off] as const)
-      .filter(([, d]) => d > SIDE),
     height: heightOf(c, caps, deskOf(s)),
   };
 }
@@ -1266,14 +1305,14 @@ function check(
  * and facings closest to its keys, of the valid layouts (15°, 0.29: the
  * fitting is a test, in tests/hand.test.ts; its home keys face you 13°, the
  * Dactyl's 7.5°: closer, the bottom keys run into the thumb keys or each
- * other), the thumb pressing by swinging at the CMC toward the fingers (which lays its
- * keys 30–40° flatter; curling alone stands them nearly on edge) and turned
- * forward from rest by eye (sweep -1.9, abduction 7.6), pressing 60° toward
- * the fingers (it was 25°, with the thumb turned 6.6° about its metacarpal
- * by hand; with that turn coming from the swing, under 60° pressing one
- * thumb key puts the thumb into the next); the gaps
- * tuned by eye on a printed frame: rows closer, the inner column further out,
- * the thumb keys further apart.
+ * other). The thumb turned forward from rest by eye (sweep -1.9), then, with
+ * its keys along the last bone, abducted 9° and straightened 23° (the MCP and
+ * IP): the valid pose nearest that whose roll onto the outer edge (42°) is
+ * nearest the 30° or so felt on the Dactyl. (Unstraightened it rolls 81° and
+ * presses into the next key; the roll swings from 62° at 20° straightened to
+ * 22° at 24°.) The gaps tuned by eye on a printed frame: rows closer, the
+ * inner column further out; the thumb keys 25.5 mm apart, as close as this
+ * pose allows.
  * The fingers come out 3–8 mm off the Dactyl's in the index, middle and ring
  * columns, more in the inner and pinky (the Dactyl raises its outer columns
  * into a bowl, which these settings can't). Valid with the 1×3 cluster, 65 mm
@@ -1291,8 +1330,8 @@ const DACTYL: Settings = {
   from: 'reach',
   reachMix: 0.29,
   pressMix: 1.4,
-  thumb: { sweep: -1.9, abduct: 7.6, curl: 0, mix: 1, byCmc: 1, cmcDir: 60, bend: 0 },
-  spacing: 24.5,
+  thumb: { sweep: -1.9, abduct: 9, curl: -23, bend: 0 },
+  spacing: 25.5,
   cluster: '1×3',
   // The 1u row, a key's depth from the 1.5u, on the curled side, reached
   // square to the press. (A reach mix like the fingers' 0.4 moves the thumb's
@@ -1303,15 +1342,17 @@ const DACTYL: Settings = {
  * from rest (degrees, the hand on the board counted too), every gap as small
  * as the keycaps allow, over layouts where no keycap hits another (pressed
  * against one at rest), the hand passes through no key, every row is in reach
- * and the board fits the 66 mm keyboard tray. It comes out at rest: the
- * fingers and thumb as measured (the thumb pressing like a finger, IP with
- * the MCP), the board tented 1° (the steep top rows of an uncurled hand and
- * the thumb's near-vertical keys use up the tray). Fitted to the measured
- * keycaps (18.5 mm, tapering to 14, 11 high): 65 mm tall. Fitted before the
- * check followed the hand reaching each key: carried by the arm toward the
- * inner column, the resting middle finger now goes 3 mm into the index home
- * key. (On its printed frame the index brushed the thumb cluster, which the
- * model doesn't reproduce.) */
+ * and the board fits the 66 mm keyboard tray. It comes out nearly at rest:
+ * the fingers as measured, the board tented 1° (the steep top rows of an
+ * uncurled hand use up the tray). Fitted to the measured keycaps (18.5 mm,
+ * tapering to 14, 11 high): 65 mm tall. Fitted before the check followed the
+ * hand reaching each key: carried by the arm toward the inner column, the
+ * resting middle finger now goes 3 mm into the index home key. (On its
+ * printed frame the index brushed the thumb cluster, which the model doesn't
+ * reproduce.) The thumb, refitted with its keys along the last bone: the
+ * least change is to straighten it 21° (the MCP and IP; less and pressing one
+ * key it goes into the next), rolling it 58° onto its outer edge, the keys
+ * 23.8 mm apart. */
 const NATURAL: Settings = {
   tent: 1,
   roll: 0,
@@ -1325,8 +1366,8 @@ const NATURAL: Settings = {
   from: 'reach',
   reachMix: 0.4,
   pressMix: 1.4,
-  thumb: { sweep: 0, abduct: 0, curl: 0, mix: 1, byCmc: 0, cmcDir: 0, bend: 0 },
-  spacing: 22.1,
+  thumb: { sweep: 0, abduct: 0, curl: -21, bend: 0 },
+  spacing: 23.8,
   cluster: '1×3',
   two: { gap: 19.5, from: 'press', reachMix: 0.4 },
 };
@@ -1337,7 +1378,11 @@ const problems = (r: ReturnType<typeof check>) => [
   ...r.handHits.map((x) => `${x.a} ${x.during}: into ${x.b} (${x.depth.toFixed(1)} mm)`),
   ...r.short.map(([k, m]) => `${k} out of reach (${m.toFixed(0)} mm)`),
   ...r.stiff.map(([k, d]) => `thumb ${k} out of reach (MCP/IP ${d.toFixed(0)}° past limit)`),
-  ...r.side.map(([k, d]) => `thumb ${k} pressed ${d.toFixed(0)}° off square (${SIDE}° at most)`),
+  ...r.crooked.map(([k, t]) =>
+    t.miss > 0.5
+      ? `thumb ${k} pressed off square (the thumb points at the CMC)`
+      : `thumb ${k} met with the back of the thumb (rolled ${Math.abs(t.roll).toFixed(0)}°)`,
+  ),
   ...(r.innerShort ? ['inner column out of reach'] : []),
   ...(r.height.all > TRAY ? [`${r.height.all.toFixed(1)} mm tall (tray ${TRAY} mm)`] : []),
 ];
@@ -1515,7 +1560,7 @@ export function setupHand(host: Host) {
   }
 
   // The thumb pressing its key, over and over: its last 15 mm onto the key,
-  // the joints moving as the press settings have them, then back.
+  // swinging at the CMC, then back.
   const APPROACH = 15,
     PERIOD = 3000;
   let frames: ReturnType<typeof thumb>[] = [],
@@ -1527,7 +1572,7 @@ export function setupHand(host: Host) {
     if (!s.pressing || s.thumbOn === 'rest') return;
     pressFingers = chains;
     // 61 poses, 15 mm off the key to on it.
-    for (let i = 0; i <= 60; i++) frames.push(thumb(pressed(q, s.thumb, -APPROACH * (1 - i / 60))));
+    for (let i = 0; i <= 60; i++) frames.push(thumb(pressed(q, -APPROACH * (1 - i / 60))));
     const tick = (now: number) => {
       // Down, a pause on the key, up, a pause off it.
       const u = (now % PERIOD) / PERIOD,
@@ -1579,6 +1624,12 @@ export function setupHand(host: Host) {
       : r.frameChecked
         ? `<div style="color:#9be39b">Valid (${r.height.all.toFixed(0)} mm tall).</div>`
         : 'Checking…';
+    // How far the thumb rolls onto its outer edge to meet each key (0: the
+    // middle of the pad; 90: the side of the thumb).
+    note.insertAdjacentHTML(
+      'beforeend',
+      `<div>Thumb rolled onto its outer edge: ${row.map((k, i) => `${['far', 'home', 'near'][i]} ${k.roll.toFixed(0)}°`).join(', ')}.</div>`,
+    );
     showFrame(built);
     host.render();
   }
@@ -1706,7 +1757,7 @@ export function setupHand(host: Host) {
     b.title =
       name === 'Natural'
         ? 'The least change from your resting hand (fitted under an earlier check).'
-        : 'Near the Dactyl Manuform: the finger curl and reach mix closest to its keys (15°, 0.29), the thumb pressing at the CMC and the gaps tuned on a printed frame.';
+        : 'Near the Dactyl Manuform: the finger curl and reach mix closest to its keys (15°, 0.29), the thumb along its keys, rolled onto its outer edge, and the gaps tuned on a printed frame.';
     // Every setting, keeping which keys the hand is shown on, how rows are
     // reached, the cluster and the handle; one Undo step.
     b.addEventListener('click', () => {
@@ -1772,7 +1823,7 @@ export function setupHand(host: Host) {
   );
   const pressBox = document.createElement('label');
   pressBox.innerHTML =
-    '<input type="checkbox"> Show the thumb pressing it (its last 15 mm onto the key, as the press settings have it)';
+    '<input type="checkbox"> Show the thumb pressing it (its last 15 mm onto the key)';
   pressBox.style.display = 'block';
   const pressOn = pressBox.querySelector('input')!;
   pressOn.checked = s.pressing;
@@ -1787,35 +1838,6 @@ export function setupHand(host: Host) {
     update();
   });
   box.append(pressBox);
-  // Two ways the thumb might press, to compare: the press settings only (the
-  // keys turn to face it), one Undo step.
-  const pressWays = document.createElement('div');
-  pressWays.style.margin = '4px 0';
-  pressWays.innerHTML = 'Press: ';
-  for (const [name, title, set] of [
-    [
-      'Swing at the base',
-      'The thumb stiff, the whole of it swinging at the CMC, out from the palm and 60° toward the fingers (the Dactyl fit).',
-      { byCmc: 1, cmcDir: 60, mix: 1 },
-    ],
-    [
-      'Straighten the tip',
-      'The thumb curling at the MCP while the IP straightens twice as fast; the CMC still.',
-      { byCmc: 0, mix: -2 },
-    ],
-  ] as const) {
-    const b = document.createElement('button');
-    b.textContent = name;
-    b.title = title;
-    b.addEventListener('click', () => {
-      Object.assign(s.thumb, set);
-      shows.forEach((f) => f());
-      change();
-      touched = false;
-    });
-    pressWays.append(b);
-  }
-  box.append(pressWays);
   radios(
     'Rotation handle:',
     ['hand', 'thumb', 'off'],
@@ -2065,39 +2087,6 @@ export function setupHand(host: Host) {
     (v) => (s.thumb.abduct = v),
     -30,
     60,
-  );
-  slider(
-    'press by the whole thumb at the CMC (0: curling only, 1: CMC only)',
-    () => s.thumb.byCmc ?? 0,
-    (v) => (s.thumb.byCmc = v),
-    0,
-    1,
-    0.05,
-  );
-  slider(
-    'CMC press direction: 0 down (abducting), + toward the fingers',
-    () => s.thumb.cmcDir ?? 0,
-    (v) => (s.thumb.cmcDir = v),
-    -180,
-    180,
-  );
-  slider(
-    'curling press: IP° per MCP° (− straightens the IP)',
-    () => s.thumb.mix,
-    (v) => (s.thumb.mix = v),
-    -3,
-    3,
-    0.01,
-    () => (s.thumb.byCmc ?? 0) < 1,
-  );
-  radios(
-    'Keys face the',
-    ['press', 'pad'],
-    () => s.thumb.facing ?? 'press',
-    (v) => {
-      s.thumb.facing = v as 'press' | 'pad';
-      change();
-    },
   );
   slider(
     'key spacing (mm)',
