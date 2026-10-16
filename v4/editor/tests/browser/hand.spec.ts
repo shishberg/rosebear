@@ -23,6 +23,9 @@ test('the hand readout checks every reach against the keycaps and the frame', as
   await expect(mix.locator('output')).toHaveText('-0.39');
   await page.keyboard.press('End');
   await expect(mix.locator('output')).toHaveText('3');
+  // The thumb shown pressing its key, over and over.
+  await page.getByText('Show the thumb pressing it').click();
+  await page.waitForTimeout(500);
   // The frame shown is the one checked.
   await page.getByText('Test frame (print this way up, with supports)').click();
   await expect(page.getByText(/cm³/)).toBeVisible();

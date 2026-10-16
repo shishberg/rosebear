@@ -96,6 +96,27 @@ test('Dactyl fit, the thumb further from the palm, pressing less toward the fing
 // model doesn't (yet) reproduce. Reported, not asserted.
 test('Natural', (t) => report(t, layout(hand.NATURAL)));
 
+test('the thumb shown pressing moves its pad along the press, as far as it says', () => {
+  for (const t of [
+    hand.DACTYL.thumb,
+    hand.NATURAL.thumb,
+    { mix: -2, byCmc: 0, cmcDir: 0 },
+    { mix: 1, byCmc: 0.5, cmcDir: 30 },
+  ]) {
+    const q = hand.solveHand({ ...hand.DACTYL, thumb: { ...hand.DACTYL.thumb, ...t } }).row[1].q,
+      pad = (mm: number) => hand.thumb(hand.pressed(q, t, mm)).pad,
+      p0 = hand.thumb(q).pad,
+      start = pad(0.25).sub(p0),
+      deg = (start.angleTo(hand.pressDir(q, t)) * 180) / Math.PI;
+    assert.deepEqual(hand.pressed(q, t, 0), q);
+    assert.ok(deg < 1, `starts ${deg.toFixed(2)}° off the press (${JSON.stringify(t)})`);
+    assert.ok(Math.abs(start.length() - 0.25) < 0.01, `a quarter mm moves ${start.length()}`);
+    // 15 mm round a curve: the straight line a little shorter.
+    const back = pad(-15).distanceTo(p0);
+    assert.ok(back > 14 && back <= 15.01, `15 mm back is ${back.toFixed(2)} mm away`);
+  }
+});
+
 const FINGERS = ['index', 'middle', 'ring', 'pinky'] as const;
 const reaching = (mix: number) => hand.wayOf({ ...structuredClone(hand.DACTYL), reachMix: mix });
 // The reach mix slider's range near its low end, where the MCP curls as the PIP straightens.

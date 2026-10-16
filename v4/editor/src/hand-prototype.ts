@@ -402,6 +402,33 @@ const pressDir = (q: number[], t: Pick<ThumbPose, 'mix' | 'byCmc' | 'cmcDir'>) =
     .addScaledVector(whole, w)
     .normalize();
 };
+/** The thumb `mm` along its press from `q` (− back off the key): the joints
+ * moving as pressDir has them (a degree of curling and a degree at the CMC,
+ * each scaled to move the pad as far, blended), a quarter mm at a time. */
+function pressed(q: number[], t: Pick<ThumbPose, 'mix' | 'byCmc' | 'cmcDir'>, mm: number) {
+  const a = rad(t.cmcDir ?? 0),
+    w = t.byCmc ?? 0,
+    curl = [0, 0, 0, 1, t.mix],
+    whole = [-Math.sin(a), Math.cos(a), 0, 0, 0],
+    go = (q: number[], d: number[]) => {
+      const yaw = q[0] + d[0],
+        pitch = q[1] + d[1];
+      return [yaw, pitch, twistAt(yaw, pitch), q[3] + d[3], q[4] + d[4]];
+    };
+  for (let left = Math.abs(mm); left > 1e-6;) {
+    const step = Math.min(0.25, left),
+      p0 = thumb(q).pad,
+      by = (d: number[]) => thumb(go(q, d)).pad.distanceTo(p0),
+      d = curl.map((c, i) => ((1 - w) * c) / by(curl) + (w * whole[i]) / by(whole)),
+      at = (k: number) => d.map((x) => x * k);
+    // Scaled to the step, measured again at its own size and way (the path curves).
+    let k = (Math.sign(mm) * step) / by(d);
+    for (let i = 0; i < 2; i++) k *= step / by(at(k));
+    q = go(q, at(k));
+    left -= step;
+  }
+  return q;
+}
 const arc = hand.thumb.arc_through_prints_1_to_4;
 const arcPoint = (a: number) =>
   new T.Vector3(
@@ -606,6 +633,13 @@ function capsule(a: T.Vector3, b: T.Vector3, r: number) {
   return m;
 }
 function drawHand(group: T.Group, chains: Record<Finger, Chain>, th: ReturnType<typeof thumb>) {
+  // Redrawn every frame while the thumb presses, so the old shapes go.
+  group.traverse((o) => {
+    if (o instanceof T.Mesh || o instanceof T.Line) {
+      o.geometry.dispose();
+      if (o.material !== skin && o.material !== palmSkin) (o.material as T.Material).dispose();
+    }
+  });
   group.clear();
   // The same shapes the check uses.
   for (const part of [
@@ -1390,6 +1424,8 @@ export function setupHand(host: Host) {
     ...structuredClone(DACTYL),
     row: 'home' as Row,
     thumbOn: 'home',
+    /** Whether the thumb is shown pressing its key, over and over. */
+    pressing: false,
     /** What the rotation handle turns. */
     handle: 'hand',
     advanced: false,
@@ -1478,6 +1514,32 @@ export function setupHand(host: Host) {
     pivot.updateMatrixWorld();
   }
 
+  // The thumb pressing its key, over and over: its last 15 mm onto the key,
+  // the joints moving as the press settings have them, then back.
+  const APPROACH = 15,
+    PERIOD = 3000;
+  let frames: ReturnType<typeof thumb>[] = [],
+    pressFingers: Record<Finger, Chain> | undefined,
+    pressLoop = 0;
+  function showPress(chains: Record<Finger, Chain>, q: number[]) {
+    cancelAnimationFrame(pressLoop);
+    frames = [];
+    if (!s.pressing || s.thumbOn === 'rest') return;
+    pressFingers = chains;
+    // 61 poses, 15 mm off the key to on it.
+    for (let i = 0; i <= 60; i++) frames.push(thumb(pressed(q, s.thumb, -APPROACH * (1 - i / 60))));
+    const tick = (now: number) => {
+      // Down, a pause on the key, up, a pause off it.
+      const u = (now % PERIOD) / PERIOD,
+        v = u < 0.4 ? u / 0.4 : u < 0.5 ? 1 : u < 0.9 ? (0.9 - u) / 0.4 : 0,
+        ease = (1 - Math.cos(Math.PI * v)) / 2;
+      drawHand(handGroup, pressFingers!, frames[Math.round(ease * 60)]);
+      host.render();
+      pressLoop = requestAnimationFrame(tick);
+    };
+    pressLoop = requestAnimationFrame(tick);
+  }
+
   const note = document.createElement('div');
   note.id = 'hand-note';
   function update() {
@@ -1500,14 +1562,13 @@ export function setupHand(host: Host) {
       { poses, row } = r.h,
       ri = ROWS.indexOf(s.row),
       L = toLayout(),
-      th = thumb(
-        s.thumbOn === 'rest' ? thumbRest : row[['far', 'home', 'near'].indexOf(s.thumbOn)].q,
-      );
+      q = s.thumbOn === 'rest' ? thumbRest : row[['far', 'home', 'near'].indexOf(s.thumbOn)].q;
     const shown = Object.fromEntries(FINGERS.map((f) => [f, poses[f][ri].chain])) as Record<
       Finger,
       Chain
     >;
-    drawHand(handGroup, shown, th);
+    drawHand(handGroup, shown, thumb(q));
+    showPress(shown, q);
     handGroup.matrix.copy(L);
     group.matrix.copy(tentFrame(c));
     group.matrixWorldNeedsUpdate = true;
@@ -1652,6 +1713,7 @@ export function setupHand(host: Host) {
       const keep = {
           row: s.row,
           thumbOn: s.thumbOn,
+          pressing: s.pressing,
           from: s.from,
           cluster: s.cluster,
           handle: s.handle,
@@ -1708,6 +1770,23 @@ export function setupHand(host: Host) {
     () => s.thumbOn,
     (v) => (s.thumbOn = v),
   );
+  const pressBox = document.createElement('label');
+  pressBox.innerHTML =
+    '<input type="checkbox"> Show the thumb pressing it (its last 15 mm onto the key, as the press settings have it)';
+  pressBox.style.display = 'block';
+  const pressOn = pressBox.querySelector('input')!;
+  pressOn.checked = s.pressing;
+  pressOn.addEventListener('change', () => {
+    s.pressing = pressOn.checked;
+    // Only the view changes: kept for next time, not an Undo step.
+    try {
+      localStorage.setItem(SAVED, JSON.stringify(s));
+    } catch {
+      // Not kept past a reload.
+    }
+    update();
+  });
+  box.append(pressBox);
   radios(
     'Rotation handle:',
     ['hand', 'thumb', 'off'],
@@ -2055,6 +2134,7 @@ export const _test = {
   thumb,
   rotQ,
   pressDir,
+  pressed,
   thumbRow,
   C,
   thumbRest,
