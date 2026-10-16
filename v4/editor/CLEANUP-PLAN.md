@@ -620,7 +620,7 @@ are listed but not done.
 | T6 | done | |
 | T7 | done | |
 | T8 | done | |
-| T9 | pending | |
+| T9 | done | |
 | T10 | pending | |
 | T11 | pending | |
 | T12 | pending | |

@@ -15,6 +15,7 @@ import {
 import { freeAfter } from '../src/manifold-util';
 import { buildSolid, buildSolidAsync } from '../src/solid';
 import { buildChassis } from '../src/chassis';
+import { shell } from '../src/shell';
 import { crossings, holes, nets, wiring } from '../src/wiring';
 import ref from './python-reference.json';
 const pos = (m: { elements: number[] }) => new Vector3(...m.elements.slice(12, 15));
@@ -378,4 +379,15 @@ test('a wide keycap clearance fails the swept check by the taper, not the at-res
   assert.equal(k.atRest, 0);
   assert(Math.abs(k.swept - 14.5) < 0.05, String(k.swept));
   assert.equal(r.report.passed, false);
+});
+test("the shell builds the same case when the thumb row's end keys are renamed", async () => {
+  const wasm = await Module();
+  wasm.setup();
+  const p = clone(defaults),
+    names = { far: 'left', near: 'right' } as Record<string, string>;
+  for (const k of p.config.geometry.thumb.keys) k.name = names[k.name] ?? k.name;
+  validateProject(p);
+  const volume = (c: typeof p.config) =>
+    freeAfter(wasm, () => shell({ wasm, cfg: c, frames: componentFrames(c) }).body.volume());
+  assert.equal(volume(p.config), volume(defaults.config));
 });
