@@ -15,7 +15,8 @@ import {
   type V3,
   type Cluster,
 } from './geometry';
-import { hardware, type BuildResult, type Report, type Highlight } from './solid';
+import { hardware } from './parts';
+import type { BuildResult, Report, Highlight } from './solid';
 import type { Wiring } from './wiring';
 import { setupMarks } from './marks';
 import { setupHand } from './hand-prototype';

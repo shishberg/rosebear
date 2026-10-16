@@ -16,6 +16,7 @@ export const defaults: Project = { version: 2, config: defaultConfig };
 export const clone = <T>(v: T): T => structuredClone(v);
 export const add = (a: number[], b: number[]): V3 => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
 export const sub = (a: number[], b: number[]): V3 => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+export const scale = (a: number[], k: number): V3 => [a[0] * k, a[1] * k, a[2] * k];
 export const cross = (a: number[], b: number[]): V3 => [
   a[1] * b[2] - a[2] * b[1],
   a[2] * b[0] - a[0] * b[2],

@@ -609,7 +609,7 @@ are listed but not done.
 | T3 | done | |
 | T4 | done | |
 | T5 | done | |
-| T6 | pending | |
+| T6 | done | |
 | T7 | pending | |
 | T8 | pending | |
 | T9 | pending | |

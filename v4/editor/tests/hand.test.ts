@@ -655,3 +655,59 @@ test('a saved state with a value that is not a setting keeps the start for it', 
   assert.equal(bad.handle, 'off');
   assert.equal(bad.thumb.drop, 5);
 });
+
+test('a frame is built where two joined keys overlap or a bar has no length', () => {
+  const base = {
+    innerGap: 18.8,
+    top: 19.1,
+    bottom: 19.1,
+    from: 'reach',
+    pressMix: 1.4,
+    cluster: '1×3',
+    two: { gap: 19.5 },
+  };
+  const cases = [
+    {
+      // Two joined keys' facing edges coincide: no web axis to cut across.
+      s: {
+        tent: 41,
+        roll: -8,
+        pitch: 25,
+        bend: -8,
+        curl: { index: -30, middle: 40, ring: 40, pinky: 40 },
+        innerAngle: -10,
+        wristHeight: -21,
+        thumb: { around: 167, drop: -20, reach: { palmar: 2, curl: 0.05 }, press: 10 },
+        spacing: 40,
+      },
+      tris: 12458,
+      pieces: 3,
+    },
+    {
+      // A strut 1.2e-14 mm long, whose direction is rounding noise.
+      s: {
+        tent: 45,
+        roll: -7,
+        pitch: -25,
+        bend: 11,
+        curl: { index: -30, middle: -30, ring: 17, pinky: 27 },
+        innerAngle: 30,
+        wristHeight: 108,
+        thumb: { around: 155, drop: -16, reach: { palmar: 2, curl: -2 }, press: 82 },
+        spacing: 32,
+      },
+      tris: 9692,
+      pieces: 1,
+    },
+  ];
+  for (const { s, tris, pieces } of cases) {
+    const c = clone(defaults).config,
+      settings = { ...structuredClone(hand.DACTYL), ...base, ...s } as unknown as Settings;
+    settings.curl = { ...hand.DACTYL.curl, ...s.curl };
+    settings.thumb = { ...hand.DACTYL.thumb, ...s.thumb, reach: s.thumb.reach };
+    hand.applyHand(c, settings, hand.anchorOf(c));
+    const f = buildFrame(wasm, c);
+    assert.equal(f.mesh.indices.length / 3, tris);
+    assert.equal(f.pieces, pieces);
+  }
+});

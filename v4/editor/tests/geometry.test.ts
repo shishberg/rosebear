@@ -12,7 +12,8 @@ import {
   keyGroups,
   tileUnderside,
 } from '../src/geometry';
-import { buildSolid, buildSolidAsync, freeAfter } from '../src/solid';
+import { freeAfter } from '../src/manifold-util';
+import { buildSolid, buildSolidAsync } from '../src/solid';
 import { buildChassis } from '../src/chassis';
 import { crossings, holes, nets, wiring } from '../src/wiring';
 import ref from './python-reference.json';

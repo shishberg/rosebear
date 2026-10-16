@@ -8,6 +8,7 @@
 import type { CrossSection, Manifold, ManifoldToplevel, Vec3 } from 'manifold-3d';
 import { Matrix4 } from 'three';
 import { capSize, isKey, keycapEnvelope, isThumb, point, type Config } from './geometry';
+import { place, prism, slab } from './manifold-util';
 import { landingBox } from './wiring';
 
 export interface Kit {
@@ -37,7 +38,6 @@ const corners = (k: Kit, n: string, grow = 0) =>
     [1, 1],
     [-1, 1],
   ].map(([x, y]) => at(k, n, x, y, 0, grow));
-const place = (m: Manifold, f: Matrix4) => m.transform(f.elements as never);
 // A keycap's travel envelope for the well's plan: straight-sided round the
 // tapered cap (its base, with the cap's clearance), from pressed to the cap's
 // top; the top is deliberately not grown by the clearance.
@@ -1066,13 +1066,7 @@ function breadbin(k0: Kit, o: Bin): BinParts {
     // the shell, so no face of the cut lies on the shell's (coincident faces
     // leave slivers).
     near = (cs: CrossSection, d: number) => prism(cs).subtract(shell.translate([0, 0, -d])),
-    prism = (cs: CrossSection) => cs.extrude(400).translate([0, 0, -1]),
-    slab = (z0: number, z1: number) =>
-      M.cube([bb.max[0] - bb.min[0] + 40, bb.max[1] - bb.min[1] + 40, z1 - z0]).translate([
-        bb.min[0] - 20,
-        bb.min[1] - 20,
-        z0,
-      ]);
+    slabOf = (z0: number, z1: number) => slab(M, bb, 20, z0, z1 - z0);
   // Grill: grooves across the flat top between its two roundings, out through
   // both ends.
   const grooves: CrossSection[] = [],
@@ -1184,12 +1178,12 @@ function breadbin(k0: Kit, o: Bin): BinParts {
     );
   // Parting line between the top and bottom halves, 0.8 mm deep. (Cut as the
   // slab outside the inset body, so no face of the cut lies on the shell's.)
-  const parting = slab(PART - 0.6, PART + 0.6).subtract(body(0.8));
+  const parting = slabOf(PART - 0.6, PART + 0.6).subtract(body(0.8));
   // The well is open down through the case to the foot of its wall, which
   // reaches WELL_WALL down from the deck (and stops short of the parting line).
   const below = M.union([
       shell.translate([0, 0, -WELL_WALL - (o.lift ?? LIFT) + LIFT]),
-      slab(-1, PART + 3),
+      slabOf(-1, PART + 3),
     ]),
     keep = prism(keyWell.offset(k.cfg.chassis.skin_mm, 'Miter')).subtract(below);
   const back = (m: Manifold) => m.rotate([0, 0, ang]);
@@ -1235,11 +1229,7 @@ function c64(k: Kit, bins: Bin[]): Shell {
       carried(i)
         ? []
         : i
-          ? p.shell.subtract(
-              CS.union(parts.slice(0, i).map((q) => q.shell.project()))
-                .extrude(400)
-                .translate([0, 0, -1]),
-            )
+          ? p.shell.subtract(prism(CS.union(parts.slice(0, i).map((q) => q.shell.project()))))
           : p.shell,
     );
   const body = M.union(shells)

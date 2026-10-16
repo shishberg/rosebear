@@ -9,7 +9,9 @@ import Module from 'manifold-3d';
 import { createHash } from 'node:crypto';
 import { componentFrames, defaults, clone, type Config } from '../src/geometry';
 import { buildChassis } from '../src/chassis';
-import { buildSolid, freeAfter, hardware, type Report } from '../src/solid';
+import { freeAfter } from '../src/manifold-util';
+import { hardware } from '../src/parts';
+import { buildSolid, type Report } from '../src/solid';
 import { buildFrame } from '../src/hand-frame';
 import { _test as hand } from '../src/hand-prototype';
 

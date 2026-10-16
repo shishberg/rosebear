@@ -25,7 +25,7 @@ import {
   type V3,
 } from './geometry';
 import { PLATES, plateEdges, plateHalfWidths, tilePocketHalf } from './plates';
-import type { Part } from './solid';
+import type { Part } from './parts';
 
 export interface NetSpec {
   name: string;

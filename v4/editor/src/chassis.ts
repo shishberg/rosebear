@@ -26,15 +26,7 @@
 // axis. "Plan" means the world XY plane.
 import type { CrossSection, Manifold, ManifoldToplevel, Vec3 } from 'manifold-3d';
 import { Matrix4 } from 'three';
-import {
-  keycapEnvelope,
-  isKey,
-  isThumb,
-  point,
-  tileUnderside,
-  type Config,
-  type KeycapEnvelope,
-} from './geometry';
+import { keycapEnvelope, isKey, isThumb, point, tileUnderside, type Config } from './geometry';
 import { seatSettings } from './seats';
 import {
   PLATES,
@@ -45,6 +37,7 @@ import {
   tilePocketHalf,
   type HalfWidths,
 } from './plates';
+import { capsule, keycapSolid, place, prism } from './manifold-util';
 import { shell } from './shell';
 import { wiring, type Wiring } from './wiring';
 
@@ -61,32 +54,6 @@ export interface ChassisResult {
   split: number;
   /** For each key, the chassis its keycap's room (and the switch rim's) had to remove. */
   roomCuts: { name: string; cut: Manifold }[];
-}
-
-/** A keycap's envelope as a solid in key coordinates: the taper from its rest
- * height, and under it the base's footprint down to the floor. `box: false`
- * leaves the taper alone. */
-export function keycapSolid(M: ManifoldToplevel['Manifold'], e: KeycapEnvelope, box = true) {
-  const [x, y] = [e.base[0] / 2, e.base[1] / 2],
-    taper = M.extrude(
-      [
-        [
-          [-x, -y],
-          [x, -y],
-          [x, y],
-          [-x, y],
-        ],
-      ],
-      e.height,
-      0,
-      0,
-      [e.top[0] / e.base[0], e.top[1] / e.base[1]],
-    ).translate([0, 0, e.z0]);
-  return box
-    ? taper.add(
-        M.cube([2 * x, 2 * y, e.z0 - e.floor], true).translate([0, 0, (e.z0 + e.floor) / 2]),
-      )
-    : taper;
 }
 
 /**
@@ -200,7 +167,6 @@ export function buildChassis(
   const keyNames = Object.keys(frames).filter(isKey);
   const tile = cfg.tile;
   const sw = cfg.switch;
-  const place = (m: Manifold, f: Matrix4) => m.transform(f.elements as never);
   // Tile pocket: the tile, its components and the switch body, below the plate.
   const pocketDepth =
     -tileUnderside(cfg) +
@@ -378,7 +344,7 @@ export function buildChassis(
             .map(([n, m]) => M.hull(down([...roomTop(n, out), ...roomTop(m, out)]))),
         ),
       );
-    const clip = well.offset(SIZES.wellInto, 'Miter').extrude(400).translate([0, 0, -1]);
+    const clip = prism(well.offset(SIZES.wellInto, 'Miter'));
     if (facets) {
       // A flat square 0.8 mm past each key's seat, straight strips between
       // neighbours and a patch where four keys meet; past the outer keys the
@@ -455,12 +421,7 @@ export function buildChassis(
         top: floor,
         skirt: column(PLATES.wellReach, SIZES.skirtInto - plateThickness, SIZES.skirtDepth)
           .intersect(clip)
-          .subtract(
-            well
-              .offset(SIZES.wellInto - SIZES.skirt, 'Miter')
-              .extrude(400)
-              .translate([0, 0, -1]),
-          ),
+          .subtract(prism(well.offset(SIZES.wellInto - SIZES.skirt, 'Miter'))),
       };
     }
     return {
@@ -486,12 +447,7 @@ export function buildChassis(
         SIZES.skirtDepth,
       )
         .intersect(clip)
-        .subtract(
-          well
-            .offset(SIZES.wellInto - SIZES.skirt, 'Miter')
-            .extrude(400)
-            .translate([0, 0, -1]),
-        ),
+        .subtract(prism(well.offset(SIZES.wellInto - SIZES.skirt, 'Miter'))),
     };
   };
   const [fingers, thumbs] = [
@@ -560,7 +516,7 @@ export function buildChassis(
             (k) => Math.min(p[k], q[k]) - r <= b.max[k] && Math.max(p[k], q[k]) + r >= b.min[k],
           ),
         );
-        return reaches ? [M.hull([p, q].map((c) => M.sphere(r, 8).translate(c as Vec3)))] : [];
+        return reaches ? [capsule(M, p, q, r, 8)] : [];
       });
     }),
   );
@@ -663,13 +619,16 @@ function adapterMount(wasm: ManifoldToplevel, cfg: Config, frames: Record<string
       y,
       -a.standoff_mm - into,
     ]);
-  return M.union([
-    ...a.mounting_holes_mm.flatMap(([x, y]) => [
-      post(x, y, a.boss_diameter_mm, 0),
-      post(x, y, a.peg_diameter_mm, bz + a.peg_above_mm),
+  return place(
+    M.union([
+      ...a.mounting_holes_mm.flatMap(([x, y]) => [
+        post(x, y, a.boss_diameter_mm, 0),
+        post(x, y, a.peg_diameter_mm, bz + a.peg_above_mm),
+      ]),
+      ...[-1, 1].map((s) =>
+        post(bx / 2 - SIZES.adapterRestIn, s * (by / 2 - 2), a.rest_diameter_mm, 0),
+      ),
     ]),
-    ...[-1, 1].map((s) =>
-      post(bx / 2 - SIZES.adapterRestIn, s * (by / 2 - 2), a.rest_diameter_mm, 0),
-    ),
-  ]).transform(frames.adapter.elements as never);
+    frames.adapter,
+  );
 }
