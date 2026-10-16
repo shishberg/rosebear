@@ -89,153 +89,145 @@ test('Dactyl fit: the hand reaches every key touching nothing else, and it fits 
 // model doesn't (yet) reproduce. Reported, not asserted.
 test('Natural', (t) => report(t, layout(hand.NATURAL)));
 
-test('each thumb key lies along the reach and square to the press, the thumb pressing it straight in', () => {
-  const tilted = (base: typeof hand.DACTYL, reach: number, press: number) => ({
-    ...structuredClone(base),
-    thumb: { ...base.thumb, reach, press },
-  });
+/** A point on the thumb's last section at `q`, carried with it to other poses. */
+const carried = (q: number[], p: InstanceType<typeof T.Vector3>) => {
+  const th = hand.thumb(q),
+    rel = p.clone().sub(th.I),
+    local = [rel.dot(th.u), rel.dot(th.nail), rel.dot(th.side)];
+  return (q: number[]) => {
+    const t = hand.thumb(q);
+    return t.I.clone()
+      .addScaledVector(t.u, local[0])
+      .addScaledVector(t.nail, local[1])
+      .addScaledVector(t.side, local[2]);
+  };
+};
+const withMix = (base: typeof hand.DACTYL, palmar: number, curl: number, press: number) => ({
+  ...structuredClone(base),
+  thumb: { ...base.thumb, reach: { palmar, curl }, press },
+});
+
+test('each thumb key faces against the press, its mix as set, the reach in its plane', () => {
   for (const [name, s] of [
     ['Dactyl fit', hand.DACTYL],
     ['Natural', hand.NATURAL],
-    ['Dactyl fit, reach 10°, press 15°', tilted(hand.DACTYL, 10, 15)],
-    ['Natural, reach 10°, press -15°', tilted(hand.NATURAL, 10, -15)],
-  ] as const) {
-    const row = hand.solveHand(s).row,
-      rad = (d: number) => (d * Math.PI) / 180,
-      top = hand.solveHand(s).poses.middle[1].chain.pad.z,
-      radius = Math.hypot(row[1].at.x - hand.arc.centre[0], row[1].at.y - hand.arc.centre[1]);
-    row.forEach((k, i) => {
+    ['Dactyl fit, reach 0.3/0, press 30°', withMix(hand.DACTYL, 0.3, 0, 30)],
+    ['Natural, reach 0/0.6, press -15°', withMix(hand.NATURAL, 0, 0.6, -15)],
+  ] as const)
+    hand.solveHand(s).row.forEach((k, i) => {
       const at = `${['far', 'home', 'near'][i]} (${name})`,
-        th = hand.thumb(k.q),
         n = new T.Vector3().setFromMatrixColumn(k.frame, 2),
         x = new T.Vector3().setFromMatrixColumn(k.frame, 0),
-        r = rad(k.around),
-        out = new T.Vector3(Math.cos(r), Math.sin(r), 0),
-        d = rad(k.around - s.thumb.around);
+        point = carried(k.q, k.at),
+        deg = (r: number) => (r * 180) / Math.PI;
       assert.ok(k.miss < 0.01, `${at}: misses by ${k.miss.toFixed(2)}`);
-      // In plan the key is square to the sweep round the arc; along it the
-      // reach climbs as on a circle tilted `reach` at the home key.
-      assert.ok(Math.abs(x.dot(out)) < 1e-9, `${at}: not square to the sweep`);
-      const up = Math.atan(Math.cos(d) * Math.tan(rad(s.thumb.reach)));
-      assert.ok(Math.abs(Math.asin(-x.z) - up) < 1e-9, `${at}: the reach's slope`);
-      assert.ok(
-        Math.abs(
-          k.at.z - (top - s.thumb.drop + radius * Math.sin(d) * Math.tan(rad(s.thumb.reach))),
-        ) < 0.01,
-        `${at}: at ${k.at.z.toFixed(2)}`,
-      );
-      // The press tilted about the reach, back toward the arc's centre.
-      assert.ok(Math.abs(n.dot(out) - Math.sin(rad(s.thumb.press))) < 1e-9, `${at}: the press`);
       assert.ok(n.distanceTo(k.n) < 1e-9);
-      // The point touching the key, carried with the last bone as the thumb presses.
-      const side = (t: typeof th) => t.u.clone().cross(t.nail),
-        rel = k.at.clone().sub(th.I),
-        local = [rel.dot(th.u), rel.dot(th.nail), rel.dot(side(th))],
-        point = (mm: number) => {
-          const t = hand.thumb(hand.pressed(k.q, mm, k.n));
-          return t.I.clone()
-            .addScaledVector(t.u, local[0])
-            .addScaledVector(t.nail, local[1])
-            .addScaledVector(side(t), local[2]);
-        };
-      assert.deepEqual(hand.pressed(k.q, 0, k.n), k.q);
-      // It goes straight down the key's travel.
-      const start = point(0.25).sub(k.at),
-        off = (start.angleTo(n.clone().negate()) * 180) / Math.PI;
-      assert.ok(off < 0.2, `${at}: sets off ${off.toFixed(2)}° from the key's travel`);
-      const travel = defaults.config.switch.travel_mm,
-        down = point(travel).sub(k.at),
-        slide = down.clone().addScaledVector(n, -down.dot(n)).length();
+      // The press: the set mix of palmar abduction and curl, and some radial
+      // abduction; the touching point sets off straight into the key.
       assert.ok(
-        Math.abs(-down.dot(n) - travel) < 0.05,
-        `${at}: ${travel} mm goes ${(-down.dot(n)).toFixed(2)} down`,
+        Math.abs(deg(Math.atan2(k.press[2], k.press[1])) - s.thumb.press) < 1e-6,
+        `${at}: the press's mix`,
       );
-      assert.ok(slide < 0.15, `${at}: slides ${slide.toFixed(2)} mm on the cap`);
-      // The animation's 15 mm back off the key.
-      const back = point(-15).sub(k.at).length();
-      assert.ok(Math.abs(back - 15) < 0.5, `${at}: 15 mm back moves ${back.toFixed(2)}`);
+      assert.ok(hand.pressed(k.q, 0, k.press).every((v, j) => Math.abs(v - k.q[j]) < 1e-9));
+      const into = point(hand.pressed(k.q, 0.1, k.press)).sub(k.at);
+      assert.ok(Math.abs(into.length() - 0.1) < 0.002, `${at}: 0.1 mm goes ${into.length()}`);
+      assert.ok(deg(into.angleTo(n.clone().negate())) < 1, `${at}: the press sets off askew`);
+      // The reach: swinging out by its mix, the touching point goes along the
+      // key, toward the far key.
+      const out = point(hand.moveBy(k.q, [1, s.thumb.reach.palmar, s.thumb.reach.curl], 0.05)).sub(
+        k.at,
+      );
+      assert.ok(deg(out.angleTo(x.clone().negate())) < 1, `${at}: not along the reach`);
     });
-  }
-  // Tilted back the other way and the far end down, the thumb can't press
-  // the near key straight in: it would straighten past its joints.
-  const s = tilted(hand.NATURAL, -10, -15),
-    c = clone(defaults).config;
-  hand.applyHand(c, s, hand.anchorOf(c));
-  const r = hand.check(c, s);
-  assert.deepEqual(
-    r.pressOff.map((x) => x.key),
-    ['thumb near'],
-  );
-  assert.ok(hand.problems(r).some((p) => p.includes('thumb near')));
 });
 
-test("the thumb keys: the photos' thumb pose for each place round the arc, swung back onto its place and lowered, the keys spacing apart", () => {
+test("the thumb keys: home at the photos' pose for its place round the arc, swung back onto it and lowered; the others the reach's mix away, spacing apart", () => {
   for (const s of [hand.DACTYL, hand.NATURAL]) {
     const h = hand.solveHand(s),
       top = h.poses.middle[1].chain.pad.z,
       name = s === hand.DACTYL ? 'Dactyl fit' : 'Natural',
-      arc = hand.arc;
-    h.row.forEach((k, i) => {
-      const at = `${['far', 'home', 'near'][i]} (${name})`;
-      assert.ok(k.miss < 0.01, `${at}: misses by ${k.miss.toFixed(2)}`);
-      // Its touching point the drop below the middle home key, its place round the arc.
-      assert.ok(Math.abs(k.at.z - (top - s.thumb.drop)) < 0.01, `${at}: at ${k.at.z.toFixed(2)}`);
-      const round = (Math.atan2(k.at.y - arc.centre[1], k.at.x - arc.centre[0]) * 180) / Math.PI;
+      [far, home, near] = h.row,
+      q0 = hand.photoPose(s.thumb.around);
+    assert.ok(home.miss < 0.01, `${name}: home misses by ${home.miss.toFixed(2)}`);
+    // Its touching point the drop below the middle home key, at its place round the arc.
+    assert.ok(Math.abs(home.at.z - (top - s.thumb.drop)) < 0.01, `${name}: home at ${home.at.z}`);
+    assert.ok(Math.abs(home.around - s.thumb.around) < 0.05, `${name}: ${home.around}° round`);
+    // The photos' bends for that place, and its turn about the metacarpal the
+    // photos' and what comes with the swing.
+    assert.ok(Math.abs(q0[3] - home.q[3]) < 1e-9 && Math.abs(q0[4] - home.q[4]) < 1e-9);
+    assert.ok(
+      Math.abs(
+        home.q[2] - (q0[2] + hand.twistAt(home.q[0], home.q[1]) - hand.twistAt(q0[0], q0[1])),
+      ) < 1e-9,
+      `${name}: twist`,
+    );
+    // The far key swung out, the near back, each moved by the reach's mix.
+    for (const [k, sign, which] of [
+      [far, 1, 'far'],
+      [near, -1, 'near'],
+    ] as const) {
+      const by = k.q[0] - home.q[0],
+        want = hand.moveBy(home.q, [1, s.thumb.reach.palmar, s.thumb.reach.curl], by);
+      assert.ok(Math.sign(by) === sign, `${name}: ${which} swung ${by.toFixed(1)}°`);
       assert.ok(
-        Math.abs(round - k.around) < 0.05,
-        `${at}: ${round.toFixed(2)}° round, not ${k.around}`,
+        want.every((v, j) => Math.abs(v - k.q[j]) < 1e-9),
+        `${name}: ${which} isn't the reach's mix from home`,
       );
-      // The photos' pose for its place round the arc: its bends, and its turn
-      // about the metacarpal the photos' and what comes with the swing.
-      const q0 = hand.photoPose(k.around);
+      assert.ok(k.miss < 0.01, `${name}: ${which} misses by ${k.miss.toFixed(2)}`);
       assert.ok(
-        Math.abs(q0[3] - k.q[3]) < 1e-9 && Math.abs(q0[4] - k.q[4]) < 1e-9,
-        `${at}: bent ${k.q[3].toFixed(1)}/${k.q[4].toFixed(1)}, the photos ${q0[3].toFixed(1)}/${q0[4].toFixed(1)}`,
+        Math.abs(k.at.distanceTo(home.at) - s.spacing) < 0.05,
+        `${name}: ${which} key ${k.at.distanceTo(home.at).toFixed(2)} mm from home`,
       );
-      assert.ok(
-        Math.abs(k.q[2] - (q0[2] + hand.twistAt(k.q[0], k.q[1]) - hand.twistAt(q0[0], q0[1]))) <
-          1e-9,
-        `${at}: twist`,
-      );
-    });
-    // The home key `around` degrees round, and the others spacing from it.
-    assert.equal(h.row[1].around, s.thumb.around);
-    for (const i of [0, 2])
-      assert.ok(
-        Math.abs(h.row[i].at.distanceTo(h.row[1].at) - s.spacing) < 0.05,
-        `${name}: ${i ? 'near' : 'far'} key ${h.row[i].at.distanceTo(h.row[1].at).toFixed(2)} mm from home`,
-      );
+    }
   }
 });
 
-test("1.5u + 2×1u: the thumb bent alike at the MCP and IP until, at the 1.5u's place round the arc, it touches the gap from the 1.5u, the 1u keys half the spacing either side", () => {
+test("1.5u + 2×1u: the thumb bent alike at the MCP and IP until, at the 1.5u's place round the arc, it touches the gap from the 1.5u; the 1u keys the reach's mix away, half the spacing either side", () => {
   for (const gap of [19.5, 8]) {
     const s = { ...structuredClone(hand.DACTYL), cluster: '1.5u + 2×1u', two: { gap } },
       h = hand.solveHand(s),
       [a, home, b] = h.row,
+      mid = h.row.mid,
       at = `gap ${gap}`;
     for (const k of h.row) assert.ok(k.miss < 0.01, `${at}: misses by ${k.miss.toFixed(2)}`);
     // One extra bend at the MCP and IP alike, more for a gap toward the palm
     // (the 1.5u's pose is the photos'), within the joints' range.
-    const z = home.at.z,
-      bend = a.q[3] - hand.photoPose(a.around)[3];
-    for (const k of [a, b]) {
-      const q0 = hand.photoPose(k.around);
-      assert.ok(
-        Math.abs(k.q[3] - q0[3] - bend) < 1e-6 && Math.abs(k.q[4] - q0[4] - bend) < 1e-6,
-        `${at}: bent alike`,
-      );
-      assert.ok(k.q[3] < 89 && k.q[4] < 89, `${at}: at the joints' end`);
-    }
+    const q0 = hand.photoPose(s.thumb.around),
+      bend = mid.q[3] - q0[3];
+    assert.ok(Math.abs(mid.q[4] - q0[4] - bend) < 1e-9, `${at}: bent alike`);
     assert.ok(Math.sign(bend) === Math.sign(gap), `${at}: bent ${bend.toFixed(1)}°`);
-    const mid = hand.touch(hand.thumbAt(s.thumb.around, z, bend).q).p;
+    assert.ok(mid.q[3] < 89 && mid.q[4] < 89, `${at}: at the joints' end`);
     assert.ok(
-      Math.abs(mid.distanceTo(home.at) - Math.abs(gap)) < 0.05,
-      `${at}: ${mid.distanceTo(home.at).toFixed(2)} mm from the 1.5u`,
+      Math.abs(mid.p.distanceTo(home.at) - Math.abs(gap)) < 0.05,
+      `${at}: ${mid.p.distanceTo(home.at).toFixed(2)} mm from the 1.5u`,
     );
-    for (const k of [a, b])
-      assert.ok(Math.abs(k.at.distanceTo(mid) - s.spacing / 2) < 0.05, `${at}: half the spacing`);
+    for (const k of [a, b]) {
+      const want = hand.moveBy(
+        mid.q,
+        [1, s.thumb.reach.palmar, s.thumb.reach.curl],
+        k.q[0] - mid.q[0],
+      );
+      assert.ok(
+        want.every((v, j) => Math.abs(v - k.q[j]) < 1e-9),
+        `${at}: not the reach's mix`,
+      );
+      assert.ok(Math.abs(k.at.distanceTo(mid.p) - s.spacing / 2) < 0.05, `${at}: half the spacing`);
+    }
   }
+});
+
+test("a reach or press that takes the thumb past its joints isn't valid", () => {
+  // The photos' sweep has nearly 1° of curl per degree swung: back toward the
+  // near key, it straightens the thumb past its joints.
+  const s = withMix(hand.DACTYL, -0.3, 0.9, 0),
+    c = clone(defaults).config;
+  hand.applyHand(c, s, hand.anchorOf(c));
+  const r = hand.check(c, s);
+  assert.deepEqual(
+    r.pastJoints.map((x) => x.key),
+    ['thumb near'],
+  );
+  assert.ok(hand.problems(r).some((p) => p.startsWith('thumb near: the thumb')));
 });
 test("the photos' thumb poses put it on each print, above the paper", () => {
   for (const k of ['1', '2', '3', '4', '5']) {
