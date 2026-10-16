@@ -5,7 +5,7 @@ export type Config = typeof defaultConfig;
 export interface Project {
   version: 2;
   config: Config;
-  /** PROTOTYPE ?hand (hand-prototype.ts): its panel's state. */
+  /** PROTOTYPE ?hand (src/hand/): its panel's state. */
   hand?: unknown;
 }
 export interface MeshData {

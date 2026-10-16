@@ -120,3 +120,152 @@ test('the column and cluster handles and fields are off in ?hand', async ({ page
   expect(await page.evaluate(() => (window as any).rosebearEditor.getSelected())).toBe('');
   await expect(page.locator('#selection')).toBeEmpty();
 });
+
+const PANEL = [
+  '-- basic',
+  'buttons Dactyl fit, Natural, Yours, No curl',
+  'buttons Copy settings, Paste settings',
+  'radios Fingers on top=top, home=home, bottom=bottom',
+  'radios Thumb on rest=rest, far=far, home=home, near=near, x1=x1, x2=x2',
+  'check Show the thumb pressing it (its last 15 mm onto the key)',
+  'radios Rotation handle: hand=hand, off=off',
+  'h3 Basic',
+  'slider finger curl (°, + curled) [-30, 40, 1]',
+  "slider wrist height (mm, the thumb's CMC above the home row) [-30, 130, 0.5]",
+  'slider key spacing (mm, every gap) [12, 30, 0.5]',
+  'slider thumb keys round the arc (°, + away from the fingers; rest 112, swept in 92) [70, 180, 1]',
+  'slider thumb keys below the home row (mm) [-20, 50, 0.5]',
+  'slider thumb reach: palmar abduction per degree of radial abduction (+ lowers it swinging out) [-2, 2, 0.05]',
+  'slider thumb reach: curl per degree of radial abduction [-2, 2, 0.05]',
+  'slider thumb press: from palmar abduction (0°) toward curling (90°; − straightening) [-90, 90, 1]',
+  "check Far and near thumb keys' edges parallel to the home key's (tilted only along the row)",
+  'radios Thumb keys 1×3=1×3, 1.5u + 2×1u=1.5u + 2×1u',
+  "check Extra thumb keys x1, x2: beside the home and far keys, toward the thumb's base, the thumb curled more",
+  "slider extra thumb keys: mm from the row toward the thumb's base [15, 50, 0.5] off",
+  'slider extra thumb keys: curl (° more at the MCP and IP) [0, 90, 1] off',
+  'slider extra thumb keys: press (as the thumb press) [-90, 90, 1] off',
+  'check Advanced settings',
+  'check Build the case (often fails)',
+  'check Test frame (print this way up, with supports)',
+  'buttons Right STL, Left STL',
+  '-- advanced',
+  'h3 Hand on the board (°)',
+  'slider tent [0, 45, 1]',
+  'slider roll: + pinky side down [-30, 30, 1]',
+  'slider pitch: + far edge down [-25, 25, 1]',
+  'slider wrist bend: + toward the pinky [-25, 25, 1]',
+  'h3 Curl at home (°, + curled)',
+  'slider index [-30, 40, 1]',
+  'slider middle [-30, 40, 1]',
+  'slider ring [-30, 40, 1]',
+  'slider pinky [-30, 40, 1]',
+  'slider inner column gap (mm) [18, 30, 0.5]',
+  'slider inner column angle (°, + to thumb) [-10, 30, 1]',
+  'h3 Rows (mm from home)',
+  'radios Rows reached from the reach=wrist height, press=press mix',
+  'slider press mix: PIP+DIP° per MCP° [-1, 4, 0.1] off',
+  'slider top: forward [5, 35, 1]',
+  'slider bottom: back [5, 35, 1]',
+  'h3 Thumb',
+  'slider key spacing (mm) [17, 40, 0.5]',
+  'slider 1u row gap (mm, + toward the palm) [-35, 35, 0.5] off',
+];
+// The panel's controls, in order, with their labels and ranges (a slider's
+// min, max, step), as the DOM has them.
+const PANEL_SCRIPT = () => {
+  const out: string[] = [];
+  const one = (el: Element) => {
+    if (el.tagName === 'H3') return out.push(`h3 ${el.textContent}`);
+    const range = el.querySelector<HTMLInputElement>('input[type=range]');
+    if (el.tagName === 'LABEL' && range)
+      return out.push(
+        `slider ${el.querySelector('span')!.textContent} [${range.min}, ${range.max}, ${range.step}]${range.disabled ? ' off' : ''}`,
+      );
+    if (el.tagName === 'LABEL' && el.querySelector('input[type=checkbox]'))
+      return out.push(`check ${el.textContent!.trim()}`);
+    const radios = [...el.querySelectorAll<HTMLInputElement>('input[type=radio]')];
+    if (radios.length)
+      return out.push(
+        `radios ${el.firstChild!.textContent!.trim()} ${radios.map((r) => `${r.value}=${r.parentElement!.textContent}`).join(', ')}`,
+      );
+    const buttons = [...el.querySelectorAll('button')];
+    if (buttons.length) return out.push(`buttons ${buttons.map((b) => b.textContent).join(', ')}`);
+  };
+  const sec = [...document.querySelectorAll('aside section')].find((x) =>
+    x.querySelector('#hand-note'),
+  )!;
+  const [basic, advanced] = [...sec.children].filter(
+    (x) => x.tagName === 'DIV' && x.id !== 'hand-note',
+  );
+  for (const box of [basic, advanced]) {
+    out.push(`-- ${box === basic ? 'basic' : 'advanced'}`);
+    for (const el of box.children) one(el);
+  }
+  return out;
+};
+
+test('the hand panel keeps its controls, labels and ranges, and each type edits the layout', async ({
+  page,
+}) => {
+  await page.goto('/?hand');
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+  const note = page.locator('#hand-note');
+  await expect(note).toContainText('Valid (', { timeout: 30000 });
+  expect(await page.evaluate(PANEL_SCRIPT)).toEqual(PANEL);
+  const hand = () =>
+    page.evaluate(
+      () =>
+        (
+          window as unknown as { rosebearEditor: { getProject(): { hand: any } } }
+        ).rosebearEditor.getProject().hand,
+    );
+  // A slider: input events edit the state live, a drag is one Undo step.
+  await page.getByLabel('Advanced settings').check();
+  const tent = page.locator('label', { hasText: /^tent/ }).locator('input'),
+    was = (await hand()).tent;
+  await tent.fill('20');
+  await expect(tent).toHaveValue('20');
+  expect((await hand()).tent).toBe(20);
+  await page.locator('#undo').click();
+  expect((await hand()).tent).toBe(was);
+  // A drag (two input events, then a change) is one Undo step.
+  await tent.evaluate((el: HTMLInputElement) => {
+    for (const v of ['25', '30']) {
+      el.value = v;
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  expect((await hand()).tent).toBe(30);
+  await page.locator('#undo').click();
+  expect((await hand()).tent).toBe(was);
+  // One slider for several settings moves them all by the same amount.
+  const curl = page.locator('label', { hasText: 'finger curl (°' }).locator('input'),
+    curls = Object.values((await hand()).curl as Record<string, number>);
+  await curl.focus();
+  await page.keyboard.press('ArrowRight');
+  const moved = Object.values((await hand()).curl as Record<string, number>).map(
+    (v, i) => v - curls[i],
+  );
+  expect(moved[0]).not.toBe(0);
+  expect(moved).toEqual(moved.map(() => moved[0]));
+  // A radio group and a checkbox.
+  await page.getByRole('radio', { name: '1.5u + 2×1u' }).check();
+  expect((await hand()).cluster).toBe('1.5u + 2×1u');
+  const parallel = !!(await hand()).thumb.parallel;
+  await page.getByLabel(/Far and near thumb keys' edges parallel/).setChecked(!parallel);
+  expect(!!(await hand()).thumb.parallel).toBe(!parallel);
+  // Sliders are enabled as the settings they depend on are set.
+  const off = async () =>
+    (await page.evaluate(PANEL_SCRIPT))
+      .filter((x) => x.startsWith('slider ') && x.endsWith(' off'))
+      .map((x) => x.slice(7).split(' [')[0]);
+  expect(await off()).not.toContain('1u row gap (mm, + toward the palm)');
+  await page.getByLabel(/Extra thumb keys x1, x2/).check();
+  expect((await off()).filter((x) => x.startsWith('extra thumb keys'))).toEqual([]);
+  expect(await off()).toContain('press mix: PIP+DIP° per MCP°');
+  await page.getByRole('radio', { name: 'press mix' }).check();
+  expect(await off()).not.toContain('press mix: PIP+DIP° per MCP°');
+  expect(await off()).toContain("wrist height (mm, the thumb's CMC above the home row)");
+});

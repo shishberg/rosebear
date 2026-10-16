@@ -1,12 +1,12 @@
-// PROTOTYPE ?hand: the hand check (hand-prototype.ts) against the keyboard,
-// the printed test frame (hand-frame.ts) included.
+// PROTOTYPE ?hand: the hand check (src/hand/) against the keyboard,
+// the printed test frame (src/hand/frame.ts) included.
 import { test, type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import Module from 'manifold-3d';
 import { clone, componentFrames, defaults, ROWS } from '../src/geometry';
-import { buildFrame } from '../src/hand-frame';
-import { _test as hand } from '../src/hand-prototype';
+import { buildFrame } from '../src/hand/frame';
+import { _test as hand } from '../src/hand';
 
 const { T } = hand;
 const wasm = await Module();

@@ -4,7 +4,7 @@ import './style.css';
 import * as T from 'three';
 import { clone } from './geometry';
 import { setupMarks } from './marks';
-import { setupHand } from './hand-prototype';
+import { setupHand } from './hand';
 import { S } from './state';
 import {
   scene,

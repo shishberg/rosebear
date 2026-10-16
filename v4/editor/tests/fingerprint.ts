@@ -12,8 +12,8 @@ import { buildChassis } from '../src/chassis';
 import { freeAfter } from '../src/manifold-util';
 import { hardware } from '../src/parts';
 import { buildSolid, type Report } from '../src/solid';
-import { buildFrame } from '../src/hand-frame';
-import { _test as hand } from '../src/hand-prototype';
+import { buildFrame } from '../src/hand/frame';
+import { _test as hand } from '../src/hand';
 
 type Layout = { roll_deg?: number };
 const variants: Record<string, (c: Config) => void> = {

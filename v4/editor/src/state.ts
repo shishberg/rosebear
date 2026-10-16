@@ -24,7 +24,7 @@ export const S = {
   redo: [] as Project[],
   hasShell: false,
   selected: '',
-  // PROTOTYPE ?hand (hand-prototype.ts): lays the keys out from its state
+  // PROTOTYPE ?hand (src/hand/): lays the keys out from its state
   // (project.hand) and redraws the hand after each edit, and builds the case
   // only when asked (the generator can't follow many hand layouts).
   handLayout: undefined as (() => void) | undefined,

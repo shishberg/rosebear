@@ -29,7 +29,7 @@
  */
 import type { Manifold, ManifoldToplevel, Vec3 } from 'manifold-3d';
 import { Matrix4, Vector3 } from 'three';
-import { meshData, freeAfter, place as moved } from './manifold-util';
+import { meshData, freeAfter, place as moved } from '../manifold-util';
 import {
   add,
   capSize,
@@ -47,7 +47,7 @@ import {
   type Cluster,
   type Config,
   type MeshData,
-} from './geometry';
+} from '../geometry';
 
 /** Sizes in mm. */
 const FRAME = {

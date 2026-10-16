@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { bisect, bracketThenBisect, halve } from '../src/hand-solve';
+import { bisect, bracketThenBisect, halve } from '../src/hand/solve';
 
 test('halve keeps the side the root is on', () => {
   const [lo, hi] = halve((x) => x < 3, 0, 10, 40);
