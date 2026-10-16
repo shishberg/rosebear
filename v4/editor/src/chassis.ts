@@ -1,4 +1,4 @@
-// Chassis: the C64-styled shell (shell.ts) with the key plates in its wells,
+// Chassis: the C64-styled shell (shell/) with the key plates in its wells,
 // built from the key poses.
 // The shell is a hollow case parted along a groove all round: the case above
 // it, and the bottom section below, which is the base the adapter stands on.

@@ -60,7 +60,7 @@ pair tucked in front of it). The keys fan along an arc:
 `chassis` holds the plate thickness and margin and `skin_mm`, the case's skin
 all round: floor, walls and deck (the adapter and loom stand on the floor). It
 must exceed 1.5 mm, for the port neck. The case's other sizes are named at the
-top of `shell.ts`.
+top of the `src/shell/` files.
 
 ## Use
 
@@ -98,7 +98,7 @@ top of `shell.ts`.
 
 ## Construction
 
-`chassis.ts` builds the chassis from the key poses, on the case from `shell.ts`:
+`chassis.ts` builds the chassis from the key poses, on the case from `src/shell/`:
 
 - **Case**: a Commodore 64 style "breadbin". The finger keys sit in one well;
   the thumb row's deck is carried on in front of it as part of the same solid,
@@ -275,8 +275,9 @@ unchanged: save it before the change and diff it after. It builds the default
 project and its variants.
 
 Construction sizes that are not in the config are named in `SIZES` at the top of
-`chassis.ts`, the case's at the top of `shell.ts`, and the plate sheet's in
-`plates.ts`; the checks' sizes and limits are in `CHECKS` in `solid.ts`.
+`chassis.ts`, the case's at the top of the `src/shell/` files, and the plate
+sheet's in `plates.ts`; the checks' sizes and limits are in `CHECKS` in
+`solid.ts`.
 
 `test:fit` optionally takes a saved project file and exits nonzero whenever a
 check fails. `tests/python-reference.json` is a frozen fixture from the previous

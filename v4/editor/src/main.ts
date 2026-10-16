@@ -789,7 +789,7 @@ function requestBuild() {
     (sent.config.chassis as { plate_style?: string }).plate_style = q.get('plates')!;
   if (q.get('slope'))
     (sent.config.chassis as { plate_slope?: number }).plate_slope = +q.get('slope')!;
-  // PROTOTYPE: ?recess=mm, the finger deck this far above the plates' tops (shell.ts Bin.lift).
+  // PROTOTYPE: ?recess=mm, the finger deck this far above the plates' tops (shell/common.ts Bin.lift).
   if (q.get('recess'))
     (sent.config.chassis as { deck_lift?: number }).deck_lift = +q.get('recess')!;
   worker.postMessage({ id, project: sent });

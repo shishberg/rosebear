@@ -621,7 +621,7 @@ are listed but not done.
 | T7 | done | |
 | T8 | done | |
 | T9 | done | |
-| T10 | pending | |
+| T10 | done | |
 | T11 | pending | |
 | T12 | pending | |
 | T13 | pending | |
