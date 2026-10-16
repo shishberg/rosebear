@@ -9,6 +9,7 @@ import { drawHand } from './draw';
 import { buildFrame, frameStl, type FrameResult } from './frame';
 import {
   DACTYL,
+  EXTRA,
   NATURAL,
   NO_CURL,
   YOURS,
@@ -251,9 +252,16 @@ export function setupHand(host: Host) {
     const b = document.createElement('button');
     b.textContent = name;
     b.title = title;
-    // Every layout setting, keeping how rows are reached and the cluster.
+    // Every layout setting, the extra keys' place too, keeping how rows are
+    // reached, the cluster and whether the extra keys are on.
     b.addEventListener('click', () =>
-      edit((s) => Object.assign(s, structuredClone(p), { from: s.from, cluster: s.cluster })),
+      edit((s) =>
+        Object.assign(s, structuredClone(p), {
+          from: s.from,
+          cluster: s.cluster,
+          extra: { ...structuredClone(p.extra ?? EXTRA), on: s.extra.on },
+        }),
+      ),
     );
     presets.append(b);
   }

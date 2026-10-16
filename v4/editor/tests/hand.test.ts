@@ -496,6 +496,8 @@ test('the extra thumb keys hang off the row under its gaps, and exist only when 
   // thumb, though the thumb's tip, all the model presses with, meets them so).
   assert.ok(r.h.extra.every((k) => Math.abs(k.roll) > hand.BACK_OF_THUMB));
   assert.deepEqual(wrongOf(on), []);
+  // No curl's own place for them is clear too.
+  assert.deepEqual(wrongOf({ ...hand.NO_CURL, extra: { ...hand.NO_CURL.extra!, on: true } }), []);
   const off = layout(hand.YOURS);
   assert.ok(frame.volume > off.frame.volume + 0.5, 'the frame holds the extra keys');
   // Off: none, and the cluster as it was by default.

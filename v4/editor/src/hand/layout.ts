@@ -214,6 +214,9 @@ export const capFrame = (pos: T.Vector3, normal: T.Vector3, up: T.Vector3) => {
   return new T.Matrix4().makeBasis(new T.Vector3().crossVectors(y, z), y, z).setPosition(pos);
 };
 // ---------------------------------------------------------------- presets
+/** The extra thumb keys as set by eye on Yours (where nothing hits), for a
+ * preset that doesn't set its own. */
+export const EXTRA: Extra = { on: false, south: 37, tilt: 32, lower: 3, along: 0 };
 /** Near the Dactyl Manuform (DM_right), reaching as seen on it. Fitted by a
  * test (tests/hand.test.ts): of the valid layouts, the one whose keys are
  * closest to the Dactyl's. Valid with the 1×3 cluster, the frame too. */
@@ -294,11 +297,13 @@ export const YOURS: Settings = {
   two: { gap: 19.5 },
 };
 /** Yours with the thumb keeping its resting bend on every key (no curl), each
- * key pressed with the pad. */
+ * key pressed with the pad. The extra keys slid 3 mm toward the near key,
+ * where the thumb reaches x2. */
 export const NO_CURL: Settings = {
   ...structuredClone(YOURS),
   thumb: { around: 116, drop: 16, reach: { palmar: 1.1, curl: 0 }, press: -20, parallel: true },
   spacing: 25,
+  extra: { ...EXTRA, along: -3 },
 };
 /** Everything the panel sets: the layout's settings, what the hand is shown
  * doing and which parts of the panel are open. One state, kept in the project
@@ -321,9 +326,7 @@ export type HandState = Settings & {
 };
 export const START: HandState = {
   ...structuredClone(DACTYL),
-  // Valid on Yours: closer, x1 meets the near key; pressed with the side of
-  // the thumb (its nail about upright), x1 21° off square, x2 7°.
-  extra: { on: false, south: 37, tilt: 32, lower: 3, along: 0 },
+  extra: structuredClone(EXTRA),
   row: 'home',
   thumbOn: 'home',
   pressing: false,

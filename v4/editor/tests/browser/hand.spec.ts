@@ -265,6 +265,15 @@ test('the hand panel keeps its controls, labels and ranges, and each type edits 
   expect(await off()).not.toContain('1u row gap (mm, + toward the palm)');
   await page.getByLabel(/Extra thumb keys x1, x2/).check();
   expect((await off()).filter((x) => x.startsWith('extra thumb keys'))).toEqual([]);
+  // A preset sets the extra keys' place too, leaving them on.
+  const along = page.locator('label', { hasText: /^extra thumb keys: slide/ }).locator('input');
+  await along.fill('5');
+  expect((await hand()).extra.along).toBe(5);
+  await page.getByRole('button', { name: 'No curl' }).click();
+  await expect(along).toHaveValue('-3');
+  expect((await hand()).extra).toEqual({ on: true, south: 37, tilt: 32, lower: 3, along: -3 });
+  await page.getByRole('button', { name: 'Yours' }).click();
+  await expect(along).toHaveValue('0');
   expect(await off()).toContain('press mix: PIP+DIP° per MCP°');
   await page.getByRole('radio', { name: 'press mix' }).check();
   expect(await off()).not.toContain('press mix: PIP+DIP° per MCP°');
