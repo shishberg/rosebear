@@ -87,7 +87,7 @@ const defaultPanel = (cfg: Config) => landingEnd(cfg) - cfg.ribbon.landing_mm[0]
 /**
  * The ribbon's landing, on the port panel's insert inside the case: its length
  * in from the wall and its width, and in the adapter's frame its bottom (on the
- * bottom plate) and top (under the ribbon).
+ * bottom section) and top (under the ribbon).
  */
 export function landingBox(cfg: Config) {
   const a = cfg.adapter;

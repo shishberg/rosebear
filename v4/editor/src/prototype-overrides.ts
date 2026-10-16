@@ -2,9 +2,10 @@ import { clone, type Project } from './geometry';
 
 /**
  * PROTOTYPE URL overrides of the chassis settings, for trying a variant
- * without editing the project: `?plates=narrow[&slope=deg]` (plates.ts) and
- * `?recess=mm`, the finger deck this far above the plates' tops (shell/common.ts
- * Bin.lift). Returns the project to build, which is the one the report records.
+ * without editing the project: `?plates=narrow[&slope=deg]|facets` (plates.ts)
+ * and `?recess=mm`, the finger and thumb decks this far above the key surface
+ * (Bin.lift in shell/common.ts). Returns the project to build, which is the
+ * one the report records.
  */
 export function prototypeOverrides(p: Project, search: string): Project {
   const q = new URLSearchParams(search),

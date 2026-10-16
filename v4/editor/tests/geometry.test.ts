@@ -25,8 +25,8 @@ wasm.setup();
 const pos = (m: { elements: number[] }) => new Vector3(...m.elements.slice(12, 15));
 const normal = (m: { elements: number[] }) => new Vector3(...m.elements.slice(8, 11));
 test('default column heights reproduce the Python reference finger poses', () => {
-  // The heights and sideways tilts were taken from the old paraboloid surface, so
-  // the finger keys sit where the Python generator put them.
+  // The default heights and sideways tilts put the finger keys where the Python
+  // generator did (python-reference.json).
   for (const [key, m] of Object.entries(componentFrames(defaults.config)))
     if (key.startsWith('matrix_'))
       m.elements.forEach((x, i) =>
@@ -148,8 +148,8 @@ test('default chassis passes: one piece on one footprint, clear of the tile pock
         }
       }
     // The seats only change the plate inside their footprint: its side edges
-    // match the chassis before seating. (Trimming before filling once cut a
-    // wedge from the index home plate's edge.)
+    // match the chassis before seating. This guards the order in seatSwitches:
+    // fill first, then trim (the reverse cuts a wedge from a plate's edge).
     const chassis = buildChassis(wasm, p.config, componentFrames(p.config)).body;
     for (const [name, m] of Object.entries(componentFrames(p.config)))
       if (name.startsWith('matrix_'))

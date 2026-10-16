@@ -131,7 +131,7 @@ for (const [name, change] of Object.entries(variants)) {
   const cfg = clone(defaults.config);
   change(cfg);
   freeAfter(wasm, () => {
-    // buildSolid doesn't expose its chassis body, so the standalone build stays.
+    // buildSolid doesn't return the chassis body, so it is built here for its volumes.
     const chassis = buildChassis(wasm, cfg, componentFrames(cfg));
     const project = { version: 2 as const, config: cfg };
     const solid = buildSolid(wasm, project);

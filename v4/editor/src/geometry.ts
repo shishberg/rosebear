@@ -177,7 +177,7 @@ export function componentFrames(cfg: Config) {
     if (c) clusterFrames(c).forEach((m, i) => (n['thumb_' + c.keys[i].name] = m));
   const tent = tentFrame(cfg);
   for (const key in n) n[key].premultiply(tent);
-  // The adapter lies on the bottom plate, so it is placed in world coordinates.
+  // The adapter stands on the bottom section, so it is placed in world coordinates.
   const a = cfg.adapter;
   n.adapter = frame(
     [a.position_mm[0], a.position_mm[1], cfg.chassis.skin_mm + a.standoff_mm],

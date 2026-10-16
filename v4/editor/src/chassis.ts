@@ -223,7 +223,7 @@ function skirts(
  * keycap's lowest point, and the keycap with its clearance above that (a box,
  * the cap's base wide, well above it). cutters removes it; roomCuts is what it
  * removes from where the rim and the keycap go (tapered as measured, from
- * pressed to rest, with its clearance), for the checks: chassis that was built
+ * pressed to rest, with its clearance), for the checks: chassis that stands
  * where a keycap goes. (The box's corners above the cap's taper are not.)
  */
 function keycapRooms(

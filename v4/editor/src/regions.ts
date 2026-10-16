@@ -2,7 +2,8 @@ import type { Manifold } from 'manifold-3d';
 import { Matrix4, Vector3 } from 'three';
 import { box, place, type Factory } from './manifold-util';
 
-/** A box about a key, `half` wide and deep either side and `height` either side of its plane, in the key's frame. */
+/** A box about a key in its frame: `half` wide and deep either side of it, and
+ * the RegionIndex's height either side of its plane. */
 export interface Region {
   frame: Matrix4;
   half: number[];

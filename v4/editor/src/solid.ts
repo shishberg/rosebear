@@ -272,7 +272,7 @@ export function checkOpenings(
   return { openings, highlights };
 }
 
-/** The base plate is a separate print, so every piece above it must hold together. */
+/** The bottom section is a separate print, so everything above it must be one piece. */
 function checkPieces(cut: Manifold) {
   const pieces = cut
     .decompose()
@@ -445,7 +445,7 @@ function checkWires(p: Probe, wired: Wiring, result: Manifold) {
 }
 
 /**
- * A soldering iron's way to each pad, with the bottom plate off: straight
+ * A soldering iron's way to each pad, with the bottom section off: straight
  * down from it along its key's normal, through the open bottom of the tile
  * pocket.
  */
@@ -554,7 +554,8 @@ function build(
   const loose = checkPieces(cut);
   const footprint = checkFootprint(cut, chassis.split);
   const rooms = checkRooms(chassis.roomCuts);
-  // The chassis and its bottom plate are separate prints, sent separately.
+  // Checked as one solid; the case and its bottom section are still returned
+  // (and printed) separately.
   const result = cut.add(chassis.base);
   const seats = checkSeats(probe, cfg, keys, result);
   const hw = checkHardware(probe, project, nodes, chassis, result);

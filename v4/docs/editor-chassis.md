@@ -27,7 +27,7 @@ in the configuration. File paths are relative to `v4/editor/`.
   The main ribbon leaves through a slot in it. The insert also holds the
   ribbon. A neck round the slot passes through the wall, where the two halves
   close on it. Inside the case it carries the ribbon's **landing**, a block on
-  the bottom plate with two tunnels across it for cable ties that pass over the
+  the bottom section with two tunnels across it for cable ties that pass over the
   ribbon. The landing reaches below the neck, so a pull on the ribbon bears on
   the wall. The landing is 10 mm long from the wall, so the adapter stands far
   enough in for its loop to clear it.

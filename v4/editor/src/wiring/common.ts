@@ -116,7 +116,7 @@ export const WIRING = {
   portBelow: 9,
   /** The wire port is at least this wide in half-width, whatever the gap between its keys. */
   portMinHalfWidth: 1.5,
-  /** The wire port's floor is this high above the bottom plate. */
+  /** The wire port's floor is this high above the bottom section. */
   portFoot: 1,
   /** A thumb's wires through the port gather this far out from its edge facing the port. */
   gatherOut: 2,

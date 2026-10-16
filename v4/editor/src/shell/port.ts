@@ -44,7 +44,7 @@ export function portPanel(k: Kit, body: Manifold, x0: number) {
     w = r.width_mm + 2 * r.notch_clearance_mm,
     slot = M.cube([skin + 1, w, PANEL.slot]).translate([x0 - 1, ry - w / 2, rz - PANEL.slot / 2]),
     // The insert holds the ribbon: a neck round the slot through the wall
-    // behind it, and inside the case the landing, on the bottom plate, where
+    // behind it, and inside the case the landing, on the bottom section, where
     // cable ties through two tunnels across it tie the ribbon down. The
     // landing reaches below the neck, so a pull on the ribbon bears on the
     // wall; the halves close on the neck across the parting line.
