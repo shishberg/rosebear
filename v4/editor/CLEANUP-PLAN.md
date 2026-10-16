@@ -632,7 +632,7 @@ are listed but not done.
 | T9 | done | |
 | T10 | done | |
 | T11 | done | |
-| T12 | pending | |
+| T12 | done | |
 | T13 | pending | |
 | T14 | pending | |
 | T15 | pending | |

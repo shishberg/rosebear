@@ -150,7 +150,7 @@ top of the `src/shell/` files.
 
 ## Wiring
 
-`wiring.ts` models the hand wiring from these provisional assumptions:
+`src/wiring/` models the hand wiring from these provisional assumptions:
 
 - **Tile pads**: four on each of the tile's edges parallel to its socket, at
   x = −7, −2.5, 2.5 and 7 mm, 1.2 × 1.8 mm, on the underside. Back edge: C, G, +,
@@ -277,7 +277,8 @@ project and its variants.
 
 Construction sizes that are not in the config are named in `SIZES` at the top of
 `chassis.ts`, the case's at the top of the `src/shell/` files, and the plate
-sheet's in `plates.ts`, the seats' in `seats.ts`; the checks' sizes and limits
+sheet's in `plates.ts`, the seats' in `seats.ts`, the wiring's in `WIRING` in
+`src/wiring/common.ts`; the checks' sizes and limits
 are in `CHECKS` in `solid.ts`.
 
 `test:fit` optionally takes a saved project file and exits nonzero whenever a
