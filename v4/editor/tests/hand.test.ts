@@ -30,10 +30,6 @@ const report = (t: TestContext, r: ReturnType<typeof layout>) => {
   for (const x of r.r.handHits)
     t.diagnostic(`${x.a} ${x.during}: into ${x.b} (${x.depth.toFixed(1)} mm)`);
 };
-const withThumb = (s: Settings, thumb: Partial<Settings['thumb']>): Settings => ({
-  ...structuredClone(s),
-  thumb: { ...s.thumb, ...thumb },
-});
 
 test('a part is caught going into a keycap or the frame, but not the keys it may touch', () => {
   const { r, frame, toHand } = layout(hand.DACTYL),
@@ -89,10 +85,6 @@ test('Dactyl fit: the hand reaches every key touching nothing else, and it fits 
   assert.ok(r.r.height.all <= hand.TRAY, `${r.r.height.all.toFixed(1)} mm tall`);
   assert.deepEqual(hand.problems(r.r), []);
 });
-test('Dactyl fit, the thumb not straightened: pressing the near key, it goes into the home key', () => {
-  const r = layout(withThumb(hand.DACTYL, { curl: 0 }));
-  assert.ok(r.r.handHits.some((x) => x.a === 'thumb' && x.b === 'thumb home'));
-});
 // Natural's printed frame: the index brushed the thumb cluster, which the
 // model doesn't (yet) reproduce. Reported, not asserted.
 test('Natural', (t) => report(t, layout(hand.NATURAL)));
@@ -139,14 +131,46 @@ test('each thumb key lies along the last bone in a plane through the CMC, and th
     });
 });
 
+test("the thumb keys: the photos' thumb pose for each place round the arc, lowered by abduction alone, the keys spacing apart", () => {
+  for (const s of [hand.DACTYL, hand.NATURAL]) {
+    const h = hand.solveHand(s),
+      top = h.poses.middle[1].chain.pad.z,
+      name = s === hand.DACTYL ? 'Dactyl fit' : 'Natural';
+    h.row.forEach((k, i) => {
+      const at = `${['far', 'home', 'near'][i]} (${name})`;
+      assert.ok(k.miss < 0.01, `${at}: misses by ${k.miss.toFixed(2)} mm`);
+      // Its touching point the drop below the middle home key.
+      assert.ok(Math.abs(k.at.z - (top - s.thumb.drop)) < 0.01, `${at}: at ${k.at.z.toFixed(2)}`);
+      // The photos' pose for its place round the arc (the same swing across
+      // the palm, MCP and IP bends), abducted; its turn about the metacarpal
+      // comes with the swing.
+      const q0 = hand.photoPose(k.around);
+      assert.ok(Math.abs(q0[0] - k.q[0]) < 1e-9, `${at}: swung across the palm`);
+      assert.ok(
+        Math.abs(q0[3] - k.q[3]) < 0.05 && Math.abs(q0[4] - k.q[4]) < 0.05,
+        `${at}: bent ${k.q[3].toFixed(1)}/${k.q[4].toFixed(1)}, the photos ${q0[3].toFixed(1)}/${q0[4].toFixed(1)}`,
+      );
+      assert.ok(Math.abs(k.q[2] - hand.twistAt(k.q[0], k.q[1])) < 1e-9, `${at}: twist`);
+    });
+    // The home key `around` degrees round, and the others spacing from it.
+    assert.equal(h.row[1].around, s.thumb.around);
+    for (const i of [0, 2])
+      assert.ok(
+        Math.abs(h.row[i].at.distanceTo(h.row[1].at) - s.spacing) < 0.05,
+        `${name}: ${i ? 'near' : 'far'} key ${h.row[i].at.distanceTo(h.row[1].at).toFixed(2)} mm from home`,
+      );
+  }
+});
+
 test("a thumb key it can't press straight down with its pad isn't valid", () => {
-  const problems = (curl: number) =>
-    hand.problems(hand.check(clone(defaults).config, withThumb(hand.DACTYL, { curl })));
-  // Straightened until the last bone points at the CMC, then past it.
-  assert.ok(
-    problems(-25).some((p) => p.includes('pressed off square (the thumb points at the CMC)')),
-  );
-  assert.ok(problems(-35).some((p) => p.includes('met with the back of the thumb')));
+  // The thumb straightened until the last bone points at the CMC, then past it.
+  const q = (curl: number) => {
+    const yaw = 123.1,
+      pitch = 25.2;
+    return [yaw, pitch, hand.twistAt(yaw, pitch), 32.3 + curl, 25.5 + curl];
+  };
+  assert.ok(hand.touch(q(-25)).miss > 0.5);
+  assert.ok(Math.abs(hand.touch(q(-35)).roll) > 90);
 });
 
 const FINGERS = ['index', 'middle', 'ring', 'pinky'] as const;
@@ -245,13 +269,12 @@ function wrongOf(s: Settings) {
 
 // The settings fitted, each moved half a step at a time: the finger curl (the
 // wrist height following, to keep the reach), the hand's pitch on the board,
-// the thumb's sweep, abduction and curl, and the gaps.
+// the thumb keys' place round the arc and drop, and the gaps.
 const FIT: [string, (s: Settings, d: number) => void][] = [
   ['finger curl', (s, d) => FINGERS.forEach((f) => (s.curl[f] += d))],
   ['pitch', (s, d) => (s.pitch += d)],
-  ['thumb sweep', (s, d) => (s.thumb.sweep += d)],
-  ['thumb abduction', (s, d) => (s.thumb.abduct += d)],
-  ['thumb curl', (s, d) => (s.thumb.curl += d)],
+  ['thumb keys round the arc', (s, d) => (s.thumb.around += d)],
+  ['thumb keys below the home row', (s, d) => (s.thumb.drop += d)],
   ['thumb key spacing', (s, d) => (s.spacing += d)],
   ['row gap', (s, d) => ((s.top += d), (s.bottom += d))],
   ['inner column gap', (s, d) => (s.innerGap += d)],

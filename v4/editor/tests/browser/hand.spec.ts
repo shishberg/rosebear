@@ -26,9 +26,9 @@ test('the hand readout checks every reach against the keycaps and the frame', as
   // The thumb shown pressing its key, over and over.
   await page.getByText('Show the thumb pressing it').click();
   await page.waitForTimeout(500);
-  // How far the thumb rolls onto its outer edge for each key.
+  // Each thumb key's place round the arc, how the thumb bends and rolls there.
   await expect(note).toContainText(
-    /Thumb rolled onto its outer edge: far \d+°, home \d+°, near \d+°/,
+    /Thumb keys round the arc: far \d+°, home 112°, near \d+°.*Bent at the MCP \/ IP: .*Rolled onto its outer edge: \d+°, \d+°, \d+°/,
   );
   // The frame shown is the one checked.
   await page.getByText('Test frame (print this way up, with supports)').click();
