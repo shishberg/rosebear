@@ -432,30 +432,30 @@ test("keys whose tiles overlap aren't valid: the boards and the parts hanging un
     ['thumb_far thumb_home'],
   );
 });
-test('far and near thumb keys parallel to the home key: as it faces and turned as it is, where the thumb touches a key facing that way, pressed at an angle', () => {
+test("far and near thumb keys with the home key's y: tilted only along the row, toward their press, where the thumb touches them", () => {
   const at = (s: Settings) => hand.solveHand(s).row,
     yours = at(hand.YOURS),
     own = at({ ...structuredClone(hand.YOURS), thumb: { ...hand.YOURS.thumb, parallel: false } }),
     [far, home, near] = yours,
-    R = (k: (typeof yours)[number]) => new T.Matrix3().setFromMatrix4(k.frame).elements;
+    y = (k: (typeof yours)[number]) => new T.Vector3().setFromMatrixColumn(k.frame, 1);
   assert.equal(home.slant, 0);
-  for (const k of [far, near]) {
-    R(k).forEach((v, i) => assert.ok(Math.abs(v - R(home)[i]) < 1e-9));
-    assert.ok(k.n.angleTo(home.n) < 1e-9);
-    assert.ok(k.slant > 5 && k.slant < 30, `${k.slant}`);
+  [far, near].forEach((k, i) => {
+    // The home key's y, and square to it.
+    assert.ok(y(k).angleTo(y(home)) < 1e-9);
+    assert.ok(Math.abs(k.n.dot(y(home))) < 1e-9);
+    assert.ok(k.n.angleTo(home.n) > (5 * Math.PI) / 180);
+    assert.ok(k.slant < 20, `${k.slant}`);
     assert.ok(!k.away);
     assert.ok(Math.abs(k.at.distanceTo(home.at) - hand.YOURS.spacing) < 0.05);
-  }
-  // Each facing its own press, they tilt in toward the home key: 20–30°.
-  for (const i of [0, 2]) assert.ok(own[i].n.angleTo(home.n) > (10 * Math.PI) / 180);
+  });
+  // Tilted toward its press, the near key is pressed nearly square (all
+  // three facing alike, 10° off).
+  assert.ok(near.slant < 5, `${near.slant}`);
   assert.ok(own.every((k) => k.slant === 0));
 });
 test('the extra thumb keys: under the gaps between the thumb keys, toward the wrist, the thumb curled more; laid out, checked and in the frame only when on', () => {
-  // (The row as far apart as it was: under its gaps the extra keys are a gap
-  // apart.)
   const on = {
       ...structuredClone(hand.YOURS),
-      spacing: 25.5,
       extra: { ...hand.START.extra, on: true },
     },
     { c, r, frame } = layout(on),
@@ -490,7 +490,7 @@ test('the extra thumb keys: under the gaps between the thumb keys, toward the wr
     assert.ok(r.caps.some((x) => x.name === name));
   });
   assert.deepEqual(wrongOf(on), []);
-  const off = layout({ ...structuredClone(hand.YOURS), spacing: on.spacing });
+  const off = layout(hand.YOURS);
   assert.ok(frame.volume > off.frame.volume + 0.5, 'the frame holds the extra keys');
   // Off: none, and the cluster as it was by default.
   assert.equal(off.r.h.extra.length, 0);

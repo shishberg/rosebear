@@ -451,10 +451,11 @@ type ThumbPose = {
    * alone (90; − straightening), less as much of the reach mix as makes it
    * square to the reach. */
   press: number;
-  /** The far and near keys face as the home key does (their caps parallel
-   * to it), each where the thumb touches a key facing that way, instead of
-   * each facing against its own press: pressed at an angle, but their tiles
-   * don't tilt in toward the home key's. */
+  /** The far and near keys keep the home key's y (the axis across the row,
+   * along the edges the keys share), not turned about their own faces or
+   * tilted across the row, instead of each facing against its own press;
+   * each still tilts along the row, about y, as near square to its press as
+   * that leaves. Their tiles' edges stay parallel to the home key's. */
   parallel?: boolean;
 };
 /** How far the thumb's MCP and IP go, degrees: a guess as the fit bounds them (they hyperextend a little). */
@@ -601,8 +602,8 @@ function pressOn(q: number[], t: ThumbPose, n: T.Vector3) {
     mix = share.map((v, j) => v - k * reach[j]);
   return { tp, r, mix, d: along(mix) };
 }
-/** The key the thumb at `q` touches facing `n` (a far or near key parallel
- * to the home key), as keyAt: its press per mm into the key (along `n`; the
+/** The key the thumb at `q` touches facing `n` (a far or near key with the
+ * home key's y), as keyAt: its press per mm into the key (along `n`; the
  * thumb goes in at an angle, `slant` degrees off square, and slides that much
  * more across it). */
 function keyFacing(q: number[], t: ThumbPose, n: T.Vector3) {
@@ -621,17 +622,20 @@ function keyFacing(q: number[], t: ThumbPose, n: T.Vector3) {
 /** From the key `from` (the thumb at `from.q` touching it at `from.p`), the
  * thumb moved by the reach mix (sign +1: swinging out, away from the
  * fingers) until the key it touches is `gap` mm from `from`'s, centre to
- * centre (to the key facing `n`, if given). `miss`: mm short, if 90° of
+ * centre (to the key facing `n(q)`, if given). `miss`: mm short, if 90° of
  * swing doesn't get there. */
 function thumbAlong(
   from: { q: number[]; p: T.Vector3 },
   sign: number,
   gap: number,
   t: ThumbPose,
-  n?: T.Vector3,
+  n?: (q: number[]) => T.Vector3,
 ) {
   const at = (s: number) => moveBy(from.q, reachMix(t), s),
-    off = (s: number) => (n ? touch(at(s), n) : keyAt(at(s), t)).p.distanceTo(from.p) - gap;
+    off = (s: number) => {
+      const q = at(s);
+      return (n ? touch(q, n(q)) : keyAt(q, t)).p.distanceTo(from.p) - gap;
+    };
   // Out in 2° steps until past `gap`, then bisect.
   let lo = 0,
     hi = 0;
@@ -709,22 +713,31 @@ function thumbRow(t: ThumbPose, spacing: number, top: number, two?: TwoRows) {
   }
   const at = thumbKey(home.q, home.miss, t),
     face = t.parallel ? at : undefined,
-    ends = [1, -1].map((k) => thumbAlong(from, k, gap, t, face?.n)),
+    ends = [1, -1].map((k) => thumbAlong(from, k, gap, t, face && ((q) => hinged(q, t, face)))),
     keys = [ends[0], ends[1]].map((k) => thumbKey(k.q, k.miss + f, t, face));
   // `mid`: where the far and near keys are measured from (on 1.5u + 2×1u,
   // their middle).
   return Object.assign([keys[0], at, keys[1]], { mid: from });
 }
+/** Which way a far or near key at `q` faces, keeping `face`'s y (the home
+ * key's): as it would facing its own press (keyAt), tilted across the row
+ * back into the plane square to y. */
+function hinged(q: number[], t: ThumbPose, face: { frame: T.Matrix4 }) {
+  const y = new T.Vector3().setFromMatrixColumn(face.frame, 1),
+    n = keyAt(q, t).n;
+  return n.addScaledVector(y, -n.dot(y)).normalize();
+}
 /** The key the thumb touches at `q` (keyAt), square to the sweep: x along
- * it, toward the near key. Or, given a key to be parallel to (`face`), the
- * key facing as it does, turned as it is (keyFacing). `at`: where the thumb
- * touches the key (its cap top's centre). `slant`: degrees the press is off
- * square to the key. */
-function thumbKey(q: number[], miss: number, t: ThumbPose, face?: { n: T.Vector3; frame: T.Matrix4 }) {
-  const k = face ? keyFacing(q, t, face.n) : keyAt(q, t),
+ * it, toward the near key. Or, given the home key (`face`), the key with
+ * its y, tilted along the row as near square to its own press as that
+ * leaves (hinged, keyFacing). `at`: where the thumb touches the key (its cap
+ * top's centre). `slant`: degrees the press is off square to the key. */
+function thumbKey(q: number[], miss: number, t: ThumbPose, face?: { frame: T.Matrix4 }) {
+  const k = face ? keyFacing(q, t, hinged(q, t, face)) : keyAt(q, t),
     x = k.sweep.clone().negate(),
-    m = face
-      ? face.frame.clone().setPosition(k.p)
+    y = face && new T.Vector3().setFromMatrixColumn(face.frame, 1),
+    m = y
+      ? new T.Matrix4().makeBasis(new T.Vector3().crossVectors(y, k.n), y, k.n).setPosition(k.p)
       : new T.Matrix4().makeBasis(x, new T.Vector3().crossVectors(k.n, x), k.n).setPosition(k.p);
   return {
     slant: k.slant,
@@ -1605,11 +1618,13 @@ const NATURAL: Settings = {
  * the arc, the reach lowering and curling the thumb as it swings out, the
  * press mostly palmar abduction. Then, once the keys' tiles were checked
  * (the far and home tiles overlapped 1.9 mm), the home key 17 mm below the
- * home row (was 14.5). Then the far and near keys parallel to the home key
- * (their tiles no longer tilt in toward its), the press back to -3° and the
- * keys 20.5 mm apart (was 26.8; at 19.5 the tiles meet): the far key pressed
- * 17° off square, the near 10°. (Each facing its own press, the keys had to
- * be 27.8 mm apart and the press -9°.) */
+ * home row (was 14.5). Then the far and near keys with the home key's y,
+ * tilted along the row toward their press (17° and 14° from the home key),
+ * the press back to -3° and the keys 26.5 mm apart (closer, their tiles
+ * meet): the far key pressed 16° off square, the near 2°. (Each facing its
+ * own press, the keys had to be 27.8 mm apart and the press -9°; all three
+ * facing alike, 20.5 mm apart, the far key pressed 17° off square and the
+ * near 10°.) */
 const YOURS: Settings = {
   tent: 15,
   roll: 0,
@@ -1630,7 +1645,7 @@ const YOURS: Settings = {
     press: -3,
     parallel: true,
   },
-  spacing: 20.5,
+  spacing: 26.5,
   cluster: '1×3',
   two: { gap: 19.5 },
 };
@@ -1640,14 +1655,15 @@ const YOURS: Settings = {
  * keeps its resting bend (MCP 21°, IP 18°) on every key and presses each
  * with the pad (on Yours the far key is pressed with the tip, the thumb bent
  * 39° / 36° and on its side 76°). The press palmar abduction with a little
- * straightening (-20°). The far and near keys parallel to the home key,
- * 20.5 mm apart (at 19 the tiles meet), the far key pressed 12° off square,
- * the near 7° (each facing its own press, the far and home keys' tiles
- * overlap closer than 29.5 mm). */
+ * straightening (-20°). The far and near keys with the home key's y, tilted
+ * along the row toward their press (14° and 8° from the home key), 25 mm
+ * apart (closer, the far and home keys' tiles meet): the far key pressed 8°
+ * off square, the near square (each facing its own press, they had to be
+ * 29.5 mm apart; all three facing alike, 20.5 mm apart, 12° and 7° off). */
 const NO_CURL: Settings = {
   ...structuredClone(YOURS),
   thumb: { around: 116, drop: 16, reach: { palmar: 1.1, curl: 0 }, press: -20, parallel: true },
-  spacing: 20.5,
+  spacing: 25,
 };
 /** Everything the panel sets: the layout's settings, what the hand is shown
  * doing and which parts of the panel are open. One state, kept in the project
@@ -2223,7 +2239,7 @@ export function setupHand(host: Host) {
     90,
   );
   checkbox(
-    'Far and near thumb keys parallel to the home key (pressed at an angle)',
+    "Far and near thumb keys' edges parallel to the home key's (tilted only along the row)",
     () => !!s().thumb.parallel,
     (v) => (s().thumb.parallel = v),
   );
