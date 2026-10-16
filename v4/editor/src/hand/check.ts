@@ -117,7 +117,7 @@ type Hit = { a: string; b: string; depth: number };
 /** Keycaps that hit each other: either pressed to the bottom (plus the
  * keycap clearance, not the per-key overrides, which are the case's bigger room
  * round the 1.5u) against the other at rest. */
-function capHits(c: Config, caps: Cap[]) {
+export function capHits(c: Config, caps: Cap[]) {
   const sw = c.switch,
     rest = caps.map((k) => capBoxes(k, 0)),
     pressed = caps.map((k) => capBoxes(k, sw.keycap_clearance_mm, sw.travel_mm)),

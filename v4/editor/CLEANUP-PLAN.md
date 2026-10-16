@@ -643,7 +643,7 @@ are listed but not done.
 | T12 | done | |
 | T13 | done | |
 | T14 | done | |
-| T15 | pending | |
+| T15 | done | |
 | T16 | done | |
 | T17 | done | |
 | T18 | pending | |
