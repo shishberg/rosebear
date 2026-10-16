@@ -4,6 +4,9 @@ import type { CrossSection, Manifold, ManifoldToplevel, Mat4, Vec3 } from 'manif
 import type { Matrix4 } from 'three';
 import type { KeycapEnvelope, MeshData } from './geometry';
 
+/** The Manifold constructors of a loaded module. */
+export type Factory = ManifoldToplevel['Manifold'];
+
 /** A plan shape's prism, run far above and below any part so cuts through it are clean. */
 export const prism = (cs: CrossSection) => cs.extrude(400).translate([0, 0, -1]);
 
@@ -24,6 +27,13 @@ export const slab = (
 /** Each point and the point `depth` below it: hulled, a column straight down. */
 export const down = (ps: Vec3[], depth = 80) =>
   ps.flatMap((p) => [p, [p[0], p[1], p[2] - depth] as Vec3]);
+
+/** A box of `size` about `center`. */
+export const box = (
+  M: ManifoldToplevel['Manifold'],
+  size: number[],
+  center: number[] = [0, 0, 0],
+) => M.cube(size as Vec3, true).translate(center as Vec3);
 
 /** `m` moved by a frame. */
 export const place = (m: Manifold, f: Matrix4) => m.transform(f.elements as Mat4);

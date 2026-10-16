@@ -206,11 +206,12 @@ The **main ribbon** is a 24-way 0.5 mm FFC, 12.5 mm wide. From the adapter's
 connector it makes a half loop of radius 4 mm, lies on the landing where it is
 tied down, and leaves through the port panel's slot.
 
-
 ## Clearance checks
 
-`solid.ts` adds flat switch seats and clip reliefs, cuts the switch openings, and
-checks the result:
+`seats.ts` builds the flat switch seats, clip reliefs and switch openings.
+`solid.ts` cuts them and checks the result, one function per check below;
+`regions.ts` cuts the chassis down to the area round each key, so each test
+runs against a fraction of the mesh:
 
 - Each switch has a crisp, planar 15.8 × 15.8 mm seat (`switch.seat_outer_mm`,
   0.1 mm clear of a 15.6 mm switch housing rim), 1.5 mm thick, with the
@@ -276,8 +277,8 @@ project and its variants.
 
 Construction sizes that are not in the config are named in `SIZES` at the top of
 `chassis.ts`, the case's at the top of the `src/shell/` files, and the plate
-sheet's in `plates.ts`; the checks' sizes and limits are in `CHECKS` in
-`solid.ts`.
+sheet's in `plates.ts`, the seats' in `seats.ts`; the checks' sizes and limits
+are in `CHECKS` in `solid.ts`.
 
 `test:fit` optionally takes a saved project file and exits nonzero whenever a
 check fails. `tests/python-reference.json` is a frozen fixture from the previous

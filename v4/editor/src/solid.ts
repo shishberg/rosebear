@@ -1,9 +1,19 @@
 import type { Manifold, ManifoldToplevel } from 'manifold-3d';
-import { Matrix4, Vector3 } from 'three';
-import { seatSettings } from './seats';
+import { Matrix4 } from 'three';
+import { openingSpan, seatBox, seatSettings, seatSwitches, clipBox, switchHole } from './seats';
+import { RegionIndex, type Region } from './regions';
 import { buildChassis } from './chassis';
 import { hardware } from './parts';
-import { capsule, freeAfter, freeAfterAsync, keycapSolid, meshData, place } from './manifold-util';
+import {
+  box,
+  capsule,
+  freeAfter,
+  freeAfterAsync,
+  keycapSolid,
+  meshData,
+  place,
+  type Factory,
+} from './manifold-util';
 import { shell } from './shell';
 import { crossings, wiring, type Wiring } from './wiring';
 import {
@@ -19,7 +29,7 @@ import {
   type MeshData,
   type Project,
 } from './geometry';
-/** Sizes and limits for the seats and the clearance checks, in mm (volumes in mm³, areas in mm²). */
+/** Sizes and limits for the clearance checks, in mm (volumes in mm³, areas in mm²). */
 const CHECKS = {
   /** Overlap volume below which a collision is ignored. */
   overlap: 0.05,
@@ -27,22 +37,25 @@ const CHECKS = {
   empty: 0.001,
   /** Volume a keycap's room may remove from the chassis before the check fails. */
   roomCut: 0.05,
-  /** Each seat is trimmed flat this far above and below its plane. */
-  seatTrim: 7,
-  /** Clip reliefs: this tall below the seat, reaching this far into the switch hole and this far past clip_relief_depth_mm. */
-  clipReliefHeight: 3,
-  clipReliefIntoHole: 0.15,
-  clipReliefPastDepth: 0.05,
-  /** Opening probes: nine, this far inside the opening's edges. */
+  /** Opening probes: nine, this far inside the opening's edges, each this wide and this tall. */
   probeInset: 0.25,
-  /** Each opening must be clear from this far below the switch body to this height above the plate. */
-  openingBelowBody: 0.5,
-  openingTop: 12,
+  probeSize: 0.3,
+  probeHeight: 24,
+  /** The punch that clears a probe's column of the opening is this wide. */
+  punchSize: 0.4,
+  /** The seat's ring check leaves out the hole, this tall. */
+  ringHoleHeight: 10,
+  /** Seat checks test a shape this far inside the faces they must not touch, so those faces don't count. */
+  faceSkip: 0.01,
+  /** The seat's outside is tested this far above and below its plane. */
+  outsideReach: 1,
   /** Pieces smaller than this (mm³) are ignored when counting pieces: slivers left by boolean operations. */
   minPiece: 0.5,
   /** The footprint check's section height above the parting line, and the smallest area it counts. */
   footprintHeight: 1.5,
   minFootprint: 1,
+  /** Highlighted footprints are extruded this tall. */
+  footprintShow: 3,
   /** Keycap groups further apart than this are not listed. */
   capGapSearch: 40,
   /** Wire tubes: sides per segment's end sphere. */
@@ -54,6 +67,8 @@ const CHECKS = {
    */
   regionMargin: 3,
   regionHeight: 30,
+  /** The regions' shared chunks reach this far past their corners. */
+  regionPad: 0.1,
 } as const;
 export interface Clearance {
   name: string;
@@ -107,7 +122,6 @@ export interface Highlight {
 export interface BuildResult {
   mesh: MeshData;
   base: MeshData;
-  /** The port panel's dark insert. */
   /** The port panel's dark insert, with the ribbon's landing. */
   trim: MeshData;
   /** The port panel's end face in world x, where the ribbon leaves. */
@@ -142,256 +156,190 @@ export async function buildSolidAsync(
     return build(wasm, project, { wired: await routed, built, start });
   });
 }
-function build(
-  wasm: ManifoldToplevel,
-  project: Project,
-  given: { wired?: Wiring; built?: ReturnType<typeof shell>; start?: number } = {},
-): BuildResult {
-  validateProject(project);
-  const start = given.start ?? performance.now();
-  const cfg = project.config;
-  const sw = cfg.switch;
-  const nodes = componentFrames(cfg);
-  const keyNodes = Object.entries(nodes).filter(([name]) => isKey(name));
-  const M = wasm.Manifold;
-  // The switch hole, and the clip reliefs either side of it in y.
-  const hole = sw.cutout_mm.map((x) => x + sw.cutout_clearance_mm);
-  const clipDepth =
-    sw.clip_relief_depth_mm + CHECKS.clipReliefIntoHole + CHECKS.clipReliefPastDepth;
-  const clipY = hole[1] / 2 - CHECKS.clipReliefIntoHole + clipDepth / 2;
-  const highlights: Highlight[] = [];
-  // A boolean costs as much as its larger mesh, however small the other is,
-  // and most checks test a small shape against the whole chassis. So each
-  // key's surroundings are cut from the chassis once, and a shape that lies
-  // within them is tested against that piece: the same result, from a mesh a
-  // fraction of the size.
-  const keyGroup = keyGroups(cfg);
-  const extraThumbs = new Set(keyGroup.extra);
-  const groups = new Map<string, { lo: number[]; hi: number[]; pieces: Map<Manifold, Manifold> }>();
-  const regions = keyNodes.map(([name, m]) => {
-    const cap = capSize(cfg, name);
-    const margin = capClearance(cfg, name);
-    const half = [0, 1].map(
-      (k) =>
-        Math.max(cap[k] / 2 + margin, cfg.tile.size_mm[k] / 2, seatSettings(cfg).outer[k] / 2) +
-        CHECKS.regionMargin,
-    );
-    // Cutting a piece costs as much as what it is cut from, so each key's is
-    // cut from its column's (or thumb row's), cut from the whole once.
-    const id = name.startsWith('matrix_')
-      ? name.slice(0, name.lastIndexOf('_'))
-      : extraThumbs.has(name)
-        ? 'extra thumbs'
-        : 'thumbs';
-    let group = groups.get(id);
-    if (!group)
-      groups.set(
-        id,
-        (group = {
-          lo: [Infinity, Infinity, Infinity],
-          hi: [-Infinity, -Infinity, -Infinity],
-          pieces: new Map(),
-        }),
-      );
-    for (let i = 0; i < 8; i++) {
-      const c = new Vector3(
-        i & 1 ? half[0] : -half[0],
-        i & 2 ? half[1] : -half[1],
-        i & 4 ? CHECKS.regionHeight : -CHECKS.regionHeight,
-      ).applyMatrix4(m);
-      c.toArray().forEach((x, k) => {
-        group.lo[k] = Math.min(group.lo[k], x - 0.1);
-        group.hi[k] = Math.max(group.hi[k], x + 0.1);
-      });
-    }
-    return { m, inverse: m.clone().invert(), half, group, pieces: new Map<Manifold, Manifold>() };
-  });
-  // Cut now: left lazy, each test's intersect would fold into this one and
-  // run against the whole chassis again.
-  const cutOut = (target: Manifold, region: Manifold) => target.intersect(region).asOriginal();
-  const within = (target: Manifold, envelope: Manifold) => {
-    // Its corners, not its bounding box's: a tilted key's shapes are tilted too.
-    const { vertProperties: v, numProp } = envelope.getMesh();
-    const p = new Vector3();
-    for (const r of regions) {
-      let inside = true;
-      for (let i = 0; inside && i < v.length; i += numProp) {
-        p.set(v[i], v[i + 1], v[i + 2]).applyMatrix4(r.inverse);
-        inside =
-          Math.abs(p.x) <= r.half[0] &&
-          Math.abs(p.y) <= r.half[1] &&
-          Math.abs(p.z) <= CHECKS.regionHeight;
-      }
-      if (!inside) continue;
-      let piece = r.pieces.get(target);
-      if (!piece) {
-        const g = r.group;
-        let chunk = g.pieces.get(target);
-        if (!chunk) {
-          const size = g.hi.map((h, k) => h - g.lo[k]);
-          chunk = cutOut(
-            target,
-            box(
-              size,
-              g.lo.map((l, k) => l + size[k] / 2),
-            ),
-          );
-          g.pieces.set(target, chunk);
-        }
-        const region = place(box([...r.half.map((h) => 2 * h), 2 * CHECKS.regionHeight]), r.m);
-        r.pieces.set(target, (piece = cutOut(chunk, region)));
-      }
-      return piece;
-    }
-    return target;
-  };
-  const collision = (body: Manifold, envelope: Manifold, name: string, kind: Highlight['kind']) => {
-    const hit = within(body, envelope).intersect(envelope);
-    try {
-      const v = Math.max(0, hit.volume());
-      if (v > CHECKS.overlap) highlights.push({ name, kind, mesh: meshData(hit) });
-      return v;
-    } finally {
-      hit.delete();
-    }
-  };
-  const box = (size: number[], center: number[] = [0, 0, 0]) =>
-    M.cube(size as V3, true).translate(center as V3);
-  const volume = (a: Manifold, b: Manifold) => {
-    const hit = within(a, b).intersect(b);
+export type Keys = [string, Matrix4][];
+
+/** The chassis tests a check makes: a shape against the chassis, near the key it belongs to. */
+interface Probe {
+  M: Factory;
+  regions: RegionIndex;
+  /** Volume of `envelope` that `body` fills. */
+  volume(body: Manifold, envelope: Manifold): number;
+  /** The same, recording where it exceeds the overlap limit. */
+  collision(
+    body: Manifold,
+    envelope: Manifold,
+    name: string,
+    kind: Highlight['kind'],
+    out: Highlight[],
+  ): number;
+}
+
+export function makeProbe(M: Factory, regions: RegionIndex): Probe {
+  const volume = (body: Manifold, envelope: Manifold) => {
+    const hit = regions.within(body, envelope).intersect(envelope);
     try {
       return Math.max(0, hit.volume());
     } finally {
       hit.delete();
     }
   };
-  const wired = given.wired ?? wiring(cfg, nodes);
-  const chassis = buildChassis(wasm, cfg, nodes, wired, given.built);
-  let body = chassis.body;
-  if (body.status() !== 'NoError') throw Error('Invalid chassis: ' + body.status());
-  const { outer, thickness } = seatSettings(cfg);
-  const seatPlates: Manifold[] = [];
-  const seatTrims: Manifold[] = [];
-  const clipCuts: Manifold[] = [];
-  for (const [, m] of keyNodes) {
-    seatPlates.push(place(box([...outer, thickness], [0, 0, -thickness / 2]), m));
-    seatTrims.push(
-      place(box([...outer, CHECKS.seatTrim], [0, 0, CHECKS.seatTrim / 2]), m),
-      place(
-        box([...outer, CHECKS.seatTrim - thickness], [0, 0, (-CHECKS.seatTrim - thickness) / 2]),
-        m,
-      ),
+  const collision = (
+    body: Manifold,
+    envelope: Manifold,
+    name: string,
+    kind: Highlight['kind'],
+    out: Highlight[],
+  ) => {
+    const hit = regions.within(body, envelope).intersect(envelope);
+    try {
+      const v = Math.max(0, hit.volume());
+      if (v > CHECKS.overlap) out.push({ name, kind, mesh: meshData(hit) });
+      return v;
+    } finally {
+      hit.delete();
+    }
+  };
+  return { M, regions, volume, collision };
+}
+
+/** Each key's region: its keycap with clearance, tile and seat, and a margin. */
+export function keyRegions(cfg: Project['config'], keys: Keys): Region[] {
+  const extraThumbs = new Set(keyGroups(cfg).extra);
+  const { outer } = seatSettings(cfg);
+  return keys.map(([name, frame]) => {
+    const cap = capSize(cfg, name);
+    const margin = capClearance(cfg, name);
+    const half = [0, 1].map(
+      (k) =>
+        Math.max(cap[k] / 2 + margin, cfg.tile.size_mm[k] / 2, outer[k] / 2) + CHECKS.regionMargin,
     );
-    for (const sign of [-1, 1])
-      clipCuts.push(
-        place(
-          box(
-            [sw.clip_width_mm, clipDepth, CHECKS.clipReliefHeight],
-            [0, sign * clipY, -thickness - CHECKS.clipReliefHeight / 2],
-          ),
-          m,
-        ),
-      );
-  }
-  // Crisp flat seats: fill each mounting footprint so the switch lip is
-  // continuously supported, then trim the plate above and below it. (Trimming
-  // first and then filling put the trimmed faces exactly on the fill's faces,
-  // and Manifold's union then dropped material elsewhere: it cut a wedge from
-  // the index home plate's edge.)
-  body = body.add(M.union(seatPlates)).subtract(M.union(seatTrims));
-  const cuts: Manifold[] = [...clipCuts];
+    // Regions of a column or thumb row share a chunk.
+    const group = name.startsWith('matrix_')
+      ? name.slice(0, name.lastIndexOf('_'))
+      : extraThumbs.has(name)
+        ? 'extra thumbs'
+        : 'thumbs';
+    return { frame, half, group };
+  });
+}
+
+/**
+ * Probes each opening at nine points: covered if the chassis is there at all,
+ * blocked if any of it is left once the opening's height is punched out.
+ */
+export function checkOpenings(
+  p: Probe,
+  cfg: Project['config'],
+  keys: Keys,
+  body: Manifold,
+  cutters: Manifold[],
+) {
+  const hole = switchHole(cfg);
+  const { bottom, top } = openingSpan(cfg);
+  const highlights: Highlight[] = [];
   const openings: Report['openings'] = [];
-  for (const [name, m] of keyNodes) {
-    const bottom = -sw.body_below_plate_mm - CHECKS.openingBelowBody;
-    const top = CHECKS.openingTop;
-    const cutter = place(box([...hole, top - bottom], [0, 0, (top + bottom) / 2]), m);
-    // Nine probes across the opening: covered if the chassis is there at all,
-    // blocked if any of it is left once the opening's height is punched out.
+  for (const [i, [name, m]] of keys.entries()) {
+    const cutter = cutters[i];
     let covered = 0;
     let blocked = 0;
     const inset = CHECKS.probeInset;
     for (const x of [-hole[0] / 2 + inset, 0, hole[0] / 2 - inset])
       for (const y of [-hole[1] / 2 + inset, 0, hole[1] / 2 - inset]) {
-        const probe = place(box([0.3, 0.3, 24], [x, y, 0]), m);
-        const hit = within(body, probe).intersect(probe);
+        const probe = place(
+          box(p.M, [CHECKS.probeSize, CHECKS.probeSize, CHECKS.probeHeight], [x, y, 0]),
+          m,
+        );
+        const hit = p.regions.within(body, probe).intersect(probe);
         if (hit.volume() > CHECKS.empty) {
           covered++;
-          const punch = place(box([0.4, 0.4, top - bottom], [x, y, (top + bottom) / 2]), m);
+          const punch = place(
+            box(
+              p.M,
+              [CHECKS.punchSize, CHECKS.punchSize, top - bottom],
+              [x, y, (top + bottom) / 2],
+            ),
+            m,
+          );
           const rest = hit.subtract(punch);
           if (rest.volume() > CHECKS.empty) blocked++;
         }
       }
-    const removed = volume(body, cutter);
+    const removed = p.volume(body, cutter);
     const passed = covered === 9 && blocked === 0 && removed > CHECKS.empty;
     if (!passed) highlights.push({ name, kind: 'opening', mesh: meshData(cutter) });
     openings.push({ name, removed, covered, blocked, passed });
-    cuts.push(cutter);
   }
-  const cut = body.subtract(M.union(cuts));
-  if (cut.status() !== 'NoError' || cut.volume() <= 0)
-    throw Error('Cutouts produced an invalid solid: ' + cut.status());
-  // The base plate is a separate print, so every piece above it must hold together.
+  return { openings, highlights };
+}
+
+/** The base plate is a separate print, so every piece above it must hold together. */
+function checkPieces(cut: Manifold) {
   const pieces = cut
     .decompose()
     .filter((p) => p.volume() > CHECKS.minPiece)
     .sort((a, b) => b.volume() - a.volume());
-  pieces
+  const highlights = pieces
     .slice(1)
-    .forEach((p, i) =>
-      highlights.push({ name: `loose piece ${i + 1}`, kind: 'loose', mesh: meshData(p) }),
-    );
-  // Without the bottom section the case must also hold together along its
-  // edge: a section just above the parting line must be one connected area.
-  const section = cut.slice(chassis.split + CHECKS.footprintHeight);
-  const footprint = section
+    .map((p, i): Highlight => ({ name: `loose piece ${i + 1}`, kind: 'loose', mesh: meshData(p) }));
+  return { pieces: pieces.map((p) => p.volume()), highlights };
+}
+
+/**
+ * Without the bottom section the case must also hold together along its
+ * edge: a section just above the parting line must be one connected area.
+ */
+function checkFootprint(cut: Manifold, split: number) {
+  const footprint = cut
+    .slice(split + CHECKS.footprintHeight)
     .decompose()
-    .map((c) => {
-      const a = c.area();
-      return { a, c };
-    })
+    .map((c) => ({ a: c.area(), c }))
     .filter((x) => x.a > CHECKS.minFootprint)
     .sort((x, y) => y.a - x.a);
-  footprint.slice(1).forEach((x, i) =>
-    highlights.push({
-      name: `separate footprint ${i + 1}`,
-      kind: 'loose',
-      mesh: meshData(x.c.extrude(3)),
-    }),
-  );
-  // Chassis built where a keycap goes, which its room had to remove.
-  const roomCuts = chassis.roomCuts
+  const highlights = footprint.slice(1).map((x, i): Highlight => ({
+    name: `separate footprint ${i + 1}`,
+    kind: 'loose',
+    mesh: meshData(x.c.extrude(CHECKS.footprintShow)),
+  }));
+  return { footprint: footprint.map((x) => x.a), highlights };
+}
+
+/** Chassis built where a keycap goes, which its room had to remove. */
+function checkRooms(roomCuts: { name: string; cut: Manifold }[]) {
+  const rooms = roomCuts
     .map((r) => ({ name: r.name, volume: r.cut.volume(), cut: r.cut }))
     .filter((r) => r.volume > CHECKS.roomCut);
-  for (const r of roomCuts)
-    highlights.push({ name: `${r.name} keycap room`, kind: 'room', mesh: meshData(r.cut) });
-  const result = cut.add(chassis.base);
+  const highlights = rooms.map((r): Highlight => ({
+    name: `${r.name} keycap room`,
+    kind: 'room',
+    mesh: meshData(r.cut),
+  }));
+  return { roomCuts: rooms.map(({ name, volume }) => ({ name, volume })), highlights };
+}
+
+/** Each seat must be a complete ring around the hole, with nothing outside its plane or in its clip reliefs. */
+export function checkSeats(p: Probe, cfg: Project['config'], keys: Keys, result: Manifold) {
+  const hole = switchHole(cfg);
+  const skip = CHECKS.faceSkip;
+  const highlights: Highlight[] = [];
   const seats: SeatCheck[] = [];
-  for (const [name, m] of keyNodes) {
-    // The seat must be a complete ring around the hole, with nothing outside its plane.
-    const ring = place(box([...outer, thickness], [0, 0, -thickness / 2]), m).subtract(
-      place(box([...hole, 10]), m),
+  for (const [name, m] of keys) {
+    const ring = seatBox(p.M, cfg, m).subtract(
+      place(box(p.M, [...hole, CHECKS.ringHoleHeight]), m),
     );
-    const missingSolid = ring.subtract(within(result, ring));
+    const missingSolid = ring.subtract(p.regions.within(result, ring));
     const missing = Math.max(0, missingSolid.volume());
-    const outside = place(
-      box([outer[0] - 0.02, outer[1] - 0.02, thickness + 1], [0, 0, -thickness / 2]),
-      m,
-    ).subtract(place(box([...outer, thickness + 0.02], [0, 0, -thickness / 2]), m));
-    const excess = collision(result, outside, name, 'seat');
+    const outside = seatBox(p.M, cfg, m, { xy: -2 * skip, z: CHECKS.outsideReach }).subtract(
+      seatBox(p.M, cfg, m, { z: 2 * skip }),
+    );
+    const excess = p.collision(result, outside, name, 'seat', highlights);
     let clipBlocked = 0;
     for (const sign of [-1, 1])
-      clipBlocked += collision(
+      clipBlocked += p.collision(
         result,
-        place(
-          box(
-            // Just inside the relief, so its own faces don't count.
-            [sw.clip_width_mm, clipDepth - 0.02, CHECKS.clipReliefHeight - 0.01],
-            [0, sign * clipY, -thickness - CHECKS.clipReliefHeight / 2 - 0.005],
-          ),
-          m,
-        ),
+        clipBox(p.M, cfg, m, sign, skip),
         name,
         'seat',
+        highlights,
       );
     if (missing > CHECKS.overlap)
       highlights.push({ name, kind: 'seat', mesh: meshData(missingSolid) });
@@ -404,9 +352,20 @@ function build(
         missing <= CHECKS.overlap && excess <= CHECKS.overlap && clipBlocked <= CHECKS.overlap,
     });
   }
-  const overlaps: Report['hardware'] = [];
-  // Hardware is checked against the chassis and its bottom section, and the
-  // adapter and ribbon against the port insert, which carries the landing.
+  return { seats, highlights };
+}
+
+/**
+ * Hardware against the chassis and its bottom section, and the adapter and
+ * ribbon against the port insert, which carries the landing.
+ */
+function checkHardware(
+  p: Probe,
+  project: Project,
+  nodes: ReturnType<typeof componentFrames>,
+  chassis: ReturnType<typeof buildChassis>,
+  result: Manifold,
+) {
   const withTrim = result.add(chassis.trim);
   const against: Record<string, Manifold> = {
     pcb: result,
@@ -414,75 +373,95 @@ function build(
     adapter: withTrim,
     ribbon: withTrim,
   };
-  for (const p of hardware(project, nodes, chassis.panel))
-    if (against[p.group]) {
-      let shape = p.cylinder
-        ? M.cylinder(p.size[2], p.cylinder, p.cylinder, 64, true).translate(p.center)
-        : box(p.size, p.center);
-      for (const h of p.holes ?? [])
+  const highlights: Highlight[] = [];
+  const overlaps: Report['hardware'] = [];
+  for (const part of hardware(project, nodes, chassis.panel))
+    if (against[part.group]) {
+      let shape = part.cylinder
+        ? p.M.cylinder(part.size[2], part.cylinder, part.cylinder, 64, true).translate(part.center)
+        : box(p.M, part.size, part.center);
+      for (const h of part.holes ?? [])
         shape = shape.subtract(
-          M.cylinder(p.size[2] + 2, h.diameter / 2, h.diameter / 2, 32, true).translate([
+          p.M.cylinder(part.size[2] + 2, h.diameter / 2, h.diameter / 2, 32, true).translate([
             h.at[0],
             h.at[1],
-            p.center[2],
+            part.center[2],
           ]),
         );
-      const v = collision(
-        against[p.group],
-        place(shape, new Matrix4().fromArray(p.matrix)),
-        p.name,
+      const v = p.collision(
+        against[part.group],
+        place(shape, new Matrix4().fromArray(part.matrix)),
+        part.name,
         'hardware',
+        highlights,
       );
-      if (v > CHECKS.overlap) overlaps.push({ name: p.name, group: p.group, volume: v });
+      if (v > CHECKS.overlap) overlaps.push({ name: part.name, group: part.group, volume: v });
     }
-  // Every wire as a tube, against the chassis and its bottom section.
-  const tube = (points: number[][], d: number) =>
-    M.union(points.slice(1).map((q, i) => capsule(M, points[i], q, d / 2, CHECKS.wireSides)));
-  /**
-   * Shapes that must miss `target`: intersect their union with it once, and
-   * only when that hits, find which of them do.
-   */
-  const misses = (
-    shapes: { name: string; solid: Manifold }[],
-    target: Manifold,
-    kind: Highlight['kind'],
-  ) => {
-    const out: { name: string; volume: number }[] = [];
-    if (!shapes.length || volume(M.union(shapes.map((x) => x.solid)), target) <= CHECKS.overlap)
-      return out;
-    for (const x of shapes) {
-      const v = collision(target, x.solid, x.name, kind);
-      if (v > CHECKS.overlap) out.push({ name: x.name, volume: v });
-    }
+  return { hardware: overlaps, highlights };
+}
+
+/**
+ * Shapes that must miss `target`: intersect their union with it once, and
+ * only when that hits, find which of them do.
+ */
+function misses(
+  p: Probe,
+  shapes: { name: string; solid: Manifold }[],
+  target: Manifold,
+  kind: Highlight['kind'],
+  highlights: Highlight[],
+) {
+  const out: { name: string; volume: number }[] = [];
+  if (!shapes.length || p.volume(p.M.union(shapes.map((x) => x.solid)), target) <= CHECKS.overlap)
     return out;
-  };
-  const wireName = (w: (typeof wired.wires)[number]) =>
+  for (const x of shapes) {
+    const v = p.collision(target, x.solid, x.name, kind, highlights);
+    if (v > CHECKS.overlap) out.push({ name: x.name, volume: v });
+  }
+  return out;
+}
+
+/** Every wire, as a tube of its diameter, must miss the chassis and its bottom section, and every other wire. */
+function checkWires(p: Probe, wired: Wiring, result: Manifold) {
+  const tube = (points: number[][], d: number) =>
+    p.M.union(points.slice(1).map((q, i) => capsule(p.M, points[i], q, d / 2, CHECKS.wireSides)));
+  const wireName = (w: Wiring['wires'][number]) =>
     `${w.net}: ${w.from.replace(/^(matrix|thumb)_/, '')} to ${w.to.replace(/^(matrix|thumb)_/, '')}`;
+  const highlights: Highlight[] = [];
   const wires = misses(
+    p,
     wired.wires.map((w) => ({ name: wireName(w), solid: tube(w.points, w.diameter) })),
     result,
     'wire',
+    highlights,
   );
-  // Wires that run into each other, shown where they overlap.
   const crossed = crossings(wired.wires).map(([a, b]) => {
     const [x, y] = [wired.wires[a], wired.wires[b]];
     const name = `${wireName(x)} and ${wireName(y)}`;
-    collision(tube(x.points, x.diameter), tube(y.points, y.diameter), name, 'wire');
+    p.collision(tube(x.points, x.diameter), tube(y.points, y.diameter), name, 'wire', highlights);
     return name;
   });
-  // A soldering iron's way to each pad, with the bottom plate off: straight
-  // down from it along its key's normal, through the open bottom of the tile
-  // pocket.
+  return { wires, crossings: crossed, highlights };
+}
+
+/**
+ * A soldering iron's way to each pad, with the bottom plate off: straight
+ * down from it along its key's normal, through the open bottom of the tile
+ * pocket.
+ */
+function checkSolder(p: Probe, cfg: Project['config'], keys: Keys, cut: Manifold) {
   const [access, reach] = cfg.wiring.solder_access_mm;
   const padZ = tileUnderside(cfg);
+  const highlights: Highlight[] = [];
   const solder = misses(
-    keyNodes.flatMap(([name, m]) =>
-      cfg.tile.pads.list.map((p) => ({
-        name: `${name}: ${p.name} pad, ${p.at_mm[1] > 0 ? 'back' : 'front'} edge`,
+    p,
+    keys.flatMap(([name, m]) =>
+      cfg.tile.pads.list.map((pad) => ({
+        name: `${name}: ${pad.name} pad, ${pad.at_mm[1] > 0 ? 'back' : 'front'} edge`,
         solid: place(
-          M.cylinder(reach, access / 2, access / 2, 24).translate([
-            p.at_mm[0],
-            p.at_mm[1],
+          p.M.cylinder(reach, access / 2, access / 2, 24).translate([
+            pad.at_mm[0],
+            pad.at_mm[1],
             padZ - reach - 0.01,
           ]),
           m,
@@ -491,35 +470,44 @@ function build(
     ),
     cut,
     'solder',
+    highlights,
   );
+  return { solder, highlights };
+}
+
+/** Each keycap, at rest and over its full travel grown by its clearance, must miss the chassis. */
+function checkKeycaps(p: Probe, cfg: Project['config'], keys: Keys, result: Manifold) {
+  const highlights: Highlight[] = [];
   const keycaps: Clearance[] = [];
   const rests: Record<string, Manifold> = {};
-  for (const [name, m] of keyNodes) {
-    const size = capSize(cfg, name);
-    const margin = capClearance(cfg, name);
+  for (const [name, m] of keys) {
     const rest = (rests[name] = place(
-      keycapSolid(M, keycapEnvelope(cfg, name, { clearance: 0 }), false),
+      keycapSolid(p.M, keycapEnvelope(cfg, name, { clearance: 0 }), false),
       m,
     ));
-    // The keycap over its full travel, grown by its clearance.
-    const sweep = place(keycapSolid(M, keycapEnvelope(cfg, name)), m);
-    const atRest = collision(result, rest, name, 'rest');
-    const swept = collision(result, sweep, name, 'travel');
+    const sweep = place(keycapSolid(p.M, keycapEnvelope(cfg, name)), m);
+    const atRest = p.collision(result, rest, name, 'rest', highlights);
+    const swept = p.collision(result, sweep, name, 'travel', highlights);
     keycaps.push({
       name,
-      size,
-      margin,
+      size: capSize(cfg, name),
+      margin: capClearance(cfg, name),
       atRest,
       swept,
       passed: atRest <= CHECKS.overlap && swept <= CHECKS.overlap,
     });
   }
-  // Closest distance between the resting keycaps of the finger columns, the thumb row and the extra thumb row.
+  return { keycaps, rests, highlights };
+}
+
+/** Closest distance between the resting keycaps of the finger columns, the thumb row and the extra thumb row. */
+function checkCapGaps(M: Factory, cfg: Project['config'], rests: Record<string, Manifold>) {
+  const groups = keyGroups(cfg);
   const unions = (
     [
-      ['fingers', keyGroup.fingers],
-      ['thumbs', keyGroup.thumbs],
-      ['extra thumbs', keyGroup.extra],
+      ['fingers', groups.fingers],
+      ['thumbs', groups.thumbs],
+      ['extra thumbs', groups.extra],
     ] as [string, string[]][]
   )
     .filter(([, ns]) => ns.length)
@@ -531,45 +519,98 @@ function build(
       if (gap < CHECKS.capGapSearch)
         capGaps.push({ between: `${unions[i][0]} – ${unions[j][0]}`, gap });
     }
+  return capGaps;
+}
+
+function build(
+  wasm: ManifoldToplevel,
+  project: Project,
+  given: { wired?: Wiring; built?: ReturnType<typeof shell>; start?: number } = {},
+): BuildResult {
+  validateProject(project);
+  const start = given.start ?? performance.now();
+  const cfg = project.config;
+  const nodes = componentFrames(cfg);
+  const keys: Keys = Object.entries(nodes).filter(([name]) => isKey(name));
+  const wired = given.wired ?? wiring(cfg, nodes);
+  const chassis = buildChassis(wasm, cfg, nodes, wired, given.built);
+  if (chassis.body.status() !== 'NoError') throw Error('Invalid chassis: ' + chassis.body.status());
+  const M = wasm.Manifold;
+  const probe = makeProbe(
+    M,
+    new RegionIndex(M, keyRegions(cfg, keys), CHECKS.regionHeight, CHECKS.regionPad),
+  );
+
+  const seated = seatSwitches(
+    M,
+    cfg,
+    chassis.body,
+    keys.map(([, m]) => m),
+  );
+  const opened = checkOpenings(probe, cfg, keys, seated.body, seated.openings);
+  const cut = seated.body.subtract(M.union([...seated.reliefs, ...seated.openings]));
+  if (cut.status() !== 'NoError' || cut.volume() <= 0)
+    throw Error('Cutouts produced an invalid solid: ' + cut.status());
+  const loose = checkPieces(cut);
+  const footprint = checkFootprint(cut, chassis.split);
+  const rooms = checkRooms(chassis.roomCuts);
   // The chassis and its bottom plate are separate prints, sent separately.
+  const result = cut.add(chassis.base);
+  const seats = checkSeats(probe, cfg, keys, result);
+  const hw = checkHardware(probe, project, nodes, chassis, result);
+  const wireChecks = checkWires(probe, wired, result);
+  const solder = checkSolder(probe, cfg, keys, cut);
+  const caps = checkKeycaps(probe, cfg, keys, result);
+  const capGaps = checkCapGaps(M, cfg, caps.rests);
+
   const mesh = meshData(cut);
   const passed =
-    seats.every((s) => s.passed) &&
-    keycaps.every((k) => k.passed) &&
-    overlaps.length === 0 &&
-    pieces.length === 1 &&
-    footprint.length === 1 &&
-    roomCuts.length === 0 &&
+    seats.seats.every((s) => s.passed) &&
+    caps.keycaps.every((k) => k.passed) &&
+    hw.hardware.length === 0 &&
+    loose.pieces.length === 1 &&
+    footprint.footprint.length === 1 &&
+    rooms.roomCuts.length === 0 &&
     capGaps.every((c) => c.gap > 0) &&
-    openings.every((o) => o.passed) &&
-    wires.length === 0 &&
-    crossed.length === 0 &&
-    solder.length === 0;
+    opened.openings.every((o) => o.passed) &&
+    wireChecks.wires.length === 0 &&
+    wireChecks.crossings.length === 0 &&
+    solder.solder.length === 0;
   return {
     mesh,
     base: meshData(chassis.base),
     trim: meshData(chassis.trim),
     panel: chassis.panel,
-    highlights,
+    highlights: [
+      ...opened.highlights,
+      ...loose.highlights,
+      ...footprint.highlights,
+      ...rooms.highlights,
+      ...seats.highlights,
+      ...hw.highlights,
+      ...wireChecks.highlights,
+      ...solder.highlights,
+      ...caps.highlights,
+    ],
     wiring: wired,
     report: {
-      seats,
+      seats: seats.seats,
       passed,
-      keycaps,
+      keycaps: caps.keycaps,
       capGaps,
-      pieces: pieces.map((p) => p.volume()),
-      footprint: footprint.map((x) => x.a),
-      roomCuts: roomCuts.map(({ name, volume }) => ({ name, volume })),
-      hardware: overlaps,
-      wires,
-      solder,
+      pieces: loose.pieces,
+      footprint: footprint.footprint,
+      roomCuts: rooms.roomCuts,
+      hardware: hw.hardware,
+      wires: wireChecks.wires,
+      solder: solder.solder,
       wiring: {
         wires: wired.wires.length,
         joints: wired.nets.reduce((t, n) => t + n.joints, 0),
         length: wired.nets.reduce((t, n) => t + n.length, 0),
       },
-      crossings: crossed,
-      openings,
+      crossings: wireChecks.crossings,
+      openings: opened.openings,
       volume: result.volume(),
       triangles: mesh.indices.length / 3,
       milliseconds: performance.now() - start,

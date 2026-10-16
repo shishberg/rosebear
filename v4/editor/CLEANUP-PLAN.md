@@ -606,6 +606,15 @@ are listed but not done.
       case by 0.13 mm. So the fix was not kept.
     - To apply it, either accept that failure or give the wire room.
 11. **`?hand` documentation** lives mostly in very long commit messages.
+12. **A seat 19 mm or wider fails to build ("Invalid chassis:
+    InvalidConstruction").**
+    - `gluePads` in chassis.ts runs each glue leg from
+      `seat/2 + glueSeatGap` to `tile.size_mm/2`. Once the seat is wider than
+      about 18.8 mm, that leg has no length.
+    - The seat-size setting allows up to 25 mm.
+    - Either validate (reject a seat wider than `tile − 2·glueSeatGap`), or
+      leave out legs that have no room.
+    - Found during T11. It already fails at HEAD.
 
 ## Status
 
@@ -622,7 +631,7 @@ are listed but not done.
 | T8 | done | |
 | T9 | done | |
 | T10 | done | |
-| T11 | pending | |
+| T11 | done | |
 | T12 | pending | |
 | T13 | pending | |
 | T14 | pending | |
