@@ -722,8 +722,8 @@ function thumbRow(t: ThumbPose, spacing: number, top: number, two?: TwoRows) {
 /** Which way a far or near key at `q` faces, keeping `face`'s y (the home
  * key's): as it would facing its own press (keyAt), tilted across the row
  * back into the plane square to y. */
-function hinged(q: number[], t: ThumbPose, face: { frame: T.Matrix4 }) {
-  const y = new T.Vector3().setFromMatrixColumn(face.frame, 1),
+function hinged(q: number[], t: ThumbPose, face: { frame: T.Matrix4 }, axis = 1) {
+  const y = new T.Vector3().setFromMatrixColumn(face.frame, axis),
     n = keyAt(q, t).n;
   return n.addScaledVector(y, -n.dot(y)).normalize();
 }
@@ -732,13 +732,20 @@ function hinged(q: number[], t: ThumbPose, face: { frame: T.Matrix4 }) {
  * its y, tilted along the row as near square to its own press as that
  * leaves (hinged, keyFacing). `at`: where the thumb touches the key (its cap
  * top's centre). `slant`: degrees the press is off square to the key. */
-function thumbKey(q: number[], miss: number, t: ThumbPose, face?: { frame: T.Matrix4 }) {
-  const k = face ? keyFacing(q, t, hinged(q, t, face)) : keyAt(q, t),
-    x = k.sweep.clone().negate(),
-    y = face && new T.Vector3().setFromMatrixColumn(face.frame, 1),
-    m = y
-      ? new T.Matrix4().makeBasis(new T.Vector3().crossVectors(y, k.n), y, k.n).setPosition(k.p)
-      : new T.Matrix4().makeBasis(x, new T.Vector3().crossVectors(k.n, x), k.n).setPosition(k.p);
+function thumbKey(
+  q: number[],
+  miss: number,
+  t: ThumbPose,
+  face?: { frame: T.Matrix4 },
+  axis = 1,
+) {
+  const k = face ? keyFacing(q, t, hinged(q, t, face, axis)) : keyAt(q, t),
+    x = face ? new T.Vector3().setFromMatrixColumn(face.frame, axis) : k.sweep.clone().negate(),
+    m =
+      axis === 1 && face
+        ? new T.Matrix4().makeBasis(new T.Vector3().crossVectors(x, k.n), x, k.n)
+        : new T.Matrix4().makeBasis(x, new T.Vector3().crossVectors(k.n, x), k.n);
+  m.setPosition(k.p);
   return {
     slant: k.slant,
     at: k.p,
@@ -755,23 +762,57 @@ function thumbKey(q: number[], miss: number, t: ThumbPose, face?: { frame: T.Mat
 type ThumbKey = ReturnType<typeof thumbKey>;
 /** mm the thumb lifts off the row, halfway, on its way to an extra key. */
 const EXTRA_LIFT = 15;
-/** The two extra thumb keys, if on: under the gaps between the thumb row's
- * keys (x1 between home and near, x2 between far and home), the thumb
- * halfway between the two keys' poses and curled `curl` degrees more at the
- * MCP and IP alike, which brings it in under the hand. Each faces against
- * its press (`press`, as the row's), the row's reach in its plane. */
-type Extra = { on: boolean; curl: number; press: number };
-const extraKeys = (row: ThumbKey[], t: ThumbPose, { curl, press }: Extra) =>
-  [
-    [1, 2],
-    [0, 1],
-  ].map(([a, b]) =>
-    thumbKey(
-      row[a].q.map((v, j) => (v + row[b].q[j]) / 2 + (j > 2 ? curl : 0)),
-      0,
-      { ...t, press },
-    ),
-  );
+/** The two extra thumb keys, if on: a second row `south` mm from the thumb
+ * row, centre to centre, toward the thumb's base (where it goes as the
+ * thumb curls back), seen from above (on the surface the hand rests on,
+ * square to the row from the far key to the near): x1 beside the home key,
+ * x2 beside the far key. The thumb curled `curl` degrees more at the MCP and
+ * IP than on the key beside it, and swung and lowered (radial and palmar
+ * abduction) until it touches the key there; its height is where that leaves
+ * it. Each faces against its press (`press`, as the row's) or, as the row's
+ * far and near keys do (`t.parallel`), keeps the x of the key beside it (the
+ * edges between the rows parallel) and tilts across the row toward its
+ * press. `miss`: mm off its place. */
+type Extra = { on: boolean; curl: number; press: number; south: number };
+function extraKeys(row: ThumbKey[], t: ThumbPose, { curl, press, south }: Extra) {
+  const te = { ...t, press },
+    x = row[2].at.clone().sub(row[0].at).setZ(0).normalize(),
+    y = new T.Vector3(-x.y, x.x, 0),
+    base = thumb(row[1].q).M.clone().sub(row[1].at),
+    out = y.multiplyScalar(Math.sign(base.dot(y)) || 1);
+  return [row[1], row[0]].map((by) => {
+    const target = by.at.clone().addScaledVector(out, south),
+      q0 = by.q.map((v, j) => v + (j > 2 ? curl : 0)),
+      at = (u: number[]) => moveBy(q0, [u[0], u[1], 0]),
+      facing = (q: number[]) => (t.parallel ? hinged(q, te, by, 0) : keyAt(q, te).n),
+      // Off the place, seen from above.
+      off = (u: number[]) => {
+        const q = at(u),
+          d = touch(q, facing(q)).p.sub(target);
+        return [d.dot(x), d.dot(out)];
+      };
+    // Newton's method on the swing and the lowering, a step at most 10°.
+    let u = [0, 0];
+    for (let i = 0; i < 40; i++) {
+      const f = off(u);
+      if (Math.hypot(...f) < 1e-4) break;
+      const h = 0.05,
+        J = [0, 1].map((k) => {
+          const e = [0, 0];
+          e[k] = h;
+          const g = off([u[0] + e[0], u[1] + e[1]]);
+          return [(g[0] - f[0]) / h, (g[1] - f[1]) / h];
+        }),
+        det = J[0][0] * J[1][1] - J[1][0] * J[0][1];
+      if (Math.abs(det) < 1e-9) break;
+      let step = [(-f[0] * J[1][1] + f[1] * J[1][0]) / det, (-f[1] * J[0][0] + f[0] * J[0][1]) / det];
+      const big = Math.hypot(...step);
+      if (big > 10) step = step.map((v) => (v * 10) / big);
+      u = [u[0] + step[0], u[1] + step[1]];
+    }
+    return thumbKey(at(u), Math.hypot(...off(u)), te, t.parallel ? by : undefined, 0);
+  });
+}
 
 // ---------------------------------------------------------------- drawing
 const skin = new T.MeshStandardMaterial({
@@ -1686,7 +1727,9 @@ type HandState = Settings & {
 };
 const START: HandState = {
   ...structuredClone(DACTYL),
-  extra: { on: false, curl: 45, press: -25 },
+  // Valid on Yours: closer, x1 meets the near key; pressed with the side of
+  // the thumb (its nail about upright), x1 21° off square, x2 7°.
+  extra: { on: false, curl: 30, press: -10, south: 30 },
   row: 'home',
   thumbOn: 'home',
   pressing: false,
@@ -2250,9 +2293,18 @@ export function setupHand(host: Host) {
     (v) => (s().cluster = v),
   );
   checkbox(
-    'Extra thumb keys x1, x2: under the gaps, the thumb curled more',
+    "Extra thumb keys x1, x2: beside the home and far keys, toward the thumb's base, the thumb curled more",
     () => s().extra.on,
     (v) => (s().extra.on = v),
+  );
+  slider(
+    "extra thumb keys: mm from the row toward the thumb's base",
+    () => s().extra.south,
+    (v) => (s().extra.south = v),
+    15,
+    50,
+    0.5,
+    () => s().extra.on,
   );
   slider(
     'extra thumb keys: curl (° more at the MCP and IP)',

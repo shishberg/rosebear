@@ -439,7 +439,7 @@ test("far and near thumb keys with the home key's y: tilted only along the row, 
     [far, home, near] = yours,
     y = (k: (typeof yours)[number]) => new T.Vector3().setFromMatrixColumn(k.frame, 1);
   assert.equal(home.slant, 0);
-  [far, near].forEach((k, i) => {
+  [far, near].forEach((k) => {
     // The home key's y, and square to it.
     assert.ok(y(k).angleTo(y(home)) < 1e-9);
     assert.ok(Math.abs(k.n.dot(y(home))) < 1e-9);
@@ -453,7 +453,7 @@ test("far and near thumb keys with the home key's y: tilted only along the row, 
   assert.ok(near.slant < 5, `${near.slant}`);
   assert.ok(own.every((k) => k.slant === 0));
 });
-test('the extra thumb keys: under the gaps between the thumb keys, toward the wrist, the thumb curled more; laid out, checked and in the frame only when on', () => {
+test("the extra thumb keys: beside the home and far keys toward the thumb's base, the thumb curled more; laid out, checked and in the frame only when on", () => {
   const on = {
       ...structuredClone(hand.YOURS),
       extra: { ...hand.START.extra, on: true },
@@ -461,25 +461,27 @@ test('the extra thumb keys: under the gaps between the thumb keys, toward the wr
     { c, r, frame } = layout(on),
     anchor = hand.anchorOf(clone(defaults).config),
     world = hand.worldOf(c, anchor, on),
-    f = componentFrames(c);
+    f = componentFrames(c),
+    [far, home, near] = r.h.row,
+    along = near.at.clone().sub(far.at).setZ(0).normalize();
   assert.equal(r.h.extra.length, 2);
-  [
-    [1, 2],
-    [0, 1],
-  ].forEach(([a, b], i) => {
+  [home, far].forEach((by, i) => {
     const k = r.h.extra[i],
       name = `thumb_x${i + 1}`;
-    // Halfway between the two keys' poses, curled more at the MCP and IP alike.
-    k.q.forEach((v, j) =>
-      assert.ok(
-        Math.abs(v - ((r.h.row[a].q[j] + r.h.row[b].q[j]) / 2 + (j > 2 ? on.extra.curl : 0))) <
-          1e-9,
-      ),
-    );
-    // Toward the wrist from the gap, on the desk.
-    const at = (x: { at: InstanceType<typeof T.Vector3> }) => x.at.clone().applyMatrix4(world),
-      gap = at(r.h.row[a]).add(at(r.h.row[b])).multiplyScalar(0.5);
-    assert.ok(gap.y - at(k).y > 15, `${name}: ${(gap.y - at(k).y).toFixed(1)} mm toward the wrist`);
+    // Curled more than on the key beside it, at the MCP and IP alike.
+    assert.ok(Math.abs(k.q[3] - by.q[3] - on.extra.curl) < 1e-9);
+    assert.ok(Math.abs(k.q[4] - by.q[4] - on.extra.curl) < 1e-9);
+    // Seen from above, `south` mm from it, square to the row, toward the
+    // thumb's base (where the thumb curls back to).
+    const d = k.at.clone().sub(by.at).setZ(0);
+    assert.ok(k.miss < 0.01, `${name}: ${k.miss} mm off`);
+    assert.ok(Math.abs(d.dot(along)) < 0.01);
+    assert.ok(Math.abs(d.length() - on.extra.south) < 0.01);
+    const base = hand.thumb(home.q).M.clone().sub(home.at).setZ(0);
+    assert.ok(d.dot(base) > 0, `${name}: away from the thumb's base`);
+    // The edges between the rows parallel: the x of the key beside it.
+    const x = (m: InstanceType<typeof T.Matrix4>) => new T.Vector3().setFromMatrixColumn(m, 0);
+    assert.ok(x(k.frame).angleTo(x(by.frame)) < 1e-9);
     // In the extra cluster where the hand puts it: its cap top straight up
     // from its seat (the layout rounds both to 0.01 mm and 0.01°).
     const seat = f[name],
