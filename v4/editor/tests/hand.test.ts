@@ -797,11 +797,12 @@ test('a frame is built where two joined keys overlap or a bar has no length', ()
         thumb: { around: 167, drop: -20, reach: { palmar: 2, curl: 0.05 }, press: 10 },
         spacing: 40,
       },
-      tris: 11638,
+      tris: 13156,
       pieces: 1,
     },
     {
-      // A strut 1.2e-14 mm long, whose direction is rounding noise.
+      // Where the brackets once had a strut 1.2e-14 mm long, whose direction
+      // was rounding noise.
       s: {
         tent: 45,
         roll: -7,
@@ -813,7 +814,7 @@ test('a frame is built where two joined keys overlap or a bar has no length', ()
         thumb: { around: 155, drop: -16, reach: { palmar: 2, curl: -2 }, press: 82 },
         spacing: 32,
       },
-      tris: 9500,
+      tris: 11198,
       pieces: 1,
     },
   ];

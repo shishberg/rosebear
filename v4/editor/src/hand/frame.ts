@@ -13,7 +13,10 @@
  *   frame comes apart without it).
  * - Legs hold them up. Each plate of joined keys stands on its
  *   outer corners: from each, a bracket out and down clear of its switch,
- *   on a leg straight down. A truss stiffens each outside wall between
+ *   on a leg straight down. Where a bar leaves a plate it widens to a
+ *   column in the plate's corner, the strut's width, from the plate top down
+ *   the lip (between two keys, halfway between their corners'): the plate
+ *   takes the whole of it, and nothing stands above the plate or off it. A truss stiffens each outside wall between
  *   them, |\/\/\/|: under each key along it, a diagonal from each end of
  *   its side (the corner's leg, or the web to the next key, on a bracket
  *   like a corner's where the switches hang out past the wall) down to one
@@ -295,6 +298,16 @@ function setup(wasm: ManifoldToplevel, cfg: Config, extra: boolean) {
     floor: Math.min(...keys.map((n) => lowest(box(n, hp, deep, deep)))),
     dist3: (n: string, m: string) => Math.hypot(...centre(n).map((x, i) => x - centre(m)[i])),
     corners: [-1, 1].flatMap((sx) => [-1, 1].map((sy) => [sx, sy])),
+    /** Key n's corner (sx, sy) where a bar leaves it: the strut's square
+     * inside the plate's corner, from the plate top to the lip's bottom. */
+    column: (n: string, [sx, sy]: number[]) =>
+      [0, 1].flatMap((i) =>
+        [0, 1].flatMap((j) =>
+          [0, -FRAME.lip].map((z) =>
+            at(n, sx * (hp[0] - i * FRAME.strut), sy * (hp[1] - j * FRAME.strut), z),
+          ),
+        ),
+      ),
     side,
     /** Key n's wall facing key m (the ring's side, a wall thick, the
      * plate top to the lip's bottom): its corners. */
@@ -332,7 +345,8 @@ function makeFrame(wasm: ManifoldToplevel, cfg: Config, extra: boolean) {
   // Nothing below the floor: the slicer would support it. The webs go in
   // last: one too thin to print is left out (a hole) if the frame holds
   // together without it, the truss and the other webs holding its keys.
-  const body = c.M.union(solids),
+  const joints = c.M.union(solids),
+    body = c.M.union([joints, ...pads(c, joints, [...legs.legs, ...truss.truss])]),
     cut = keep.keepOut.subtract(keep.lands),
     build = (ws: Web[]) =>
       c.M.union([body, ...ws.map((x) => x.web)])
@@ -442,7 +456,21 @@ function keepOut(c: Ctx) {
 function barTools(c: Ctx) {
   const { M, cfg, frames, keys, corners, floor } = c,
     [w, h] = FRAME.rail,
-    r = FRAME.strut / 2;
+    r = FRAME.strut / 2,
+    /** The corners of a square bar's end at b, from a, one side level (a
+     * vertical one's too, so a leg stands flat on the floor). */
+    end = (a: Vec3, b: Vec3) => {
+      const d = sub(b, a),
+        f = d.map((x) => x / Math.hypot(...d)),
+        side = Math.hypot(f[0], f[1]) < 1e-6 ? [1, 0, 0] : [f[1], -f[0], 0],
+        u = side.map((x) => x / Math.hypot(...side)),
+        v = cross(f, u);
+      return corners.map(([su, sv]) => b.map((x, i) => x + r * (su * u[i] + sv * v[i])) as Vec3);
+    },
+    /** The corners of a level square at b, square to the world, so the bars
+     * meeting at a foot share it. */
+    flat = (_a: Vec3, b: Vec3) =>
+      corners.map(([sx, sy]) => [b[0] + sx * r, b[1] + sy * r, b[2]] as Vec3);
   return {
     /** A rectangular bar on the floor from a to b, past each end by half
      * its width so bars meeting at an angle overlap. */
@@ -465,24 +493,16 @@ function barTools(c: Ctx) {
         ),
       );
     },
-    /** A square bar from a to b, one side level (a vertical one's ends are
-     * level too, so a leg stands flat on the floor). */
-    strut: (a: Vec3, b: Vec3): Manifold[] => {
-      const d = sub(b, a),
-        l = Math.hypot(...d);
+    /** A square bar from a to b; down to the floor (`foot`), it stands on a
+     * level square there (a slanted end would hang just above the floor). */
+    strut: (a: Vec3, b: Vec3, foot = false): Manifold[] =>
       // A bar of rounding-noise length still has a direction; only none at all has no bar.
-      if (l === 0) return [];
-      const f = d.map((x) => x / l),
-        side = Math.hypot(f[0], f[1]) < 1e-6 ? [1, 0, 0] : [f[1], -f[0], 0],
-        u = side.map((x) => x / Math.hypot(...side)),
-        v = cross(f, u);
-      return [
-        M.hull(
-          [a, b].flatMap((p) =>
-            corners.map(([su, sv]) => p.map((x, i) => x + r * (su * u[i] + sv * v[i])) as Vec3),
-          ),
-        ),
-      ];
+      a.every((x, i) => x === b[i]) ? [] : [M.hull([...end(b, a), ...(foot ? flat : end)(a, b)])],
+    /** A bar from a plate to b, as `strut`: from the plate's corner column
+     * (`anchor`) to the bar's square at b. */
+    fan: (anchor: Vec3[], b: Vec3, foot = false) => {
+      const mid = anchor.reduce((s, p) => add(s, p), [0, 0, 0]).map((x) => x / anchor.length);
+      return M.hull([...anchor, ...(foot ? flat : end)(mid as Vec3, b)]);
     },
     knot: (p: Vec3) =>
       M.hull(
@@ -501,8 +521,8 @@ const joinedSides = (c: Ctx, joined: [string, string][]) =>
 
 /** The legs, on each plate's outer corners (see the header): the corners whose
  * key has no neighbour across either of its sides. */
-function buildLegs(c: Ctx, { clear, strut, knot }: Bars, sides: Set<string>) {
-  const { keys, corners, hp, at, floor } = c,
+function buildLegs(c: Ctx, { clear, strut, fan, knot }: Bars, sides: Set<string>) {
+  const { keys, corners, hp, at, floor, column } = c,
     legs = keys.flatMap((key) =>
       corners
         .filter(([sx, sy]) => !sides.has(`${key} ${[0, sx]}`) && !sides.has(`${key} ${[1, sy]}`))
@@ -512,21 +532,15 @@ function buildLegs(c: Ctx, { clear, strut, knot }: Bars, sides: Set<string>) {
               return { top, foot: [top[0], top[1], floor] as Vec3 };
             },
             b = extend(FRAME.bracket, (b) => clear(reach(b).top, reach(b).foot));
-          return {
-            key,
-            corner: [sx, sy],
-            p: at(key, sx * hp[0], sy * hp[1], -FRAME.lip),
-            q: at(key, sx * hp[0], sy * hp[1], 0),
-            ...reach(b),
-          };
+          return { key, corner: [sx, sy], ...reach(b) };
         }),
     ),
     faults: string[] = [],
     solids: Manifold[] = [];
-  for (const { key, p, q, top, foot } of legs) {
+  for (const { key, corner, top, foot } of legs) {
     if (!clear(top, foot))
       faults.push(`${label(key)}: the leg under its corner hits a switch or keycap`);
-    solids.push(...strut(p, top), ...strut(q, top), knot(top), ...strut(top, foot));
+    solids.push(fan(column(key, corner), top), knot(top), ...strut(top, foot, true));
   }
   return { legs, faults, solids };
 }
@@ -534,13 +548,16 @@ function buildLegs(c: Ctx, { clear, strut, knot }: Bars, sides: Set<string>) {
 type Leg = ReturnType<typeof buildLegs>['legs'][number];
 /** A truss node: a leg's top (`corner`), a spot on a plate's corner (`plate`),
  * or a gap between two keys' walls (`gap`), which can move out and down on a
- * bracket `b` mm along `reach`, from the wall's edge `from`. */
-type Fixed = { kind: 'corner' | 'plate'; top: Vec3 };
+ * bracket `b` mm along `reach`, from `home` halfway down the wall's edge. A
+ * bar from it that leaves the plate widens to `anchor`, the corner's column
+ * (a gap's: halfway between its keys'). */
+type Fixed = { kind: 'corner' | 'plate'; top: Vec3; anchor: Vec3[] };
 type Gap = {
   kind: 'gap';
   top: Vec3;
   b: number;
-  from: Vec3[];
+  home: Vec3;
+  anchor: Vec3[];
   reach: (b: number) => Vec3;
 };
 type Node = Fixed | Gap;
@@ -551,6 +568,9 @@ type Span = {
   ends: { t: number; node: Node }[];
 };
 type Member = { key: string; side: [number, number]; end: number; node: Node; foot: Vec3 };
+
+/** Whether a node is on the plate, not out on a bracket or a leg. */
+const onPlate = (node: Node) => node.kind === 'plate' || (node.kind === 'gap' && !node.b);
 
 /** Move a gap's node out on its bracket by another step. */
 const raise = (g: Gap) => {
@@ -564,24 +584,26 @@ const raise = (g: Gap) => {
  * miss the switches. */
 function buildTruss(
   c: Ctx,
-  { strut, knot, clear }: Bars,
+  { strut, fan, knot, clear }: Bars,
   joined: [string, string][],
   sides: Set<string>,
   legs: Leg[],
 ) {
-  const { keys, hp, axis, at, floor, side } = c,
+  const { keys, hp, axis, at, floor, side, column } = c,
+    /** Which corner of a key is at end `t` of its side `ax`, `s`. */
+    signs = (ax: number, s: number, t: number) => (ax === 0 ? [s, t] : [t, s]),
     /** Key n's plate corner at end `t` of its side `ax`, `s`. */
-    cornerOf = (n: string, ax: number, s: number, t: number, z: number) =>
-      ax === 0 ? at(n, s * hp[0], t * hp[1], z) : at(n, t * hp[0], s * hp[1], z),
+    cornerOf = (n: string, ax: number, s: number, t: number, z: number) => {
+      const [sx, sy] = signs(ax, s, t);
+      return at(n, sx * hp[0], sy * hp[1], z);
+    },
     nodes = new Map<string, Node>(),
     end = (n: string, ax: number, s: number, t: number) => `${n} ${ax} ${s} ${t}`;
-  for (const {
-    key,
-    corner: [sx, sy],
-    top,
-  } of legs) {
-    nodes.set(end(key, 0, sx, sy), { kind: 'corner', top });
-    nodes.set(end(key, 1, sy, sx), { kind: 'corner', top });
+  for (const { key, corner, top } of legs) {
+    const [sx, sy] = corner,
+      node: Fixed = { kind: 'corner', top, anchor: column(key, corner) };
+    nodes.set(end(key, 0, sx, sy), node);
+    nodes.set(end(key, 1, sy, sx), node);
   }
   // The gaps: between two joined keys, along a side of each that has no
   // neighbour, facing the same way.
@@ -608,7 +630,10 @@ function buildTruss(
           kind: 'gap',
           top: b ? reach(b) : home,
           b,
-          from: [mid(-FRAME.lip), mid(0)],
+          home,
+          anchor: column(n, signs(a, sa, t)).map(
+            (p, i) => add(p, column(m, signs(a2, sa2, t2))[i]).map((x) => x / 2) as Vec3,
+          ),
           reach,
         };
       nodes.set(end(n, 1 - a, t, sa), node);
@@ -630,7 +655,11 @@ function buildTruss(
                   t,
                   node:
                     nodes.get(end(n, ax, s, t)) ??
-                    ({ kind: 'plate', top: cornerOf(n, ax, s, t, -FRAME.lip / 2) } satisfies Fixed),
+                    ({
+                      kind: 'plate',
+                      top: cornerOf(n, ax, s, t, -FRAME.lip / 2),
+                      anchor: column(n, signs(ax, s, t)),
+                    } satisfies Fixed),
                 })),
               },
             ],
@@ -715,8 +744,7 @@ function buildTruss(
       ).values(),
     ].map((m) => {
       const { node } = m,
-        home = add(node.from[0], node.from[1]).map((x) => x / 2) as Vec3,
-        pos = (b: number) => (b ? node.reach(b) : home),
+        pos = (b: number) => (b ? node.reach(b) : node.home),
         below = (p: Vec3) => [p[0], p[1], floor] as Vec3;
       node.b = extend(0, (b) => clear(pos(b), below(pos(b))));
       node.top = pos(node.b);
@@ -730,11 +758,11 @@ function buildTruss(
       faults.push(
         `${label(key)}: ${post ? 'a post' : 'a diagonal'} under its side hits a switch or keycap`,
       );
-    solids.push(...strut(node.top, foot));
+    solids.push(...(onPlate(node) ? [fan(node.anchor, foot, true)] : strut(node.top, foot, true)));
   }
+  // A gap's bracket: from its column out to its node.
   for (const node of new Set(truss.map((m) => m.node)))
-    if (node.kind === 'gap' && node.b)
-      solids.push(...node.from.flatMap((p) => strut(p, node.top)), knot(node.top));
+    if (node.kind === 'gap' && node.b) solids.push(fan(node.anchor, node.top), knot(node.top));
   return { truss, faults, solids };
 }
 
@@ -771,6 +799,21 @@ function rails(
     if (tie) solids.push(rail(tie.a, tie.b));
   });
   return solids;
+}
+
+/** A pad under each foot: what's there of the bars and rails, near the
+ * floor, filled down to it, so the bars meeting there leave nothing hanging
+ * just above the floor (the slicer would put a sliver of support under it). */
+function pads(c: Ctx, bars: Manifold, members: { foot: Vec3 }[]) {
+  const { M, floor } = c,
+    [up, round] = [1.2, 4];
+  return [...new Set(members.map((m) => m.foot.join()))].map((k) => {
+    const [x, y] = k.split(',').map(Number),
+      near = bars.intersect(
+        M.cube([2 * round, 2 * round, up], true).translate([x, y, floor + up / 2]),
+      );
+    return M.hull([near, near.translate([0, 0, -up])]).trimByPlane([0, 0, 1], floor);
+  });
 }
 
 /** Pressing a keycap corner pushes along its switch; where that line meets
