@@ -523,8 +523,8 @@ type ThumbPose = {
    * where the thumb rested level with the fingertips). */
   drop: number;
 };
-/** How far the thumb's MCP and IP go, degrees: a guess (they hyperextend a little). */
-const MCP_RANGE = [-10, 90],
+/** How far the thumb's MCP and IP go, degrees: a guess as the fit bounds them (they hyperextend a little). */
+const MCP_RANGE = [-15, 90],
   IP_RANGE = [-20, 90];
 const clamp = (v: number, [lo, hi]: number[]) => Math.min(hi, Math.max(lo, v));
 /** The 1u row of a 1.5u + 2×1u cluster: `gap` mm from the 1.5u, the thumb
@@ -532,8 +532,9 @@ const clamp = (v: number, [lo, hi]: number[]) => Math.min(hi, Math.max(lo, v));
 type TwoRows = { gap: number };
 /** The photos' thumb poses (the assumed CMC's) by their prints' place round
  * the arc, rest and swept in, out and back; between them, interpolated.
- * Swept in, carried on up to SWEEP_IN past the print (as between it and rest,
- * where the bends hardly change): at rest the thumb sits nearly under the
+ * Swept in, the swing at the CMC carried on up to SWEEP_IN past the print (as
+ * between it and rest), the bends held at the print's (there the MCP and IP
+ * are as straight as they go): at rest the thumb sits nearly under the
  * index, further in than the print. Pulled back, not past the print: there
  * the metacarpal points across the hand, and further it'd point back past
  * the CMC. Beyond those, held, and `past` says by how much (degrees). */
@@ -549,7 +550,7 @@ function photoPose(a: number) {
     i = next < 0 ? P.length - 2 : Math.max(0, next - 1),
     t = (c - P[i].a) / (P[i + 1].a - P[i].a);
   return Object.assign(
-    P[i].q.map((v, j) => v + (P[i + 1].q[j] - v) * t),
+    P[i].q.map((v, j) => (t < 0 && j > 2 ? v : v + (P[i + 1].q[j] - v) * t)),
     { past: Math.abs(a - c) },
   );
 }
@@ -1369,25 +1370,23 @@ function check(
 // ---------------------------------------------------------------- presets
 /** Near the Dactyl Manuform (DM_right), at a reach seen on it: rows reached
  * with the MCP bending as the finger straightens, -0.1° per PIP degree,
- * which holds the wrist 63.1 mm up (the thumb's CMC over the middle home
+ * which holds the wrist 56.0 mm up (the thumb's CMC over the middle home
  * key). Tented 15° like the Dactyl. The finger curl, the hand's pitch on the
  * board, the thumb keys' place round the arc, drop and spacing and the gaps
  * fitted together: of the valid layouts (the printed frame's faults
  * counted), the one whose keys (cap tops and facings; the thumb's by place
  * only) are closest to the Dactyl's, where no half step in any one of them
- * is closer and valid (a test, in tests/hand.test.ts). The thumb on its
- * outer edge as felt on the Dactyl (60°, the nail 30° from upright). The
- * rows come out closer than tuned by eye on the printed frame (14.7 mm, was
- * 17.7). The thumb home key 121° round the arc (rest is 112°, swept out
- * 140°), 5.5 mm below the home row, the keys 31 mm apart (closer, pressing
- * the near key the thumb goes into the home key). The thumb keys sit 12–28
- * mm from the Dactyl's, facing 31–48° off: the Dactyl's face you, which a
- * swing at the CMC can't press straight. Valid with the 1×3 cluster, the
- * printed frame too. */
+ * is closer and valid (a test, in tests/hand.test.ts). The rows come out
+ * closer than tuned by eye on the printed frame (14.7 mm, was 17.7). The
+ * thumb home key 121° round the arc (rest is 112°, swept out 140°), 5.5 mm
+ * below the home row, the keys 28 mm apart (closer, pressing the near key
+ * the thumb goes into the home key). The thumb keys sit 8–27 mm from the
+ * Dactyl's, facing 33–47° off: the Dactyl's face you. Valid with the 1×3
+ * cluster, the printed frame too. */
 const DACTYL: Settings = {
   tent: 15,
   roll: 0,
-  pitch: 3.5,
+  pitch: 3,
   bend: 0,
   curl: { index: 10.5, middle: 10.5, ring: 10.5, pinky: 10.5 },
   innerGap: 19,
@@ -1395,10 +1394,10 @@ const DACTYL: Settings = {
   top: 14.7,
   bottom: 14.7,
   from: 'reach',
-  wristHeight: 63.1,
+  wristHeight: 56.0,
   pressMix: 1.4,
   thumb: { around: 121, drop: 5.5 },
-  spacing: 31,
+  spacing: 28,
   cluster: '1×3',
   // The 1u row a key's depth inside the 1.5u, the thumb curled in under the
   // hand.
@@ -1414,11 +1413,10 @@ const DACTYL: Settings = {
  * tapering to 14, 11 high): 65 mm tall. Fitted before the check followed the
  * hand reaching each key, and valid under it. (On its
  * printed frame the index brushed the thumb cluster, which the model doesn't
- * reproduce.) The wrist 111.5 mm up, the reach as before the thumb's CMC was
+ * reproduce.) The wrist 112.7 mm up, the reach as before the thumb's CMC was
  * refitted (mix 0.40). The thumb as at rest in the photos: the home key at
- * the rest print's place round the arc (112°), level with the home row; on
- * its outer edge as felt on the Dactyl (60°, the nail 30° from upright), the
- * keys as close as that allows (30 mm: closer, pressing the near key the
+ * the rest print's place round the arc (112°), level with the home row, the
+ * keys as close as that allows (24 mm: closer, pressing the near key the
  * thumb goes into the home key). */
 const NATURAL: Settings = {
   tent: 1,
@@ -1431,10 +1429,10 @@ const NATURAL: Settings = {
   top: 19.1,
   bottom: 19.1,
   from: 'reach',
-  wristHeight: 111.5,
+  wristHeight: 112.7,
   pressMix: 1.4,
   thumb: { around: 112, drop: 0 },
-  spacing: 30,
+  spacing: 24,
   cluster: '1×3',
   two: { gap: 19.5 },
 };

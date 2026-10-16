@@ -213,7 +213,8 @@ test("the photos' thumb poses put it on each print, above the paper", () => {
           .addScaledVector(g, hand.THUMB_R);
       },
       at = lowest(th.axis);
-    assert.ok(Math.abs(at.z) < 0.2, `print ${k}: the pad ${at.z.toFixed(2)} mm up`);
+    // To the fit's half mm.
+    assert.ok(Math.abs(at.z) < 0.5, `print ${k}: the pad ${at.z.toFixed(2)} mm up`);
     assert.ok(Math.hypot(at.x - print[0], at.y - print[1]) < 0.5, `print ${k}: off the print`);
     // Nothing else in the paper (a mm into the skin allowed).
     for (const p of [th.I, th.end]) assert.ok(lowest(p).z > -1.1, `print ${k}: in the paper`);

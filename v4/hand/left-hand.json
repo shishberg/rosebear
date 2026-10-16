@@ -296,11 +296,11 @@
   "assumed_cmc": {
    "note": "Not measured. Fitted so the thumb reaches all five prints, assuming a ball joint at the base, typical anatomy (a 46 mm metacarpal, the CMC about 60 mm behind the index knuckle) and the least joint movement from rest. Each print is the last section's lowest point, the thumb above the paper; the knuckle dots on the back of the thumb, along the camera's line of sight. Angles in degrees; bending is + toward the pad.",
    "cmc": [
-    -17.9,
-    -126.9,
-    44.8
+    -34.0,
+    -141.2,
+    36.3
    ],
-   "metacarpal_mm": 44.3,
+   "metacarpal_mm": 44.0,
    "pad_below_distal_axis_mm": 8.0,
    "pad_width_mm": 22.0,
    "pose_order": [
@@ -312,58 +312,58 @@
    ],
    "poses": {
     "1": [
-     134.6,
-     22.0,
-     8.4,
-     27.9,
-     48.8
+     107.5,
+     10.2,
+     29.0,
+     18.3,
+     15.6
     ],
     "2": [
-     126.7,
-     23.3,
-     7.7,
-     33.8,
-     50.8
+     75.1,
+     16.2,
+     0.1,
+     -15.0,
+     -20.0
     ],
     "3": [
-     154.8,
-     20.0,
-     15.8,
-     32.6,
-     58.8
+     128.4,
+     0.6,
+     43.9,
+     40.9,
+     30.8
     ],
     "4": [
-     175.4,
-     16.9,
-     24.4,
-     38.9,
-     69.0
+     139.4,
+     -12.2,
+     63.5,
+     66.3,
+     27.9
     ],
     "5": [
-     162.7,
-     20.8,
-     25.4,
-     59.5,
-     77.7
+     130.6,
+     -3.5,
+     38.8,
+     70.0,
+     45.7
     ]
    },
    "print_misses_mm": {
-    "1": 0.2,
-    "2": 0.0,
+    "1": 0.4,
+    "2": 0.1,
     "3": 0.0,
     "4": 0.0,
     "5": 0.0
    },
    "rest_joints_fitted": {
     "mcp": [
-     -46.8,
-     -97.7,
-     28.2
+     -47.0,
+     -99.9,
+     28.4
     ],
     "ip": [
-     -54.7,
-     -66.5,
-     14.4
+     -47.4,
+     -66.7,
+     17.3
     ]
    }
   }

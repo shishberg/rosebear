@@ -21,7 +21,8 @@ used: 32 mm up, it's 37 mm from the rest print, and the last section reaches
 about 19. That height came from taking the knuckles' skin dots to sit straight
 above the joints (the nail up); here they sit DOT mm out from the joints on the
 back of the thumb, whichever way it faces, and the photo gives where they are
-seen from above. The MCP's measured height is its top, whichever way the thumb
+seen from above (so they face the camera: the back of the thumb within
+FACE degrees of the line of sight). The MCP's measured height is its top, whichever way the thumb
 faces, so its centre is still 9 mm under it. The dots are matched along the
 camera's line of sight (thumb.rest.dot_sightlines), at their fitted height. Usage: thumb_cmc.py left-hand.json (rewritten in place)."""
 import json, sys, numpy as np
@@ -63,14 +64,25 @@ def lowest(a, u, side):
     g /= np.linalg.norm(g)
     return a + EDGE * np.clip(g @ side / 0.05, -1, 1) * side + PAD * g
 
-def dots(C, lm, q):
-    """The MCP and IP skin dots: out from each joint on the back of the thumb,
-    square to it (halfway between the bones either side)."""
+def facing(q):
+    """Which way the back of the thumb faces at the MCP and IP skin dots
+    (halfway between the bones either side)."""
     yaw, pitch, roll, b1, b2 = q
     Rq = R(yaw, pitch, roll)
     up = lambda a: Rq @ np.array([np.sin(np.radians(a)), np.cos(np.radians(a)), 0])
+    return up(b1 / 2), up(b1 + b2 / 2)
+
+def dots(C, lm, q):
+    """The MCP and IP skin dots: out from each joint on the back of the thumb,
+    square to it."""
     M, I, _ = chain(C, lm, q)
-    return M + DOT['mcp'] * up(b1 / 2), I + DOT['ip'] * up(b1 + b2 / 2)
+    fM, fI = facing(q)
+    return M + DOT['mcp'] * fM, I + DOT['ip'] * fI
+
+# The camera saw the dots, so the back of the thumb faces it there: within
+# FACE degrees of the line of sight back up to the camera.
+FACE = 70.0
+SIGHT = {k: np.r_[v[1], 1.0] / np.linalg.norm(np.r_[v[1], 1.0]) for k, v in SEEN.items()}
 
 def chain(C, lm, q, s=None):
     """Joint centres and the last section's lowest point `s` mm past the IP
@@ -106,6 +118,8 @@ def residuals(x):
     M, I, _ = chain(C, lm, Q['1'])                                       # print 1 is the resting pose
     dM, dI = dots(C, lm, Q['1'])                                         # the dots, seen from above
     r += list(seen('mcp', dM) / 3) + list(seen('ip', dI) / 3)
+    for k, f in zip(('mcp', 'ip'), facing(Q['1'])):
+        r.append(min(0, f @ SIGHT[k] - np.cos(np.radians(FACE))) / 0.05)
     r += [(M[2] - MCP[2]) / 6, (lm - LM) / LM_SD, (Q['1'][3] - MCP_REST) / MCP_REST_SD]
     r += list((C - CMC0) / CMC_SD)
     for k in KEYS[1:]:                                                   # least movement from rest
