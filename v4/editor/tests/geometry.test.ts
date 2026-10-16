@@ -8,6 +8,7 @@ import {
   componentFrames,
   validateProject,
   capClearance,
+  keycapEnvelope,
   keyGroups,
   tileUnderside,
 } from '../src/geometry';
@@ -349,4 +350,34 @@ test('a shell that throws while the router is still working leaves no unhandled 
     process.off('unhandledRejection', note);
   }
   assert.deepEqual(unhandled, []);
+});
+
+test('keycapEnvelope: the measured cap grown by its clearance, down to where it is pressed', () => {
+  const c = defaults.config,
+    close = (a: number[], b: number[]) => a.forEach((x, i) => assert(Math.abs(x - b[i]) < 1e-9));
+  const t = keycapEnvelope(c, 'thumb_home');
+  close(t.base, [33, 23.5]);
+  close(t.top, [28.5, 19]);
+  close([t.z0, t.height, t.floor], [6, 13.5, 2.5]);
+  const m = keycapEnvelope(c, 'matrix_index_home');
+  close(m.base, [19.1, 19.1]);
+  close(m.top, [14.6, 14.6]);
+  close([m.z0, m.height, m.floor], [6, 11.3, 2.5]);
+  const bare = keycapEnvelope(c, 'matrix_index_home', { clearance: 0 });
+  close([...bare.base, ...bare.top, bare.height], [18.5, 18.5, 14, 14, 11]);
+  const deep = clone(defaults).config;
+  deep.switch.travel_mm = 8;
+  assert.equal(keycapEnvelope(deep, 'matrix_index_home').floor, -2);
+  assert.equal(keycapEnvelope(deep, 'matrix_index_home', { clampFloor: true }).floor, 0);
+});
+test('a wide keycap clearance fails the swept check by the taper, not the at-rest one', async () => {
+  const wasm = await Module();
+  wasm.setup();
+  const p = clone(defaults);
+  p.config.switch.keycap_clearance_mm = 6;
+  const r = buildSolid(wasm, p),
+    k = r.report.keycaps.find((x) => x.name === 'thumb_x1')!;
+  assert.equal(k.atRest, 0);
+  assert(Math.abs(k.swept - 14.5) < 0.05, String(k.swept));
+  assert.equal(r.report.passed, false);
 });

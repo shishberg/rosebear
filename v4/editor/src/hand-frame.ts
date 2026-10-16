@@ -30,6 +30,7 @@
 import type { Manifold, ManifoldToplevel, Mat4, Vec3 } from 'manifold-3d';
 import {
   capSize,
+  keycapEnvelope,
   capTop,
   componentFrames,
   isThumb,
@@ -67,6 +68,16 @@ export const FRAME = {
   /** A press that pushes further than this outside the base (seen from the
    * keycap corner) warns that it may tip the frame. */
   tip: 10,
+};
+
+/** The room round key `n`'s keycap, pressed to rest and a margin above it. */
+const capRoom = (cfg: Config, n: string) => {
+  const e = keycapEnvelope(cfg, n, { clearance: FRAME.capMargin });
+  return {
+    half: e.base.map((x) => x / 2),
+    from: e.floor,
+    to: e.z0 + e.height + FRAME.capMargin,
+  };
 };
 
 export type FrameResult = {
@@ -177,13 +188,13 @@ export function clearOf(
     sb = sw.keycap_bottom_above_plate_mm,
     pressed = sb - sw.travel_mm,
     boxes = keys.map((n) => {
-      const cap = capSize(cfg, n).map((x) => x / 2 + FRAME.capMargin);
+      const room = capRoom(cfg, n);
       return {
         inv: frames[n].clone().invert(),
         boxes: [
           [hole, -plate - 0.5, 0.5],
           [pocket, deep, -plate],
-          [cap, pressed, sb + cap[2] * 2],
+          [room.half, room.from, room.to],
           [pocket, 0.05, pressed],
         ].map(([s, z0, z1]) => {
           const h = s as number[];
@@ -306,11 +317,8 @@ export function buildFrame(wasm: ManifoldToplevel, cfg: Config): FrameResult {
       switchAt = (n: string) => union([hull(through(n)), hull(box(n, pocket, -plate, deep))]),
       room = Object.fromEntries(
         keys.map((n) => {
-          const cap = capSize(cfg, n).map((x) => x / 2 + FRAME.capMargin);
-          return [
-            n,
-            [hull(box(n, cap, pressed, sb + cap[2] * 2)), hull(box(n, pocket, 0.05, pressed))],
-          ];
+          const r = capRoom(cfg, n);
+          return [n, [hull(box(n, r.half, r.from, r.to)), hull(box(n, pocket, 0.05, pressed))]];
         }),
       ),
       keepOut = union(keys.flatMap((n) => [switchAt(n), ...room[n]]));

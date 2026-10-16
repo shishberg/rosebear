@@ -7,7 +7,7 @@
 // the switches clip into are added by chassis.ts.
 import type { CrossSection, Manifold, ManifoldToplevel, Vec3 } from 'manifold-3d';
 import { Matrix4 } from 'three';
-import { capClearance, capSize, isKey, isThumb, point, type Config } from './geometry';
+import { capSize, isKey, keycapEnvelope, isThumb, point, type Config } from './geometry';
 import { landingBox } from './wiring';
 
 export interface Kit {
@@ -38,17 +38,17 @@ const corners = (k: Kit, n: string, grow = 0) =>
     [-1, 1],
   ].map(([x, y]) => at(k, n, x, y, 0, grow));
 const place = (m: Manifold, f: Matrix4) => m.transform(f.elements as never);
-// A keycap's travel envelope, straight-sided (around a tapered cap): the cap
-// plus its margin, from rest down by the travel.
+// A keycap's travel envelope for the well's plan: straight-sided round the
+// tapered cap (its base, with the cap's clearance), from pressed to the cap's
+// top; the top is deliberately not grown by the clearance.
 const capSweep = (k: Kit, n: string) => {
-  const z = capSize(k.cfg, n),
-    s = k.cfg.switch,
-    g = capClearance(k.cfg, n);
+  const e = keycapEnvelope(k.cfg, n),
+    top = e.z0 + capSize(k.cfg, n)[2];
   return place(
-    k.wasm.Manifold.cube([z[0] + 2 * g, z[1] + 2 * g, z[2] + s.travel_mm], true).translate([
+    k.wasm.Manifold.cube([e.base[0], e.base[1], top - e.floor], true).translate([
       0,
       0,
-      s.keycap_bottom_above_plate_mm - s.travel_mm + (z[2] + s.travel_mm) / 2,
+      (top + e.floor) / 2,
     ]),
     k.frames[n],
   );

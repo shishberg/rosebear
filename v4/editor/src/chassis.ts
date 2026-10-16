@@ -27,14 +27,13 @@
 import type { CrossSection, Manifold, ManifoldToplevel, Vec3 } from 'manifold-3d';
 import { Matrix4 } from 'three';
 import {
-  capClearance,
-  capSize,
-  capTop,
+  keycapEnvelope,
   isKey,
   isThumb,
   point,
   tileUnderside,
   type Config,
+  type KeycapEnvelope,
 } from './geometry';
 import { seatSettings } from './seats';
 import {
@@ -62,6 +61,32 @@ export interface ChassisResult {
   split: number;
   /** For each key, the chassis its keycap's room (and the switch rim's) had to remove. */
   roomCuts: { name: string; cut: Manifold }[];
+}
+
+/** A keycap's envelope as a solid in key coordinates: the taper from its rest
+ * height, and under it the base's footprint down to the floor. `box: false`
+ * leaves the taper alone. */
+export function keycapSolid(M: ManifoldToplevel['Manifold'], e: KeycapEnvelope, box = true) {
+  const [x, y] = [e.base[0] / 2, e.base[1] / 2],
+    taper = M.extrude(
+      [
+        [
+          [-x, -y],
+          [x, -y],
+          [x, y],
+          [-x, y],
+        ],
+      ],
+      e.height,
+      0,
+      0,
+      [e.top[0] / e.base[0], e.top[1] / e.base[1]],
+    ).translate([0, 0, e.z0]);
+  return box
+    ? taper.add(
+        M.cube([2 * x, 2 * y, e.z0 - e.floor], true).translate([0, 0, (e.z0 + e.floor) / 2]),
+      )
+    : taper;
 }
 
 /**
@@ -571,13 +596,12 @@ export function buildChassis(
   const roomCuts: { name: string; cut: Manifold }[] = [];
   const cutters: Manifold[] = [];
   for (const n of keyNames) {
-    const cap = capSize(cfg, n);
-    const clearance = capClearance(cfg, n);
+    const env = keycapEnvelope(cfg, n, { clampFloor: true });
     const room = place(
       M.cube(
         [
-          cap[0] + 2 * clearance + SIZES.keycapRoomExtra,
-          cap[1] + 2 * clearance + SIZES.keycapRoomExtra,
+          env.base[0] + SIZES.keycapRoomExtra,
+          env.base[1] + SIZES.keycapRoomExtra,
           SIZES.keycapRoomHeight,
         ],
         true,
@@ -592,34 +616,7 @@ export function buildChassis(
           )
         : undefined;
     const keycapRoom = rim ? room.add(rim) : room;
-    const top = capTop(cfg, n),
-      rest = sw.keycap_bottom_above_plate_mm,
-      [x, y] = [cap[0] / 2 + clearance, cap[1] / 2 + clearance],
-      capGoes = place(
-        M.extrude(
-          [
-            [
-              [-x, -y],
-              [x, -y],
-              [x, y],
-              [-x, y],
-            ],
-          ],
-          cap[2] + clearance,
-          0,
-          0,
-          [(top[0] / 2 + clearance) / x, (top[1] / 2 + clearance) / y],
-        )
-          .translate([0, 0, rest])
-          .add(
-            M.cube([2 * x, 2 * y, rest - capLowest], true).translate([
-              0,
-              0,
-              (rest + capLowest) / 2,
-            ]),
-          ),
-        frames[n],
-      );
+    const capGoes = place(keycapSolid(M, env), frames[n]);
     roomCuts.push({ name: n, cut: uncarved.intersect(rim ? capGoes.add(rim) : capGoes) });
     cutters.push(
       place(M.cube([...sw.cutout_mm, SIZES.switchHoleHeight] as Vec3, true), frames[n]),

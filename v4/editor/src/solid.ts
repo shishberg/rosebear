@@ -1,13 +1,14 @@
 import type { Manifold, ManifoldToplevel, Mat4 } from 'manifold-3d';
 import { Matrix4, Vector3 } from 'three';
 import { seatSettings } from './seats';
-import { buildChassis, gluePads } from './chassis';
+import { buildChassis, gluePads, keycapSolid } from './chassis';
 import { shell } from './shell';
 import { adapterParts, crossings, padParts, wiring, type Wiring } from './wiring';
 import {
   capClearance,
   capSize,
   capTop,
+  keycapEnvelope,
   isKey,
   keyGroups,
   tileUnderside,
@@ -421,29 +422,6 @@ function build(
   const box = (size: number[], center: number[] = [0, 0, 0]) =>
     keep(keep(M.cube(size as V3, true)).translate(center as V3));
   const place = (m: Manifold, pose: Matrix4) => keep(m.transform(pose.elements as Mat4));
-  // A box tapering from size (x, y at its bottom; z its height) to top, its
-  // bottom at z = bottom.
-  const tapered = (size: number[], top: number[], bottom: number) => {
-    const [x, y] = [size[0] / 2, size[1] / 2];
-    return keep(
-      keep(
-        M.extrude(
-          [
-            [
-              [-x, -y],
-              [x, -y],
-              [x, y],
-              [-x, y],
-            ],
-          ],
-          size[2],
-          0,
-          0,
-          [top[0] / size[0], top[1] / size[1]],
-        ),
-      ).translate([0, 0, bottom]),
-    );
-  };
   const volume = (a: Manifold, b: Manifold) => {
     const hit = within(a, b).intersect(b);
     try {
@@ -731,27 +709,12 @@ function build(
     for (const [name, m] of keyNodes) {
       const size = capSize(cfg, name);
       const margin = capClearance(cfg, name);
-      const pressedBottom = sw.keycap_bottom_above_plate_mm - sw.travel_mm;
-      const top = capTop(cfg, name);
-      const rest = (rests[name] = place(tapered(size, top, sw.keycap_bottom_above_plate_mm), m));
-      // The keycap over its full travel, grown by its clearance: the tapered cap
-      // at rest, and its base's footprint down to where it is pressed.
-      const grown = [size[0] + 2 * margin, size[1] + 2 * margin, size[2] + margin];
-      const sweep = place(
-        keep(
-          tapered(
-            grown,
-            [top[0] + 2 * margin, top[1] + 2 * margin],
-            sw.keycap_bottom_above_plate_mm - margin / 2,
-          ).add(
-            box(
-              [grown[0], grown[1], sw.travel_mm + margin / 2],
-              [0, 0, pressedBottom + (sw.travel_mm + margin / 2) / 2],
-            ),
-          ),
-        ),
+      const rest = (rests[name] = place(
+        keycapSolid(M, keycapEnvelope(cfg, name, { clearance: 0 }), false),
         m,
-      );
+      ));
+      // The keycap over its full travel, grown by its clearance.
+      const sweep = place(keycapSolid(M, keycapEnvelope(cfg, name)), m);
       const atRest = collision(result, rest, name, 'rest');
       const swept = collision(result, sweep, name, 'travel');
       keycaps.push({

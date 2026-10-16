@@ -608,7 +608,7 @@ are listed but not done.
 | T2 | done | |
 | T3 | done | |
 | T4 | done | |
-| T5 | pending | |
+| T5 | done | |
 | T6 | pending | |
 | T7 | pending | |
 | T8 | pending | |

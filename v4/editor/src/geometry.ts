@@ -74,6 +74,29 @@ export const capTop = (c: Config, n: string): [number, number] => {
     top = s.keycap_top_mm ?? s.keycap_mm;
   return [0, 1].map((k) => size[k] - (s.keycap_mm[k] - top[k])) as [number, number];
 };
+/** A keycap's room in key coordinates: the taper (base to top, `height` tall)
+ * from `z0` (its rest height over the plate), and under it the base's footprint
+ * down to `floor` (where it is pressed). `clearance` grows it all round
+ * (default: the key's own); `clampFloor` stops the floor at the plate. */
+export const keycapEnvelope = (
+  c: Config,
+  n: string,
+  o: { clearance?: number; clampFloor?: boolean } = {},
+) => {
+  const g = o.clearance ?? capClearance(c, n),
+    cap = capSize(c, n),
+    top = capTop(c, n),
+    z0 = c.switch.keycap_bottom_above_plate_mm,
+    pressed = z0 - c.switch.travel_mm;
+  return {
+    base: [cap[0] + 2 * g, cap[1] + 2 * g] as [number, number],
+    top: [top[0] + 2 * g, top[1] + 2 * g] as [number, number],
+    z0,
+    height: cap[2] + g,
+    floor: o.clampFloor ? Math.max(0, pressed) : pressed,
+  };
+};
+export type KeycapEnvelope = ReturnType<typeof keycapEnvelope>;
 /** Layout coordinates are before tenting: +Y away from the user, +Z up. The tent
  * (a rotation about Y) and the mount lift are applied last, to every frame. */
 export const tentFrame = (cfg: Config) => {
