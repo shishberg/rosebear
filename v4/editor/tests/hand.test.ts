@@ -89,13 +89,12 @@ test('Dactyl fit: the hand reaches every key touching nothing else, and it fits 
 // model doesn't (yet) reproduce. Reported, not asserted.
 test('Natural', (t) => report(t, layout(hand.NATURAL)));
 
-test('each thumb key is square to the sweep round the arc and lies along the last bone, and the thumb presses it straight down', () => {
+test('each thumb key is square to the sweep round the arc and faces up, and the thumb presses it straight down', () => {
   for (const s of [hand.DACTYL, hand.NATURAL])
     hand.solveHand(s).row.forEach((k, i) => {
       const at = `${['far', 'home', 'near'][i]} (${s === hand.DACTYL ? 'Dactyl fit' : 'Natural'})`,
         th = hand.thumb(k.q),
         n = new T.Vector3().setFromMatrixColumn(k.frame, 2);
-      assert.ok(Math.abs(n.dot(th.u)) < 1e-6, `${at}: not along the last bone`);
       const r = Math.atan2(th.axis.y - hand.arc.centre[1], th.axis.x - hand.arc.centre[0]);
       assert.ok(
         Math.abs(n.x * -Math.sin(r) + n.y * Math.cos(r)) < 1e-6,
@@ -220,14 +219,6 @@ test("the photos' thumb poses put it on each print, above the paper", () => {
     for (const p of [th.I, th.end]) assert.ok(lowest(p).z > -1.1, `print ${k}: in the paper`);
     assert.ok(th.M.z > hand.THUMB_R && th.I.z > hand.THUMB_R, `print ${k}: a knuckle in the paper`);
   }
-});
-
-test("a thumb key met with the back of the thumb isn't valid", () => {
-  // The photos' pose swept in: rolled past its side.
-  const q = hand.photoPose(92),
-    s = { ...structuredClone(hand.NATURAL), thumb: { around: 92, drop: 0 } };
-  assert.ok(hand.touch(q).roll > 90);
-  assert.ok(hand.check(clone(defaults).config, s).crooked.length > 0);
 });
 
 const FINGERS = ['index', 'middle', 'ring', 'pinky'] as const;

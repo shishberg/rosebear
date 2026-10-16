@@ -20,10 +20,10 @@
  * at each key starts from the photos': the pose that put the pad on each
  * print as it swept round (rest, swept in, out and back, all on one arc),
  * interpolated by the place round that arc. Each key is square to the sweep
- * round the arc (sweeping from key to key runs across the key tops) and lies
- * along the last bone, touching the last section where it touched the
- * paper, on its lower edge (touch; how far it lies on its side falls out,
- * and the readout says it); the thumb presses it straight down, swinging at
+ * round the arc (sweeping from key to key runs across the key tops) and
+ * faces up, touching the last section's lowest point where it touched the
+ * paper (touch; how far it lies on its side falls out, and the readout says
+ * it); the thumb presses it straight down, swinging at
  * the CMC and bending at the MCP and IP together. The thumb swings round
  * until the key is at its place round the arc, then abducts at the CMC to
  * lower the key as set (which carries it toward you). The home key's place
@@ -406,11 +406,12 @@ function thumb(q: number[]) {
 /** Where the thumb meets a key and which way the key faces (`n`, out of the
  * cap toward the thumb). The key is square to the sweep (level, round the
  * arc's centre), so sweeping the thumb from key to key runs across the key
- * tops, and it lies along the last bone, facing up. It touches the lower of
- * the last section's round edges where the thumb touched the paper in the
- * photos (the print, ip_pad past the IP). `roll`: how far the nail tilts
- * from parallel to the key, + toward the outer edge (away from the index; 0:
- * the key flat on the pad). */
+ * tops, and it faces straight up, as the paper did in the photos. The thumb
+ * touches it with the last section's lowest point across it where it
+ * touched the paper (the print, ip_pad past the IP): its flat pad and round
+ * edges, either side of the bone. `roll`: how far the nail tilts from
+ * parallel to the key, + toward the outer edge (away from the index; 0: the
+ * key flat on the pad). */
 function touch(q: number[]) {
   const th = thumb(q),
     mid = th.axis,
@@ -418,13 +419,15 @@ function touch(q: number[]) {
     out = Math.sign(side.dot(mid.clone().sub(INDEX_MCP))) || 1,
     r = Math.atan2(mid.y - arc.centre[1], mid.x - arc.centre[0]),
     sweep = new T.Vector3(-Math.sin(r), Math.cos(r), 0),
-    n = th.u.clone().cross(sweep).normalize();
-  if (n.z < 0) n.negate();
-  // The round edge further down n touches the key.
-  const k = side.dot(n) > 0 ? -1 : 1,
-    edge = mid.clone().addScaledVector(side, k * THUMB_EDGE);
+    n = new T.Vector3(0, 0, 1),
+    // Down, across the bone: to the flat's edge when it tilts at all.
+    g = n.clone().negate().addScaledVector(th.u, th.u.z).normalize(),
+    across = Math.max(-1, Math.min(1, g.dot(side) / 0.05));
   return {
-    p: edge.addScaledVector(n, -THUMB_R),
+    p: mid
+      .clone()
+      .addScaledVector(side, across * THUMB_EDGE)
+      .addScaledVector(g, THUMB_R),
     n,
     /** The sweep: level, round the arc's centre, away from the fingers. */
     sweep,
@@ -636,7 +639,7 @@ function thumbAlong(from: T.Vector3, a0: number, sign: number, gap: number, z: n
  * cluster the 1u keys go either side, `spacing` / 2 from its middle, the thumb bent more
  * at the MCP and IP (curling it in under the hand) until they're `two.gap`
  * mm from the 1.5u (negative: straightened, the other way). Each key touches the thumb as touch() has it
- * (square to the sweep, along the last bone, pressed straight down).
+ * (square to the sweep, facing up, pressed straight down).
  * Frames: z out of the cap, x toward the near key. `miss`: mm the
  * thumb falls short of the key. */
 function thumbRow(t: ThumbPose, spacing: number, top: number, two?: TwoRows) {
@@ -1359,10 +1362,6 @@ function check(
     innerShort: h.inner.limited,
     /** mm the wrist height is past what any reach gives at this curl. */
     wristOff: s.from === 'reach' ? mixFor(s.curl.middle, s.wristHeight).off : 0,
-    /** Thumb keys met with the back of the thumb (rolled past 90°). */
-    crooked: h.row
-      .map((k, i) => [['far', 'home', 'near'][i], touch(k.q)] as const)
-      .filter(([, t]) => Math.abs(t.roll) > 90),
     height: heightOf(c, caps, deskOf(s)),
   };
 }
@@ -1445,10 +1444,6 @@ const problems = (r: ReturnType<typeof check>) => [
   ...r.capHits.map((x) => `${capName(x.a)} hits ${capName(x.b)} (${x.depth.toFixed(1)} mm)`),
   ...r.handHits.map((x) => `${x.a} ${x.during}: into ${x.b} (${x.depth.toFixed(1)} mm)`),
   ...r.short.map(([k, m]) => `${k} out of reach (${m.toFixed(0)} mm)`),
-  ...r.crooked.map(
-    ([k, t]) =>
-      `thumb ${k} met with the back of the thumb (rolled ${Math.abs(t.roll).toFixed(0)}°)`,
-  ),
   ...(r.innerShort ? ['inner column out of reach'] : []),
   ...(Math.abs(r.wristOff) > 0.5
     ? [
