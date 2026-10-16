@@ -4,6 +4,8 @@
 // and normal on it. Save sends the strokes, the camera, a note and a screenshot
 // to the dev server, which writes them to marks/ (see vite.config.ts).
 // Delete all removes every saved mark.
+// Clicking a saved mark in the list goes to its view and picks it out in green;
+// clicking it again drops that.
 // ?mark=<id> opens on a saved mark's view; ?marks=0 hides the saved marks.
 import * as T from 'three';
 import type { OrbitControls } from 'three/addons/controls/OrbitControls.js';
@@ -21,6 +23,10 @@ type Mark = {
 };
 
 const r1 = (v: number) => Math.round(v * 100) / 100;
+// Saved marks' strokes, and the picked one's: neither the handles' colours nor
+// the red of unsaved strokes.
+const SAVED = 0xffd21a,
+  PICKED = 0x39ff3c;
 
 export function setupMarks(o: {
   scene: T.Scene;
@@ -41,6 +47,7 @@ export function setupMarks(o: {
   let strokes: Stroke[] = [],
     marks: Mark[] = [],
     painting = false,
+    picked: string | undefined,
     stroke: Stroke | undefined;
 
   const panel = document.createElement('div');
@@ -99,12 +106,15 @@ export function setupMarks(o: {
   function showSaved() {
     disposeChildren(saved);
     saved.visible = $<HTMLInputElement>('mk-show').checked;
-    for (const m of marks) m.strokes.forEach((s) => draw(s, 0xffd21a, saved));
+    for (const m of marks)
+      for (const s of m.strokes)
+        for (const mesh of draw(s, m.id === picked ? PICKED : SAVED, saved))
+          mesh.userData.mark = m.id;
     $('mk-list').innerHTML = marks.length
       ? marks
           .map(
             (m) =>
-              `<div style="margin-top:4px"><a href="#" data-go="${m.id}" style="color:#ffd21a">${m.id}</a> <a href="#" data-del="${m.id}" style="color:#f88" title="delete">×</a><br>${m.note ? m.note.replace(/</g, '&lt;') : '<i>no note</i>'}</div>`,
+              `<div style="margin-top:4px;${m.id === picked ? 'background:#39ff3c22;box-shadow:inset 3px 0 #39ff3c;padding-left:6px;border-radius:3px' : ''}"><a href="#" data-go="${m.id}" style="color:${m.id === picked ? '#39ff3c;font-weight:bold' : '#ffd21a'}">${m.id}</a> <a href="#" data-del="${m.id}" style="color:#f88" title="delete">×</a><br>${m.note ? m.note.replace(/</g, '&lt;') : '<i>no note</i>'}</div>`,
           )
           .join('')
       : '<div style="color:#9aa;margin-top:4px">No saved marks.</div>';
@@ -113,6 +123,7 @@ export function setupMarks(o: {
   }
   async function load() {
     marks = await fetch('/__marks').then((r) => r.json());
+    if (!marks.some((m) => m.id === picked)) picked = undefined;
     showSaved();
   }
   function go(m: Mark) {
@@ -143,8 +154,11 @@ export function setupMarks(o: {
     e.preventDefault();
     const m = marks.find((q) => q.id === (a.dataset.go ?? a.dataset.del));
     if (!m) return;
-    if (a.dataset.go) go(m);
-    else if (confirm(`Delete mark ${m.id}?`)) {
+    if (a.dataset.go) {
+      picked = picked === m.id ? undefined : m.id;
+      showSaved();
+      if (picked) go(m);
+    } else if (confirm(`Delete mark ${m.id}?`)) {
       await fetch('/__marks/' + m.id, { method: 'DELETE' });
       await load();
     }
@@ -257,9 +271,18 @@ export function setupMarks(o: {
   const first = new URLSearchParams(location.search).get('mark');
   load().then(() => {
     const m = marks.find((q) => q.id === first);
-    if (m) go(m);
+    if (!m) return;
+    picked = m.id;
+    showSaved();
+    go(m);
   });
   return {
     painting: () => painting,
+    // Each saved stroke's mesh: its mark and colour, for the browser tests.
+    shown: () =>
+      saved.children.map((o) => ({
+        mark: o.userData.mark as string,
+        color: ((o as T.Mesh).material as T.MeshBasicMaterial).color.getHex(),
+      })),
   };
 }

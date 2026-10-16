@@ -55,13 +55,14 @@ Object.assign(window, {
         triangles: (m as T.Mesh).geometry.getIndex()!.count / 3,
         color: ((m as T.Mesh).material as T.MeshBasicMaterial).color.getHex(),
       })),
+    getMarks: () => marks.shown(),
   },
 });
 // Review marks painted on the model, saved by the dev server (vite.config.ts),
 // so only there. ?hand adds its own parts once it's set up.
 let handTargets = (): [T.Object3D, string][] => [];
 const marks = !import.meta.env.DEV
-  ? { painting: () => false }
+  ? { painting: () => false, shown: () => [] }
   : setupMarks({
       scene,
       camera,

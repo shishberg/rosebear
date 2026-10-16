@@ -163,8 +163,9 @@ The dev server (`make v4-editor`) has two things the built site (`dist/`) does n
   its browser test is `npm run test:hand`.
 - **Marks**: press **M** to paint on the model where something looks wrong (hold Alt
   to orbit), add a note and save. Each mark is a JSON file and a screenshot in
-  `marks/`. `?mark=<id>` opens a saved mark's view and `?marks=0` hides the saved
-  marks (`src/marks.ts`, `vite.config.ts`).
+  `marks/`. Clicking a saved mark in the list goes to its view and shows its strokes
+  in green. `?mark=<id>` opens a saved mark's view and `?marks=0` hides the saved
+  marks (`src/marks.ts`, `vite.config.ts`). Its browser test runs with `npm run test:hand`.
 
 ## Validation
 
