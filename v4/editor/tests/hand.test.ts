@@ -455,7 +455,10 @@ test('the extra thumb keys hang off the row under its gaps, and exist only when 
       n: row[a].n.clone().add(row[b].n).normalize(),
     })),
     // Each with `lower` 0, to see the lowering.
-    up = hand.solveHand({ ...on, extra: { ...on.extra, lower: 0 } }).extra;
+    up = hand.solveHand({ ...on, extra: { ...on.extra, lower: 0 } }).extra,
+    // And slid 4 mm toward the near key.
+    slid = hand.solveHand({ ...on, extra: { ...on.extra, along: -4 } }).extra,
+    towardFar = row[0].at.clone().sub(row[2].at).normalize();
   assert.equal(r.h.extra.length, 2);
   // The row curves, so the two are moved apart to the row's spacing (before
   // they're lowered).
@@ -474,6 +477,10 @@ test('the extra thumb keys hang off the row under its gaps, and exist only when 
     // `lower` mm down along its normal.
     const down = k.at.clone().sub(up[i].at);
     assert.ok(down.distanceTo(k.n.clone().multiplyScalar(-on.extra.lower)) < 1e-6, name);
+    // Slid along the row (far to near), facing the same way.
+    const by = slid[i].at.clone().sub(k.at);
+    assert.ok(by.distanceTo(towardFar.clone().multiplyScalar(-4)) < 1e-6, name);
+    assert.ok(slid[i].n.angleTo(k.n) < 1e-9, name);
     // The frame square to the face.
     assert.ok(Math.abs(new T.Vector3().setFromMatrixColumn(k.frame, 0).dot(k.n)) < 1e-9);
     // In the extra cluster where the hand puts it: its cap top straight up

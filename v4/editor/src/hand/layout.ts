@@ -323,7 +323,7 @@ export const START: HandState = {
   ...structuredClone(DACTYL),
   // Valid on Yours: closer, x1 meets the near key; pressed with the side of
   // the thumb (its nail about upright), x1 21° off square, x2 7°.
-  extra: { on: false, south: 37, tilt: 32, lower: 3, press: -33 },
+  extra: { on: false, south: 37, tilt: 32, lower: 3, along: 0 },
   row: 'home',
   thumbOn: 'home',
   pressing: false,

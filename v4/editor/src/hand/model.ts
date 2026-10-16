@@ -628,15 +628,17 @@ export const EXTRA_LIFT = 15;
  * `south` / 2 mm to the key's centre. The row curves, so hung off it the two
  * close in, and turn to each other; each then moves away from the other,
  * along the line between them, until they are as far apart as the row's keys
- * (the gaps are closer). Last, each sits `lower` mm down
- * along its face's normal (the thumb presses further to reach it). Set by
- * those alone, not by the thumb. The thumb's pose on each (for the checks and the
- * readout) is the one that touches its centre with the key facing that way,
- * its press `press` (as the row's); `miss`: mm short of it. */
-export type Extra = { on: boolean; south: number; tilt: number; lower: number; press: number };
-export function extraKeys(row: ThumbKey[], t: ThumbPose, { south, tilt, lower, press }: Extra) {
-  const te = { ...t, press },
-    base = thumb(row[1].q).M;
+ * (the gaps are closer). Then each sits `lower` mm down
+ * along its face's normal (the thumb presses further to reach it). Last, the
+ * two slide together `along` mm along the row (from the near key toward the
+ * far; turned round the sweep instead they would barely move, sitting near
+ * its centre). Set by those alone, not by
+ * the thumb. The thumb's pose on each (for the checks and the readout) is the
+ * one that touches its centre with the key facing that way, pressing as on
+ * the row; `miss`: mm short of it. */
+export type Extra = { on: boolean; south: number; tilt: number; lower: number; along: number };
+export function extraKeys(row: ThumbKey[], t: ThumbPose, { south, tilt, lower, along }: Extra) {
+  const base = thumb(row[1].q).M;
   const hung = [
     [1, 2],
     [0, 1],
@@ -666,7 +668,8 @@ export function extraKeys(row: ThumbKey[], t: ThumbPose, { south, tilt, lower, p
   apart.normalize();
   h1.at.addScaledVector(apart, spread);
   h2.at.addScaledVector(apart, -spread);
-  for (const h of hung) h.at.addScaledVector(h.face, -lower);
+  const slide = row[0].at.clone().sub(row[2].at).setLength(along);
+  for (const h of hung) h.at.addScaledVector(h.face, -lower).add(slide);
   return hung.map(({ A, B, n, x, face, at }) => {
     const frame = new T.Matrix4()
         .makeBasis(x, new T.Vector3().crossVectors(face, x), face)
@@ -677,7 +680,7 @@ export function extraKeys(row: ThumbKey[], t: ThumbPose, { south, tilt, lower, p
         A.q.map((v, j) => (v + B.q[j]) / 2),
         n,
       ),
-      k = keyFacing(fit.q, te, face);
+      k = keyFacing(fit.q, t, face);
     return {
       slant: k.slant,
       at,

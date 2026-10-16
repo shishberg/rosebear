@@ -144,7 +144,7 @@ const PANEL = [
   "slider extra thumb keys: mm from the row toward the thumb's base (centre to centre, across the faces) [15, 60, 0.5] off",
   "slider extra thumb keys: tilt from the row (° about it, + facing the thumb's base and palm) [-30, 90, 1] off",
   'slider extra thumb keys: lower (mm, along the keycap normal) [-5, 10, 0.5] off',
-  'slider extra thumb keys: press (as the thumb press) [-90, 90, 1] off',
+  'slider extra thumb keys: slide along the row (mm, + toward the far key) [-20, 20, 0.5] off',
   'check Advanced settings',
   'check Build the case (often fails)',
   'check Test frame (print this way up, with supports)',
