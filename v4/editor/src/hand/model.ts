@@ -625,11 +625,11 @@ export const EXTRA_LIFT = 15;
  * row along their shared x), the row's face carries on `south` / 2 mm
  * toward the thumb's base, then bends `tilt` degrees about the row (+: the
  * face turns toward the thumb's base and the palm) and carries on another
- * `south` / 2 mm to the key's centre. The row curves, so hung off it the two
- * close in, and turn to each other; each then moves away from the other,
- * along the line between them, until they are as far apart as the row's keys
- * (the gaps are closer). Then each sits `lower` mm down
- * along its face's normal (the thumb presses further to reach it). Last, the
+ * `south` / 2 mm to the key's centre, and sits `lower` mm down along its
+ * face's normal (the thumb presses further to reach it). The row curves, so
+ * hung off it the two close in, and turn to each other (lowered, closer
+ * still); each then moves away from the other, along the line between them,
+ * until they are as far apart as the row's keys (the gaps are closer). Last, the
  * two slide together `along` mm along the row (from the near key toward the
  * far; turned round the sweep instead they would barely move, sitting near
  * its centre). Set by those alone, not by
@@ -661,6 +661,7 @@ export function extraKeys(row: ThumbKey[], t: ThumbPose, { south, tilt, lower, a
         .addScaledVector(on, south / 2);
     return { A, B, n, x, p, face, at };
   });
+  for (const h of hung) h.at.addScaledVector(h.face, -lower);
   const [h1, h2] = hung,
     apart = h1.at.clone().sub(h2.at),
     keys = (row[0].at.distanceTo(row[1].at) + row[1].at.distanceTo(row[2].at)) / 2,
@@ -669,7 +670,7 @@ export function extraKeys(row: ThumbKey[], t: ThumbPose, { south, tilt, lower, a
   h1.at.addScaledVector(apart, spread);
   h2.at.addScaledVector(apart, -spread);
   const slide = row[0].at.clone().sub(row[2].at).setLength(along);
-  for (const h of hung) h.at.addScaledVector(h.face, -lower).add(slide);
+  for (const h of hung) h.at.add(slide);
   return hung.map(({ A, B, n, x, face, at }) => {
     const frame = new T.Matrix4()
         .makeBasis(x, new T.Vector3().crossVectors(face, x), face)

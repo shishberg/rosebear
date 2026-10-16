@@ -460,9 +460,10 @@ test('the extra thumb keys hang off the row under its gaps, and exist only when 
     slid = hand.solveHand({ ...on, extra: { ...on.extra, along: -4 } }).extra,
     towardFar = row[0].at.clone().sub(row[2].at).normalize();
   assert.equal(r.h.extra.length, 2);
-  // The row curves, so the two are moved apart to the row's spacing (before
-  // they're lowered).
-  assert.ok(Math.abs(up[0].at.distanceTo(up[1].at) - on.spacing) < 0.01);
+  // The row curves, so the two are moved apart to the row's spacing, lowered
+  // or not.
+  for (const ks of [r.h.extra, up])
+    assert.ok(Math.abs(ks[0].at.distanceTo(ks[1].at) - on.spacing) < 0.01);
   r.h.extra.forEach((k, i) => {
     const name = `thumb_x${i + 1}`,
       gap = gaps[i];
@@ -474,9 +475,10 @@ test('the extra thumb keys hang off the row under its gaps, and exist only when 
     const d = k.at.clone().sub(gap.p);
     assert.ok(d.dot(base.clone().sub(gap.p)) > 0, `${name}: away from the thumb's base`);
     assert.ok(Math.abs(d.length() - on.extra.south) < 5, `${name}: ${d.length()} mm`);
-    // `lower` mm down along its normal.
+    // `lower` mm down along its normal (and moved apart a little more).
     const down = k.at.clone().sub(up[i].at);
-    assert.ok(down.distanceTo(k.n.clone().multiplyScalar(-on.extra.lower)) < 1e-6, name);
+    assert.ok(Math.abs(down.dot(k.n) + on.extra.lower) < 0.1, `${name}: ${down.dot(k.n)}`);
+    assert.ok(down.length() < on.extra.lower + 0.1, name);
     // Slid along the row (far to near), facing the same way.
     const by = slid[i].at.clone().sub(k.at);
     assert.ok(by.distanceTo(towardFar.clone().multiplyScalar(-4)) < 1e-6, name);
