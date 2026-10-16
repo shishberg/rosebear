@@ -4,7 +4,7 @@ import { test, type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import Module from 'manifold-3d';
-import { clone, defaults, ROWS } from '../src/geometry';
+import { clone, componentFrames, defaults, ROWS } from '../src/geometry';
 import { buildFrame } from '../src/hand-frame';
 import { _test as hand } from '../src/hand-prototype';
 
@@ -18,7 +18,7 @@ function layout(s: Settings) {
   const c = clone(defaults).config,
     anchor = hand.anchorOf(c);
   hand.applyHand(c, s, anchor);
-  const frame = buildFrame(wasm, c),
+  const frame = buildFrame(wasm, c, !!s.extra?.on),
     toHand = hand.worldOf(c, anchor, s).invert(),
     started = performance.now(),
     r = hand.check(c, s, undefined, { mesh: frame.mesh, toHand }),
@@ -405,6 +405,80 @@ const PRESETS = [
 test('every preset is valid: the keycaps, the hand reaching each key, and the printed frame', () => {
   for (const [name, s] of PRESETS) assert.deepEqual(wrongOf(s), [], name);
 });
+test("keys whose tiles overlap aren't valid: the boards and the parts hanging under them", () => {
+  const tiles = (s: Settings) => {
+    const c = clone(defaults).config;
+    hand.applyHand(c, s, hand.anchorOf(c));
+    return hand
+      .check(c, s)
+      .tileHits.map((x) => `${x.a} ${x.b}`)
+      .sort();
+  };
+  // Natural's inner column where it was, 18.8 mm from the index: the
+  // keycaps clear, the tiles don't.
+  assert.deepEqual(
+    tiles({ ...structuredClone(hand.NATURAL), innerGap: 18.8 }),
+    ROWS.map((r) => `matrix_index_${r} matrix_inner_${r}`).sort(),
+  );
+  assert.deepEqual(tiles(hand.NATURAL), []);
+  // Yours's thumb as it was: the far and home keys tilt together, so their
+  // boards (20 mm under the keycaps' tops) meet.
+  assert.deepEqual(
+    tiles({
+      ...structuredClone(hand.YOURS),
+      thumb: { around: 116.5, drop: 14.5, reach: { palmar: 0.5, curl: 0.55 }, press: -3 },
+      spacing: 26.8,
+    }),
+    ['thumb_far thumb_home'],
+  );
+});
+test('the extra thumb keys: under the gaps between the thumb keys, toward the wrist, the thumb curled more; laid out, checked and in the frame only when on', () => {
+  const on = { ...structuredClone(hand.YOURS), extra: { ...hand.START.extra, on: true } },
+    { c, r, frame } = layout(on),
+    anchor = hand.anchorOf(clone(defaults).config),
+    world = hand.worldOf(c, anchor, on),
+    f = componentFrames(c);
+  assert.equal(r.h.extra.length, 2);
+  [
+    [1, 2],
+    [0, 1],
+  ].forEach(([a, b], i) => {
+    const k = r.h.extra[i],
+      name = `thumb_x${i + 1}`;
+    // Halfway between the two keys' poses, curled more at the MCP and IP alike.
+    k.q.forEach((v, j) =>
+      assert.ok(
+        Math.abs(v - ((r.h.row[a].q[j] + r.h.row[b].q[j]) / 2 + (j > 2 ? on.extra.curl : 0))) <
+          1e-9,
+      ),
+    );
+    // Toward the wrist from the gap, on the desk.
+    const at = (x: { at: InstanceType<typeof T.Vector3> }) => x.at.clone().applyMatrix4(world),
+      gap = at(r.h.row[a]).add(at(r.h.row[b])).multiplyScalar(0.5);
+    assert.ok(gap.y - at(k).y > 15, `${name}: ${(gap.y - at(k).y).toFixed(1)} mm toward the wrist`);
+    // In the extra cluster where the hand puts it: its cap top straight up
+    // from its seat (the layout rounds both to 0.01 mm and 0.01°).
+    const seat = f[name],
+      rise = k.at
+        .clone()
+        .applyMatrix4(world)
+        .sub(new T.Vector3().setFromMatrixPosition(seat));
+    assert.ok(rise.length() > 5);
+    assert.ok(rise.angleTo(new T.Vector3().setFromMatrixColumn(seat, 2)) < 0.005, name);
+    // Checked like the row's keys, and in the frame.
+    assert.ok(r.caps.some((x) => x.name === name));
+  });
+  assert.deepEqual(wrongOf(on), []);
+  const off = layout(hand.YOURS);
+  assert.ok(frame.volume > off.frame.volume + 0.5, 'the frame holds the extra keys');
+  // Off: none, and the cluster as it was by default.
+  assert.equal(off.r.h.extra.length, 0);
+  assert.ok(!off.r.caps.some((x) => x.name.startsWith('thumb_x')));
+  assert.deepEqual(
+    (off.c.geometry as { thumb_extra?: unknown }).thumb_extra,
+    (defaults.config.geometry as { thumb_extra?: unknown }).thumb_extra,
+  );
+});
 test('on every preset the thumb rests on its keys without going into them (but for the soft pad)', () => {
   for (const [name, s] of PRESETS) {
     const c = clone(defaults).config;
@@ -448,11 +522,15 @@ test("the test frame is one piece on legs under the plates' outer corners, flat 
       `${name}: ${frame.pieces} piece(s), ${frame.volume.toFixed(1)} cm³, ${frame.size.map((x) => x.toFixed(0)).join('×')} mm; ${frame.faults.join('; ') || 'no faults'}; ${frame.warnings.join('; ') || 'no warnings'}`,
     );
     assert.equal(frame.pieces, 1);
-    // Flat on the floor: nothing below it, and no face looking down just
-    // above it (the slicer would put a sliver of support under it).
+    // Flat on the floor: nothing below it, and no overhang just above it
+    // (the slicer would put a sliver of support under it): faces looking
+    // down, under 1 mm up and not on the floor, joined where they share a
+    // corner, none a printed line (0.4 mm) across or wider. (Booleans leave
+    // the odd notch smaller than that, which prints as it is.)
     const P = frame.mesh.positions,
       I = frame.mesh.indices,
-      v = (i: number) => [P[i * 3], P[i * 3 + 1], P[i * 3 + 2] - frame.floor];
+      v = (i: number) => [P[i * 3], P[i * 3 + 1], P[i * 3 + 2] - frame.floor],
+      hover: number[][] = [];
     for (let t = 0; t < I.length; t += 3) {
       const [a, b, c] = [I[t], I[t + 1], I[t + 2]].map(v),
         u = [0, 1, 2].map((k) => b[k] - a[k]),
@@ -460,16 +538,34 @@ test("the test frame is one piece on legs under the plates' outer corners, flat 
         n = [u[1] * w[2] - u[2] * w[1], u[2] * w[0] - u[0] * w[2], u[0] * w[1] - u[1] * w[0]],
         low = Math.min(a[2], b[2], c[2]);
       assert.ok(low > -0.01, `below the floor: ${low.toFixed(2)} mm`);
-      // (Booleans leave the odd sliver of no area; the slicer ignores them.)
-      if (n[2] < 0 && Math.hypot(...n) / 2 > 0.01 && Math.max(a[2], b[2], c[2]) < 1)
-        assert.ok(
-          low < 0.01,
-          `a face looking down ${low.toFixed(2)} mm above the floor at ${a
-            .slice(0, 2)
-            .map((x) => x.toFixed(0))
-            .join(', ')}`,
-        );
+      if (n[2] < 0 && low >= 0.01 && Math.max(a[2], b[2], c[2]) < 1)
+        hover.push([I[t], I[t + 1], I[t + 2]]);
     }
+    const group = new Map<number, number>(),
+      root = (i: number): number => {
+        const g = group.get(i) ?? i;
+        return g === i ? i : root(g);
+      };
+    for (const [a, b, c] of hover) for (const x of [b, c]) group.set(root(x), root(a));
+    const patches = new Map<number, number[]>();
+    for (const f of hover)
+      for (const i of f) {
+        const k = root(i),
+          [x, y, z] = v(i),
+          q = patches.get(k) ?? [Infinity, Infinity, -Infinity, -Infinity, Infinity];
+        patches.set(k, [
+          Math.min(q[0], x),
+          Math.min(q[1], y),
+          Math.max(q[2], x),
+          Math.max(q[3], y),
+          Math.min(q[4], z),
+        ]);
+      }
+    for (const [x0, y0, x1, y1, low] of patches.values())
+      assert.ok(
+        Math.hypot(x1 - x0, y1 - y0) < 0.4,
+        `${name}: an overhang ${Math.hypot(x1 - x0, y1 - y0).toFixed(1)} mm across, ${low.toFixed(2)} mm above the floor at ${x0.toFixed(0)}, ${y0.toFixed(0)}`,
+      );
     // No faults: every leg clears every switch and keycap, nothing cut.
     assert.deepEqual(frame.faults, []);
   }

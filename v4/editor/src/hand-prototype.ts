@@ -50,10 +50,12 @@ import {
   capSize,
   capTop,
   columnFrames,
+  componentFrames,
   defaults,
   frame,
   ROWS,
   tentFrame,
+  type Cluster,
   type Project,
   type Config,
   type MeshData,
@@ -670,28 +672,52 @@ function thumbRow(t: ThumbPose, spacing: number, top: number, two?: TwoRows) {
   }
   const ends = [1, -1].map((k) => thumbAlong(from, k, gap, t)),
     keys = [ends[0], home, ends[1]].map((k, i) => (i === 1 ? k : { ...k, miss: k.miss + f }));
-  // Each key square to the sweep: x along it, toward the near key. `mid`:
-  // where the far and near keys are measured from (on 1.5u + 2×1u, their
-  // middle).
-  const row = keys.map(({ q, miss }) => {
-    const k = keyAt(q, t),
-      x = k.sweep.clone().negate(),
-      m = new T.Matrix4().makeBasis(x, new T.Vector3().crossVectors(k.n, x), k.n).setPosition(k.p);
-    /** `at`: where the thumb touches the key (its cap top's centre). */
-    return {
-      at: k.p,
-      q,
-      n: k.n,
-      frame: m,
-      miss,
-      roll: k.roll,
-      around: aroundOf(k.p),
-      press: k.press,
-      away: k.away,
-    };
-  });
-  return Object.assign(row, { mid: from });
+  // `mid`: where the far and near keys are measured from (on 1.5u + 2×1u,
+  // their middle).
+  return Object.assign(
+    keys.map(({ q, miss }) => thumbKey(q, miss, t)),
+    { mid: from },
+  );
 }
+/** The key the thumb touches at `q` (keyAt), square to the sweep: x along
+ * it, toward the near key. `at`: where the thumb touches the key (its cap
+ * top's centre). */
+function thumbKey(q: number[], miss: number, t: ThumbPose) {
+  const k = keyAt(q, t),
+    x = k.sweep.clone().negate(),
+    m = new T.Matrix4().makeBasis(x, new T.Vector3().crossVectors(k.n, x), k.n).setPosition(k.p);
+  return {
+    at: k.p,
+    q,
+    n: k.n,
+    frame: m,
+    miss,
+    roll: k.roll,
+    around: aroundOf(k.p),
+    press: k.press,
+    away: k.away,
+  };
+}
+type ThumbKey = ReturnType<typeof thumbKey>;
+/** mm the thumb lifts off the row, halfway, on its way to an extra key. */
+const EXTRA_LIFT = 15;
+/** The two extra thumb keys, if on: under the gaps between the thumb row's
+ * keys (x1 between home and near, x2 between far and home), the thumb
+ * halfway between the two keys' poses and curled `curl` degrees more at the
+ * MCP and IP alike, which brings it in under the hand. Each faces against
+ * its press (`press`, as the row's), the row's reach in its plane. */
+type Extra = { on: boolean; curl: number; press: number };
+const extraKeys = (row: ThumbKey[], t: ThumbPose, { curl, press }: Extra) =>
+  [
+    [1, 2],
+    [0, 1],
+  ].map(([a, b]) =>
+    thumbKey(
+      row[a].q.map((v, j) => (v + row[b].q[j]) / 2 + (j > 2 ? curl : 0)),
+      0,
+      { ...t, press },
+    ),
+  );
 
 // ---------------------------------------------------------------- drawing
 const skin = new T.MeshStandardMaterial({
@@ -791,20 +817,24 @@ const r2 = (v: number) => Math.round(v * 100) / 100;
  * cluster's root goes on the home key's seat and each key gets its own offset and
  * turn, so the arc's step and well are zeroed. */
 function placeThumb(c: Config, tops: T.Matrix4[], two: boolean) {
-  const t = c.geometry.thumb,
-    seats = tops.map((m, i) =>
+  placeCluster(c, c.geometry.thumb, tops, 1, (name) => keyTurn(name, two));
+}
+/** Put cluster `t`'s keys' cap tops on the given frames (layout, in its
+ * keys' order), its root on key `root`'s seat. */
+function placeCluster(
+  c: Config,
+  t: Cluster,
+  tops: T.Matrix4[],
+  root: number,
+  turn: (name: string) => number[],
+) {
+  const seats = tops.map((m, i) =>
       m
         .clone()
-        .multiply(
-          new T.Matrix4().makeTranslation(
-            0,
-            0,
-            -capHeight(c, `thumb_${['far', 'home', 'near'][i]}`),
-          ),
-        ),
+        .multiply(new T.Matrix4().makeTranslation(0, 0, -capHeight(c, `thumb_${t.keys[i].name}`))),
     ),
-    e = new T.Euler().setFromRotationMatrix(seats[1], 'ZYX');
-  t.position_mm = new T.Vector3().setFromMatrixPosition(seats[1]).toArray().map(r2);
+    e = new T.Euler().setFromRotationMatrix(seats[root], 'ZYX');
+  t.position_mm = new T.Vector3().setFromMatrixPosition(seats[root]).toArray().map(r2);
   t.rotation_deg = [e.x, e.y, e.z].map((v) => r2(deg(v)));
   t.arc = { ...t.arc, step_deg: 0, well_deg: 0 };
   const inv = frame(t.position_mm, t.rotation_deg).invert();
@@ -813,7 +843,7 @@ function placeThumb(c: Config, tops: T.Matrix4[], two: boolean) {
       const m = inv
           .clone()
           .multiply(seats[i])
-          .multiply(frame([0, 0, 0], keyTurn(key.name, two))),
+          .multiply(frame([0, 0, 0], turn(key.name!))),
         ke = new T.Euler().setFromRotationMatrix(m, 'ZYX');
       key.offset_mm = new T.Vector3().setFromMatrixPosition(m).toArray().map(r2);
       key.rotation_deg = [ke.x, ke.y, ke.z].map((v) => r2(deg(v)));
@@ -842,6 +872,8 @@ type Settings = {
   thumb: ThumbPose;
   spacing: number;
   cluster: string;
+  /** The extra thumb keys (extraKeys); none if not set. */
+  extra?: Extra;
   two: TwoRows;
 };
 /** The hand's turn on the (tented) board. */
@@ -910,13 +942,20 @@ function solveHand(s: Settings) {
     );
   const inner = innerColumn(poses.index, s.innerGap, s.innerAngle);
   poses.inner = inner.poses;
+  const row = thumbRow(s.thumb, s.spacing, poses.middle[1].chain.pad.z, twoOf(s));
   return {
     poses,
     inner,
-    row: thumbRow(s.thumb, s.spacing, poses.middle[1].chain.pad.z, twoOf(s)),
+    row,
+    extra: s.extra?.on ? extraKeys(row, s.thumb, s.extra) : [],
   };
 }
 type Solved = ReturnType<typeof solveHand>;
+/** The thumb's keys by name: the row's, then the extra keys. */
+const thumbKeysOf = (h: Solved) => [
+  ...h.row.map((k, i) => ({ name: ['far', 'home', 'near'][i], k })),
+  ...h.extra.map((k, i) => ({ name: `x${i + 1}`, k })),
+];
 /** A keycap: its top's centre and frame (z out of the cap), its size at the
  * base, and its top face (x, y), smaller: it tapers. */
 type Cap = { name: string; top: T.Matrix4; size: number[]; face: number[] };
@@ -941,11 +980,11 @@ function capsOf(c: Config, h: Solved, two: boolean): Cap[] {
       });
     });
   }
-  h.row.forEach((k, i) => {
-    const name = `thumb_${['far', 'home', 'near'][i]}`;
+  thumbKeysOf(h).forEach(({ name: n, k }) => {
+    const name = `thumb_${n}`;
     out.push({
       name,
-      top: k.frame.clone().multiply(frame([0, 0, 0], keyTurn(name.slice(6), two))),
+      top: k.frame.clone().multiply(frame([0, 0, 0], keyTurn(n, two))),
       size: capSize(c, name),
       face: capTop(c, name),
     });
@@ -1006,6 +1045,36 @@ function capHits(c: Config, caps: Cap[]) {
     for (let j = i + 1; j < caps.length; j++) {
       const depth = Math.max(overlap(pressed[i], rest[j]), overlap(rest[i], pressed[j]));
       if (depth > 0) out.push({ a: caps[i].name, b: caps[j].name, depth });
+    }
+  return out;
+}
+/** A key's tile (the board under its switch, and the parts hanging under
+ * the board: hotswap socket, LED, diode) as boxes, `m` the key's frame. */
+function tileBoxes(c: Config, m: T.Matrix4): Box[] {
+  const t = c.tile,
+    under = -(t.plate_top_to_pcb_top_mm + t.size_mm[2]),
+    u = [0, 1, 2].map((i) => new T.Vector3().setFromMatrixColumn(m, i).normalize()),
+    box = (at: number[], size: number[]) => ({
+      c: new T.Vector3(...at).applyMatrix4(m),
+      u,
+      e: size.map((v) => v / 2),
+    });
+  return [
+    box([0, 0, under + t.size_mm[2] / 2], t.size_mm),
+    ...t.components.map((p) => box([p.center_mm[0], p.center_mm[1], under + p.center_mm[2]], p.size_mm)),
+  ];
+}
+/** mm two tiles may overlap: edge to edge, as the layout rounds the keys' places (0.01 mm). */
+const TILE_TOUCH = 0.05;
+/** The keys' tiles that hit each other (the keys as laid out in `c`). */
+function tileHits(c: Config, keys: string[]) {
+  const f = componentFrames(c),
+    tiles = keys.map((k) => tileBoxes(c, f[k])),
+    out: Hit[] = [];
+  for (let i = 0; i < keys.length; i++)
+    for (let j = i + 1; j < keys.length; j++) {
+      const depth = overlap(tiles[i], tiles[j]);
+      if (depth > TILE_TOUCH) out.push({ a: keys[i], b: keys[j], depth });
     }
   return out;
 }
@@ -1274,7 +1343,6 @@ function reachHits(c: Config, s: Settings, h: Solved, board: Board) {
       T.Vector3
     >,
     thHome = thumb(h.row[1].q),
-    thumbKeys = ['far', 'home', 'near'].map((k) => `thumb_${k}`),
     found: Record<string, Reach> = {},
     add = (part: Part, during: string) => {
       for (const x of partHits(board, part))
@@ -1327,10 +1395,18 @@ function reachHits(c: Config, s: Settings, h: Solved, board: Board) {
       (down) => fingerPart('index', h.poses.inner[ri], [key], down),
     );
   });
-  // The thumb keys: the thumb's joints move evenly from home to the key.
-  h.row.forEach((k, i) => {
-    const key = thumbKeys[i],
-      qs = (t: number) => h.row[1].q.map((v, j) => v + (k.q[j] - v) * t);
+  // The thumb keys: the thumb's joints move evenly from home to the key; to
+  // an extra key, off the row and down again on the way (backing off the
+  // press, EXTRA_LIFT mm halfway), as it moves over the row.
+  thumbKeysOf(h).forEach(({ name, k }) => {
+    const key = `thumb_${name}`,
+      lift = name.startsWith('x') ? EXTRA_LIFT : 0,
+      qs = (t: number) =>
+        pressed(
+          h.row[1].q.map((v, j) => v + (k.q[j] - v) * t),
+          -lift * Math.sin(Math.PI * t),
+          h.row[1].press.map((v, j) => v + (k.press[j] - v) * t),
+        );
     reach(
       key,
       k.at.distanceTo(h.row[1].at),
@@ -1358,11 +1434,16 @@ function check(
   built?: { mesh: MeshData; toHand: T.Matrix4 },
 ) {
   const two = !!twoOf(s),
-    caps = capsOf(c, h, two);
+    caps = capsOf(c, h, two),
+    thumbs = thumbKeysOf(h).map(({ name, k }) => ({ key: `thumb ${name}`, k }));
   return {
     h,
     caps,
     capHits: capHits(c, caps),
+    tileHits: tileHits(
+      c,
+      caps.map((k) => k.name),
+    ),
     handHits: reachHits(c, s, h, {
       caps,
       tris: built ? trisOf(built.mesh, built.toHand) : [],
@@ -1370,25 +1451,23 @@ function check(
     frameChecked: !!built,
     short: [
       ...FINGERS.flatMap((f) => ROWS.map((r, ri) => [`${f} ${r}`, h.poses[f][ri].short] as const)),
-      ...h.row.map((k, i) => [`thumb ${['far', 'home', 'near'][i]}`, k.miss] as const),
+      ...thumbs.map(({ key, k }) => [key, k.miss] as const),
     ].filter(([, m]) => m > 0.5),
     /** Thumb keys where the MCP or IP goes past its range (degrees), on the
      * key or pressing it to the bottom. */
-    pastJoints: h.row
-      .map((k, i) => ({
-        key: `thumb ${['far', 'home', 'near'][i]}`,
+    pastJoints: thumbs
+      .map(({ key, k }) => ({
+        key,
         past: Math.max(pastJoints(k.q), pastJoints(pressed(k.q, c.switch.travel_mm, k.press))),
       }))
       .filter((x) => x.past > 0.5),
     /** Thumb keys met with the back of the thumb: on its side past
      * BACK_OF_THUMB (in the photos it lay at about 100–107° on the paper). */
-    backOfThumb: h.row.flatMap((k, i) =>
-      Math.abs(k.roll) > BACK_OF_THUMB
-        ? [{ key: `thumb ${['far', 'home', 'near'][i]}`, roll: Math.abs(k.roll) }]
-        : [],
+    backOfThumb: thumbs.flatMap(({ key, k }) =>
+      Math.abs(k.roll) > BACK_OF_THUMB ? [{ key, roll: Math.abs(k.roll) }] : [],
     ),
     /** Thumb keys the press moves the thumb off. */
-    pressAway: h.row.flatMap((k, i) => (k.away ? [`thumb ${['far', 'home', 'near'][i]}`] : [])),
+    pressAway: thumbs.flatMap(({ key, k }) => (k.away ? [key] : [])),
     /** The arm can't carry the hand far enough sideways for the inner column. */
     innerShort: h.inner.limited,
     /** mm the wrist height is past what any reach gives at this curl. */
@@ -1451,14 +1530,15 @@ const DACTYL: Settings = {
  * degree, -0.3° of palmar abduction and 0.3° of curl: the photos' sweep had
  * nearly 1° of curl, which straightens the thumb past its joints toward the
  * near key); the press is palmar abduction and straightening alike (-45°),
- * which leaves the keys facing nearly up. */
+ * which leaves the keys facing nearly up. The inner column 19.3 mm from the
+ * index (was 18.8, as close as the keycaps allow), so the keys' tiles clear. */
 const NATURAL: Settings = {
   tent: 1,
   roll: 0,
   pitch: 0,
   bend: 0,
   curl: { index: 0, middle: 0, ring: 0, pinky: 0 },
-  innerGap: 18.8,
+  innerGap: 19.3,
   innerAngle: 0,
   top: 19.1,
   bottom: 19.1,
@@ -1476,7 +1556,11 @@ const NATURAL: Settings = {
  * reaches them first (the tip, where it points into them): the rows and inner
  * column a little further out than the Dactyl fit, the home key 116.5° round
  * the arc, the reach lowering and curling the thumb as it swings out, the
- * press nearly palmar abduction alone. */
+ * press mostly palmar abduction. Then, once the keys' tiles were checked
+ * (the far and home tiles overlapped 1.9 mm), the home key 17 mm below the
+ * home row (was 14.5), the press -9° (was -3°) and the keys 27.8 mm apart
+ * (was 26.8): its keys within 2.0–3.4 mm of where they were, facing 2–12°
+ * off. */
 const YOURS: Settings = {
   tent: 15,
   roll: 0,
@@ -1490,27 +1574,30 @@ const YOURS: Settings = {
   from: 'reach',
   wristHeight: 56,
   pressMix: 1.4,
-  thumb: { around: 116.5, drop: 14.5, reach: { palmar: 0.5, curl: 0.55 }, press: -3 },
-  spacing: 26.8,
+  thumb: { around: 116.5, drop: 17, reach: { palmar: 0.5, curl: 0.55 }, press: -9 },
+  spacing: 27.8,
   cluster: '1×3',
   two: { gap: 19.5 },
 };
-/** Yours with the thumb's keys within 2.4–3.8 mm of its, reached and pressed
- * without curling: the reach lowers the thumb as it swings out, the press is
- * palmar abduction alone, so the thumb keeps its resting bend (MCP 21°, IP
- * 18°) on every key and presses each with the pad (on Yours the far key is
- * pressed with the tip, the thumb bent 39° / 36° and on its side 76°). The
- * home and near keys face 18–24° away from the wrist. */
+/** Yours with the thumb's keys near its (within 2.6–5.1 mm of where they
+ * were before Yours was refitted for the tiles, facing 15–26° off), reached
+ * without curling: the reach lowers the thumb as it swings out, so the thumb
+ * keeps its resting bend (MCP 21°, IP 18°) on every key and presses each
+ * with the pad (on Yours the far key is pressed with the tip, the thumb bent
+ * 39° / 36° and on its side 76°). The press palmar abduction with a little
+ * straightening (-20°), the keys 29.5 mm apart: closer, or pressed by
+ * palmar abduction alone, the far and home keys' tiles overlap. */
 const NO_CURL: Settings = {
   ...structuredClone(YOURS),
-  thumb: { around: 116, drop: 14, reach: { palmar: 1.2, curl: 0 }, press: 0 },
-  spacing: 25.8,
+  thumb: { around: 116, drop: 16, reach: { palmar: 1.1, curl: 0 }, press: -20 },
+  spacing: 29.5,
 };
 /** Everything the panel sets: the layout's settings, what the hand is shown
  * doing and which parts of the panel are open. One state, kept in the project
  * (so Undo, the autosave and Save project carry all of it), the keys always
  * laid out from it. */
 type HandState = Settings & {
+  extra: Extra;
   /** The row the fingers are shown on. */
   row: Row;
   /** The key the thumb is shown on ('rest': none). */
@@ -1526,6 +1613,7 @@ type HandState = Settings & {
 };
 const START: HandState = {
   ...structuredClone(DACTYL),
+  extra: { on: false, curl: 45, press: -25 },
   row: 'home',
   thumbOn: 'home',
   pressing: false,
@@ -1537,7 +1625,7 @@ const START: HandState = {
 /** The values each text setting takes. */
 const CHOICES: Record<string, readonly string[]> = {
   row: ROWS,
-  thumbOn: ['rest', 'far', 'home', 'near'],
+  thumbOn: ['rest', 'far', 'home', 'near', 'x1', 'x2'],
   from: ['reach', 'press'],
   cluster: ['1×3', '1.5u + 2×1u'],
   handle: ['hand', 'off'],
@@ -1568,6 +1656,9 @@ const TRAY = 66;
 /** Why a checked layout isn't valid, as the readout says it (none: valid). */
 const problems = (r: ReturnType<typeof check>) => [
   ...r.capHits.map((x) => `${capName(x.a)} hits ${capName(x.b)} (${x.depth.toFixed(1)} mm)`),
+  ...r.tileHits.map(
+    (x) => `${capName(x.a)}'s tile hits ${capName(x.b)}'s (${x.depth.toFixed(1)} mm)`,
+  ),
   ...r.handHits.map((x) => `${x.a} ${x.during}: into ${x.b} (${x.depth.toFixed(1)} mm)`),
   ...r.short.map(([k, m]) => `${k} out of reach (${m.toFixed(0)} mm)`),
   ...r.pressAway.map((k) => `pressing ${k}, the thumb moves off it`),
@@ -1625,7 +1716,7 @@ const worldOf = (c: Config, anchor: T.Vector3, s: Settings) =>
   tentFrame(c).multiply(layoutOf(anchor, s));
 /** Write the hand's keys and tent into config `c`. */
 function applyHand(c: Config, s: Settings, anchor: T.Vector3) {
-  const { poses, row } = solveHand(s),
+  const { poses, row, extra } = solveHand(s),
     L = layoutOf(anchor, s),
     keys: Record<string, KeyTop[]> = {},
     splay: Record<string, number> = {};
@@ -1648,6 +1739,18 @@ function applyHand(c: Config, s: Settings, anchor: T.Vector3) {
     row.map((k) => L.clone().multiply(k.frame)),
     !!twoOf(s),
   );
+  // The extra keys where the hand puts them, else where they were by default.
+  const g = c.geometry as { thumb_extra?: Cluster },
+    d = (defaults.config.geometry as { thumb_extra?: Cluster }).thumb_extra;
+  if (extra.length && g.thumb_extra)
+    placeCluster(
+      c,
+      g.thumb_extra,
+      extra.map((k) => L.clone().multiply(k.frame)),
+      0,
+      () => [0, 0, 0],
+    );
+  else if (d) g.thumb_extra = structuredClone(d);
 }
 
 // ---------------------------------------------------------------- the panel
@@ -1754,18 +1857,19 @@ export function setupHand(host: Host) {
   }
   function draw() {
     const c = cfg(),
-      built = wasm && buildFrame(wasm, c),
+      built = wasm && buildFrame(wasm, c, s().extra.on),
       r = check(
         c,
         s(),
         undefined,
         built && { mesh: built.mesh, toHand: worldOf(c, anchor, s()).invert() },
       ),
-      { poses, row } = r.h,
+      { poses } = r.h,
       ri = ROWS.indexOf(s().row),
       L = toLayout(),
-      on = row[['far', 'home', 'near'].indexOf(s().thumbOn)],
-      q = s().thumbOn === 'rest' ? thumbRest : on.q;
+      keys = thumbKeysOf(r.h),
+      on = keys.find((x) => x.name === s().thumbOn)?.k,
+      q = on ? on.q : thumbRest;
     const shown = Object.fromEntries(FINGERS.map((f) => [f, poses[f][ri].chain])) as Record<
       Finger,
       Chain
@@ -1787,7 +1891,7 @@ export function setupHand(host: Host) {
     // middle of the pad; 90: the side of the thumb).
     note.insertAdjacentHTML(
       'beforeend',
-      `<div>Thumb keys round the arc: ${row.map((k, i) => `${['far', 'home', 'near'][i]} ${k.around.toFixed(0)}°`).join(', ')} (the photos ${PRINT_POSES[0].a.toFixed(0)}–${PRINT_POSES[PRINT_POSES.length - 1].a.toFixed(0)}°). Bent at the MCP / IP: ${row.map((k) => `${k.q[3].toFixed(0)}° / ${k.q[4].toFixed(0)}°`).join(', ')} (at rest ${thumbRest[3].toFixed(0)}° / ${thumbRest[4].toFixed(0)}°). On its side by ${row.map((k) => `${k.roll.toFixed(0)}°`).join(', ')} (0: the pad flat on the key, 90: the nail upright). Pressing 1 mm, radial abduction / palmar abduction / curl: ${row.map((k) => k.press.map((v) => `${v.toFixed(1)}°`).join(' / ')).join(', ')}.</div>`,
+      `<div>Thumb keys round the arc: ${keys.map(({ name, k }) => `${name} ${k.around.toFixed(0)}°`).join(', ')} (the photos ${PRINT_POSES[0].a.toFixed(0)}–${PRINT_POSES[PRINT_POSES.length - 1].a.toFixed(0)}°). Bent at the MCP / IP: ${keys.map(({ k }) => `${k.q[3].toFixed(0)}° / ${k.q[4].toFixed(0)}°`).join(', ')} (at rest ${thumbRest[3].toFixed(0)}° / ${thumbRest[4].toFixed(0)}°). On its side by ${keys.map(({ k }) => `${k.roll.toFixed(0)}°`).join(', ')} (0: the pad flat on the key, 90: the nail upright). Pressing 1 mm, radial abduction / palmar abduction / curl: ${keys.map(({ k }) => k.press.map((v) => `${v.toFixed(1)}°`).join(' / ')).join(', ')}.</div>`,
     );
     if (s().from === 'reach')
       note.insertAdjacentHTML(
@@ -2066,6 +2170,29 @@ export function setupHand(host: Host) {
     [...CHOICES.cluster],
     () => s().cluster,
     (v) => (s().cluster = v),
+  );
+  checkbox(
+    'Extra thumb keys x1, x2: under the gaps, the thumb curled more',
+    () => s().extra.on,
+    (v) => (s().extra.on = v),
+  );
+  slider(
+    'extra thumb keys: curl (° more at the MCP and IP)',
+    () => s().extra.curl,
+    (v) => (s().extra.curl = v),
+    0,
+    90,
+    1,
+    () => s().extra.on,
+  );
+  slider(
+    'extra thumb keys: press (as the thumb press)',
+    () => s().extra.press,
+    (v) => (s().extra.press = v),
+    -90,
+    90,
+    1,
+    () => s().extra.on,
   );
   checkbox(
     'Advanced settings',

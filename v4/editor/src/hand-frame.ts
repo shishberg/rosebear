@@ -44,6 +44,7 @@ import {
   isThumb,
   point,
   ROWS,
+  type Cluster,
   type Config,
   type MeshData,
 } from './geometry';
@@ -119,11 +120,15 @@ export type FrameResult = {
   websLeftOut: [string, string][];
 };
 
-/** The keys the hand lays out: the finger matrix and the thumb row. */
-function frameKeys(cfg: Config) {
+/** The keys the hand lays out: the finger matrix and the thumb row, and the
+ * extra thumb keys if `extra`. */
+function frameKeys(cfg: Config, extra: boolean) {
+  const g = cfg.geometry as { thumb_extra?: Cluster } & typeof cfg.geometry;
   return [
-    ...cfg.geometry.columns.flatMap((c) => ROWS.map((r) => `matrix_${c.name}_${r}`)),
-    ...cfg.geometry.thumb.keys.map((k) => `thumb_${k.name}`),
+    ...g.columns.flatMap((c) => ROWS.map((r) => `matrix_${c.name}_${r}`)),
+    ...[g.thumb, ...(extra && g.thumb_extra ? [g.thumb_extra] : [])].flatMap((cl) =>
+      cl.keys.map((k) => `thumb_${k.name}`),
+    ),
   ];
 }
 
@@ -227,15 +232,16 @@ function clearOf(
   };
 }
 
-export function buildFrame(wasm: ManifoldToplevel, cfg: Config): FrameResult {
-  return freeAfter(wasm, () => makeFrame(wasm, cfg));
+/** `extra`: the extra thumb keys are the hand's too. */
+export function buildFrame(wasm: ManifoldToplevel, cfg: Config, extra = false): FrameResult {
+  return freeAfter(wasm, () => makeFrame(wasm, cfg, extra));
 }
 
-function makeFrame(wasm: ManifoldToplevel, cfg: Config) {
+function makeFrame(wasm: ManifoldToplevel, cfg: Config, extra: boolean) {
   const M = wasm.Manifold,
     sw = cfg.switch,
     frames = componentFrames(cfg),
-    keys = frameKeys(cfg),
+    keys = frameKeys(cfg, extra),
     plate = sw.clip_land_thickness_mm,
     pocket = sw.seat_outer_mm.map((x) => x / 2),
     hp = pocket.map((x) => x + FRAME.wall),
