@@ -131,23 +131,31 @@ test('each thumb key lies along the last bone in a plane through the CMC, and th
     });
 });
 
-test("the thumb keys: the photos' thumb pose for each place round the arc, lowered by abduction alone, the keys spacing apart", () => {
+test("the thumb keys: the photos' thumb pose for each place round the arc, straightened to the roll, swung back onto its place and lowered, the keys spacing apart", () => {
   for (const s of [hand.DACTYL, hand.NATURAL]) {
     const h = hand.solveHand(s),
       top = h.poses.middle[1].chain.pad.z,
-      name = s === hand.DACTYL ? 'Dactyl fit' : 'Natural';
+      name = s === hand.DACTYL ? 'Dactyl fit' : 'Natural',
+      arc = hand.arc;
     h.row.forEach((k, i) => {
       const at = `${['far', 'home', 'near'][i]} (${name})`;
-      assert.ok(k.miss < 0.01, `${at}: misses by ${k.miss.toFixed(2)} mm`);
-      // Its touching point the drop below the middle home key.
+      assert.ok(k.miss < 0.01, `${at}: misses by ${k.miss.toFixed(2)}`);
+      // Its touching point the drop below the middle home key, its place round the arc.
       assert.ok(Math.abs(k.at.z - (top - s.thumb.drop)) < 0.01, `${at}: at ${k.at.z.toFixed(2)}`);
-      // The photos' pose for its place round the arc (the same swing across
-      // the palm, MCP and IP bends), abducted; its turn about the metacarpal
-      // the photos', and what comes with the abduction.
-      const q0 = hand.photoPose(k.around);
-      assert.ok(Math.abs(q0[0] - k.q[0]) < 1e-9, `${at}: swung across the palm`);
+      const round = (Math.atan2(k.at.y - arc.centre[1], k.at.x - arc.centre[0]) * 180) / Math.PI;
       assert.ok(
-        Math.abs(q0[3] - k.q[3]) < 0.05 && Math.abs(q0[4] - k.q[4]) < 0.05,
+        Math.abs(round - k.around) < 0.05,
+        `${at}: ${round.toFixed(2)}° round, not ${k.around}`,
+      );
+      // On its outer edge as set.
+      assert.ok(Math.abs(k.roll - s.thumb.roll) < 0.05, `${at}: rolled ${k.roll.toFixed(2)}°`);
+      // The photos' pose for its place round the arc, the MCP and IP
+      // straightened alike; its turn about the metacarpal the photos', and
+      // what comes with the swing.
+      const q0 = hand.photoPose(k.around);
+      assert.ok(
+        Math.abs(q0[3] - k.q[3] - k.straight) < 0.05 &&
+          Math.abs(q0[4] - k.q[4] - k.straight) < 0.05,
         `${at}: bent ${k.q[3].toFixed(1)}/${k.q[4].toFixed(1)}, the photos ${q0[3].toFixed(1)}/${q0[4].toFixed(1)}`,
       );
       assert.ok(
