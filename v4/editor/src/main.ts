@@ -782,7 +782,7 @@ function requestBuild() {
   const id = revision;
   $('fit-badge').className = '';
   $('fit-badge').textContent = 'Building chassis & checking fit…';
-  // PROTOTYPE: ?plates=narrow[&slope=deg] (chassis.ts narrowPlates), ?recess=mm.
+  // PROTOTYPE: ?plates=narrow[&slope=deg] (plates.ts narrowPlates), ?recess=mm.
   const sent = clone(project),
     q = new URLSearchParams(location.search);
   if (q.get('plates'))

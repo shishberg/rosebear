@@ -21,6 +21,10 @@ export const slab = (
     height,
   ]).translate([bb.min[0] - margin, bb.min[1] - margin, z0]);
 
+/** Each point and the point `depth` below it: hulled, a column straight down. */
+export const down = (ps: Vec3[], depth = 80) =>
+  ps.flatMap((p) => [p, [p[0], p[1], p[2] - depth] as Vec3]);
+
 /** `m` moved by a frame. */
 export const place = (m: Manifold, f: Matrix4) => m.transform(f.elements as Mat4);
 
