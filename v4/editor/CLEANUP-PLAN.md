@@ -594,7 +594,7 @@ are listed but not done.
 
 | Task | Status | Commit |
 |---|---|---|
-| T0 | pending | |
+| T0 | done | 327b02c |
 | T1 | pending | |
 | T2 | pending | |
 | T3 | pending | |
