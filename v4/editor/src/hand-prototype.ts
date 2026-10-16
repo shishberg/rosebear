@@ -1787,6 +1787,35 @@ export function setupHand(host: Host) {
     update();
   });
   box.append(pressBox);
+  // Two ways the thumb might press, to compare: the press settings only (the
+  // keys turn to face it), one Undo step.
+  const pressWays = document.createElement('div');
+  pressWays.style.margin = '4px 0';
+  pressWays.innerHTML = 'Press: ';
+  for (const [name, title, set] of [
+    [
+      'Swing at the base',
+      'The thumb stiff, the whole of it swinging at the CMC, out from the palm and 60° toward the fingers (the Dactyl fit).',
+      { byCmc: 1, cmcDir: 60, mix: 1 },
+    ],
+    [
+      'Straighten the tip',
+      'The thumb curling at the MCP while the IP straightens twice as fast; the CMC still.',
+      { byCmc: 0, mix: -2 },
+    ],
+  ] as const) {
+    const b = document.createElement('button');
+    b.textContent = name;
+    b.title = title;
+    b.addEventListener('click', () => {
+      Object.assign(s.thumb, set);
+      shows.forEach((f) => f());
+      change();
+      touched = false;
+    });
+    pressWays.append(b);
+  }
+  box.append(pressWays);
   radios(
     'Rotation handle:',
     ['hand', 'thumb', 'off'],
