@@ -615,6 +615,14 @@ are listed but not done.
     - Either validate (reject a seat wider than `tile − 2·glueSeatGap`), or
       leave out legs that have no room.
     - Found during T11. It already fails at HEAD.
+13. **The `?hand` solver doesn't say when a loop fails to converge.** This was
+    T13 item 5.
+    - The loops are `keyAt`, the `thumbRow` home-key settle and the extra
+      keys' Newton loop.
+    - `thumbRow` already adds an unsettled residual to `miss`, so it shows as
+      "short".
+    - A visible flag would be a new readout, not a refactor, so T13 left it
+      out.
 
 ## Status
 
@@ -633,7 +641,7 @@ are listed but not done.
 | T10 | done | |
 | T11 | done | |
 | T12 | done | |
-| T13 | pending | |
+| T13 | done | |
 | T14 | pending | |
 | T15 | pending | |
 | T16 | done | |

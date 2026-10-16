@@ -85,23 +85,6 @@ test('Dactyl fit: the hand reaches every key touching nothing else, and it fits 
   assert.ok(r.r.height <= hand.TRAY, `${r.r.height.toFixed(1)} mm tall`);
   assert.deepEqual(hand.problems(r.r), []);
 });
-// Natural's printed frame: the index brushed the thumb cluster, which the
-// model doesn't (yet) reproduce. Reported, not asserted.
-test('Natural', (t) => report(t, layout(hand.NATURAL)));
-
-/** A point on the thumb's last section at `q`, carried with it to other poses. */
-const carried = (q: number[], p: InstanceType<typeof T.Vector3>) => {
-  const th = hand.thumb(q),
-    rel = p.clone().sub(th.I),
-    local = [rel.dot(th.u), rel.dot(th.nail), rel.dot(th.side)];
-  return (q: number[]) => {
-    const t = hand.thumb(q);
-    return t.I.clone()
-      .addScaledVector(t.u, local[0])
-      .addScaledVector(t.nail, local[1])
-      .addScaledVector(t.side, local[2]);
-  };
-};
 const withMix = (base: typeof hand.DACTYL, palmar: number, curl: number, press: number) => ({
   ...structuredClone(base),
   thumb: { ...base.thumb, reach: { palmar, curl }, press },
@@ -115,10 +98,10 @@ test('each thumb key faces against the press, its mix as set, the reach in its p
     ['Natural, reach 0/0.6, press -15°', withMix(hand.NATURAL, 0, 0.6, -15)],
   ] as const)
     hand.solveHand(s).row.forEach((k, i) => {
-      const at = `${['far', 'home', 'near'][i]} (${name})`,
+      const at = `${hand.THUMB_ROW[i]} (${name})`,
         n = new T.Vector3().setFromMatrixColumn(k.frame, 2),
         x = new T.Vector3().setFromMatrixColumn(k.frame, 0),
-        point = carried(k.q, k.at),
+        point = hand.carry(k.q, k.at),
         deg = (r: number) => (r * 180) / Math.PI;
       assert.ok(k.miss < 0.01, `${at}: misses by ${k.miss.toFixed(2)}`);
       assert.ok(n.distanceTo(k.n) < 1e-9);
@@ -145,7 +128,7 @@ test('each thumb key faces against the press, its mix as set, the reach in its p
     });
 });
 
-test("the thumb keys: home at the photos' pose for its place round the arc, swung back onto it and lowered; the others the reach's mix away, spacing apart", () => {
+test('the thumb keys: home at its place round the arc, the others the reach mix away, spacing apart', () => {
   for (const s of [hand.DACTYL, hand.NATURAL]) {
     const h = hand.solveHand(s),
       top = h.poses.middle[1].chain.pad.z,
@@ -186,7 +169,7 @@ test("the thumb keys: home at the photos' pose for its place round the arc, swun
   }
 });
 
-test("1.5u + 2×1u: the thumb bent alike at the MCP and IP until, at the 1.5u's place round the arc, it touches the gap from the 1.5u; the 1u keys the reach's mix away, half the spacing either side", () => {
+test('1.5u + 2×1u: the thumb bent until it touches the gap from the 1.5u; the 1u keys half the spacing either side', () => {
   for (const gap of [19.5, 8]) {
     const s = { ...structuredClone(hand.DACTYL), cluster: '1.5u + 2×1u', two: { gap } },
       h = hand.solveHand(s),
@@ -432,7 +415,7 @@ test("keys whose tiles overlap aren't valid: the boards and the parts hanging un
     ['thumb_far thumb_home'],
   );
 });
-test("far and near thumb keys with the home key's y: tilted only along the row, toward their press, where the thumb touches them", () => {
+test("far and near thumb keys keep the home key's y, tilted only along the row", () => {
   const at = (s: Settings) => hand.solveHand(s).row,
     yours = at(hand.YOURS),
     own = at({ ...structuredClone(hand.YOURS), thumb: { ...hand.YOURS.thumb, parallel: false } }),
@@ -453,7 +436,7 @@ test("far and near thumb keys with the home key's y: tilted only along the row, 
   assert.ok(near.slant < 5, `${near.slant}`);
   assert.ok(own.every((k) => k.slant === 0));
 });
-test("the extra thumb keys: beside the home and far keys toward the thumb's base, the thumb curled more; laid out, checked and in the frame only when on", () => {
+test('the extra thumb keys sit south mm beside the home and far keys, and exist only when on', () => {
   const on = {
       ...structuredClone(hand.YOURS),
       extra: { ...hand.START.extra, on: true },
@@ -508,22 +491,11 @@ test('on every preset the thumb rests on its keys without going into them (but f
     hand.applyHand(c, s, hand.anchorOf(c));
     const r = hand.check(c, s);
     r.h.row.forEach((k, i) => {
-      const key = `thumb_${['far', 'home', 'near'][i]}`,
+      const key = `thumb_${hand.THUMB_ROW[i]}`,
         cap = r.caps.find((x) => x.name === key)!,
         inv = cap.top.clone().invert(),
         th = hand.thumb(k.q),
-        segs: [InstanceType<typeof T.Vector3>, InstanceType<typeof T.Vector3>, number][] = [
-          [hand.C, th.M, 11],
-          [th.M, th.I, 10.5],
-          ...[-1, 1].map(
-            (e) =>
-              [
-                th.I.clone().addScaledVector(th.side, e * hand.THUMB_EDGE),
-                th.end.clone().addScaledVector(th.side, e * hand.THUMB_EDGE),
-                hand.THUMB_R,
-              ] as [InstanceType<typeof T.Vector3>, InstanceType<typeof T.Vector3>, number],
-          ),
-        ];
+        { segs } = hand.thumbPart(th, []);
       // How far any part of the thumb is below the keycap's top, over its top.
       let deep = 0;
       for (const [a, b, rad] of segs)
@@ -615,7 +587,7 @@ function insideMesh(frame: ReturnType<typeof buildFrame>, p: number[]) {
   return n % 2 === 1;
 }
 
-test("a truss along each outside wall, |\\/\\/|: a diagonal from each end of each key's outside side down to a foot under its middle, each solid from the floor up to the plate", (t) => {
+test('a truss along each outside wall: diagonals from each side end to a foot, solid to the plate', (t) => {
   for (const s of [hand.DACTYL, hand.NATURAL]) {
     const { c, frame } = layout(s),
       name = s === hand.DACTYL ? 'Dactyl fit' : 'Natural',

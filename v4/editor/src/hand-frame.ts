@@ -132,7 +132,7 @@ function frameKeys(cfg: Config, extra: boolean) {
   ];
 }
 
-const label = (n: string) => n.replace(/^matrix_/, '').replace('_', ' ');
+export const label = (n: string) => n.replace(/^matrix_/, '').replace('_', ' ');
 
 /** Where pressing each corner of each key's cap top pushes the frame: the
  * press, along the switch, met with the floor (keys facing within 80° of
