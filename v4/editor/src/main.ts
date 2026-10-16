@@ -58,7 +58,8 @@ Object.assign(window, {
   },
 });
 // Review marks painted on the model, saved by the dev server (vite.config.ts),
-// so only there.
+// so only there. ?hand adds its own parts once it's set up.
+let handTargets = (): [T.Object3D, string][] => [];
 const marks = !import.meta.env.DEV
   ? { painting: () => false }
   : setupMarks({
@@ -71,6 +72,7 @@ const marks = !import.meta.env.DEV
         [basePlate, 'bottom section'],
         [trim, 'trim'],
         ...parts.children.map((o): [T.Object3D, string] => [o, o.userData.group ?? 'other']),
+        ...handTargets(),
       ],
       render,
     });
@@ -79,6 +81,7 @@ if (import.meta.env.DEV && new URLSearchParams(location.search).has('hand'))
     layout: S.handLayout,
     update: S.handUpdate,
     buildCase: S.handCase,
+    targets: handTargets,
   } = setupHand({
     scene,
     camera,

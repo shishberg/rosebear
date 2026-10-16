@@ -349,5 +349,11 @@ export function setupHand(host: Host) {
     wasm = w;
     update();
   });
-  return { layout, update, buildCase: () => s().buildCase };
+  return {
+    layout,
+    update,
+    buildCase: () => s().buildCase,
+    /** What marks may be painted on, and what each is. */
+    targets: (): [T.Object3D, string][] => [[frameView, 'test frame']],
+  };
 }

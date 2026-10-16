@@ -279,3 +279,30 @@ test('the hand panel keeps its controls, labels and ranges, and each type edits 
   expect(await off()).not.toContain('press mix: PIP+DIP° per MCP°');
   expect(await off()).toContain("wrist height (mm, the thumb's CMC above the home row)");
 });
+test('marks can be painted on the test frame', async ({ page }) => {
+  await page.goto('/?hand');
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+  await expect(page.locator('#hand-note')).toContainText('Valid (', { timeout: 30000 });
+  await page.getByText('Test frame (print this way up, with supports)').click();
+  await expect(page.getByText(/cm³/)).toBeVisible();
+  // Saving is caught here, so no mark is written.
+  let saved: { hits: { on?: string[] } } | undefined;
+  await page.route('**/__marks', (r) =>
+    r.request().method() === 'POST'
+      ? ((saved = r.request().postDataJSON()), r.fulfill({ status: 200, body: '{}' }))
+      : r.continue(),
+  );
+  await page.locator('#mk-paint').click();
+  const box = (await page.locator('canvas').first().boundingBox())!;
+  // Strokes across the whole view, some through the frame.
+  for (let i = 1; i < 12; i++) {
+    const y = box.y + (box.height * i) / 12;
+    await page.mouse.move(box.x + 5, y);
+    await page.mouse.down();
+    for (let j = 1; j <= 40; j++) await page.mouse.move(box.x + (box.width * j) / 41, y);
+    await page.mouse.up();
+  }
+  await page.locator('#mk-save').click();
+  await expect.poll(() => saved?.hits.on).toContain('test frame');
+});
