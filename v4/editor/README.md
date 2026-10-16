@@ -250,12 +250,13 @@ thickness and global self-intersections are not checked. Passing does not qualif
 a print.
 
 `worker.ts` rebuilds outside the UI thread. Results carry revision IDs, so a stale
-result cannot replace a newer edit. A 30-second watchdog stops a stuck worker, and a
-fresh worker takes over every eight builds to release geometry-engine memory.
-A rebuild takes about 2.2 s in the browser: about 0.5 s to loft the shell while the
-wires are routed alongside, then about 1.5 s for the chassis and the checks. The checks
-cut each probe against the case near its key, not the whole case. Each build frees every geometry object it made, so
-memory stays flat from one build to the next.
+result cannot replace a newer edit. A 30-second watchdog stops a stuck worker. Each
+build frees every geometry object it made, including those made with `new`, so the
+geometry engine's heap stays the same size from one build to the next; a fresh
+worker still takes over every eight builds as a safety net. A rebuild takes about
+2.2 s in the browser: about 0.5 s to loft the shell while the wires are routed
+alongside, then about 1.5 s for the chassis and the checks. The checks cut each
+probe against the case near its key, not the whole case.
 
 ## Validation
 

@@ -603,7 +603,7 @@ are listed but not done.
 | T0 | done | |
 | T1 | done | |
 | T2 | done | |
-| T3 | pending | |
+| T3 | done | |
 | T4 | pending | |
 | T5 | pending | |
 | T6 | pending | |

@@ -9,7 +9,7 @@ const engine = Module({ locateFile: () => wasmUrl }).then((m) => {
 });
 // The wires are routed in a worker of their own, alongside the build (here,
 // if this browser can't start one from a worker).
-const router =
+let router =
   typeof Worker === 'undefined'
     ? undefined
     : new Worker(new URL('./wiring-worker.ts', import.meta.url), { type: 'module' });
@@ -22,12 +22,22 @@ if (router)
     if (e.data.error !== undefined) r?.reject(Error(e.data.error));
     else r?.resolve(e.data.wiring!);
   };
+// A router that fails (to load, or later) never answers: fail what is pending,
+// and wire in this thread from then on rather than wait out the watchdog.
+if (router)
+  router.onerror = (e) => {
+    const err = Error(e.message || 'The wiring worker failed');
+    for (const r of routing.values()) r.reject(err);
+    routing.clear();
+    router = undefined;
+  };
 const route = (cfg: Config): Promise<Wiring> => {
-  if (!router) return Promise.resolve(wiring(cfg));
+  const r = router;
+  if (!r) return Promise.resolve(wiring(cfg));
   const id = ++routes;
   return new Promise((resolve, reject) => {
     routing.set(id, { resolve, reject });
-    router.postMessage({ id, cfg });
+    r.postMessage({ id, cfg });
   });
 };
 self.onmessage = async (e: MessageEvent<{ id: number; project: Project }>) => {

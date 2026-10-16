@@ -718,7 +718,8 @@ function refreshInputs() {
 }
 let worker: Worker,
   workerBuilds = 0;
-// Each build leaves some geometry-engine memory behind, so a fresh worker takes over every few builds.
+// A safety net: a fresh worker takes over every 8 builds, in case a build leaves
+// geometry-engine memory behind that its own cleanup missed.
 function startWorker() {
   worker = new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' });
   workerBuilds = 0;

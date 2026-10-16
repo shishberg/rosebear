@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import Module from 'manifold-3d';
 import { Vector3 } from 'three';
 import { defaults, clone, componentFrames, validateProject } from '../src/geometry';
-import { buildSolid } from '../src/solid';
+import { buildSolid, buildSolidAsync, freeAfter } from '../src/solid';
 import { buildChassis } from '../src/chassis';
 import { crossings, holes, nets, wiring } from '../src/wiring';
 import ref from './python-reference.json';
@@ -225,4 +225,61 @@ test('a project saved before the wiring loads with the default adapter, ribbon a
   c.adapter = { position_mm: [0, 0], rotation_deg: 0, board_mm: [30, 16, 1.6] };
   validateProject(p);
   assert.deepEqual(p.config, defaults.config);
+});
+test('objects made with `new` inside freeAfter are freed too', async () => {
+  const wasm = await Module();
+  wasm.setup();
+  type Freed = { isDeleted(): boolean };
+  let m!: Freed, c!: Freed;
+  freeAfter(wasm, () => {
+    const cube = wasm.Manifold.cube([1, 1, 1]).getMesh();
+    m = new wasm.Manifold(cube) as unknown as Freed;
+    c = new wasm.CrossSection([
+      [
+        [0, 0],
+        [1, 0],
+        [0, 1],
+      ],
+    ]) as unknown as Freed;
+    assert(!m.isDeleted() && !c.isDeleted());
+  });
+  assert(m.isDeleted() && c.isDeleted());
+});
+test('a failed wire router rejects the build, and the next build still runs', async () => {
+  const wasm = await Module();
+  wasm.setup();
+  await assert.rejects(
+    buildSolidAsync(wasm, clone(defaults), () => Promise.reject(Error('router crashed'))),
+    /router crashed/,
+  );
+  const r = await buildSolidAsync(wasm, clone(defaults), async (c) => wiring(c));
+  assert(r.report.passed);
+});
+test('a shell that throws while the router is still working leaves no unhandled rejection', async () => {
+  const wasm = await Module();
+  wasm.setup();
+  const unhandled: unknown[] = [];
+  const note = (e: unknown) => unhandled.push(e);
+  process.on('unhandledRejection', note);
+  const real = wasm.Manifold;
+  wasm.Manifold = new Proxy(real, {
+    construct() {
+      throw Error('shell failed');
+    },
+  });
+  try {
+    await assert.rejects(
+      buildSolidAsync(
+        wasm,
+        clone(defaults),
+        () => new Promise((_, no) => setTimeout(() => no(Error('router crashed')), 10)),
+      ),
+      /shell failed/,
+    );
+    await new Promise((r) => setTimeout(r, 50));
+  } finally {
+    wasm.Manifold = real;
+    process.off('unhandledRejection', note);
+  }
+  assert.deepEqual(unhandled, []);
 });

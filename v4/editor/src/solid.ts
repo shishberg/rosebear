@@ -240,6 +240,16 @@ function watch(wasm: ManifoldToplevel) {
   for (const c of [wasm.Manifold, wasm.CrossSection] as unknown as Record<string, unknown>[])
     wrap(c);
   for (const p of protos) wrap(p);
+  // `new Manifold(...)` and `new CrossSection(...)` bypass the wrapped methods.
+  const w = wasm as unknown as Record<string, unknown>;
+  for (const k of ['Manifold', 'CrossSection'])
+    w[k] = new Proxy(w[k] as new (...a: unknown[]) => object, {
+      construct(t, args, nt) {
+        const x = Reflect.construct(t, args, nt);
+        record(x);
+        return x;
+      },
+    });
 }
 /** Runs `f`, then frees every Manifold and CrossSection made while it ran. */
 export function freeAfter<T>(wasm: ManifoldToplevel, f: () => T): T {
@@ -274,6 +284,8 @@ export async function buildSolidAsync(
     const start = performance.now();
     const cfg = project.config;
     const routed = route(cfg);
+    // If shell() throws, nothing awaits `routed`; its rejection must not go unhandled.
+    routed.catch(() => {});
     const built = shell({ wasm, cfg, frames: componentFrames(cfg) });
     for (const m of [built.body, built.inside, built.slot]) m.status();
     return build(wasm, project, { wired: await routed, built, start });
