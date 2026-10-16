@@ -4,7 +4,7 @@ import { test, type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import Module from 'manifold-3d';
-import { clone, componentFrames, defaults } from '../src/geometry';
+import { clone, componentFrames, defaults, ROWS } from '../src/geometry';
 import { buildFrame } from '../src/hand-frame';
 import { _test as hand } from '../src/hand-prototype';
 
@@ -427,6 +427,63 @@ test("the test frame is one piece on legs under the plates' outer corners, flat 
     }
     // No faults: every leg clears every switch and keycap, nothing cut.
     assert.deepEqual(frame.faults, []);
+  }
+});
+
+test("a strut stands under each gap along the plates' outside edges, solid from the floor up to the plate", () => {
+  for (const s of [hand.DACTYL, hand.NATURAL]) {
+    const { c, frame } = layout(s),
+      cols = c.geometry.columns.map((x) => x.name),
+      key = (ci: number, ri: number) => `matrix_${cols[ci]}_${ROWS[ri]}`,
+      thumbs = c.geometry.thumb.keys.map((k) => `thumb_${k.name}`),
+      // The top and bottom rows' gaps, the outer columns' gaps, and each
+      // thumb gap on both sides.
+      want = [
+        ...cols
+          .slice(1)
+          .flatMap((_, ci) => [0, ROWS.length - 1].map((ri) => [key(ci, ri), key(ci + 1, ri)])),
+        ...ROWS.slice(1).flatMap((_, ri) =>
+          [0, cols.length - 1].map((ci) => [key(ci, ri), key(ci, ri + 1)]),
+        ),
+        ...thumbs.slice(1).flatMap((k, i) => [
+          [thumbs[i], k],
+          [thumbs[i], k],
+        ]),
+      ].map((p) => p.sort().join(' / ')),
+      got = frame.struts.map((x) => [...x.keys].sort().join(' / '));
+    assert.deepEqual(got.sort(), want.sort());
+    // Straight down through each strut, a little off its middle (clear of
+    // its edges): solid from the floor to where it leaves the plate.
+    const P = frame.mesh.positions,
+      I = frame.mesh.indices;
+    for (const { keys, top, foot } of frame.struts) {
+      const [x, y] = [foot[0] + 0.37, foot[1] + 0.21],
+        zs: number[] = [];
+      for (let t = 0; t < I.length; t += 3) {
+        const [a, b, d] = [I[t], I[t + 1], I[t + 2]].map((i) => [
+            P[i * 3],
+            P[i * 3 + 1],
+            P[i * 3 + 2],
+          ]),
+          area = (p: number[], q: number[]) =>
+            (q[0] - p[0]) * (y - p[1]) - (q[1] - p[1]) * (x - p[0]),
+          [wa, wb, wd] = [area(b, d), area(d, a), area(a, b)],
+          all = wa + wb + wd;
+        if (
+          Math.abs(all) < 1e-9 ||
+          !((wa >= 0 && wb >= 0 && wd >= 0) || (wa <= 0 && wb <= 0 && wd <= 0))
+        )
+          continue;
+        zs.push((wa * a[2] + wb * b[2] + wd * d[2]) / all - frame.floor);
+      }
+      zs.sort((p, q) => p - q);
+      const where = `${keys.join(' / ')}: crossings ${zs.map((z) => z.toFixed(1)).join(', ')}`;
+      assert.ok(zs.length >= 2 && zs[0] < 0.01, `${where}: not on the floor`);
+      assert.ok(
+        zs[1] > top[2] - frame.floor - 0.5,
+        `${where}: not solid up to ${(top[2] - frame.floor).toFixed(1)}`,
+      );
+    }
   }
 });
 

@@ -12,9 +12,12 @@
  *   most of it is too thin to print.
  * - Legs hold them up. Each plate of joined keys stands on its
  *   outer corners: from each, a bracket out and down clear of its switch,
- *   on a leg straight down. A rail runs round each plate's feet, and one
- *   ties the thumb's to the fingers'. A press that would push the frame
- *   well outside its base is a warning.
+ *   on a leg straight down. Struts stiffen the outside walls between them:
+ *   one under each gap between two keys along a plate's outside edge,
+ *   straight down from the web, or on a bracket like a corner's where that
+ *   would hit a switch. A rail runs round each plate's feet, and one ties
+ *   the thumb's to the fingers'. A press that would push the frame well
+ *   outside its base is a warning.
  * - Every switch (down past its pins), keycap (pressed to rest) and switch top
  *   is cut out of all of it except the switch seats (the clip land round each
  *   hole); where that leaves one hitting a seat or the frame, the result says
@@ -74,6 +77,9 @@ export type FrameResult = {
   warnings: string[];
   /** In cm³, without supports. */
   volume: number;
+  /** The struts along the plates' outside walls: the keys each stands
+   * between, where it leaves the plate (its top) and its foot. */
+  struts: { keys: [string, string]; top: Vec3; foot: Vec3 }[];
 };
 
 /** The keys the hand lays out: the finger matrix and the thumb row. */
@@ -373,13 +379,84 @@ export function buildFrame(wasm: ManifoldToplevel, cfg: Config): FrameResult {
         faults.push(`${label(key)}: the leg under its corner hits a switch or keycap`);
       solids.push(strut(p, top), strut(q, top), knot(top), strut(top, foot));
     }
+    // The struts: under each gap between two joined keys along a plate's
+    // outside edge (a side of each that has no neighbour, facing the same
+    // way), a post from the web's outside wall straight down. Where that
+    // hits a switch (a curved column's switches close in under the gap), a
+    // bracket out and down from the wall's corner instead, as at a leg.
+    const add = (a: number[], b: number[], k = 1) => a.map((x, i) => x + b[i] * k) as Vec3,
+      unit = (a: number[]) => a.map((x) => x / Math.hypot(...a)),
+      dot = (a: number[], b: number[]) => a.reduce((s, x, i) => s + x * b[i], 0),
+      /** Key n's plate corner on side `ax`, `s` of it, at `t` along that side. */
+      cornerOf = (n: string, ax: number, s: number, t: number, z: number) =>
+        ax === 0 ? at(n, s * hp[0], t * hp[1], z) : at(n, t * hp[0], s * hp[1], z),
+      struts = joined.flatMap(([n, m]) => {
+        const [a, sa] = side(n, m),
+          [a2, sa2] = side(m, n);
+        return [-1, 1].flatMap((t) => {
+          const outN = axis(n, 1 - a).map((x) => x * t),
+            t2 = Math.sign(dot(axis(m, 1 - a2), outN));
+          if (
+            sides.has(`${n} ${[1 - a, t]}`) ||
+            Math.abs(dot(axis(m, 1 - a2), outN)) < 0.5 ||
+            sides.has(`${m} ${[1 - a2, t2]}`)
+          )
+            return [];
+          const mid = (z: number) =>
+              add(cornerOf(n, a, sa, t, z), cornerOf(m, a2, sa2, t2, z)).map((x) => x / 2) as Vec3,
+            out = unit(add(outN, axis(m, 1 - a2), t2)),
+            down = unit(add(axis(n, 2), axis(m, 2)).map((x) => -x)),
+            p = mid(-FRAME.lip),
+            q = mid(0),
+            // Halfway down the wall, its own width in from the outside.
+            post = add(
+              add(p, q).map((x) => x / 2),
+              out,
+              -r,
+            ),
+            reach = (b: number) => {
+              const top = add(p, add(out, down), b);
+              return { top, foot: [top[0], top[1], floor] as Vec3 };
+            };
+          if (clear(post, [post[0], post[1], floor]))
+            return [
+              {
+                keys: [n, m] as [string, string],
+                p,
+                q,
+                top: post,
+                foot: [post[0], post[1], floor] as Vec3,
+                bracket: false,
+              },
+            ];
+          let b = FRAME.bracket;
+          while (b < FRAME.bracket * 12 && !clear(reach(b).top, reach(b).foot)) b += FRAME.bracket;
+          return [{ keys: [n, m] as [string, string], p, q, ...reach(b), bracket: true }];
+        });
+      });
+    for (const {
+      keys: [n, m],
+      p,
+      q,
+      top,
+      foot,
+      bracket,
+    } of struts) {
+      if (!clear(top, foot))
+        faults.push(`the strut between ${label(n)} and ${label(m)} hits a switch or keycap`);
+      solids.push(strut(top, foot));
+      if (bracket) solids.push(strut(p, top), strut(q, top), knot(top));
+    }
     // The base: a rail round each plate's feet, and one from each plate's
     // to the nearest foot of those before it, so it prints as one piece.
     const piece = Object.fromEntries(keys.map((k) => [k, k])),
       root = (k: string): string => (piece[k] === k ? k : root(piece[k]));
     for (const [a, b] of joined) piece[root(a)] = root(b);
     const plates = [...new Set(keys.map(root))].map((g) => {
-        const own = legs.filter((l) => root(l.key) === g).map((l) => l.foot),
+        const own = [
+            ...legs.filter((l) => root(l.key) === g),
+            ...struts.filter((l) => root(l.keys[0]) === g),
+          ].map((l) => l.foot),
           mid = [0, 1].map((k) => own.reduce((t, f) => t + f[k], 0) / own.length),
           turn = (f: Vec3) => Math.atan2(f[1] - mid[1], f[0] - mid[0]);
         return own.sort((a, b) => turn(a) - turn(b));
@@ -401,7 +478,7 @@ export function buildFrame(wasm: ManifoldToplevel, cfg: Config): FrameResult {
     // out: the angle, seen from the corner, from that point to the base's
     // nearest edge.
     const base = convex(
-        legs.flatMap(({ foot: [x, y] }) =>
+        [...legs, ...struts].flatMap(({ foot: [x, y] }) =>
           corners.map(([sx, sy]) => [x + (sx * w) / 2, y + (sy * w) / 2]),
         ),
       ),
@@ -532,6 +609,7 @@ export function buildFrame(wasm: ManifoldToplevel, cfg: Config): FrameResult {
       faults,
       warnings,
       volume: out.volume() / 1000,
+      struts: struts.map(({ keys, top, foot }) => ({ keys, top, foot })),
     };
   } finally {
     for (const m of new Set(made)) m.delete();
