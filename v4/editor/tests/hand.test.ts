@@ -89,45 +89,84 @@ test('Dactyl fit: the hand reaches every key touching nothing else, and it fits 
 // model doesn't (yet) reproduce. Reported, not asserted.
 test('Natural', (t) => report(t, layout(hand.NATURAL)));
 
-test('each thumb key is square to the sweep round the arc and faces up, and the thumb presses it straight down', () => {
-  for (const s of [hand.DACTYL, hand.NATURAL])
-    hand.solveHand(s).row.forEach((k, i) => {
-      const at = `${['far', 'home', 'near'][i]} (${s === hand.DACTYL ? 'Dactyl fit' : 'Natural'})`,
+test('each thumb key lies along the reach and square to the press, the thumb pressing it straight in', () => {
+  const tilted = (base: typeof hand.DACTYL, reach: number, press: number) => ({
+    ...structuredClone(base),
+    thumb: { ...base.thumb, reach, press },
+  });
+  for (const [name, s] of [
+    ['Dactyl fit', hand.DACTYL],
+    ['Natural', hand.NATURAL],
+    ['Dactyl fit, reach 10°, press 15°', tilted(hand.DACTYL, 10, 15)],
+    ['Natural, reach 10°, press -15°', tilted(hand.NATURAL, 10, -15)],
+  ] as const) {
+    const row = hand.solveHand(s).row,
+      rad = (d: number) => (d * Math.PI) / 180,
+      top = hand.solveHand(s).poses.middle[1].chain.pad.z,
+      radius = Math.hypot(row[1].at.x - hand.arc.centre[0], row[1].at.y - hand.arc.centre[1]);
+    row.forEach((k, i) => {
+      const at = `${['far', 'home', 'near'][i]} (${name})`,
         th = hand.thumb(k.q),
-        n = new T.Vector3().setFromMatrixColumn(k.frame, 2);
-      const r = Math.atan2(th.axis.y - hand.arc.centre[1], th.axis.x - hand.arc.centre[0]);
+        n = new T.Vector3().setFromMatrixColumn(k.frame, 2),
+        x = new T.Vector3().setFromMatrixColumn(k.frame, 0),
+        r = rad(k.around),
+        out = new T.Vector3(Math.cos(r), Math.sin(r), 0),
+        d = rad(k.around - s.thumb.around);
+      assert.ok(k.miss < 0.01, `${at}: misses by ${k.miss.toFixed(2)}`);
+      // In plan the key is square to the sweep round the arc; along it the
+      // reach climbs as on a circle tilted `reach` at the home key.
+      assert.ok(Math.abs(x.dot(out)) < 1e-9, `${at}: not square to the sweep`);
+      const up = Math.atan(Math.cos(d) * Math.tan(rad(s.thumb.reach)));
+      assert.ok(Math.abs(Math.asin(-x.z) - up) < 1e-9, `${at}: the reach's slope`);
       assert.ok(
-        Math.abs(n.x * -Math.sin(r) + n.y * Math.cos(r)) < 1e-6,
-        `${at}: not square to the sweep`,
+        Math.abs(
+          k.at.z - (top - s.thumb.drop + radius * Math.sin(d) * Math.tan(rad(s.thumb.reach))),
+        ) < 0.01,
+        `${at}: at ${k.at.z.toFixed(2)}`,
       );
-      assert.ok(n.z > 0, `${at}: facing down`);
+      // The press tilted about the reach, back toward the arc's centre.
+      assert.ok(Math.abs(n.dot(out) - Math.sin(rad(s.thumb.press))) < 1e-9, `${at}: the press`);
+      assert.ok(n.distanceTo(k.n) < 1e-9);
       // The point touching the key, carried with the last bone as the thumb presses.
       const side = (t: typeof th) => t.u.clone().cross(t.nail),
         rel = k.at.clone().sub(th.I),
         local = [rel.dot(th.u), rel.dot(th.nail), rel.dot(side(th))],
         point = (mm: number) => {
-          const t = hand.thumb(hand.pressed(k.q, mm));
+          const t = hand.thumb(hand.pressed(k.q, mm, k.n));
           return t.I.clone()
             .addScaledVector(t.u, local[0])
             .addScaledVector(t.nail, local[1])
             .addScaledVector(side(t), local[2]);
         };
-      assert.deepEqual(hand.pressed(k.q, 0), k.q);
+      assert.deepEqual(hand.pressed(k.q, 0, k.n), k.q);
       // It goes straight down the key's travel.
       const start = point(0.25).sub(k.at),
         off = (start.angleTo(n.clone().negate()) * 180) / Math.PI;
       assert.ok(off < 0.2, `${at}: sets off ${off.toFixed(2)}° from the key's travel`);
-      const down = point(4).sub(k.at),
+      const travel = defaults.config.switch.travel_mm,
+        down = point(travel).sub(k.at),
         slide = down.clone().addScaledVector(n, -down.dot(n)).length();
       assert.ok(
-        Math.abs(-down.dot(n) - 4) < 0.05,
-        `${at}: 4 mm goes ${(-down.dot(n)).toFixed(2)} down`,
+        Math.abs(-down.dot(n) - travel) < 0.05,
+        `${at}: ${travel} mm goes ${(-down.dot(n)).toFixed(2)} down`,
       );
       assert.ok(slide < 0.15, `${at}: slides ${slide.toFixed(2)} mm on the cap`);
       // The animation's 15 mm back off the key.
       const back = point(-15).sub(k.at).length();
       assert.ok(Math.abs(back - 15) < 0.5, `${at}: 15 mm back moves ${back.toFixed(2)}`);
     });
+  }
+  // Tilted back the other way and the far end down, the thumb can't press
+  // the near key straight in: it would straighten past its joints.
+  const s = tilted(hand.NATURAL, -10, -15),
+    c = clone(defaults).config;
+  hand.applyHand(c, s, hand.anchorOf(c));
+  const r = hand.check(c, s);
+  assert.deepEqual(
+    r.pressOff.map((x) => x.key),
+    ['thumb near'],
+  );
+  assert.ok(hand.problems(r).some((p) => p.includes('thumb near')));
 });
 
 test("the thumb keys: the photos' thumb pose for each place round the arc, swung back onto its place and lowered, the keys spacing apart", () => {
