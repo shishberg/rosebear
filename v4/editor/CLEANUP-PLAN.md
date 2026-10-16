@@ -606,6 +606,7 @@ are listed but not done.
       case by 0.13 mm. So the fix was not kept.
     - To apply it, either accept that failure or give the wire room.
 11. **`?hand` documentation** lives mostly in very long commit messages.
+    - Addressed in T19: [v4/docs/hand-prototype.md](../docs/hand-prototype.md).
 12. **A seat 19 mm or wider fails to build ("Invalid chassis:
     InvalidConstruction").**
     - `gluePads` in chassis.ts runs each glue leg from
@@ -623,6 +624,11 @@ are listed but not done.
       "short".
     - A visible flag would be a new readout, not a refactor, so T13 left it
       out.
+14. **The hardware check doesn't include the switch pads** (`padParts`).
+    - Only the solder-access check looks at them.
+    - The README used to say pads were checked. T19 corrected the doc
+      instead of changing the check.
+    - Adding pads to `checkHardware` would be a behaviour change.
 
 ## Status
 
@@ -647,5 +653,5 @@ are listed but not done.
 | T16 | done | |
 | T17 | done | |
 | T18 | done | |
-| T19 | pending | |
+| T19 | done | |
 | T20 | pending | |

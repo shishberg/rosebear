@@ -10,7 +10,7 @@ The pointing device is open. The trackball in this pipeline is a placeholder; a 
 
 ## Browser chassis editor
 
-Run `make v4-editor` and open **http://127.0.0.1:5177**. The editor builds the C64-styled case for the right hand from the key layout, with the tiles glued under the key plates and the ribbon leaving through a port panel on the inner end. The [editor guide](editor/README.md) covers the layout parameters and handles, autosave, project files and the clearance checks. The FFC adapter's size is provisional (see design status).
+Run `make v4-editor` and open **http://127.0.0.1:5177**. The editor builds the C64-styled case for the right hand from the key layout, with the tiles glued under the key plates and the ribbon leaving through a port panel on the inner end. The [editor guide](editor/README.md) covers the layout parameters and handles, autosave, project files and the clearance checks, and [editor chassis and wiring](docs/editor-chassis.md) how the case is built and wired. The FFC adapter's size is provisional (see design status).
 
 KiCad/PCB generation stays offline. The Python chassis generator is retained as a numerical reference; editing no longer requires export/rebuild handoffs.
 
@@ -19,7 +19,7 @@ The [old parameter guide](docs/parametric-chassis.md) describes that earlier imp
 
 ## Hand model
 
-[`hand/`](hand/README.md) holds a measured model of the hand, in the editor's layout axes: fingertip rest positions, thumb landing points, segment lengths and the resting pose. It narrows down key placement; the layout itself is still chosen by preference.
+[`hand/`](hand/README.md) holds a measured model of the hand, in the editor's layout axes: fingertip rest positions, thumb landing points, segment lengths and the resting pose. It narrows down key placement; the layout itself is still chosen by preference. The editor's dev-only `?hand` mode lays keys out from it: see the [hand prototype](docs/hand-prototype.md).
 
 ## Paused: seeded flex and flat-thumb boards
 

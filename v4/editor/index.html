@@ -1,7 +1,101 @@
-<!doctype html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Rosebear · Chassis editor</title></head><body><div id="app"><header><div><h1>Rosebear / chassis editor</h1><p>Right hand · C64 chassis</p></div><span id="save-state">Local project</span></header><main><aside>
-<section><h2>Key layout</h2><label><input id="edit" type="checkbox" checked> Show handles</label><div id="selection" aria-live="polite"></div><button id="undo">Undo</button><button id="redo">Redo</button><button id="reset">Reset model</button></section>
-<section><h2>View</h2><label><input id="caps" type="checkbox"> Keycaps</label><label><input id="parts" type="checkbox" checked> Tiles and components</label><label><input id="wires" type="checkbox" checked> Wiring and pads</label><label><input id="adapter" type="checkbox" checked> Adapter and ribbons</label><label><input id="base" type="checkbox" checked> Bottom section</label><label><input id="bounds" type="checkbox"> Show bounding box</label><label><input id="edges" type="checkbox"> Show wireframe</label><small id="size">Size: waiting for the chassis</small><label>Chassis opacity<input id="opacity" type="range" min="0.1" max="1" step="0.05" value="1"></label><button id="rebuild">Rebuild & check</button></section>
-<section><h2>Clearance checks</h2><label>Keycap bottom at full press (mm above the switch plane) <input id="bottom-out" type="number" min="0" max="20" step="0.1"></label><label><input id="show-failures" type="checkbox" checked> Highlight failures in 3D</label><small id="fit-legend"></small><button id="all-failures">Show all failures</button><div id="fit-focus" aria-live="polite"></div><div id="fit-badge">Starting geometry engine…</div><ul id="fit-list"></ul><button id="report" disabled>Save report</button></section>
-<section><h2>Wiring</h2><div id="wiring-summary"></div><details><summary>Matrix and ribbon pins</summary><table id="matrix-table"></table></details><details><summary>Cut list</summary><table id="cut-list"></table></details></section>
-<section><h2>Project</h2><button class="primary" id="export">Save project</button><button id="import">Open project</button><input id="file" type="file" accept=".json,application/json" hidden><button id="stl" disabled>Export review STL</button><button id="stl-base" disabled>Export bottom section STL</button><div id="load-error"></div><details><summary>All configuration</summary><textarea id="config" aria-label="Configuration"></textarea><button id="apply-config">Apply configuration</button></details></section></aside>
-<div id="viewport"><div id="viewbar"><button data-view="3D">3D</button><button data-view="Top">Top</button><button data-view="Underside">Underside</button><button data-view="Front">Front</button><button data-view="Inner">Inner</button></div><div id="view-state">Loading model…</div></div></main></div><script type="module" src="/src/main.ts"></script></body></html>
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Rosebear · Chassis editor</title>
+  </head>
+  <body>
+    <div id="app">
+      <header>
+        <div>
+          <h1>Rosebear / chassis editor</h1>
+          <p>Right hand · C64 chassis</p>
+        </div>
+        <span id="save-state">Local project</span>
+      </header>
+      <main>
+        <aside>
+          <section>
+            <h2>Key layout</h2>
+            <label><input id="edit" type="checkbox" checked /> Show handles</label>
+            <div id="selection" aria-live="polite"></div>
+            <button id="undo">Undo</button><button id="redo">Redo</button
+            ><button id="reset">Reset model</button>
+          </section>
+          <section>
+            <h2>View</h2>
+            <label><input id="caps" type="checkbox" /> Keycaps</label
+            ><label><input id="parts" type="checkbox" checked /> Tiles and components</label
+            ><label><input id="wires" type="checkbox" checked /> Wiring and pads</label
+            ><label><input id="adapter" type="checkbox" checked /> Adapter and ribbons</label
+            ><label><input id="base" type="checkbox" checked /> Bottom section</label
+            ><label><input id="bounds" type="checkbox" /> Show bounding box</label
+            ><label><input id="edges" type="checkbox" /> Show wireframe</label
+            ><small id="size">Size: waiting for the chassis</small
+            ><label
+              >Chassis opacity<input
+                id="opacity"
+                type="range"
+                min="0.1"
+                max="1"
+                step="0.05"
+                value="1" /></label
+            ><button id="rebuild">Rebuild & check</button>
+          </section>
+          <section>
+            <h2>Clearance checks</h2>
+            <label
+              >Keycap bottom at full press (mm above the switch plane)
+              <input id="bottom-out" type="number" min="0" max="20" step="0.1" /></label
+            ><label
+              ><input id="show-failures" type="checkbox" checked /> Highlight failures in 3D</label
+            ><small id="fit-legend"></small><button id="all-failures">Show all failures</button>
+            <div id="fit-focus" aria-live="polite"></div>
+            <div id="fit-badge">Starting geometry engine…</div>
+            <ul id="fit-list"></ul>
+            <button id="report" disabled>Save report</button>
+          </section>
+          <section>
+            <h2>Wiring</h2>
+            <div id="wiring-summary"></div>
+            <details>
+              <summary>Matrix and ribbon pins</summary>
+              <table id="matrix-table"></table>
+            </details>
+            <details>
+              <summary>Cut list</summary>
+              <table id="cut-list"></table>
+            </details>
+          </section>
+          <section>
+            <h2>Project</h2>
+            <button class="primary" id="export">Save project</button
+            ><button id="import">Open project</button
+            ><input id="file" type="file" accept=".json,application/json" hidden /><button
+              id="stl"
+              disabled
+            >
+              Export review STL</button
+            ><button id="stl-base" disabled>Export bottom section STL</button>
+            <div id="load-error"></div>
+            <details>
+              <summary>All configuration</summary>
+              <textarea id="config" aria-label="Configuration"></textarea
+              ><button id="apply-config">Apply configuration</button>
+            </details>
+          </section>
+        </aside>
+        <div id="viewport">
+          <div id="viewbar">
+            <button data-view="3D">3D</button><button data-view="Top">Top</button
+            ><button data-view="Underside">Underside</button><button data-view="Front">Front</button
+            ><button data-view="Inner">Inner</button>
+          </div>
+          <div id="view-state">Loading model…</div>
+        </div>
+      </main>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
