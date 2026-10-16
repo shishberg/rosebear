@@ -634,24 +634,27 @@ are listed but not done.
 
 | Task | Status | Commit |
 |---|---|---|
-| T0 | done | |
-| T1 | done | |
-| T2 | done | |
-| T3 | done | |
-| T4 | done | |
-| T5 | done | |
-| T6 | done | |
-| T7 | done | |
-| T8 | done | |
-| T9 | done | |
-| T10 | done | |
-| T11 | done | |
-| T12 | done | |
-| T13 | done | |
-| T14 | done | |
-| T15 | done | |
-| T16 | done | |
-| T17 | done | |
-| T18 | done | |
-| T19 | done | |
-| T20 | done | |
+| T0 | done | 242859f |
+| T1 | done | f8bcdcf |
+| T2 | done | 768db82 |
+| T3 | done | 60c7727 |
+| T4 | done | 66e3951 |
+| T5 | done | 2cb9d5d |
+| T6 | done | 0e4c6f9 |
+| T7 | done | ddb2e00 |
+| T8 | done | 8d6173c |
+| T9 | done | 2bd690a |
+| T10 | done | a5331f5 |
+| T11 | done | 7c34991 |
+| T12 | done | 4fb129b |
+| T13 | done | 7ca3776 |
+| T14 | done | 1682bca |
+| T15 | done | e7468ad |
+| T16 | done | 713f3c9 |
+| T17 | done | aa43bfd |
+| T18 | done | da7f7dd |
+| T19 | done | 3015cc0 |
+| T20 | done | e190480 |
+
+T18's hand.test.ts memoisation was left out: the ?hand session owned that file
+then.
