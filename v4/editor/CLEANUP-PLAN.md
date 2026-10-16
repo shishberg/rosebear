@@ -302,7 +302,7 @@ Check each item with grep (src, tests, configs) before removing it.
 5. **Doc comments:**
    - Move the stranded "Construction sizes…" doc onto `SIZES`.
    - Fix the misordered `skirtWireClear`/`skirtPiece` doc.
-6. **Separate commit: the tile pocket depth formula.**
+6. **Not done; see Out of scope, item 10.** Separate commit: the tile pocket depth formula.
    - chassis treats `tile.components[].center_mm[2]` as measured from the
      tile's underside (it adds `size_mm[2]`). `hardware()`, wiring and the
      config measure it from the tile top. The pocket ends up 1.6 mm deeper
@@ -597,7 +597,15 @@ are listed but not done.
 9. **The bottom section is never checked for loose pieces.** A floating
    adapter mount would pass every check. T4 added a test for the default and a
    3 mm skin, but the report doesn't check it.
-10. **`?hand` documentation** lives mostly in very long commit messages.
+10. **The tile pocket is 1.6 mm deeper than its own definition.**
+    - chassis.ts measures `tile.components[].center_mm[2]` from the tile's
+      underside, where parts.ts, wiring and the config measure it from the top.
+      The pocket comes out 11.0 mm deep; its definition gives 9.4.
+    - T8 tried the fix. It is unchanged on every variant except `thumbs`: there
+      it adds 13 mm³, and a ring-bottom to pinky-bottom wire newly clips the
+      case by 0.13 mm. So the fix was not kept.
+    - To apply it, either accept that failure or give the wire room.
+11. **`?hand` documentation** lives mostly in very long commit messages.
 
 ## Status
 
@@ -611,7 +619,7 @@ are listed but not done.
 | T5 | done | |
 | T6 | done | |
 | T7 | done | |
-| T8 | pending | |
+| T8 | done | |
 | T9 | pending | |
 | T10 | pending | |
 | T11 | pending | |
