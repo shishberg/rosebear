@@ -1,6 +1,5 @@
 {
   "schema": 5,
-  "units": "mm and degrees",
   "description": "Individual RGB 1U tiles; dimensions marked provisional must be measured before a full print.",
   "geometry": {
     "row_pitch_mm": 24.5,
@@ -105,9 +104,6 @@
     "keycap_clearance_mm": 0.3,
     "keycap_clearance_overrides_mm": {
       "thumb_home": 2.5
-    },
-    "cutout_depth_overrides_mm": {
-      "matrix_inner_bottom": 14
     }
   },
   "tile": {
@@ -133,11 +129,6 @@
         "center_mm": [-5, -4.5, -2.25]
       }
     ],
-    "support_width_mm": 1.6,
-    "support_corner_length_mm": 2.6,
-    "retaining_tie_width_mm": 2.5,
-    "retaining_tie_thickness_mm": 1,
-    "retaining_tie_y_mm": 0,
     "pads": {
       "provisional": true,
       "description": "Solder pads on the tile underside, from a photo. Back edge (the socket side, +y): C, G, +, DO. Front edge: R, G, +, DI. The two G pads are joined on the tile, and so are the two + pads.",
@@ -360,7 +351,6 @@
   "chassis": {
     "plate_thickness_mm": 3,
     "plate_margin_mm": 0.9,
-    "wall_mm": 2.4,
-    "base_thickness_mm": 2
+    "skin_mm": 2
   }
 }

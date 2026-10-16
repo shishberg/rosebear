@@ -45,7 +45,24 @@ export type Cluster = {
   arc: { radius_mm: number; step_deg: number; well_deg: number };
 };
 export const ROWS = ['top', 'home', 'bottom'] as const;
-export const isKey = (name: string) => name.startsWith('thumb_') || name.startsWith('matrix_');
+export const isThumb = (name: string) => name.startsWith('thumb_');
+export const isKey = (name: string) => isThumb(name) || name.startsWith('matrix_');
+/** The keycap's clearance all round: its own, else the switch's. */
+export const capClearance = (c: Config, n: string) =>
+  (c.switch.keycap_clearance_overrides_mm as Record<string, number>)[n] ??
+  c.switch.keycap_clearance_mm;
+/** The z of the tile's underside (where its pads are), in key coordinates. */
+export const tileUnderside = (c: Config) => -(c.tile.plate_top_to_pcb_top_mm + c.tile.size_mm[2]);
+/** Key names by group: the finger keys, the thumb row and the extra thumb row. */
+export const keyGroups = (c: Config) => {
+  const g = c.geometry as { thumb_extra?: Cluster } & typeof c.geometry,
+    names = (cl?: Cluster) => (cl?.keys ?? []).map((k) => 'thumb_' + k.name);
+  return {
+    fingers: g.columns.flatMap((col) => ROWS.map((r) => `matrix_${col.name}_${r}`)),
+    thumbs: names(g.thumb),
+    extra: names(g.thumb_extra),
+  };
+};
 export const capSize = (c: Config, n: string) =>
   ((c.switch.keycap_overrides_mm as Record<string, number[]>)[n] || c.switch.keycap_mm) as V3;
 /** A keycap's top face: it tapers in from its base (capSize) by as much as
@@ -139,7 +156,7 @@ export function componentFrames(cfg: Config) {
   // The adapter lies on the bottom plate, so it is placed in world coordinates.
   const a = cfg.adapter;
   n.adapter = frame(
-    [a.position_mm[0], a.position_mm[1], cfg.chassis.base_thickness_mm + a.standoff_mm],
+    [a.position_mm[0], a.position_mm[1], cfg.chassis.skin_mm + a.standoff_mm],
     [0, 0, a.rotation_deg],
   );
   return n;
@@ -185,6 +202,14 @@ export function migrate(c: Record<string, any>) {
     if (s?.travel_mm === 4) s.travel_mm = d.switch.travel_mm;
     c.schema = 5;
   }
+  if (c.chassis && c.chassis.skin_mm === undefined && c.chassis.base_thickness_mm !== undefined)
+    c.chassis.skin_mm = c.chassis.base_thickness_mm;
+  delete c.chassis?.base_thickness_mm;
+  // Switch fields every build reads. Not the whole section: its override tables
+  // may be emptied on purpose.
+  if (c.switch)
+    for (const k of ['seat_outer_mm', 'travel_mm', 'keycap_clearance_mm'])
+      if (c.switch[k] === undefined) c.switch[k] = clone(d.switch[k]);
   const fill = (to: Record<string, any>, from: Record<string, any>) => {
     for (const [k, v] of Object.entries(from))
       if (!(k in to)) to[k] = clone(v);
@@ -240,5 +265,6 @@ export function validateProject(p: unknown): asserts p is Project {
       )
         throw Error('Invalid thumb cluster');
     }
+  if (!(c.chassis.skin_mm > 1.5)) throw Error('chassis.skin_mm must exceed 1.5 mm.');
   componentFrames(c);
 }

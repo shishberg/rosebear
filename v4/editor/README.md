@@ -57,8 +57,10 @@ pair tucked in front of it). The keys fan along an arc:
 | `arc.well_deg`                  | Each key tilts toward the middle of the cluster by this much per key step, rising so it stays on a circle (a well, as in the finger columns). |
 | `keys`                          | Key names in order along the arc, each with an optional `offset_mm` and `rotation_deg` (the middle thumb key is turned 90° for its 1.5u cap). |
 
-`chassis` holds the plate thickness and margin, the wall thickness and the
-base thickness. The case's own sizes are named at the top of `shell.ts`.
+`chassis` holds the plate thickness and margin and `skin_mm`, the case's skin
+all round: floor, walls and deck (the adapter and loom stand on the floor). It
+must exceed 1.5 mm, for the port neck. The case's other sizes are named at the
+top of `shell.ts`.
 
 ## Use
 

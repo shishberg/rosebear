@@ -32,6 +32,7 @@ import {
   capSize,
   capTop,
   componentFrames,
+  isThumb,
   point,
   ROWS,
   type Config,
@@ -170,7 +171,7 @@ export function clearOf(
 ) {
   const sw = cfg.switch,
     plate = sw.clip_land_thickness_mm,
-    pocket = (sw.seat_outer_mm ?? [15.8, 15.8]).map((x) => x / 2),
+    pocket = sw.seat_outer_mm.map((x) => x / 2),
     hole = sw.cutout_mm.map((x) => (x + sw.cutout_clearance_mm) / 2),
     deep = -(sw.body_below_plate_mm + FRAME.pins),
     sb = sw.keycap_bottom_above_plate_mm,
@@ -216,9 +217,9 @@ export function buildFrame(wasm: ManifoldToplevel, cfg: Config): FrameResult {
     sw = cfg.switch,
     frames = componentFrames(cfg),
     keys = frameKeys(cfg),
-    thumbs = keys.filter((n) => n.startsWith('thumb_')),
+    thumbs = keys.filter(isThumb),
     plate = sw.clip_land_thickness_mm,
-    pocket = (sw.seat_outer_mm ?? [15.8, 15.8]).map((x) => x / 2),
+    pocket = sw.seat_outer_mm.map((x) => x / 2),
     hp = pocket.map((x) => x + FRAME.wall),
     hole = sw.cutout_mm.map((x) => (x + sw.cutout_clearance_mm) / 2),
     deep = -(sw.body_below_plate_mm + FRAME.pins),
@@ -272,8 +273,7 @@ export function buildFrame(wasm: ManifoldToplevel, cfg: Config): FrameResult {
     const near = 2 * Math.max(...hp) + FRAME.joinGap;
     keys.forEach((n, i) =>
       keys.slice(i + 1).forEach((m) => {
-        if ((n.startsWith('thumb_') || m.startsWith('thumb_')) && dist3(n, m) < near)
-          joined.push([n, m]);
+        if ((isThumb(n) || isThumb(m)) && dist3(n, m) < near) joined.push([n, m]);
       }),
     );
     const webs = joined.map(([n, m]) => ({ n, m, web: hull([...edge(n, m), ...edge(m, n)]) }));

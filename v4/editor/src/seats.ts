@@ -2,7 +2,7 @@ import type { Config } from './geometry';
 
 export function seatSettings(cfg: Config) {
   const s = cfg.switch,
-    outer = s.seat_outer_mm ?? [16.6, 16.6],
+    outer = s.seat_outer_mm,
     thickness = s.clip_land_thickness_mm;
   if (
     outer.length !== 2 ||

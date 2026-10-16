@@ -26,13 +26,29 @@
 // axis. "Plan" means the world XY plane.
 import type { CrossSection, Manifold, ManifoldToplevel, Vec3 } from 'manifold-3d';
 import { Matrix4 } from 'three';
-import { capSize, capTop, isKey, point, type Config } from './geometry';
+import {
+  capClearance,
+  capSize,
+  capTop,
+  isKey,
+  isThumb,
+  point,
+  tileUnderside,
+  type Config,
+} from './geometry';
 import { seatSettings } from './seats';
-import { PLATES, plateEdges, plateHalfWidths, type HalfWidths } from './plates';
+import {
+  PLATES,
+  axisDir,
+  plateEdges,
+  plateHalfWidths,
+  planCentre,
+  tilePocketHalf,
+  type HalfWidths,
+} from './plates';
 import { shell } from './shell';
 import { wiring, type Wiring } from './wiring';
 
-export { capSize, isKey };
 export interface ChassisResult {
   /** The case above the parting line, with the plates. */
   body: Manifold;
@@ -112,9 +128,6 @@ export const SIZES = {
   adapterRestIn: 7,
 } as const;
 
-/** A plan vector or direction, [x, y] in world coordinates. */
-type Plan = [number, number];
-
 /**
  * The glue pads under a key's plate, in key coordinates: four Ls, one under
  * each corner, from the plate's underside down to the glue on the tile's top.
@@ -165,14 +178,10 @@ export function buildChassis(
   const place = (m: Manifold, f: Matrix4) => m.transform(f.elements as never);
   // Tile pocket: the tile, its components and the switch body, below the plate.
   const pocketDepth =
-    tile.plate_top_to_pcb_top_mm +
-    tile.size_mm[2] +
+    -tileUnderside(cfg) +
     Math.max(0, ...tile.components.map((c) => c.size_mm[2] / 2 - c.center_mm[2])) +
     tile.component_clearance_mm;
-  const pocketHalf: HalfWidths = [
-    tile.size_mm[0] / 2 + tile.clearance_mm,
-    tile.size_mm[1] / 2 + tile.clearance_mm,
-  ];
+  const pocketHalf = tilePocketHalf(cfg);
   const seat = seatSettings(cfg).outer;
   const seatHalf: HalfWidths = [seat[0] / 2, seat[1] / 2];
   const plateHalf = plateHalfWidths(cfg);
@@ -202,7 +211,6 @@ export function buildChassis(
   const [fingerWell, thumbWell] = built.wells;
 
   // The plates, one sheet in each well.
-  const centre = (n: string): Plan => [frames[n].elements[12], frames[n].elements[13]];
   const keyPoint = (n: string, x: number, y: number, z: number): Vec3 =>
     point(frames[n], [x, y, z]);
   const sheet = (
@@ -279,7 +287,7 @@ export function buildChassis(
             if (!diag) continue;
             const four = [n, p[1], q[1], diag[1]];
             const target = four
-              .map(centre)
+              .map((k) => planCentre(frames[k]))
               .reduce((t, c) => [t[0] + c[0] / 4, t[1] + c[1] / 4], [0, 0]);
             parts.push(
               M.hull(
@@ -365,11 +373,6 @@ export function buildChassis(
       const lo = [0, 1].map((i) => Math.min(...ns.map((n) => cell[n][i])));
       const hi = [0, 1].map((i) => Math.max(...ns.map((n) => cell[n][i])));
       const flatHalf = [seatHalf[0] + 0.8, seatHalf[1] + 0.8];
-      const planDir = (n: string, axis: number) => {
-        const e = frames[n].elements;
-        const l = Math.hypot(e[axis * 4], e[axis * 4 + 1]);
-        return [e[axis * 4] / l, e[axis * 4 + 1] / l];
-      };
       const OUT = 40;
       // Corner (sx, sy) of the cell at c, as the floor's top and underside. A
       // cell past the keys borrows the nearest key's corner facing it, carried
@@ -380,7 +383,9 @@ export function buildChassis(
         if (!n) return undefined;
         const o = c.map((v, i) => Math.sign(v - k[i]));
         const q = [o[0] || sx, o[1] || sy];
-        const push = [0, 1].map((i) => OUT * (o[0] * planDir(n, 0)[i] + o[1] * planDir(n, 1)[i]));
+        const push = [0, 1].map(
+          (i) => OUT * (o[0] * axisDir(frames[n], 0)[i] + o[1] * axisDir(frames[n], 1)[i]),
+        );
         return [0, -plateThickness].map((z) => {
           const p = keyPoint(n, q[0] * flatHalf[0], q[1] * flatHalf[1], z);
           return [p[0] + push[0], p[1] + push[1], p[2]] as Vec3;
@@ -471,14 +476,11 @@ export function buildChassis(
       narrowPlates(cfg),
       facetFloor(cfg),
     ),
-    sheet(
-      keyNames.filter((n) => n.startsWith('thumb_')),
-      thumbWell,
-    ),
+    sheet(keyNames.filter(isThumb), thumbWell),
   ];
   // Each tile, its edge pads and a soldering iron's way up to them (along the
   // key's axis): kept clear of the skirts.
-  const tileBottom = -(tile.plate_top_to_pcb_top_mm + tile.size_mm[2]);
+  const tileBottom = tileUnderside(cfg);
   const keepClear = M.union(
     keyNames.map((n) => {
       const [hx, hy] = pocketHalf.map((h) => h + SIZES.skirtClear);
@@ -570,8 +572,7 @@ export function buildChassis(
   const cutters: Manifold[] = [];
   for (const n of keyNames) {
     const cap = capSize(cfg, n);
-    const clearance =
-      (sw.keycap_clearance_overrides_mm as Record<string, number>)[n] ?? sw.keycap_clearance_mm;
+    const clearance = capClearance(cfg, n);
     const room = place(
       M.cube(
         [

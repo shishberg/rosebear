@@ -2,7 +2,15 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import Module from 'manifold-3d';
 import { Vector3 } from 'three';
-import { defaults, clone, componentFrames, validateProject } from '../src/geometry';
+import {
+  defaults,
+  clone,
+  componentFrames,
+  validateProject,
+  capClearance,
+  keyGroups,
+  tileUnderside,
+} from '../src/geometry';
 import { buildSolid, buildSolidAsync, freeAfter } from '../src/solid';
 import { buildChassis } from '../src/chassis';
 import { crossings, holes, nets, wiring } from '../src/wiring';
@@ -35,6 +43,35 @@ test('column parameters move and tilt their keys, and invalid input is rejected'
   mid.heights_mm[1] = NaN;
   assert.throws(() => validateProject(p), /finite/);
   assert.throws(() => validateProject({ version: 1 }), /version 2/);
+});
+test('a project saved with fields since removed, or without ones every build reads, still loads', () => {
+  const p = clone(defaults) as any;
+  p.config.units = 'mm and degrees';
+  p.config.chassis.wall_mm = 2.4;
+  p.config.switch.cutout_depth_overrides_mm = { matrix_inner_bottom: 14 };
+  Object.assign(p.config.tile, { support_width_mm: 1.6, retaining_tie_y_mm: 0 });
+  for (const k of ['seat_outer_mm', 'travel_mm', 'keycap_clearance_mm']) delete p.config.switch[k];
+  p.config.chassis.base_thickness_mm = 2.5;
+  delete p.config.chassis.skin_mm;
+  validateProject(p);
+  assert.deepEqual(p.config.switch.seat_outer_mm, defaults.config.switch.seat_outer_mm);
+  assert.equal(p.config.switch.travel_mm, defaults.config.switch.travel_mm);
+  assert.equal(p.config.switch.keycap_clearance_mm, defaults.config.switch.keycap_clearance_mm);
+  assert.equal(p.config.chassis.skin_mm, 2.5);
+  assert(!('base_thickness_mm' in p.config.chassis));
+});
+test('shared per-key helpers', () => {
+  const c = defaults.config;
+  assert.equal(capClearance(c, 'thumb_home'), c.switch.keycap_clearance_overrides_mm.thumb_home);
+  assert.equal(capClearance(c, 'matrix_index_home'), c.switch.keycap_clearance_mm);
+  assert.equal(tileUnderside(c), -(c.tile.plate_top_to_pcb_top_mm + c.tile.size_mm[2]));
+  const g = keyGroups(c);
+  assert.deepEqual(
+    [...g.fingers, ...g.thumbs, ...g.extra].sort(),
+    Object.keys(componentFrames(c))
+      .filter((n) => n !== 'adapter')
+      .sort(),
+  );
 });
 test('thumb clusters fan on an arc and tilt into a well', () => {
   const f = componentFrames(defaults.config),
@@ -133,6 +170,36 @@ test('default chassis passes: one piece on one footprint, clear of the tile pock
   } finally {
     mounted.delete();
   }
+});
+// The bottom section must be one piece: a mount that floats off the floor splits it.
+const basePieces = (wasm: Awaited<ReturnType<typeof Module>>, cfg: typeof defaults.config) =>
+  freeAfter(wasm, () => {
+    const pieces = buildChassis(wasm, cfg, componentFrames(cfg)).base.decompose();
+    const big = pieces.filter((p) => p.volume() > 0.5).length;
+    pieces.forEach((p) => p.delete());
+    return big;
+  });
+test('a thicker skin builds a case that still passes, the adapter mount reaching the floor', async () => {
+  const wasm = await Module();
+  wasm.setup();
+  const p = clone(defaults);
+  p.config.chassis.skin_mm = 3;
+  const r = buildSolid(wasm, p);
+  assert.equal(r.report.passed, true);
+  assert.equal(basePieces(wasm, p.config), 1);
+  assert.throws(
+    () =>
+      validateProject({
+        ...clone(defaults),
+        config: { ...p.config, chassis: { ...p.config.chassis, skin_mm: 1.5 } },
+      }),
+    /skin_mm/,
+  );
+});
+test('the default bottom section is one piece, the adapter mount on its floor', async () => {
+  const wasm = await Module();
+  wasm.setup();
+  assert.equal(basePieces(wasm, defaults.config), 1);
 });
 test('the checker reports keycap collisions', async () => {
   const wasm = await Module();

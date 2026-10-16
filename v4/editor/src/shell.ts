@@ -7,7 +7,7 @@
 // the switches clip into are added by chassis.ts.
 import type { CrossSection, Manifold, ManifoldToplevel, Vec3 } from 'manifold-3d';
 import { Matrix4 } from 'three';
-import { capSize, isKey, point, type Config } from './geometry';
+import { capClearance, capSize, isKey, isThumb, point, type Config } from './geometry';
 import { landingBox } from './wiring';
 
 export interface Kit {
@@ -18,7 +18,7 @@ export interface Kit {
 const keys = (f: Record<string, Matrix4>) => Object.keys(f).filter(isKey);
 const thumbs = (k: Kit) =>
   keys(k.frames)
-    .filter((n) => n.startsWith('thumb_'))
+    .filter(isThumb)
     .sort((a, b) => k.frames[a].elements[12] - k.frames[b].elements[12]);
 // A key's half-widths for fitting the deck: the cap's, plus 0.75 mm.
 const half = (k: Kit, n: string, grow = 0) => {
@@ -43,7 +43,7 @@ const place = (m: Manifold, f: Matrix4) => m.transform(f.elements as never);
 const capSweep = (k: Kit, n: string) => {
   const z = capSize(k.cfg, n),
     s = k.cfg.switch,
-    g = (s.keycap_clearance_overrides_mm as Record<string, number>)[n] ?? s.keycap_clearance_mm;
+    g = capClearance(k.cfg, n);
   return place(
     k.wasm.Manifold.cube([z[0] + 2 * g, z[1] + 2 * g, z[2] + s.travel_mm], true).translate([
       0,
@@ -88,7 +88,6 @@ interface Bin {
 }
 // Height of the parting line between the top case and the bottom section.
 const PART = 10;
-const WALL = 2; // case wall, deck and floor thickness
 // The port insert's neck stands this far out round the ribbon's slot; its tie
 // tunnels are centred this far in from the landing's ends, their tops this far
 // under its top.
@@ -346,7 +345,12 @@ const LIFT = 3; // deck above the fitted key surface: below the keycaps' lowest 
 // well is cut out of the deck, so this only shapes the rim round it.)
 function binSurface(k0: Kit, o: Bin) {
   const { k, wb, P } = binWell(k0, o),
-    fitted = curvedDeck(P, (wb.min[0] + wb.max[0]) / 2, (wb.min[1] + wb.max[1]) / 2, o.lift ?? LIFT),
+    fitted = curvedDeck(
+      P,
+      (wb.min[0] + wb.max[0]) / 2,
+      (wb.min[1] + wb.max[1]) / 2,
+      o.lift ?? LIFT,
+    ),
     cs = o.keys.map((n) =>
       corners(k, n).reduce((t, p) => [t[0] + p[0] / 4, t[1] + p[1] / 4], [0, 0]),
     ),
@@ -1183,14 +1187,17 @@ function breadbin(k0: Kit, o: Bin): BinParts {
   const parting = slab(PART - 0.6, PART + 0.6).subtract(body(0.8));
   // The well is open down through the case to the foot of its wall, which
   // reaches WELL_WALL down from the deck (and stops short of the parting line).
-  const below = M.union([shell.translate([0, 0, -WELL_WALL - (o.lift ?? LIFT) + LIFT]), slab(-1, PART + 3)]),
-    keep = prism(keyWell.offset(WALL, 'Miter')).subtract(below);
+  const below = M.union([
+      shell.translate([0, 0, -WELL_WALL - (o.lift ?? LIFT) + LIFT]),
+      slab(-1, PART + 3),
+    ]),
+    keep = prism(keyWell.offset(k.cfg.chassis.skin_mm, 'Miter')).subtract(below);
   const back = (m: Manifold) => m.rotate([0, 0, ang]);
   return {
     shell: back((grill ? shell.subtract(grill) : shell).subtract(trough).subtract(parting)),
     wells: back(prism(keyWell).subtract(below)),
     well: keyWell.rotate(ang),
-    cavity: back(body(WALL)),
+    cavity: back(body(k.cfg.chassis.skin_mm)),
     keep: back(keep),
     x0,
   };
@@ -1265,19 +1272,20 @@ function c64(k: Kit, bins: Bin[]): Shell {
             .translate([from, y, z]),
         ),
       ),
+    skin = k.cfg.chassis.skin_mm,
     w = r.width_mm + 2 * r.notch_clearance_mm,
-    slot = M.cube([WALL + 1, w, 3]).translate([x0 - 1, ry - w / 2, rz - 1.5]),
+    slot = M.cube([skin + 1, w, 3]).translate([x0 - 1, ry - w / 2, rz - 1.5]),
     // The insert holds the ribbon: a neck round the slot through the wall
     // behind it, and inside the case the landing, on the bottom plate, where
     // cable ties through two tunnels across it tie the ribbon down. The
     // landing reaches below the neck, so a pull on the ribbon bears on the
     // wall; the halves close on the neck across the parting line.
-    neck = M.cube([WALL - D, w + 2 * NECK, 3 + 2 * NECK]).translate([
+    neck = M.cube([skin - D, w + 2 * NECK, 3 + 2 * NECK]).translate([
       x0 + D,
       ry - w / 2 - NECK,
       rz - 1.5 - NECK,
     ]),
-    lx = x0 + WALL,
+    lx = x0 + skin,
     landing = M.cube([land.length, land.width, land.top - land.bottom]).translate([
       lx,
       ry - land.width / 2,

@@ -15,8 +15,16 @@
 //  slack loop  the arch the ribbon makes between the connector and the landing,
 //           so a pull held by the ties never reaches the connector.
 import { Matrix4, Vector3 } from 'three';
-import { componentFrames, point, type Config, type V3 } from './geometry';
-import { PLATES, plateEdges, plateHalfWidths } from './plates';
+import {
+  componentFrames,
+  isKey,
+  isThumb,
+  point,
+  tileUnderside,
+  type Config,
+  type V3,
+} from './geometry';
+import { PLATES, plateEdges, plateHalfWidths, tilePocketHalf } from './plates';
 import type { Part } from './solid';
 
 export interface NetSpec {
@@ -158,7 +166,6 @@ const mid = (a: number[], b: number[]): V3 => [
 ];
 
 export const nets = (cfg: Config) => cfg.wiring.nets as NetSpec[];
-export const isThumb = (key: string) => key.startsWith('thumb_');
 
 /** The adapter's holes, in world coordinates on the board's top: hole n carries ribbon pin n. */
 export function holes(cfg: Config, frames = componentFrames(cfg)) {
@@ -415,9 +422,9 @@ interface Obstacle {
 export function wiring(cfg: Config, frames = componentFrames(cfg)): Wiring {
   const w = cfg.wiring;
   const tile = cfg.tile;
-  const padZ = -(tile.plate_top_to_pcb_top_mm + tile.size_mm[2]);
-  const loomZ = cfg.chassis.base_thickness_mm + w.loom_height_mm;
-  const keys = Object.keys(frames).filter((n) => n.startsWith('matrix_') || isThumb(n));
+  const padZ = tileUnderside(cfg);
+  const loomZ = cfg.chassis.skin_mm + w.loom_height_mm;
+  const keys = Object.keys(frames).filter(isKey);
   const downOf = (key: string): V3 => {
     const e = frames[key].elements;
     return [-e[8], -e[9], -e[10]];
@@ -441,7 +448,7 @@ export function wiring(cfg: Config, frames = componentFrames(cfg)): Wiring {
   // with the reach of an edge that has no neighbour.
   const plates: Obstacle[] = [];
   const plateHalf = plateHalfWidths(cfg);
-  const [hx, hy] = tile.size_mm.map((x) => x / 2 + tile.clearance_mm);
+  const [hx, hy] = tilePocketHalf(cfg);
   const c = tile.component_clearance_mm;
   const tileTop = -tile.plate_top_to_pcb_top_mm;
   const reach: Record<string, number[][]> = Object.assign(
@@ -1536,9 +1543,9 @@ export function adapterParts(
 /** The pads on every tile, as thin boxes on the tile's underside. */
 export function padParts(cfg: Config, frames = componentFrames(cfg)): Part[] {
   const tile = cfg.tile;
-  const z = -(tile.plate_top_to_pcb_top_mm + tile.size_mm[2]) - 0.05;
+  const z = tileUnderside(cfg) - 0.05;
   return Object.keys(frames)
-    .filter((n) => n.startsWith('matrix_') || isThumb(n))
+    .filter(isKey)
     .flatMap((key) =>
       tile.pads.list.map((p) => ({
         name: `${key}: ${p.name} pad`,

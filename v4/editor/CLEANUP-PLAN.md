@@ -594,7 +594,10 @@ are listed but not done.
    intended, or should the variant be adjusted?
 8. **The thumb-row solver** is three nested fixed-point and bisection layers.
    It could become one joint solve, but the presets would need refitting.
-9. **`?hand` documentation** lives mostly in very long commit messages.
+9. **The bottom section is never checked for loose pieces.** A floating
+   adapter mount would pass every check. T4 added a test for the default and a
+   3 mm skin, but the report doesn't check it.
+10. **`?hand` documentation** lives mostly in very long commit messages.
 
 ## Status
 
@@ -604,7 +607,7 @@ are listed but not done.
 | T1 | done | |
 | T2 | done | |
 | T3 | done | |
-| T4 | pending | |
+| T4 | done | |
 | T5 | pending | |
 | T6 | pending | |
 | T7 | pending | |

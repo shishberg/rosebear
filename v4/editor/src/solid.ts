@@ -1,18 +1,22 @@
 import type { Manifold, ManifoldToplevel, Mat4 } from 'manifold-3d';
 import { Matrix4, Vector3 } from 'three';
 import { seatSettings } from './seats';
-import { buildChassis, capSize, gluePads, isKey } from './chassis';
+import { buildChassis, gluePads } from './chassis';
 import { shell } from './shell';
 import { adapterParts, crossings, padParts, wiring, type Wiring } from './wiring';
 import {
+  capClearance,
+  capSize,
   capTop,
+  isKey,
+  keyGroups,
+  tileUnderside,
   componentFrames,
   validateProject,
   type V3,
   type MeshData,
   type Project,
 } from './geometry';
-export { capSize, isKey };
 /** Sizes and limits for the seats and the clearance checks, in mm (volumes in mm³, areas in mm²). */
 const CHECKS = {
   /** Overlap volume below which a collision is ignored. */
@@ -323,17 +327,12 @@ function build(
   // key's surroundings are cut from the chassis once, and a shape that lies
   // within them is tested against that piece: the same result, from a mesh a
   // fraction of the size.
-  // The extra thumbs' names, so each thumb row is a group of its own.
-  const extraThumbs = new Set(
-    ((cfg.geometry as { thumb_extra?: { keys: { name: string }[] } }).thumb_extra?.keys ?? []).map(
-      (k) => 'thumb_' + k.name,
-    ),
-  );
+  const keyGroup = keyGroups(cfg);
+  const extraThumbs = new Set(keyGroup.extra);
   const groups = new Map<string, { lo: number[]; hi: number[]; pieces: Map<Manifold, Manifold> }>();
   const regions = keyNodes.map(([name, m]) => {
     const cap = capSize(cfg, name);
-    const margin =
-      (sw.keycap_clearance_overrides_mm as Record<string, number>)[name] ?? sw.keycap_clearance_mm;
+    const margin = capClearance(cfg, name);
     const half = [0, 1].map(
       (k) =>
         Math.max(cap[k] / 2 + margin, cfg.tile.size_mm[k] / 2, seatSettings(cfg).outer[k] / 2) +
@@ -707,7 +706,7 @@ function build(
     // down from it along its key's normal, through the open bottom of the tile
     // pocket.
     const [access, reach] = cfg.wiring.solder_access_mm;
-    const padZ = -(cfg.tile.plate_top_to_pcb_top_mm + cfg.tile.size_mm[2]);
+    const padZ = tileUnderside(cfg);
     const solder = misses(
       keyNodes.flatMap(([name, m]) =>
         cfg.tile.pads.list.map((p) => ({
@@ -731,9 +730,7 @@ function build(
     const rests: Record<string, Manifold> = {};
     for (const [name, m] of keyNodes) {
       const size = capSize(cfg, name);
-      const margin =
-        (sw.keycap_clearance_overrides_mm as Record<string, number>)[name] ??
-        sw.keycap_clearance_mm;
+      const margin = capClearance(cfg, name);
       const pressedBottom = sw.keycap_bottom_above_plate_mm - sw.travel_mm;
       const top = capTop(cfg, name);
       const rest = (rests[name] = place(tapered(size, top, sw.keycap_bottom_above_plate_mm), m));
@@ -768,16 +765,13 @@ function build(
       });
     }
     // Closest distance between the resting keycaps of the finger columns, the thumb row and the extra thumb row.
-    const layout = cfg.geometry;
-    const extra = (
-      (layout as { thumb_extra?: { keys: { name: string }[] } }).thumb_extra?.keys ?? []
-    ).map((k) => 'thumb_' + k.name);
-    const groups: [string, string[]][] = [
-      ['fingers', Object.keys(rests).filter((n) => n.startsWith('matrix_'))],
-      ['thumbs', layout.thumb.keys.map((k) => 'thumb_' + k.name)],
-      ['extra thumbs', extra],
-    ];
-    const unions = groups
+    const unions = (
+      [
+        ['fingers', keyGroup.fingers],
+        ['thumbs', keyGroup.thumbs],
+        ['extra thumbs', keyGroup.extra],
+      ] as [string, string[]][]
+    )
       .filter(([, ns]) => ns.length)
       .map(([label, ns]) => [label, keep(M.union(ns.map((n) => rests[n])))] as const);
     const capGaps: Report['capGaps'] = [];

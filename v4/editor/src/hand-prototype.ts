@@ -1044,13 +1044,12 @@ function boxOverlap(a: Box, b: Box) {
 }
 type Hit = { a: string; b: string; depth: number };
 /** Keycaps that hit each other: either pressed to the bottom (plus the
- * keycap clearance; not the case's bigger room round the 1.5u) against the
- * other at rest. */
+ * keycap clearance, not the per-key overrides, which are the case's bigger room
+ * round the 1.5u) against the other at rest. */
 function capHits(c: Config, caps: Cap[]) {
-  const sw = c.switch as { travel_mm?: number; keycap_clearance_mm?: number },
-    travel = sw.travel_mm ?? 4,
+  const sw = c.switch,
     rest = caps.map((k) => capBoxes(k, 0)),
-    pressed = caps.map((k) => capBoxes(k, sw.keycap_clearance_mm ?? 0.3, travel)),
+    pressed = caps.map((k) => capBoxes(k, sw.keycap_clearance_mm, sw.travel_mm)),
     out: Hit[] = [];
   for (let i = 0; i < caps.length; i++)
     for (let j = i + 1; j < caps.length; j++) {
@@ -1282,7 +1281,7 @@ function partHits(board: Board, part: Part): Hit[] {
  * highest keycap corner down to the lowest switch body's bottom, plus the base. */
 function heightOf(c: Config, caps: Cap[], R: T.Matrix4) {
   const sw = c.switch,
-    base = (c as { chassis?: { base_thickness_mm?: number } }).chassis?.base_thickness_mm ?? 2;
+    base = c.chassis.skin_mm;
   let high = -Infinity,
     low = Infinity;
   for (const k of caps) {
@@ -1316,7 +1315,7 @@ const STEP = 2;
  * (so they're checked only at home). Pressing, the thumb's last two bones
  * move with the key (near enough, however it presses). */
 function reachHits(c: Config, s: Settings, h: Solved, board: Board) {
-  const travel = (c.switch as { travel_mm?: number }).travel_mm ?? 4,
+  const travel = c.switch.travel_mm,
     way = wayOf(s),
     homes = Object.fromEntries(FINGERS.map((f) => [f, h.poses[f][1]])) as Record<Finger, Pose>,
     mcps = Object.fromEntries(FINGERS.map((f) => [f, homes[f].chain.mcp])) as Record<
@@ -1427,10 +1426,7 @@ function check(
     pastJoints: h.row
       .map((k, i) => ({
         key: `thumb ${['far', 'home', 'near'][i]}`,
-        past: Math.max(
-          pastJoints(k.q),
-          pastJoints(pressed(k.q, (c.switch as { travel_mm?: number }).travel_mm ?? 4, k.press)),
-        ),
+        past: Math.max(pastJoints(k.q), pastJoints(pressed(k.q, c.switch.travel_mm, k.press))),
       }))
       .filter((x) => x.past > 0.5),
     /** Thumb keys met with the back of the thumb: on its side past

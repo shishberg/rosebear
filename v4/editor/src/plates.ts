@@ -17,14 +17,30 @@ export const PLATES = {
 /** Half-widths along a key's x and y axes. */
 export type HalfWidths = [number, number];
 
-/** The plates' half-widths: plate_margin past the seat, and always far enough to cover the tile and its clearance. */
+/** The tile pocket's half-widths: the tile and its clearance. */
+export const tilePocketHalf = (cfg: Config): HalfWidths => [
+  cfg.tile.size_mm[0] / 2 + cfg.tile.clearance_mm,
+  cfg.tile.size_mm[1] / 2 + cfg.tile.clearance_mm,
+];
+
+/** The plates' half-widths: plate_margin past the seat, and always far enough to cover the tile pocket. */
 export function plateHalfWidths(cfg: Config): HalfWidths {
   const seat = seatSettings(cfg).outer;
-  const tile = cfg.tile;
+  const pocket = tilePocketHalf(cfg);
   return [0, 1].map((i) =>
-    Math.max(seat[i] / 2 + cfg.chassis.plate_margin_mm, tile.size_mm[i] / 2 + tile.clearance_mm),
+    Math.max(seat[i] / 2 + cfg.chassis.plate_margin_mm, pocket[i]),
   ) as HalfWidths;
 }
+
+/** A key's centre in plan. */
+export const planCentre = (m: Matrix4): [number, number] => [m.elements[12], m.elements[13]];
+
+/** Unit plan direction of a key's axis (0: x, 1: y). */
+export const axisDir = (m: Matrix4, axis: number): [number, number] => {
+  const e = m.elements;
+  const l = Math.hypot(e[axis * 4], e[axis * 4 + 1]);
+  return [e[axis * 4] / l, e[axis * 4 + 1] / l];
+};
 
 /**
  * The plates of keys ns, one sheet: which keys are neighbours across which
@@ -34,20 +50,13 @@ export function plateHalfWidths(cfg: Config): HalfWidths {
  */
 export function plateEdges(cfg: Config, frames: Record<string, Matrix4>, ns: string[]) {
   const plateHalf = plateHalfWidths(cfg);
-  const centre = (n: string) => [frames[n].elements[12], frames[n].elements[13]];
-  /** Unit plan direction of key n's axis (0: x, 1: y). */
-  const axisDir = (n: string, axis: number) => {
-    const e = frames[n].elements;
-    const l = Math.hypot(e[axis * 4], e[axis * 4 + 1]);
-    return [e[axis * 4] / l, e[axis * 4 + 1] / l];
-  };
   /** Which of key n's edges faces key m: [axis, sign], if m is beside it across that edge. */
   const across = (n: string, m: string): [number, number] | undefined => {
-    const [cn, cm] = [centre(n), centre(m)];
+    const [cn, cm] = [planCentre(frames[n]), planCentre(frames[m])];
     const d = [cm[0] - cn[0], cm[1] - cn[1]];
     for (const axis of [0, 1]) {
-      const u = axisDir(n, axis);
-      const v = axisDir(n, 1 - axis);
+      const u = axisDir(frames[n], axis);
+      const v = axisDir(frames[n], 1 - axis);
       const out = d[0] * u[0] + d[1] * u[1];
       const side = d[0] * v[0] + d[1] * v[1];
       if (
