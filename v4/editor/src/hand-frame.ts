@@ -7,7 +7,9 @@
  *   edge to stiffen it. Under the plate, the switch's clips have the pocket.
  * - Neighbours (the finger matrix's rows and columns, the thumb keys, and any
  *   thumb and finger keys that come close) are joined by a web between their
- *   facing edges, and the matrix's four-key corners are filled.
+ *   facing walls, and the matrix's four-key corners are filled. Where one key
+ *   sits well above the other, the web is a steep wall; it's a fault if
+ *   most of it is too thin to print.
  * - Legs hold them up. Each plate of joined keys stands on its
  *   outer corners: from each, a bracket out and down clear of its switch,
  *   on a leg straight down. A rail runs round each plate's feet, and one
@@ -18,7 +20,7 @@
  *   hole); where that leaves one hitting a seat or the frame, the result says
  *   so.
  */
-import type { Manifold, ManifoldToplevel, Vec3 } from 'manifold-3d';
+import type { Manifold, ManifoldToplevel, Mat4, Vec3 } from 'manifold-3d';
 import {
   capSize,
   capTop,
@@ -41,6 +43,8 @@ export const FRAME = {
   land: 0.8,
   /** Keys whose plates are this close (edge to edge) or closer are joined. */
   joinGap: 10,
+  /** The thinnest a web may be: slicers drop thinner walls. */
+  thin: 1.2,
   /** The floor rails: width and height. */
   rail: [3, 2],
   /** How far a corner's bracket reaches out past it, and down (more, in
@@ -182,8 +186,8 @@ export function clearOf(
 
 export function buildFrame(wasm: ManifoldToplevel, cfg: Config): FrameResult {
   const M = wasm.Manifold,
-    made: Manifold[] = [],
-    keep = (m: Manifold) => (made.push(m), m),
+    made: { delete(): void }[] = [],
+    keep = <T extends { delete(): void }>(m: T) => (made.push(m), m),
     hull = (ps: Vec3[]) => keep(M.hull(ps)),
     union = (ms: Manifold[]) => keep(M.union(ms)),
     sw = cfg.switch,
@@ -206,7 +210,6 @@ export function buildFrame(wasm: ManifoldToplevel, cfg: Config): FrameResult {
     down = (ps: Vec3[], z = floor) => [...ps, ...ps.map((p) => [p[0], p[1], z] as Vec3)],
     centre = (n: string) => frames[n].elements.slice(12, 15),
     dist3 = (n: string, m: string) => Math.hypot(...centre(n).map((x, i) => x - centre(m)[i])),
-    /** Key n's ring edge facing key m: its two corners, at the top and the lip's bottom. */
     /** Which side of key n faces key m: its axis (0 across, 1 along the
      * column) and sign. */
     side = (n: string, m: string) => {
@@ -215,11 +218,15 @@ export function buildFrame(wasm: ManifoldToplevel, cfg: Config): FrameResult {
         ax = Math.abs(out[0]) / hp[0] > Math.abs(out[1]) / hp[1] ? 0 : 1;
       return [ax, Math.sign(out[ax]) || 1];
     },
+    /** Key n's wall facing key m (the ring's side, a wall thick, the
+     * plate top to the lip's bottom): its corners. */
     edge = (n: string, m: string) => {
       const [ax, s] = side(n, m);
-      return [-1, 1].flatMap((t) =>
-        [0, -FRAME.lip].map((z) =>
-          ax === 0 ? at(n, s * hp[0], t * hp[1], z) : at(n, t * hp[0], s * hp[1], z),
+      return [hp, pocket].flatMap((d) =>
+        [-1, 1].flatMap((t) =>
+          [0, -FRAME.lip].map((z) =>
+            ax === 0 ? at(n, s * d[0], t * hp[1], z) : at(n, t * hp[0], s * d[1], z),
+          ),
         ),
       );
     };
@@ -246,7 +253,8 @@ export function buildFrame(wasm: ManifoldToplevel, cfg: Config): FrameResult {
           joined.push([n, m]);
       }),
     );
-    for (const [n, m] of joined) solids.push(hull([...edge(n, m), ...edge(m, n)]));
+    const webs = joined.map(([n, m]) => ({ n, m, web: hull([...edge(n, m), ...edge(m, n)]) }));
+    solids.push(...webs.map((w) => w.web));
     // The matrix's four-key corners: the corner of each nearest the middle.
     for (let ci = 0; ci + 1 < cols.length; ci++)
       for (let ri = 0; ri + 1 < ROWS.length; ri++) {
@@ -451,6 +459,59 @@ export function buildFrame(wasm: ManifoldToplevel, cfg: Config): FrameResult {
             `${label(n)} ${['keycap', 'switch top'][i]} hits ${seats(r).join(', ') || 'the frame'} (${hit.toFixed(1)} mm³)`,
           );
       });
+    }
+    // Each web, cut across halfway between its keys: how much of it is too
+    // thin to print (what's left when the thin parts are worn away and the
+    // rest grown back).
+    for (const { n, m, web } of webs) {
+      const mid = (k: string, l: string) =>
+          edge(k, l)
+            .slice(0, 4)
+            .reduce<number[]>((a, p) => a.map((x, i) => x + p[i] / 4), [0, 0, 0]),
+        a = mid(n, m),
+        b = mid(m, n),
+        z = b.map((x, i) => x - a[i]),
+        zl = Math.hypot(...z),
+        Z = z.map((x) => x / zl),
+        o = a.map((x, i) => (x + b[i]) / 2),
+        t = Math.abs(Z[2]) < 0.9 ? [0, 0, 1] : [1, 0, 0],
+        cross = (u: number[], v: number[]) => [
+          u[1] * v[2] - u[2] * v[1],
+          u[2] * v[0] - u[0] * v[2],
+          u[0] * v[1] - u[1] * v[0],
+        ],
+        X0 = cross(t, Z),
+        X = X0.map((x) => x / Math.hypot(...X0)),
+        Y = cross(Z, X),
+        dot = (u: number[]) => -u.reduce((s, x, i) => s + x * o[i], 0),
+        T = [
+          X[0],
+          Y[0],
+          Z[0],
+          0,
+          X[1],
+          Y[1],
+          Z[1],
+          0,
+          X[2],
+          Y[2],
+          Z[2],
+          0,
+          dot(X),
+          dot(Y),
+          dot(Z),
+          1,
+        ] as Mat4,
+        across = keep(
+          keep(keep(solid.transform(T)).slice(0)).intersect(keep(keep(web.transform(T)).slice(0))),
+        ),
+        r = FRAME.thin / 2,
+        thick = keep(keep(across.offset(-r, 'Miter')).offset(r, 'Miter')).area(),
+        all = across.area();
+      if (thick < 0.8 * all)
+        faults.push(
+          `the web between ${label(n)} and ${label(m)} is too thin to print: ${(100 - (100 * thick) / all).toFixed(0)}% of it is under ${FRAME.thin} mm`,
+        );
     }
     // Flush cuts leave zero-volume slivers; leave them out.
     const parts = solid.decompose();
