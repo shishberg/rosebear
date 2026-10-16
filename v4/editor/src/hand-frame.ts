@@ -562,8 +562,14 @@ function makeFrame(wasm: ManifoldToplevel, cfg: Config, extra: boolean) {
   // The diagonals that still stand 30° or more where they ended up.
   const steep = (p: Vec3, f: Vec3) =>
       p[2] - floor > Math.tan(Math.PI / 6) * Math.hypot(p[0] - f[0], p[1] - f[1]),
+    // A side with nowhere out from it to stand a foot clear of every switch
+    // and keycap (it faces other keys close by, as a thumb key's end can the
+    // finger keys) has no diagonals: its ends are held by its leg or its
+    // web, and a gap's node left loose gets a post.
     diagonals = spans.flatMap((span) => {
-      const foot = footOf(span, place(span) ?? most);
+      const d = place(span);
+      if (d === undefined) return [];
+      const foot = footOf(span, d);
       return used
         .get(span)!
         .filter((e) => steep(e.node.top, foot))

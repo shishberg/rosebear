@@ -1607,9 +1607,9 @@ const NATURAL: Settings = {
  * (the far and home tiles overlapped 1.9 mm), the home key 17 mm below the
  * home row (was 14.5). Then the far and near keys parallel to the home key
  * (their tiles no longer tilt in toward its), the press back to -3° and the
- * keys 25.5 mm apart (was 26.8): the far key pressed 22° off square, the near
- * 12°. (Each facing its own press, the keys had to be 27.8 mm apart and the
- * press -9°.) */
+ * keys 20.5 mm apart (was 26.8; at 19.5 the tiles meet): the far key pressed
+ * 17° off square, the near 10°. (Each facing its own press, the keys had to
+ * be 27.8 mm apart and the press -9°.) */
 const YOURS: Settings = {
   tent: 15,
   roll: 0,
@@ -1630,7 +1630,7 @@ const YOURS: Settings = {
     press: -3,
     parallel: true,
   },
-  spacing: 25.5,
+  spacing: 20.5,
   cluster: '1×3',
   two: { gap: 19.5 },
 };
@@ -1641,13 +1641,13 @@ const YOURS: Settings = {
  * with the pad (on Yours the far key is pressed with the tip, the thumb bent
  * 39° / 36° and on its side 76°). The press palmar abduction with a little
  * straightening (-20°). The far and near keys parallel to the home key,
- * 25.5 mm apart, the far key pressed 16° off square, the near 8° (each
- * facing its own press, the far and home keys' tiles overlap closer than
- * 29.5 mm). */
+ * 20.5 mm apart (at 19 the tiles meet), the far key pressed 12° off square,
+ * the near 7° (each facing its own press, the far and home keys' tiles
+ * overlap closer than 29.5 mm). */
 const NO_CURL: Settings = {
   ...structuredClone(YOURS),
   thumb: { around: 116, drop: 16, reach: { palmar: 1.1, curl: 0 }, press: -20, parallel: true },
-  spacing: 25.5,
+  spacing: 20.5,
 };
 /** Everything the panel sets: the layout's settings, what the hand is shown
  * doing and which parts of the panel are open. One state, kept in the project

@@ -451,7 +451,13 @@ test('far and near thumb keys parallel to the home key: as it faces and turned a
   assert.ok(own.every((k) => k.slant === 0));
 });
 test('the extra thumb keys: under the gaps between the thumb keys, toward the wrist, the thumb curled more; laid out, checked and in the frame only when on', () => {
-  const on = { ...structuredClone(hand.YOURS), extra: { ...hand.START.extra, on: true } },
+  // (The row as far apart as it was: under its gaps the extra keys are a gap
+  // apart.)
+  const on = {
+      ...structuredClone(hand.YOURS),
+      spacing: 25.5,
+      extra: { ...hand.START.extra, on: true },
+    },
     { c, r, frame } = layout(on),
     anchor = hand.anchorOf(clone(defaults).config),
     world = hand.worldOf(c, anchor, on),
@@ -477,17 +483,14 @@ test('the extra thumb keys: under the gaps between the thumb keys, toward the wr
     // In the extra cluster where the hand puts it: its cap top straight up
     // from its seat (the layout rounds both to 0.01 mm and 0.01°).
     const seat = f[name],
-      rise = k.at
-        .clone()
-        .applyMatrix4(world)
-        .sub(new T.Vector3().setFromMatrixPosition(seat));
+      rise = k.at.clone().applyMatrix4(world).sub(new T.Vector3().setFromMatrixPosition(seat));
     assert.ok(rise.length() > 5);
     assert.ok(rise.angleTo(new T.Vector3().setFromMatrixColumn(seat, 2)) < 0.005, name);
     // Checked like the row's keys, and in the frame.
     assert.ok(r.caps.some((x) => x.name === name));
   });
   assert.deepEqual(wrongOf(on), []);
-  const off = layout(hand.YOURS);
+  const off = layout({ ...structuredClone(hand.YOURS), spacing: on.spacing });
   assert.ok(frame.volume > off.frame.volume + 0.5, 'the frame holds the extra keys');
   // Off: none, and the cluster as it was by default.
   assert.equal(off.r.h.extra.length, 0);
@@ -795,8 +798,8 @@ test('a frame is built where two joined keys overlap or a bar has no length', ()
         thumb: { around: 167, drop: -20, reach: { palmar: 2, curl: 0.05 }, press: 10 },
         spacing: 40,
       },
-      tris: 12458,
-      pieces: 3,
+      tris: 11638,
+      pieces: 1,
     },
     {
       // A strut 1.2e-14 mm long, whose direction is rounding noise.
@@ -811,7 +814,7 @@ test('a frame is built where two joined keys overlap or a bar has no length', ()
         thumb: { around: 155, drop: -16, reach: { palmar: 2, curl: -2 }, press: 82 },
         spacing: 32,
       },
-      tris: 9692,
+      tris: 9500,
       pieces: 1,
     },
   ];
