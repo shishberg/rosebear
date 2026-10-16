@@ -49,6 +49,7 @@ import {
   capSize,
   capTop,
   columnFrames,
+  defaults,
   frame,
   ROWS,
   tentFrame,
@@ -1513,6 +1514,49 @@ const NATURAL: Settings = {
   cluster: '1×3',
   two: { gap: 19.5 },
 };
+/** Everything the panel sets: the layout's settings, what the hand is shown
+ * doing and which parts of the panel are open. One state, kept in the project
+ * (so Undo, the autosave and Save project carry all of it), the keys always
+ * laid out from it. */
+type HandState = Settings & {
+  /** The row the fingers are shown on. */
+  row: Row;
+  /** The key the thumb is shown on ('rest': none). */
+  thumbOn: string;
+  /** Whether the thumb is shown pressing its key, over and over. */
+  pressing: boolean;
+  /** What the rotation handle turns ('off': none). */
+  handle: string;
+  advanced: boolean;
+  /** Whether the test frame is shown. */
+  frameOn: boolean;
+  buildCase: boolean;
+};
+const START: HandState = {
+  ...structuredClone(DACTYL),
+  row: 'home',
+  thumbOn: 'home',
+  pressing: false,
+  handle: 'hand',
+  advanced: false,
+  frameOn: false,
+  buildCase: false,
+};
+/** A saved state (a project's, or pasted) on top of the start: each setting
+ * it has of the same type; anything else (renamed since, say) starts over. */
+function stateOf(v: unknown): HandState {
+  const fill = (to: Record<string, unknown>, from: unknown) => {
+    if (!from || typeof from !== 'object') return;
+    for (const [k, x] of Object.entries(from)) {
+      const d = to[k];
+      if (d && typeof d === 'object') fill(d as Record<string, unknown>, x);
+      else if (k in to && typeof x === typeof d) to[k] = x;
+    }
+  };
+  const s = structuredClone(START);
+  fill(s, v);
+  return s;
+}
 const TRAY = 66;
 /** Why a checked layout isn't valid, as the readout says it (none: valid). */
 const problems = (r: ReturnType<typeof check>) => [
@@ -1608,52 +1652,23 @@ export function setupHand(host: Host) {
   group.add(handGroup);
   host.scene.add(group);
   const cfg = () => host.project().config,
-    anchor = anchorOf(cfg());
+    /** The state (layout() puts it in the project). */
+    s = () => host.project().hand as HandState,
+    // The middle home key's top, where the hand's middle fingertip rests.
+    anchor = anchorOf(defaults.config);
+  /** Every key from the state, whatever changed the project (a control,
+   * Undo, an opened file): in ?hand the keys are the hand's. */
+  function layout() {
+    const p = host.project();
+    p.hand = stateOf(p.hand);
+    applyHand(p.config, s(), anchor);
+  }
+  layout();
   // The frame is part of the keyboard the hand is checked against, so it's
   // built with every change once the kernel is here.
   let wasm: ManifoldToplevel | undefined;
 
-  const s = {
-    ...structuredClone(DACTYL),
-    row: 'home' as Row,
-    thumbOn: 'home',
-    /** Whether the thumb is shown pressing its key, over and over. */
-    pressing: false,
-    /** What the rotation handle turns. */
-    handle: 'hand',
-    advanced: false,
-  };
-  // The settings persist in this browser, so a reload keeps the layout they
-  // made (the editor autosaves the keys, not these). Nested objects merge, so
-  // a setting added since keeps its default.
-  const SAVED = 'rosebear-hand-prototype';
-  const restore = (j: string) => {
-    const v = JSON.parse(j);
-    if (typeof v.reachMix === 'number' && v.wristHeight === undefined)
-      v.wristHeight =
-        Math.round(wristHeightAt(v.curl?.middle ?? s.curl.middle, v.reachMix) * 2) / 2;
-    if (typeof v.wrist === 'number' && v.pitch === undefined) v.pitch = v.wrist;
-    if (v.thumb && v.thumb.around === undefined) delete v.thumb;
-    if (v.thumb) delete v.thumb.roll;
-    if (v.thumb && typeof v.thumb.reach !== 'object') {
-      delete v.thumb.reach;
-      delete v.thumb.press;
-    }
-    if (v.two) v.two = { gap: v.two.gap };
-    for (const k of Object.keys(v) as (keyof typeof s)[])
-      if (k in s)
-        typeof s[k] === 'object'
-          ? Object.assign(s[k] as object, v[k])
-          : Object.assign(s, { [k]: v[k] });
-  };
-  try {
-    restore(localStorage.getItem(SAVED) ?? '{}');
-  } catch {
-    // Start from the Dactyl fit.
-  }
-
-  const toLayout = () => layoutOf(anchor, s),
-    apply = () => applyHand(cfg(), s, anchor);
+  const toLayout = () => layoutOf(anchor, s());
 
   // The rotation handle, on the middle home key, turns the hand on the
   // board (roll, pitch, bend; the tent stays).
@@ -1666,10 +1681,7 @@ export function setupHand(host: Host) {
   gizmo.addEventListener('change', () => host.render());
   gizmo.addEventListener('dragging-changed', (e) => {
     host.orbit.enabled = !e.value;
-    if (!e.value) {
-      touched = false;
-      update();
-    }
+    touched = false;
   });
   const rotation = (m: T.Matrix4) => new T.Matrix4().extractRotation(m);
   gizmo.addEventListener('objectChange', () => {
@@ -1678,20 +1690,19 @@ export function setupHand(host: Host) {
     // turnOf: Rz(−bend) Rx(−pitch) Ry(roll).
     const [x, y, z] = nearest(
       new T.Euler().setFromRotationMatrix(tent.invert().multiply(R), 'ZXY'),
-      [-s.pitch, s.roll, -s.bend],
+      [-s().pitch, s().roll, -s().bend],
     );
-    Object.assign(s, { pitch: -x, roll: y, bend: -z });
-    shows.forEach((f) => f());
-    change();
+    edit((s) => Object.assign(s, { pitch: -x, roll: y, bend: -z }));
+    touched = true;
   });
   function placeHandle(c: Config) {
-    if (s.handle === 'off') {
+    if (s().handle === 'off') {
       gizmo.detach();
       return;
     }
     if (gizmo.dragging) return;
     gizmo.attach(pivot);
-    const m = tentFrame(c).multiply(new T.Matrix4().makeTranslation(anchor)).multiply(turnOf(s));
+    const m = tentFrame(c).multiply(new T.Matrix4().makeTranslation(anchor)).multiply(turnOf(s()));
     m.decompose(pivot.position, pivot.quaternion, pivot.scale);
     pivot.updateMatrixWorld();
   }
@@ -1706,7 +1717,7 @@ export function setupHand(host: Host) {
   function showPress(chains: Record<Finger, Chain>, q: number[], press: Mix) {
     cancelAnimationFrame(pressLoop);
     frames = [];
-    if (!s.pressing || s.thumbOn === 'rest') return;
+    if (!s().pressing || s().thumbOn === 'rest') return;
     pressFingers = chains;
     // 61 poses, 15 mm off the key to on it.
     for (let i = 0; i <= 60; i++) frames.push(thumb(pressed(q, -APPROACH * (1 - i / 60), press)));
@@ -1725,6 +1736,8 @@ export function setupHand(host: Host) {
   const note = document.createElement('div');
   note.id = 'hand-note';
   function update() {
+    shows.forEach((f) => f());
+    advanced.hidden = !s().advanced;
     try {
       draw();
     } catch (e) {
@@ -1737,15 +1750,15 @@ export function setupHand(host: Host) {
       built = wasm && buildFrame(wasm, c),
       r = check(
         c,
-        s,
+        s(),
         undefined,
-        built && { mesh: built.mesh, toHand: worldOf(c, anchor, s).invert() },
+        built && { mesh: built.mesh, toHand: worldOf(c, anchor, s()).invert() },
       ),
       { poses, row } = r.h,
-      ri = ROWS.indexOf(s.row),
+      ri = ROWS.indexOf(s().row),
       L = toLayout(),
-      on = row[['far', 'home', 'near'].indexOf(s.thumbOn)],
-      q = s.thumbOn === 'rest' ? thumbRest : on.q;
+      on = row[['far', 'home', 'near'].indexOf(s().thumbOn)],
+      q = s().thumbOn === 'rest' ? thumbRest : on.q;
     const shown = Object.fromEntries(FINGERS.map((f) => [f, poses[f][ri].chain])) as Record<
       Finger,
       Chain
@@ -1768,10 +1781,10 @@ export function setupHand(host: Host) {
       'beforeend',
       `<div>Thumb keys round the arc: ${row.map((k, i) => `${['far', 'home', 'near'][i]} ${k.around.toFixed(0)}°`).join(', ')} (the photos ${PRINT_POSES[0].a.toFixed(0)}–${PRINT_POSES[PRINT_POSES.length - 1].a.toFixed(0)}°). Bent at the MCP / IP: ${row.map((k) => `${k.q[3].toFixed(0)}° / ${k.q[4].toFixed(0)}°`).join(', ')} (at rest ${thumbRest[3].toFixed(0)}° / ${thumbRest[4].toFixed(0)}°). On its side by ${row.map((k) => `${k.roll.toFixed(0)}°`).join(', ')} (0: the pad flat on the key, 90: the nail upright). Pressing 1 mm, radial abduction / palmar abduction / curl: ${row.map((k) => k.press.map((v) => `${v.toFixed(1)}°`).join(' / ')).join(', ')}.</div>`,
     );
-    if (s.from === 'reach')
+    if (s().from === 'reach')
       note.insertAdjacentHTML(
         'beforeend',
-        `<div>Between rows the MCP bends ${mixFor(s.curl.middle, s.wristHeight).mix.toFixed(2)}° per PIP degree (the reach mix).</div>`,
+        `<div>Between rows the MCP bends ${mixFor(s().curl.middle, s().wristHeight).mix.toFixed(2)}° per PIP degree (the reach mix).</div>`,
       );
     showFrame(built);
     host.render();
@@ -1786,17 +1799,13 @@ export function setupHand(host: Host) {
   note.style.cssText = 'margin:8px 0 0;min-height:1em;font-size:13px';
   document.querySelector('aside')!.prepend(sec);
   let box = basic,
+    /** Whether a drag (a slider's, the handle's) has taken its Undo step. */
     touched = false;
-  const change = () => {
+  /** Change the state, one Undo step (a drag is one). */
+  const edit = (f: (s: HandState) => void) => {
     if (!touched) host.snapshot();
-    touched = true;
-    try {
-      localStorage.setItem(SAVED, JSON.stringify(s));
-    } catch {
-      // Not kept past a reload.
-    }
-    apply();
-    host.edited(); // → preview → update()
+    f(s());
+    host.edited(); // → layout(), the editor's redraw, update()
   };
   const heading = (t: string) =>
     box.insertAdjacentHTML(
@@ -1831,9 +1840,8 @@ export function setupHand(host: Host) {
     show();
     shows.push(show);
     i.addEventListener('input', () => {
-      set(scale.at(+i.value));
-      shows.forEach((f) => f());
-      change();
+      edit(() => set(scale.at(+i.value)));
+      touched = true;
     });
     i.addEventListener('change', () => (touched = false));
     box.append(l);
@@ -1857,13 +1865,20 @@ export function setupHand(host: Host) {
             `<label style="display:inline;margin-right:6px"><input type="radio" value="${v}" ${v === get() ? 'checked' : ''}>${names[v] ?? v}</label>`,
         )
         .join('');
-    d.addEventListener('change', (e) => {
-      d.querySelectorAll('input').forEach((x) => (x.checked = x === e.target));
-      set((e.target as HTMLInputElement).value);
-      update();
-    });
+    d.addEventListener('change', (e) => edit(() => set((e.target as HTMLInputElement).value)));
+    shows.push(() => d.querySelectorAll('input').forEach((x) => (x.checked = x.value === get())));
     if (!d.parentNode) box.append(d);
     return d;
+  }
+  function checkbox(label: string, get: () => boolean, set: (v: boolean) => void) {
+    const l = document.createElement('label');
+    l.innerHTML = `<input type="checkbox"> ${label}`;
+    l.style.display = 'block';
+    const i = l.querySelector('input')!;
+    i.addEventListener('change', () => edit(() => set(i.checked)));
+    shows.push(() => (i.checked = get()));
+    box.append(l);
+    return l;
   }
   /** One slider for several settings: it shows their mean and moves them all
    * by the same amount, each kept in its own range. */
@@ -1903,23 +1918,10 @@ export function setupHand(host: Host) {
       name === 'Natural'
         ? 'The least change from your resting hand (fitted under an earlier check).'
         : "Near the Dactyl Manuform, at a reach seen on it (the wrist 63.1 mm up): the finger curl, pitch, thumb keys' place on the arc and gaps whose keys come closest to its keys.";
-    // Every setting, keeping which keys the hand is shown on, how rows are
-    // reached, the cluster and the handle; one Undo step.
-    b.addEventListener('click', () => {
-      const keep = {
-        row: s.row,
-        thumbOn: s.thumbOn,
-        pressing: s.pressing,
-        from: s.from,
-        cluster: s.cluster,
-        handle: s.handle,
-        advanced: s.advanced,
-      };
-      Object.assign(s, structuredClone(p), keep);
-      shows.forEach((f) => f());
-      change();
-      touched = false;
-    });
+    // Every layout setting, keeping how rows are reached and the cluster.
+    b.addEventListener('click', () =>
+      edit((s) => Object.assign(s, structuredClone(p), { from: s.from, cluster: s.cluster })),
+    );
     presets.append(b);
   }
   basic.append(presets);
@@ -1930,7 +1932,7 @@ export function setupHand(host: Host) {
     paste = document.createElement('button');
   copy.textContent = 'Copy settings';
   copy.addEventListener('click', async () => {
-    await navigator.clipboard.writeText(JSON.stringify(s));
+    await navigator.clipboard.writeText(JSON.stringify(s()));
     copy.textContent = 'Copied';
     setTimeout(() => (copy.textContent = 'Copy settings'), 1500);
   });
@@ -1938,79 +1940,65 @@ export function setupHand(host: Host) {
   paste.addEventListener('click', () => {
     const j = prompt('Paste the settings (JSON):');
     if (!j) return;
+    let v: unknown;
     try {
-      restore(j);
+      v = JSON.parse(j);
     } catch (e) {
       alert('Not settings: ' + String(e));
       return;
     }
-    advOn.checked = s.advanced;
-    advanced.hidden = !s.advanced;
-    shows.forEach((f) => f());
-    change();
-    touched = false;
+    edit((s) => Object.assign(s, stateOf(v)));
   });
   share.append(copy, paste);
   basic.append(share);
   radios(
     'Fingers on',
     [...ROWS],
-    () => s.row,
-    (v) => (s.row = v as Row),
+    () => s().row,
+    (v) => (s().row = v as Row),
   );
   radios(
     'Thumb on',
     ['rest', ...cfg().geometry.thumb.keys.map((k) => k.name)],
-    () => s.thumbOn,
-    (v) => (s.thumbOn = v),
+    () => s().thumbOn,
+    (v) => (s().thumbOn = v),
   );
-  const pressBox = document.createElement('label');
-  pressBox.innerHTML =
-    '<input type="checkbox"> Show the thumb pressing it (its last 15 mm onto the key)';
-  pressBox.style.display = 'block';
-  const pressOn = pressBox.querySelector('input')!;
-  pressOn.checked = s.pressing;
-  pressOn.addEventListener('change', () => {
-    s.pressing = pressOn.checked;
-    // Only the view changes: kept for next time, not an Undo step.
-    try {
-      localStorage.setItem(SAVED, JSON.stringify(s));
-    } catch {
-      // Not kept past a reload.
-    }
-    update();
-  });
-  box.append(pressBox);
+  checkbox(
+    'Show the thumb pressing it (its last 15 mm onto the key)',
+    () => s().pressing,
+    (v) => (s().pressing = v),
+  );
+
   radios(
     'Rotation handle:',
     ['hand', 'off'],
-    () => s.handle,
-    (v) => (s.handle = v),
+    () => s().handle,
+    (v) => (s().handle = v),
   );
   heading('Basic');
   together(
     'finger curl (°, + curled)',
-    FINGERS.map((f) => [() => s.curl[f], (v: number) => (s.curl[f] = v), -30, 40]),
+    FINGERS.map((f) => [() => s().curl[f], (v: number) => (s().curl[f] = v), -30, 40]),
     -30,
     40,
     1,
   );
   slider(
     "wrist height (mm, the thumb's CMC above the home row)",
-    () => s.wristHeight,
-    (v) => (s.wristHeight = v),
+    () => s().wristHeight,
+    (v) => (s().wristHeight = v),
     -30,
     130,
     0.5,
-    () => s.from === 'reach',
+    () => s().from === 'reach',
   );
   together(
     'key spacing (mm, every gap)',
     [
-      [() => s.top, (v) => (s.top = v), 5, 35],
-      [() => s.bottom, (v) => (s.bottom = v), 5, 35],
-      [() => s.innerGap, (v) => (s.innerGap = v), 18, 30],
-      [() => s.spacing, (v) => (s.spacing = v), 17, 30],
+      [() => s().top, (v) => (s().top = v), 5, 35],
+      [() => s().bottom, (v) => (s().bottom = v), 5, 35],
+      [() => s().innerGap, (v) => (s().innerGap = v), 18, 30],
+      [() => s().spacing, (v) => (s().spacing = v), 17, 30],
     ],
     12,
     30,
@@ -2018,76 +2006,69 @@ export function setupHand(host: Host) {
   );
   slider(
     'thumb keys round the arc (°, + away from the fingers; rest 112, swept in 92)',
-    () => s.thumb.around,
-    (v) => (s.thumb.around = v),
+    () => s().thumb.around,
+    (v) => (s().thumb.around = v),
     70,
     180,
   );
   slider(
     'thumb keys below the home row (mm)',
-    () => s.thumb.drop,
-    (v) => (s.thumb.drop = v),
+    () => s().thumb.drop,
+    (v) => (s().thumb.drop = v),
     -20,
     50,
     0.5,
   );
   slider(
     'thumb reach: palmar abduction per degree of radial abduction (+ lowers it swinging out)',
-    () => s.thumb.reach.palmar,
-    (v) => (s.thumb.reach.palmar = v),
+    () => s().thumb.reach.palmar,
+    (v) => (s().thumb.reach.palmar = v),
     -2,
     2,
     0.05,
   );
   slider(
     'thumb reach: curl per degree of radial abduction',
-    () => s.thumb.reach.curl,
-    (v) => (s.thumb.reach.curl = v),
+    () => s().thumb.reach.curl,
+    (v) => (s().thumb.reach.curl = v),
     -2,
     2,
     0.05,
   );
   slider(
     'thumb press: from palmar abduction (0°) toward curling (90°; − straightening)',
-    () => s.thumb.press,
-    (v) => (s.thumb.press = v),
+    () => s().thumb.press,
+    (v) => (s().thumb.press = v),
     -90,
     90,
   );
   radios(
     'Thumb keys',
     ['1×3', '1.5u + 2×1u'],
-    () => s.cluster,
-    (v) => {
-      s.cluster = v;
-      shows.forEach((f) => f());
-      change();
-    },
+    () => s().cluster,
+    (v) => (s().cluster = v),
   );
-  const advBox = document.createElement('label');
-  advBox.innerHTML = '<input type="checkbox"> Advanced settings';
-  advBox.style.display = 'block';
-  const advOn = advBox.querySelector('input')!;
-  advOn.addEventListener('change', () => {
-    s.advanced = advOn.checked;
-    advanced.hidden = !s.advanced;
-  });
-  advOn.checked = s.advanced;
-  advanced.hidden = !s.advanced;
-  const caseBox = document.createElement('label');
-  caseBox.innerHTML = '<input type="checkbox"> Build the case (often fails)';
-  caseBox.style.display = 'block';
-  const caseOn = caseBox.querySelector('input')!;
-  caseOn.addEventListener('change', host.rebuild);
-  basic.append(advBox, caseBox);
+  checkbox(
+    'Advanced settings',
+    () => s().advanced,
+    (v) => (s().advanced = v),
+  );
+  checkbox(
+    'Build the case (often fails)',
+    () => s().buildCase,
+    (v) => (s().buildCase = v),
+  );
 
   // The test frame (hand-frame.ts): switch holes on pillars, to print and try.
+  checkbox(
+    'Test frame (print this way up, with supports)',
+    () => s().frameOn,
+    (v) => (s().frameOn = v),
+  );
   const frameBox = document.createElement('div');
   frameBox.innerHTML =
-    '<label style="display:block"><input type="checkbox"> Test frame (print this way up, with supports)</label>' +
     '<button>Right STL</button><button>Left STL</button><div style="font-size:13px"></div>';
-  const frameOn = frameBox.querySelector('input')!,
-    [rightStl, leftStl] = frameBox.querySelectorAll('button'),
+  const [rightStl, leftStl] = frameBox.querySelectorAll('button'),
     frameNote = frameBox.querySelector('div')!,
     frameView = new T.Mesh(
       new T.BufferGeometry(),
@@ -2103,9 +2084,10 @@ export function setupHand(host: Host) {
   let shownFrame: FrameResult | undefined;
   function showFrame(r = shownFrame) {
     shownFrame = r;
-    frameView.visible = frameOn.checked && !!r;
-    rightStl.disabled = leftStl.disabled = !frameOn.checked || !r;
-    if (!frameOn.checked || !r) {
+    const on = s().frameOn;
+    frameView.visible = on && !!r;
+    rightStl.disabled = leftStl.disabled = !on || !r;
+    if (!on || !r) {
       frameNote.textContent = '';
       return host.render();
     }
@@ -2123,21 +2105,6 @@ export function setupHand(host: Host) {
       (r.warnings.length ? `<div style="color:#e8c46a">${r.warnings.join('<br>')}</div>` : '');
     host.render();
   }
-  // Shown or not is kept for next time.
-  const FRAME_ON = 'rosebear-hand-frame-on';
-  try {
-    frameOn.checked = localStorage.getItem(FRAME_ON) === '1';
-  } catch {
-    // Off.
-  }
-  frameOn.addEventListener('change', () => {
-    try {
-      localStorage.setItem(FRAME_ON, frameOn.checked ? '1' : '0');
-    } catch {
-      // Not kept past a reload.
-    }
-    showFrame();
-  });
   const saveFrame = (left: boolean) => {
     const r = shownFrame!,
       a = document.createElement('a');
@@ -2155,29 +2122,29 @@ export function setupHand(host: Host) {
   heading('Hand on the board (°)');
   slider(
     'tent',
-    () => s.tent,
-    (v) => (s.tent = v),
+    () => s().tent,
+    (v) => (s().tent = v),
     0,
     45,
   );
   slider(
     'roll: + pinky side down',
-    () => s.roll,
-    (v) => (s.roll = v),
+    () => s().roll,
+    (v) => (s().roll = v),
     -30,
     30,
   );
   slider(
     'pitch: + far edge down',
-    () => s.pitch,
-    (v) => (s.pitch = v),
+    () => s().pitch,
+    (v) => (s().pitch = v),
     -25,
     25,
   );
   slider(
     'wrist bend: + toward the pinky',
-    () => s.bend,
-    (v) => (s.bend = v),
+    () => s().bend,
+    (v) => (s().bend = v),
     -25,
     25,
   );
@@ -2185,23 +2152,23 @@ export function setupHand(host: Host) {
   for (const f of FINGERS)
     slider(
       f,
-      () => s.curl[f],
-      (v) => (s.curl[f] = v),
+      () => s().curl[f],
+      (v) => (s().curl[f] = v),
       -30,
       40,
     );
   slider(
     'inner column gap (mm)',
-    () => s.innerGap,
-    (v) => (s.innerGap = v),
+    () => s().innerGap,
+    (v) => (s().innerGap = v),
     18,
     30,
     0.5,
   );
   slider(
     'inner column angle (°, + to thumb)',
-    () => s.innerAngle,
-    (v) => (s.innerAngle = v),
+    () => s().innerAngle,
+    (v) => (s().innerAngle = v),
     -10,
     30,
   );
@@ -2210,66 +2177,59 @@ export function setupHand(host: Host) {
   box.append(fromBox);
   slider(
     'press mix: PIP+DIP° per MCP°',
-    () => s.pressMix,
-    (v) => (s.pressMix = v),
+    () => s().pressMix,
+    (v) => (s().pressMix = v),
     -1,
     4,
     0.1,
-    () => s.from === 'press',
+    () => s().from === 'press',
   );
   radios(
     'Rows reached from the',
     ['reach', 'press'],
-    () => s.from,
-    (v) => {
-      s.from = v;
-      shows.forEach((f) => f());
-      change();
-    },
+    () => s().from,
+    (v) => (s().from = v),
     fromBox,
     { reach: 'wrist height', press: 'press mix' },
   );
   slider(
     'top: forward',
-    () => s.top,
-    (v) => (s.top = v),
+    () => s().top,
+    (v) => (s().top = v),
     5,
     35,
   );
   slider(
     'bottom: back',
-    () => s.bottom,
-    (v) => (s.bottom = v),
+    () => s().bottom,
+    (v) => (s().bottom = v),
     5,
     35,
   );
   heading('Thumb');
   slider(
     'key spacing (mm)',
-    () => s.spacing,
-    (v) => (s.spacing = v),
+    () => s().spacing,
+    (v) => (s().spacing = v),
     17,
     40,
     0.5,
   );
   slider(
     '1u row gap (mm, + toward the palm)',
-    () => s.two.gap,
-    (v) => (s.two.gap = v),
+    () => s().two.gap,
+    (v) => (s().two.gap = v),
     -35,
     35,
     0.5,
-    () => s.cluster !== '1×3',
+    () => s().cluster !== '1×3',
   );
 
-  // Lay the keys out from the hand straight away (Undo restores the old layout).
-  change();
-  touched = false;
   void manifold().then((w) => {
     wasm = w;
     update();
   });
-  return { update, buildCase: () => caseOn.checked };
+  return { layout, update, buildCase: () => s().buildCase };
 }
 
 /** For scripts that fit presets (in the browser, through Vite). */

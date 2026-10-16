@@ -52,9 +52,11 @@ const undo: Project[] = [],
 let hasShell = false,
   buildRequests = 0,
   selected = '';
-// PROTOTYPE ?hand (hand-prototype.ts): redraws the hand after each edit, and
-// builds the case only when asked (the generator can't follow many hand layouts).
-let handUpdate: (() => void) | undefined,
+// PROTOTYPE ?hand (hand-prototype.ts): lays the keys out from its state
+// (project.hand) and redraws the hand after each edit, and builds the case
+// only when asked (the generator can't follow many hand layouts).
+let handLayout: (() => void) | undefined,
+  handUpdate: (() => void) | undefined,
   handCase: (() => boolean) | undefined;
 let revision = 0,
   solidRevision = -1,
@@ -682,6 +684,7 @@ function markStale() {
 }
 function preview() {
   try {
+    handLayout?.();
     componentFrames(project.config);
     updateHardware();
     updateHandles();
@@ -776,10 +779,13 @@ function requestBuild() {
   // PROTOTYPE: ?plates=narrow[&slope=deg] (chassis.ts narrowPlates), ?recess=mm.
   const sent = clone(project),
     q = new URLSearchParams(location.search);
-  if (q.get('plates')) (sent.config.chassis as { plate_style?: string }).plate_style = q.get('plates')!;
-  if (q.get('slope')) (sent.config.chassis as { plate_slope?: number }).plate_slope = +q.get('slope')!;
+  if (q.get('plates'))
+    (sent.config.chassis as { plate_style?: string }).plate_style = q.get('plates')!;
+  if (q.get('slope'))
+    (sent.config.chassis as { plate_slope?: number }).plate_slope = +q.get('slope')!;
   // PROTOTYPE: ?recess=mm, the finger deck this far above the plates' tops (shell.ts Bin.lift).
-  if (q.get('recess')) (sent.config.chassis as { deck_lift?: number }).deck_lift = +q.get('recess')!;
+  if (q.get('recess'))
+    (sent.config.chassis as { deck_lift?: number }).deck_lift = +q.get('recess')!;
   worker.postMessage({ id, project: sent });
   timeout = setTimeout(() => {
     worker.terminate();
@@ -1252,7 +1258,11 @@ const marks = !import.meta.env.DEV
       render,
     });
 if (import.meta.env.DEV && new URLSearchParams(location.search).has('hand'))
-  ({ update: handUpdate, buildCase: handCase } = setupHand({
+  ({
+    layout: handLayout,
+    update: handUpdate,
+    buildCase: handCase,
+  } = setupHand({
     scene,
     camera,
     dom: renderer.domElement,

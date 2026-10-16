@@ -23,6 +23,58 @@ test('the hand readout checks every reach against the keycaps and the frame', as
   await expect(note).toContainText(/wrist \d+ mm too high for this curl/);
   await page.keyboard.press('ArrowLeft');
   await expect(wrist.locator('output')).toHaveText('129.5');
+  // One state, in the project: saved and opened with it (what's shown too),
+  // the keys always laid out from it, every change to it one Undo step.
+  const project = () =>
+    page.evaluate(() =>
+      JSON.stringify(
+        (
+          window as unknown as { rosebearEditor: { getProject(): unknown } }
+        ).rosebearEditor.getProject(),
+      ),
+    );
+  const bottom = page.getByRole('radio', { name: 'bottom', exact: true });
+  await bottom.check();
+  const saved = await project(),
+    download = page.waitForEvent('download');
+  await page.locator('#export').click();
+  const file = await download;
+  await page.getByRole('button', { name: 'Natural' }).click();
+  await page.getByRole('radio', { name: 'top', exact: true }).check();
+  await expect(wrist.locator('output')).toHaveText('112.7');
+  await page.locator('#file').setInputFiles((await file.path())!);
+  await expect(page.locator('#load-error')).toHaveText('');
+  await expect(wrist.locator('output')).toHaveText('129.5');
+  await expect(bottom).toBeChecked();
+  await expect(note).toContainText(/wrist \d+ mm too high for this curl/);
+  expect(await project()).toEqual(saved);
+  // A setting moved and back: the same keys.
+  const reach = page
+    .locator('label', { hasText: 'thumb reach: palmar abduction' })
+    .locator('input');
+  await reach.focus();
+  await page.keyboard.press('ArrowRight');
+  await expect.poll(project).not.toEqual(saved);
+  await page.keyboard.press('ArrowLeft');
+  await expect.poll(project).toEqual(saved);
+  // Undo: back through those two, then to before the file was opened.
+  for (let i = 0; i < 2; i++) await page.locator('#undo').click();
+  expect(await project()).toEqual(saved);
+  await page.locator('#undo').click();
+  await expect(wrist.locator('output')).toHaveText('112.7');
+  await expect(page.getByRole('radio', { name: 'top', exact: true })).toBeChecked();
+  await page.locator('#redo').click();
+  await expect(wrist.locator('output')).toHaveText('129.5');
+  await expect(bottom).toBeChecked();
+  // A file whose keys aren't its settings' opens with the settings' keys.
+  const fs = await import('node:fs/promises'),
+    moved = JSON.parse(await fs.readFile((await file.path())!, 'utf8'));
+  moved.config.geometry.thumb.position_mm[0] += 15;
+  await fs.writeFile('test-results/moved-keys.json', JSON.stringify(moved));
+  await page.getByRole('button', { name: 'Natural' }).click();
+  await page.locator('#file').setInputFiles('test-results/moved-keys.json');
+  await expect(wrist.locator('output')).toHaveText('129.5');
+  expect(await project()).toEqual(saved);
   // The thumb shown pressing its key, over and over.
   await page.getByText('Show the thumb pressing it').click();
   await page.waitForTimeout(500);
