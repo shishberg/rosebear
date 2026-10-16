@@ -1495,6 +1495,17 @@ const YOURS: Settings = {
   cluster: '1×3',
   two: { gap: 19.5 },
 };
+/** Yours with the thumb's keys within 2.4–3.8 mm of its, reached and pressed
+ * without curling: the reach lowers the thumb as it swings out, the press is
+ * palmar abduction alone, so the thumb keeps its resting bend (MCP 21°, IP
+ * 18°) on every key and presses each with the pad (on Yours the far key is
+ * pressed with the tip, the thumb bent 39° / 36° and on its side 76°). The
+ * home and near keys face 18–24° away from the wrist. */
+const NO_CURL: Settings = {
+  ...structuredClone(YOURS),
+  thumb: { around: 116, drop: 14, reach: { palmar: 1.2, curl: 0 }, press: 0 },
+  spacing: 25.8,
+};
 /** Everything the panel sets: the layout's settings, what the hand is shown
  * doing and which parts of the panel are open. One state, kept in the project
  * (so Undo, the autosave and Save project carry all of it), the keys always
@@ -1917,6 +1928,11 @@ export function setupHand(host: Host) {
       'The least change from your resting hand (fitted under an earlier check).',
     ],
     ['Yours', YOURS, 'Set by hand in the editor from the Dactyl fit (16 Oct).'],
+    [
+      'No curl',
+      NO_CURL,
+      'Yours with the thumb keys nearly where they were, the thumb reaching and pressing them without curling (pressing each with the pad).',
+    ],
   ] as const) {
     const b = document.createElement('button');
     b.textContent = name;
@@ -2265,6 +2281,7 @@ export const _test = {
   NATURAL,
   DACTYL,
   YOURS,
+  NO_CURL,
   MIX_MIN,
   wristHeightAt,
   mixFor,

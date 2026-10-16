@@ -400,6 +400,7 @@ const PRESETS = [
   ['Dactyl fit', hand.DACTYL],
   ['Natural', hand.NATURAL],
   ['Yours', hand.YOURS],
+  ['No curl', hand.NO_CURL],
 ] as const;
 test('every preset is valid: the keycaps, the hand reaching each key, and the printed frame', () => {
   for (const [name, s] of PRESETS) assert.deepEqual(wrongOf(s), [], name);
