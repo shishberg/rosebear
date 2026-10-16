@@ -4,7 +4,14 @@ import { seatSettings } from './seats';
 import { buildChassis, capSize, gluePads, isKey } from './chassis';
 import { shell } from './shell';
 import { adapterParts, crossings, padParts, wiring, type Wiring } from './wiring';
-import { capTop, componentFrames, validateProject, type V3, type MeshData, type Project } from './geometry';
+import {
+  capTop,
+  componentFrames,
+  validateProject,
+  type V3,
+  type MeshData,
+  type Project,
+} from './geometry';
 export { capSize, isKey };
 /** Sizes and limits for the seats and the clearance checks, in mm (volumes in mm³, areas in mm²). */
 const CHECKS = {
@@ -155,7 +162,13 @@ export interface Report {
   wiring: { wires: number; joints: number; length: number };
   /** Pairs of wires that run into each other, named together. */
   crossings: string[];
-  openings: { name: string; removed: number; covered: number; blocked: number }[];
+  openings: {
+    name: string;
+    removed: number;
+    covered: number;
+    blocked: number;
+    passed: boolean;
+  }[];
   volume: number;
   triangles: number;
   milliseconds: number;
@@ -494,9 +507,9 @@ function build(
           }
         }
       const removed = volume(body, cutter);
-      if (covered < 9 || blocked || removed <= CHECKS.empty)
-        highlights.push({ name, kind: 'opening', mesh: meshData(cutter) });
-      openings.push({ name, removed, covered, blocked });
+      const passed = covered === 9 && blocked === 0 && removed > CHECKS.empty;
+      if (!passed) highlights.push({ name, kind: 'opening', mesh: meshData(cutter) });
+      openings.push({ name, removed, covered, blocked, passed });
       cuts.push(cutter);
     };
     for (const [name, m] of keyNodes) {
@@ -711,10 +724,7 @@ function build(
         sw.keycap_clearance_mm;
       const pressedBottom = sw.keycap_bottom_above_plate_mm - sw.travel_mm;
       const top = capTop(cfg, name);
-      const rest = (rests[name] = place(
-        tapered(size, top, sw.keycap_bottom_above_plate_mm),
-        m,
-      ));
+      const rest = (rests[name] = place(tapered(size, top, sw.keycap_bottom_above_plate_mm), m));
       // The keycap over its full travel, grown by its clearance: the tapered cap
       // at rest, and its base's footprint down to where it is pressed.
       const grown = [size[0] + 2 * margin, size[1] + 2 * margin, size[2] + margin];
@@ -775,7 +785,7 @@ function build(
       footprint.length === 1 &&
       roomCuts.length === 0 &&
       capGaps.every((c) => c.gap > 0) &&
-      openings.every((o) => o.removed > CHECKS.empty && o.covered === 9 && o.blocked === 0) &&
+      openings.every((o) => o.passed) &&
       wires.length === 0 &&
       crossed.length === 0 &&
       solder.length === 0;

@@ -83,6 +83,7 @@ test('default chassis passes: one piece on one footprint, clear of the tile pock
   assert(r.report.keycaps.every((k) => k.passed));
   assert(r.report.capGaps.every((g) => g.gap > 0));
   assert(r.report.openings.every((o) => o.removed > 0 && o.covered === 9 && o.blocked === 0));
+  assert(r.report.openings.length > 0 && r.report.openings.every((o) => o.passed === true));
   assert(r.report.passed);
   const mounted = new wasm.Manifold(
     new wasm.Mesh({ numProp: 3, vertProperties: r.mesh.positions, triVerts: r.mesh.indices }),

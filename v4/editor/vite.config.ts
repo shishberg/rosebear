@@ -50,7 +50,12 @@ function marks(): Plugin {
         const chunks: Buffer[] = [];
         req.on('data', (c: Buffer) => chunks.push(c));
         req.on('end', () => {
-          const mark = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+          let mark;
+          try {
+            mark = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+          } catch {
+            return send(400, { error: 'bad json' });
+          }
           const t = new Date(),
             pad = (n: number) => String(n).padStart(2, '0'),
             stamp = `${t.getFullYear()}${pad(t.getMonth() + 1)}${pad(t.getDate())}-${pad(t.getHours())}${pad(t.getMinutes())}${pad(t.getSeconds())}`,

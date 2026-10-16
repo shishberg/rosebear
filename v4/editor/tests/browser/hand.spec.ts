@@ -91,3 +91,19 @@ test('the hand readout checks every reach against the keycaps and the frame', as
   await expect(page.getByText(/cm³/)).toBeVisible({ timeout: 30000 });
   expect(errors).toEqual([]);
 });
+
+test('the column and cluster handles and fields are off in ?hand', async ({ page }) => {
+  await page.goto('/?hand');
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+  await expect(page.locator('#hand-note')).toContainText('Valid (', { timeout: 30000 });
+  const h = await page.evaluate(() =>
+    (window as any).rosebearEditor.handleScreen('key:matrix_middle_top'),
+  );
+  await page.mouse.move(h.x, h.y);
+  await page.mouse.down();
+  await page.mouse.move(h.x + 10, h.y - 30, { steps: 4 });
+  await page.mouse.up();
+  expect(await page.evaluate(() => (window as any).rosebearEditor.getSelected())).toBe('');
+  await expect(page.locator('#selection')).toBeEmpty();
+});

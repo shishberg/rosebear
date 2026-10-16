@@ -269,7 +269,7 @@ type Field = [string, (string | number)[]];
 function fields(id: string): { title: string; list: Field[] } {
   if (id.startsWith('key:')) {
     const [, col] = id.slice(4).split('_'),
-      i = defaults.config.geometry.columns.findIndex((x) => x.name === col),
+      i = project.config.geometry.columns.findIndex((x) => x.name === col),
       b = ['geometry', 'columns', i];
     return {
       title: `${col} column`,
@@ -309,9 +309,15 @@ const setAt = (o: unknown, path: (string | number)[], v: number) => {
   (path.slice(0, -1).reduce((x: any, k) => x[k], o) as any)[last] = v;
 };
 function updateSelection() {
-  const box = $('selection'),
-    { title, list } = fields(selected);
-  if (!title) {
+  const box = $('selection');
+  let { title, list } = fields(selected);
+  // The selected column or cluster can vanish (Apply configuration, Undo).
+  if (list.some(([, path]) => !Number.isFinite(getAt(project.config, path)))) {
+    selected = '';
+    ({ title, list } = fields(selected));
+  }
+  // ?hand lays the keys out itself, so a field edit would only be overwritten.
+  if (!title || handLayout) {
     box.innerHTML = '';
     return;
   }
@@ -402,7 +408,7 @@ function updateHandles() {
   );
   seg.renderOrder = 10;
   handleGroup.add(seg);
-  handleGroup.visible = $('edit').matches(':checked');
+  handleGroup.visible = $('edit').matches(':checked') && !handLayout;
   render();
 }
 
@@ -640,13 +646,13 @@ function visibility() {
               ? $('adapter').matches(':checked')
               : $('parts').matches(':checked');
   wires.visible = $('wires').matches(':checked');
-  basePlate.visible = $('base').matches(':checked');
+  basePlate.visible = $('base').matches(':checked') && (!handCase || handCase());
   bounds.visible = $('bounds').matches(':checked') && !bounds.box.isEmpty();
   if (edges.visible !== $('edges').matches(':checked')) {
     edges.visible = !edges.visible;
     setEdges();
   }
-  handleGroup.visible = $('edit').matches(':checked');
+  handleGroup.visible = $('edit').matches(':checked') && !handLayout;
   render();
 }
 function autosave() {
@@ -761,7 +767,8 @@ function startWorker() {
 }
 function requestBuild() {
   clearTimeout(timer);
-  for (const o of [shell, basePlate, trim]) o.visible = !handCase || handCase();
+  for (const o of [shell, trim]) o.visible = !handCase || handCase();
+  visibility();
   if (handCase && !handCase()) {
     $('view-state').textContent = 'Case not built (prototype: tick Build the case)';
     return;
@@ -877,7 +884,7 @@ function showReport(r: Report) {
   for (const p of r.solder)
     add(`${p.name.replaceAll('_', ' ')}: soldering iron's way blocked`, p.name);
   for (const o of r.openings)
-    if (o.covered < 9 || o.blocked || o.removed < 0.001)
+    if (!o.passed)
       add(`${o.name}: incomplete opening (${o.covered}/9 probes, ${o.blocked} blocked)`, o.name);
   for (const g of r.capGaps)
     add(`Closest keycaps, ${g.between}: ${g.gap <= 0 ? 'touching' : g.gap.toFixed(1) + ' mm'}`);
@@ -1091,7 +1098,7 @@ const screen = (p: T.Vector3) => {
 renderer.domElement.addEventListener(
   'pointerdown',
   (e) => {
-    if (e.button !== 0 || !$('edit').matches(':checked') || marks.painting()) return;
+    if (e.button !== 0 || !$('edit').matches(':checked') || handLayout || marks.painting()) return;
     let best = 13,
       hit: ReturnType<typeof handles>[number] | undefined;
     for (const h of handles(project)) {
@@ -1206,6 +1213,7 @@ Object.assign(window, {
     getSolidRevision: () => solidRevision,
     getReport: () => report,
     getSelected: () => selected,
+    getVisible: () => ({ shell: shell.visible, base: basePlate.visible, trim: trim.visible }),
     handleScreen: (id: string) => {
       const h = handles(project).find((h) => h.id === id);
       if (!h) throw Error('No handle ' + id);

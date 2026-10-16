@@ -23,11 +23,10 @@ if (report.pieces.length > 1)
 if (report.footprint.length > 1) console.log(`${report.footprint.length} separate footprints`);
 for (const c of report.roomCuts)
   console.log(`${c.name}: keycap room cut ${c.volume.toFixed(2)} mm³ out of the chassis`);
-for (const o of report.openings)
-  if (o.covered < 9 || o.blocked || o.removed <= 0.001)
-    console.log(`${o.name}: opening incomplete`);
+for (const o of report.openings) if (!o.passed) console.log(`${o.name}: opening incomplete`);
 for (const x of report.hardware)
-  if (x.group !== 'keycaps') console.log(`${x.name}: ${x.volume.toFixed(3)} mm³ hardware overlap`);
+  console.log(`${x.name}: ${x.volume.toFixed(3)} mm³ hardware overlap`);
+for (const c of report.capGaps) if (c.gap <= 0) console.log(`${c.between}: keycaps touching`);
 for (const w of report.wires)
   console.log(`${w.name}: wire runs ${w.volume.toFixed(3)} mm³ into the chassis`);
 for (const c of report.crossings) console.log(`${c} run into each other`);

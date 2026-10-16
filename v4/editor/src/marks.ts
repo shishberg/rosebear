@@ -64,7 +64,8 @@ export function setupMarks(o: {
   // A stroke as tubes along its runs of hits, lifted off the surface so it isn't
   // buried in it.
   function draw(s: Stroke, color: number, into: T.Group) {
-    const runs: T.Vector3[][] = [[]];
+    const meshes: T.Mesh[] = [],
+      runs: T.Vector3[][] = [[]];
     for (const h of s.hits)
       if (h)
         runs[runs.length - 1].push(
@@ -76,16 +77,40 @@ export function setupMarks(o: {
       if (run.length === 1) run.push(run[0].clone().addScalar(0.01));
       if (run.length < 2) continue;
       const curve = new T.CatmullRomCurve3(run);
-      into.add(new T.Mesh(new T.TubeGeometry(curve, run.length * 2, 0.35, 6), mat));
+      const mesh = new T.Mesh(new T.TubeGeometry(curve, run.length * 2, 0.35, 6), mat);
+      into.add(mesh);
+      meshes.push(mesh);
     }
+    return meshes;
   }
+  // Frees the GPU buffers; Group.clear alone leaves them.
+  function empty(g: T.Group) {
+    for (const o of g.children) {
+      const m = o as T.Mesh;
+      m.geometry.dispose();
+      (m.material as T.Material).dispose();
+    }
+    g.clear();
+  }
+  // The stroke being drawn is the only one that changes, so only it is rebuilt.
+  let live: T.Mesh[] = [];
   const redraw = () => {
-    current.clear();
+    empty(current);
     strokes.forEach((s) => draw(s, 0xff2a2a, current));
+    live = [];
     render();
   };
+  function redrawLive() {
+    for (const m of live) {
+      current.remove(m);
+      m.geometry.dispose();
+      (m.material as T.Material).dispose();
+    }
+    live = draw(stroke!, 0xff2a2a, current);
+    render();
+  }
   function showSaved() {
-    saved.clear();
+    empty(saved);
     const v = o.view();
     saved.visible = $<HTMLInputElement>('mk-show').checked;
     for (const m of marks)
@@ -231,12 +256,13 @@ export function setupMarks(o: {
     stroke = { screen: [], hits: [] };
     strokes.push(stroke);
     sample(e);
-    redraw();
+    live = [];
+    redrawLive();
   });
   canvas.addEventListener('pointermove', (e) => {
     if (!stroke) return;
     sample(e);
-    redraw();
+    redrawLive();
   });
   canvas.addEventListener('pointerup', () => {
     if (stroke && !stroke.hits.some(Boolean)) strokes.pop();

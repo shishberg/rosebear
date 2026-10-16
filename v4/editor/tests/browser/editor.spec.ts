@@ -205,3 +205,59 @@ test('the wiring panel lists the matrix and cut list, and the wiring follows the
   expect(await shown('adapter')).toBe(true);
   await rebuilt(page);
 });
+
+test('the bottom section checkbox survives a rebuild', async ({ page }) => {
+  const base = () => page.evaluate(() => (window as any).rosebearEditor.getVisible().base);
+  expect(await base()).toBe(true);
+  await page.locator('#base').uncheck();
+  expect(await base()).toBe(false);
+  await page.locator('#rebuild').click();
+  await rebuilt(page);
+  expect(await base()).toBe(false);
+});
+test('a selected cluster or column that disappears clears the selection', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  const selected = () => page.evaluate(() => (window as any).rosebearEditor.getSelected());
+  const config = page.locator('#config');
+  await page.getByText('All configuration').click();
+  await page.locator('[data-view="Top"]').click();
+  await dragHandle(page, 'cluster:thumb_extra', 0, 0);
+  expect(await selected()).toBe('cluster:thumb_extra');
+  await expect(page.locator('#selection')).toContainText('extra thumb row');
+  const cfg = JSON.parse(await config.inputValue());
+  delete cfg.geometry.thumb_extra;
+  await config.fill(JSON.stringify(cfg));
+  await page.locator('#apply-config').click();
+  await expect(page.locator('#load-error')).toHaveText('');
+  expect(await selected()).toBe('');
+  await expect(page.locator('#selection')).toBeEmpty();
+  expect((await project(page)).config.geometry.thumb_extra).toBeUndefined();
+  await rebuilt(page);
+  // Undo brings the cluster back, unselected.
+  await page.locator('#undo').click();
+  expect(await selected()).toBe('');
+  expect((await project(page)).config.geometry.thumb_extra).toBeDefined();
+  expect(errors).toEqual([]);
+});
+test('column fields follow the column by name in the project', async ({ page }) => {
+  const cfg = (await project(page)).config,
+    cols = cfg.geometry.columns,
+    i = cols.findIndex((c: any) => c.name === 'ring'),
+    j = cols.findIndex((c: any) => c.name === 'pinky');
+  cols[i].offset_mm[0] = 2;
+  cols[j].offset_mm[0] = 5;
+  [cols[i], cols[j]] = [cols[j], cols[i]];
+  await page.getByText('All configuration').click();
+  await page.locator('#config').fill(JSON.stringify(cfg));
+  await page.locator('#apply-config').click();
+  await expect(page.locator('#load-error')).toHaveText('');
+  await page.locator('[data-view="Front"]').click();
+  await dragHandle(page, 'key:matrix_ring_home', 0, 0);
+  await expect(page.locator('#selection')).toContainText('ring column');
+  const x = (await project(page)).config.geometry.columns.find((c: any) => c.name === 'ring')
+    .offset_mm[0];
+  await expect(
+    page.locator('#selection label').filter({ hasText: 'X offset' }).locator('input'),
+  ).toHaveValue(String(+x.toFixed(3)));
+});

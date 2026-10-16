@@ -271,6 +271,10 @@ Check each item with grep (src, tests, configs) before removing it.
     the shape-prototype viewer. The editor always passes chassis/editor.
 - **CSS:** `.coords` and the `select` rules, if unused.
 - **Tests:** the orphan comment at geometry.test.ts 11–13.
+- **From the T1 review:**
+  - marks.ts writes the same dispose loop twice; make it one helper.
+  - On pointerup, marks.ts doesn't need a full redraw.
+  - geometry.test.ts has an openings assert made redundant by `passed`.
 - **tsconfig:** turn on `noUnusedLocals` and `noUnusedParameters` if the tree
   then compiles clean. Fix the four it finds.
 
@@ -526,6 +530,8 @@ Move the HTML string from main.ts into `index.html`. Browser tests must pass.
   - set up `Module()` once;
   - share the MeshData → Manifold wrapper.
 - **Browser specs:** share one `project()` helper.
+- **A test for the `?hand` build-case gate on the base:** `getVisible().base`
+  is false while the case is off.
 - **Coverage:** add negative tests for checks that have none, so none can
   silently become a no-op: seats, openings, pieces, hardware, wire vs chassis,
   solder. Use small deliberate breakages of the default config.
@@ -594,8 +600,8 @@ are listed but not done.
 
 | Task | Status | Commit |
 |---|---|---|
-| T0 | done | 327b02c |
-| T1 | pending | |
+| T0 | done | |
+| T1 | done | |
 | T2 | pending | |
 | T3 | pending | |
 | T4 | pending | |
