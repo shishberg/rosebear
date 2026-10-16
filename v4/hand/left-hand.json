@@ -233,7 +233,8 @@
  "thumb": {
   "segment_mm": {
    "mcp_ip": 35.0,
-   "ip_pad": 17.5
+   "ip_pad": 17.5,
+   "ip_end": 25.9
   },
   "rest": {
    "pad": [

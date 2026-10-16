@@ -41,6 +41,11 @@ JM_A = S.CA.at_height(S.imgA['thumb MCP'], 20) - [0, 0, 10]
 JI_A = S.CA.at_height(S.imgA['thumb IP'], 16) - [0, 0, 8]
 b1 = np.linalg.norm(JM_A - JI_A)
 b2 = np.linalg.norm((JI_A - S.tipA['thumb'])[:2])
+# The thumb's end: where the pencil outline round it (on the sheet) reaches
+# furthest along the thumb in pose A (the thumb flat), past the IP along MCP→IP.
+END_A = (1252, 1275)
+along = (JI_A - JM_A)[:2] / np.linalg.norm((JI_A - JM_A)[:2])
+b_end = (S.CA.at_height(np.array(END_A, float), 0) - JI_A)[:2] @ along
 JM = S.CB.at_height(S.imgB['thumb MCP'], 45) - [0, 0, 9]
 zs = np.linspace(7, 90, 400)
 miss = [abs(np.linalg.norm(S.CB.at_height(S.imgB['thumb IP'], z) - [0, 0, 7] - JM) - b1) for z in zs]
@@ -62,7 +67,7 @@ model = {
     },
     'fingers': fingers,
     'thumb': {
-        'segment_mm': {'mcp_ip': round(float(b1), 1), 'ip_pad': round(float(b2), 1)},
+        'segment_mm': {'mcp_ip': round(float(b1), 1), 'ip_pad': round(float(b2), 1), 'ip_end': round(float(b_end), 1)},
         'rest': {'pad': prints['1'], 'joints': {'mcp': to(JM), 'ip': to(JI)}},
         'arc_through_prints_1_to_4': {'centre': [round(float(v), 1) for v in arc.x[:2]], 'radius_mm': round(float(arc.x[2]), 1),
                                       'misses_mm': [round(float(v), 1) for v in arc.fun]},

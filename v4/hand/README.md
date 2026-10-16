@@ -40,7 +40,7 @@ The model uses the editor's layout axes, so the left hand reads directly as the 
 | ring | 45.5 | 28.0 | 15.8 |
 | pinky | 31.2 | 21.2 | 14.6 |
 
-The thumb measures 35.0 mm from MCP to IP and 17.5 mm from IP to the pad.
+The thumb measures 35.0 mm from MCP to IP, 17.5 mm from IP to the pad's print and 25.9 mm from IP to its end (where the traced outline round its tip reaches furthest along the thumb).
 
 **Resting pose in 3D (model-based):** the joint centres, segment pitches and PIP/DIP flexion of each finger. The thumb's MCP and IP joint centres at rest are also given. The fit misses the knuckle dots by 1.7 mm on average, and 4.7 mm at most.
 
