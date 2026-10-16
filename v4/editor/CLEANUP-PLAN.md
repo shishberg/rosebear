@@ -602,7 +602,7 @@ are listed but not done.
 |---|---|---|
 | T0 | done | |
 | T1 | done | |
-| T2 | pending | |
+| T2 | done | |
 | T3 | pending | |
 | T4 | pending | |
 | T5 | pending | |

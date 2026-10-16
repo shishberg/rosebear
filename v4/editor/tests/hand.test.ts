@@ -621,3 +621,37 @@ test('the thumb keys move smoothly as each thumb setting changes, wherever the l
     }
   assert.deepEqual(jumps, []);
 });
+
+test('a thumb key past 180° round the arc is that far round, with only its real miss', () => {
+  const t = { ...hand.DACTYL.thumb, around: 185, drop: 0 },
+    home = hand.thumbRow(t, 24, 0)[1];
+  assert.ok(Math.abs(home.around - 185) < 0.05, `${home.around}° round`);
+  // The miss is the thumb falling short of the photos' reach (14 mm), not a lap of the arc.
+  assert.ok(home.miss < 20, `misses by ${home.miss.toFixed(0)} mm`);
+});
+
+test('a saved state with a value that is not a setting keeps the start for it', () => {
+  const bad = hand.stateOf({
+      row: 'foo',
+      thumbOn: 'middle',
+      cluster: 'none',
+      from: 3,
+      tent: Number.NaN,
+      pitch: Infinity,
+      spacing: 20,
+      handle: 'off',
+      thumb: { around: 'far', drop: 5 },
+    }),
+    start = hand.START;
+  assert.equal(bad.row, start.row);
+  assert.equal(bad.thumbOn, start.thumbOn);
+  assert.equal(bad.cluster, start.cluster);
+  assert.equal(bad.from, start.from);
+  assert.equal(bad.tent, start.tent);
+  assert.equal(bad.pitch, start.pitch);
+  assert.equal(bad.thumb.around, start.thumb.around);
+  // The valid ones still go in.
+  assert.equal(bad.spacing, 20);
+  assert.equal(bad.handle, 'off');
+  assert.equal(bad.thumb.drop, 5);
+});

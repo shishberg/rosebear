@@ -31,8 +31,9 @@
  * round and back, the spacing from it. The thumb's turn about the metacarpal isn't
  * set: it comes with the CMC's swing (twistAt), as it does in the hand.
  * The palm is a sketch.
- * Settings: two presets (near the Dactyl Manuform, valid and tuned by eye; the least
- * change from the resting hand that makes a valid layout), a rotation handle
+ * Settings: three presets (Dactyl fit, near the Dactyl Manuform and fitted by a test; Natural,
+ * the least change from the resting hand that makes a valid layout; Yours, set by hand in
+ * the editor from the Dactyl fit), a rotation handle
  * (the hand on the board at the middle home key, or the thumb at its CMC), a
  * few basic sliders that move several settings together, and the rest under
  * Advanced. The readout says first whether the layout is valid: no keycap
@@ -95,7 +96,9 @@ const V = (p: number[]) => new T.Vector3(...(p as V3));
 const Z = new T.Vector3(0, 0, 1);
 const rad = (d: number) => (d * Math.PI) / 180;
 const deg = (r: number) => (r * 180) / Math.PI;
-const capHeight = (c: Config) => c.switch.keycap_bottom_above_plate_mm + c.switch.keycap_mm[2];
+/** Key `name`'s cap top above the plate. */
+const capHeight = (c: Config, name: string) =>
+  c.switch.keycap_bottom_above_plate_mm + capSize(c, name)[2];
 
 /** Least squares by Gauss–Newton with backtracking. */
 function fit(res: (x: number[]) => number[], x0: number[]) {
@@ -410,7 +413,7 @@ function thumb(q: number[]) {
  * of the bone, its round end). On a key square to the pad that's the print
  * (ip_pad past the IP); the pad is soft, so as the key tilts across the bone
  * where it bears moves to the flat's edge over about 15°, and as it tilts
- * along the bone, to the round end (tip down) or toward the IP (tip up).
+ * along the bone tip down, to the round end (tip up it stays at the print).
  * `roll`: how far the nail tilts from parallel to the key, + toward the
  * outer edge (away from the index; 0: the key flat on the pad). */
 function touch(q: number[], n = Z) {
@@ -466,9 +469,15 @@ const arcPoint = (a: number) =>
     arc.centre[1] + arc.radius_mm * Math.sin(rad(a)),
     0,
   );
+/** Degrees round the arc of a point. Counted from -90° (the side of the centre opposite the
+ * fingers) so the thumb's keys, which go past 180°, carry on to 270° instead of wrapping negative. */
+const aroundOf = (p: { x: number; y: number }) => {
+  const r = deg(Math.atan2(p.y - arc.centre[1], p.x - arc.centre[0]));
+  return r < -90 ? r + 360 : r;
+};
 const printAngle = (k: string) => {
-  const p = (hand.measured.thumb_prints as Record<string, number[]>)[k];
-  return deg(Math.atan2(p[1] - arc.centre[1], p[0] - arc.centre[0]));
+  const [x, y] = (hand.measured.thumb_prints as Record<string, number[]>)[k];
+  return aroundOf({ x, y });
 };
 /** Where the thumb keys go: on the arc the thumb's pad swept in the photos
  * (thumb.arc_through_prints_1_to_4, the prints at rest, swept in, swept out
@@ -554,28 +563,23 @@ function thumbAt(a: number, z: number, bend = 0, n = Z) {
         }
       return bent((lo + hi) / 2, y);
     },
-    // From -90° (round the far side of the centre from the fingers, it wraps).
-    aroundOf = (q: number[]) => {
-      const p = touch(q, n).p,
-        r = deg(Math.atan2(p.y - arc.centre[1], p.x - arc.centre[0]));
-      return r < -90 ? r + 360 : r;
-    };
+    aroundAt = (q: number[]) => aroundOf(touch(q, n).p);
   // The key goes round the arc as the thumb swings out: bisect.
   let y0 = -60,
     y1 = 60;
-  if (aroundOf(lowered(y0)) > a) y1 = y0;
-  else if (aroundOf(lowered(y1)) < a) y0 = y1;
+  if (aroundAt(lowered(y0)) > a) y1 = y0;
+  else if (aroundAt(lowered(y1)) < a) y0 = y1;
   else
     for (let i = 0; i < 30; i++) {
       const m = (y0 + y1) / 2;
-      if (aroundOf(lowered(m)) < a) y0 = m;
+      if (aroundAt(lowered(m)) < a) y0 = m;
       else y1 = m;
     }
   const q = lowered((y0 + y1) / 2),
     t = touch(q, n);
   return {
     q,
-    miss: Math.abs(t.p.z - z) + (rad(Math.abs(aroundOf(q) - a)) + rad(b.past)) * arc.radius_mm,
+    miss: Math.abs(t.p.z - z) + (rad(Math.abs(aroundAt(q) - a)) + rad(b.past)) * arc.radius_mm,
     a,
   };
 }
@@ -687,11 +691,7 @@ function thumbRow(t: ThumbPose, spacing: number, top: number, two?: TwoRows) {
   // Off its place round the arc or its height, if it didn't settle.
   home = {
     ...home,
-    miss:
-      home.miss +
-      Math.abs(hp.z - z0) +
-      rad(Math.abs(deg(Math.atan2(hp.y - arc.centre[1], hp.x - arc.centre[0])) - t.around)) *
-        arc.radius_mm,
+    miss: home.miss + Math.abs(hp.z - z0) + rad(Math.abs(aroundOf(hp) - t.around)) * arc.radius_mm,
   };
   let from = { q: home.q, p: hp },
     gap = spacing,
@@ -734,7 +734,7 @@ function thumbRow(t: ThumbPose, spacing: number, top: number, two?: TwoRows) {
       frame: m,
       miss,
       roll: k.roll,
-      around: deg(Math.atan2(k.p.y - arc.centre[1], k.p.x - arc.centre[0])),
+      around: aroundOf(k.p),
       press: k.press,
       away: k.away,
     };
@@ -805,16 +805,16 @@ function drawHand(group: T.Group, chains: Record<Finger, Chain>, th: ReturnType<
 type KeyTop = { top: T.Vector3; normal: T.Vector3; up: T.Vector3 };
 function placeColumns(c: Config, keys: Record<string, KeyTop[]>, splay: Record<string, number>) {
   const g = c.geometry,
-    h = capHeight(c),
     over = g.key_overrides as Record<string, { offset_mm?: number[]; rotation_deg?: number[] }>;
   g.columns.forEach((col, ci) => {
     const K = keys[col.name];
     col.rotation_deg = [0, 0, Math.round(splay[col.name] * 10) / 10];
     col.offset_mm = [K[1].top.x - (ci - 2) * g.column_pitch_mm, K[1].top.y, 0];
-    col.heights_mm = K.map((k) => r2(k.top.z - h));
+    col.heights_mm = K.map((k, i) => r2(k.top.z - capHeight(c, `matrix_${col.name}_${ROWS[i]}`)));
     const frames = columnFrames(c, ci);
     ROWS.forEach((r, ri) => {
-      const z = K[ri].normal,
+      const name = `matrix_${col.name}_${r}`,
+        z = K[ri].normal,
         y = K[ri].up.clone().addScaledVector(z, -K[ri].up.dot(z)).normalize(),
         m = frames[ri]
           .clone()
@@ -822,10 +822,10 @@ function placeColumns(c: Config, keys: Record<string, KeyTop[]>, splay: Record<s
           .multiply(
             new T.Matrix4()
               .makeBasis(new T.Vector3().crossVectors(y, z), y, z)
-              .setPosition(K[ri].top.clone().addScaledVector(z, -h)),
+              .setPosition(K[ri].top.clone().addScaledVector(z, -capHeight(c, name))),
           ),
         e = new T.Euler().setFromRotationMatrix(m, 'ZYX');
-      over[`matrix_${col.name}_${r}`] = {
+      over[name] = {
         offset_mm: new T.Vector3().setFromMatrixPosition(m).toArray().map(r2),
         rotation_deg: [e.x, e.y, e.z].map((v) => r2(deg(v))),
       };
@@ -841,8 +841,16 @@ const r2 = (v: number) => Math.round(v * 100) / 100;
  * turn, so the arc's step and well are zeroed. */
 function placeThumb(c: Config, tops: T.Matrix4[], two: boolean) {
   const t = c.geometry.thumb,
-    seats = tops.map((m) =>
-      m.clone().multiply(new T.Matrix4().makeTranslation(0, 0, -capHeight(c))),
+    seats = tops.map((m, i) =>
+      m
+        .clone()
+        .multiply(
+          new T.Matrix4().makeTranslation(
+            0,
+            0,
+            -capHeight(c, `thumb_${['far', 'home', 'near'][i]}`),
+          ),
+        ),
     ),
     e = new T.Euler().setFromRotationMatrix(seats[1], 'ZYX');
   t.position_mm = new T.Vector3().setFromMatrixPosition(seats[1]).toArray().map(r2);
@@ -1397,7 +1405,7 @@ function check(
   c: Config,
   s: Settings,
   h = solveHand(s),
-  frame?: { mesh: MeshData; toHand: T.Matrix4 },
+  built?: { mesh: MeshData; toHand: T.Matrix4 },
 ) {
   const two = !!twoOf(s),
     caps = capsOf(c, h, two);
@@ -1407,9 +1415,9 @@ function check(
     capHits: capHits(c, caps),
     handHits: reachHits(c, s, h, {
       caps,
-      tris: frame ? trisOf(frame.mesh, frame.toHand) : [],
+      tris: built ? trisOf(built.mesh, built.toHand) : [],
     }),
-    frameChecked: !!frame,
+    frameChecked: !!built,
     short: [
       ...FINGERS.flatMap((f) => ROWS.map((r, ri) => [`${f} ${r}`, h.poses[f][ri].short] as const)),
       ...h.row.map((k, i) => [`thumb ${['far', 'home', 'near'][i]}`, k.miss] as const),
@@ -1453,8 +1461,8 @@ function check(
  * only) are closest to the Dactyl's, where no half step in any one of them
  * is closer and valid (a test, in tests/hand.test.ts). The rows come out
  * closer than tuned by eye on the printed frame (14.7 mm, was 17.7). The
- * thumb home key 124° round the arc (rest is 112°, swept out 140°), 12 mm
- * below the home row, the keys 24 mm apart. The reach and press as in
+ * thumb home key 124° round the arc (rest is 112°, swept out 140°), 13 mm
+ * below the home row, the keys 24.5 mm apart. The reach and press as in
  * Natural. The thumb keys sit 5–24 mm from the Dactyl's, facing 50–58° off:
  * the Dactyl's face you. Valid with the 1×3
  * cluster, the printed frame too. */
@@ -1568,15 +1576,30 @@ const START: HandState = {
   frameOn: false,
   buildCase: false,
 };
+/** The values each text setting takes. */
+const CHOICES: Record<string, readonly string[]> = {
+  row: ROWS,
+  thumbOn: ['rest', 'far', 'home', 'near'],
+  from: ['reach', 'press'],
+  cluster: ['1×3', '1.5u + 2×1u'],
+  handle: ['hand', 'off'],
+};
 /** A saved state (a project's, or pasted) on top of the start: each setting
- * it has of the same type; anything else (renamed since, say) starts over. */
+ * it has of the same type (a number a finite one, a text one of its choices);
+ * anything else (renamed since, say) starts over. */
 function stateOf(v: unknown): HandState {
   const fill = (to: Record<string, unknown>, from: unknown) => {
     if (!from || typeof from !== 'object') return;
     for (const [k, x] of Object.entries(from)) {
       const d = to[k];
       if (d && typeof d === 'object') fill(d as Record<string, unknown>, x);
-      else if (k in to && typeof x === typeof d) to[k] = x;
+      else if (
+        k in to &&
+        typeof x === typeof d &&
+        (typeof x !== 'number' || Number.isFinite(x)) &&
+        (typeof x !== 'string' || !CHOICES[k] || CHOICES[k].includes(x))
+      )
+        to[k] = x;
     }
   };
   const s = structuredClone(START);
@@ -1625,7 +1648,7 @@ function anchorOf(c0: Config) {
       c0.geometry.key_overrides as Record<string, { offset_mm?: number[]; rotation_deg?: number[] }>
     ).matrix_middle_home;
   // Through the key's own tilt too, or every reload moves the anchor.
-  return V([0, 0, capHeight(c0)]).applyMatrix4(
+  return V([0, 0, capHeight(c0, 'matrix_middle_home')]).applyMatrix4(
     columnFrames(c0, mi)[1].multiply(frame(o?.offset_mm, o?.rotation_deg)),
   );
 }
@@ -1791,6 +1814,7 @@ export function setupHand(host: Host) {
     >;
     drawHand(handGroup, shown, thumb(q));
     if (on) showPress(shown, q, on.press);
+    else cancelAnimationFrame(pressLoop);
     handGroup.matrix.copy(L);
     group.matrix.copy(tentFrame(c));
     group.matrixWorldNeedsUpdate = true;
@@ -1938,7 +1962,7 @@ export function setupHand(host: Host) {
     [
       'Dactyl fit',
       DACTYL,
-      "Near the Dactyl Manuform, at a reach seen on it (the wrist 63.1 mm up): the finger curl, pitch, thumb keys' place on the arc and gaps whose keys come closest to its keys.",
+      "Near the Dactyl Manuform, at a reach seen on it (the wrist 56.0 mm up): the finger curl, pitch, thumb keys' place on the arc and gaps whose keys come closest to its keys.",
     ],
     [
       'Natural',
@@ -1985,13 +2009,13 @@ export function setupHand(host: Host) {
   basic.append(share);
   radios(
     'Fingers on',
-    [...ROWS],
+    [...CHOICES.row],
     () => s().row,
     (v) => (s().row = v as Row),
   );
   radios(
     'Thumb on',
-    ['rest', ...cfg().geometry.thumb.keys.map((k) => k.name)],
+    [...CHOICES.thumbOn],
     () => s().thumbOn,
     (v) => (s().thumbOn = v),
   );
@@ -2003,7 +2027,7 @@ export function setupHand(host: Host) {
 
   radios(
     'Rotation handle:',
-    ['hand', 'off'],
+    [...CHOICES.handle],
     () => s().handle,
     (v) => (s().handle = v),
   );
@@ -2030,7 +2054,7 @@ export function setupHand(host: Host) {
       [() => s().top, (v) => (s().top = v), 5, 35],
       [() => s().bottom, (v) => (s().bottom = v), 5, 35],
       [() => s().innerGap, (v) => (s().innerGap = v), 18, 30],
-      [() => s().spacing, (v) => (s().spacing = v), 17, 30],
+      [() => s().spacing, (v) => (s().spacing = v), 17, 40],
     ],
     12,
     30,
@@ -2076,7 +2100,7 @@ export function setupHand(host: Host) {
   );
   radios(
     'Thumb keys',
-    ['1×3', '1.5u + 2×1u'],
+    [...CHOICES.cluster],
     () => s().cluster,
     (v) => (s().cluster = v),
   );
@@ -2218,7 +2242,7 @@ export function setupHand(host: Host) {
   );
   radios(
     'Rows reached from the',
-    ['reach', 'press'],
+    [...CHOICES.from],
     () => s().from,
     (v) => (s().from = v),
     fromBox,
@@ -2310,4 +2334,6 @@ export const _test = {
   wristHeightAt,
   mixFor,
   problems,
+  stateOf,
+  START,
 };

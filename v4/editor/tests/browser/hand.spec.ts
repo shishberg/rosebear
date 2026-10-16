@@ -78,6 +78,19 @@ test('the hand readout checks every reach against the keycaps and the frame', as
   // The thumb shown pressing its key, over and over.
   await page.getByText('Show the thumb pressing it').click();
   await page.waitForTimeout(500);
+  // With the thumb at rest it stops.
+  await page.evaluate(() => {
+    const w = window as unknown as { frames: number };
+    w.frames = 0;
+    const raf = window.requestAnimationFrame.bind(window);
+    window.requestAnimationFrame = (f) => ((w.frames += 1), raf(f));
+  });
+  await page.getByRole('radio', { name: 'rest', exact: true }).check();
+  await page.waitForTimeout(300);
+  const before = await page.evaluate(() => (window as unknown as { frames: number }).frames);
+  await page.waitForTimeout(500);
+  expect(await page.evaluate(() => (window as unknown as { frames: number }).frames)).toBe(before);
+  await page.getByRole('radio', { name: 'home', exact: true }).first().check();
   // Each thumb key's place round the arc, how the thumb bends and rolls there.
   await expect(note).toContainText(
     /Thumb keys round the arc: far \d+°, home 112°, near \d+°.*Bent at the MCP \/ IP: .*On its side by -?\d+°, -?\d+°, -?\d+°/,
