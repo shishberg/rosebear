@@ -1514,6 +1514,28 @@ const NATURAL: Settings = {
   cluster: '1×3',
   two: { gap: 19.5 },
 };
+/** Set by hand in the editor from the Dactyl fit (saved 16 Oct 2026): the
+ * home key 115° round the arc, the reach lowering the thumb as it swings out
+ * (0.85° of palmar abduction per degree), the press nearer palmar abduction
+ * (-23°), the rows and inner column a little further out. */
+const YOURS: Settings = {
+  tent: 15,
+  roll: 0,
+  pitch: 5,
+  bend: 0,
+  curl: { index: 10.5, middle: 10.5, ring: 10.5, pinky: 10.5 },
+  innerGap: 19.9,
+  innerAngle: 0,
+  top: 15.6,
+  bottom: 15.6,
+  from: 'reach',
+  wristHeight: 56,
+  pressMix: 1.4,
+  thumb: { around: 115, drop: 12, reach: { palmar: 0.85, curl: 0.3 }, press: -23 },
+  spacing: 24.9,
+  cluster: '1×3',
+  two: { gap: 19.5 },
+};
 /** Everything the panel sets: the layout's settings, what the hand is shown
  * doing and which parts of the panel are open. One state, kept in the project
  * (so Undo, the autosave and Save project carry all of it), the keys always
@@ -1908,16 +1930,22 @@ export function setupHand(host: Host) {
   const presets = document.createElement('div');
   presets.style.margin = '6px 0';
   presets.innerHTML = 'Start from: ';
-  for (const [name, p] of [
-    ['Dactyl fit', DACTYL],
-    ['Natural', NATURAL],
+  for (const [name, p, title] of [
+    [
+      'Dactyl fit',
+      DACTYL,
+      "Near the Dactyl Manuform, at a reach seen on it (the wrist 63.1 mm up): the finger curl, pitch, thumb keys' place on the arc and gaps whose keys come closest to its keys.",
+    ],
+    [
+      'Natural',
+      NATURAL,
+      'The least change from your resting hand (fitted under an earlier check).',
+    ],
+    ['Yours', YOURS, 'Set by hand in the editor from the Dactyl fit (16 Oct).'],
   ] as const) {
     const b = document.createElement('button');
     b.textContent = name;
-    b.title =
-      name === 'Natural'
-        ? 'The least change from your resting hand (fitted under an earlier check).'
-        : "Near the Dactyl Manuform, at a reach seen on it (the wrist 63.1 mm up): the finger curl, pitch, thumb keys' place on the arc and gaps whose keys come closest to its keys.";
+    b.title = title;
     // Every layout setting, keeping how rows are reached and the cluster.
     b.addEventListener('click', () =>
       edit((s) => Object.assign(s, structuredClone(p), { from: s.from, cluster: s.cluster })),
@@ -2273,6 +2301,7 @@ export const _test = {
   deskOf,
   NATURAL,
   DACTYL,
+  YOURS,
   MIX_MIN,
   wristHeightAt,
   mixFor,
