@@ -122,12 +122,16 @@ test('each thumb key faces against the press, its mix as set, the reach in its p
         deg = (r: number) => (r * 180) / Math.PI;
       assert.ok(k.miss < 0.01, `${at}: misses by ${k.miss.toFixed(2)}`);
       assert.ok(n.distanceTo(k.n) < 1e-9);
-      // The press: the set mix of palmar abduction and curl, and some radial
-      // abduction; the touching point sets off straight into the key.
+      // The press: the set mix of palmar abduction and curl, less some of the
+      // reach's mix; the touching point sets off straight into the key.
+      const reach = [1, s.thumb.reach.palmar, s.thumb.reach.curl],
+        set = k.press.map((v, j) => v - k.press[0] * reach[j]);
+      assert.ok(Math.abs(set[0]) < 1e-12);
       assert.ok(
-        Math.abs(deg(Math.atan2(k.press[2], k.press[1])) - s.thumb.press) < 1e-6,
+        Math.abs(deg(Math.atan2(set[2], set[1])) - s.thumb.press) < 1e-6,
         `${at}: the press's mix`,
       );
+      assert.ok(!k.away, `${at}: pressing moves the thumb off`);
       assert.ok(hand.pressed(k.q, 0, k.press).every((v, j) => Math.abs(v - k.q[j]) < 1e-9));
       const into = point(hand.pressed(k.q, 0.1, k.press)).sub(k.at);
       assert.ok(Math.abs(into.length() - 0.1) < 0.002, `${at}: 0.1 mm goes ${into.length()}`);
@@ -424,4 +428,40 @@ test("the test frame is one piece on legs under the plates' outer corners, flat 
     // No faults: every leg clears every switch and keycap, nothing cut.
     assert.deepEqual(frame.faults, []);
   }
+});
+
+test('the thumb keys move smoothly as each thumb setting changes, wherever the layout is free of thumb faults', () => {
+  type S = typeof hand.DACTYL;
+  const knobs: [string, (s: S, v: number) => void, number, number, number][] = [
+    ['reach palmar', (s, v) => (s.thumb.reach.palmar = v), -2, 2, 0.05],
+    ['reach curl', (s, v) => (s.thumb.reach.curl = v), -2, 2, 0.05],
+    ['press', (s, v) => (s.thumb.press = v), -90, 90, 1],
+    ['around', (s, v) => (s.thumb.around = v), 70, 180, 1],
+    ['drop', (s, v) => (s.thumb.drop = v), -20, 50, 0.5],
+    ['spacing', (s, v) => (s.spacing = v), 12, 40, 0.5],
+  ];
+  const jumps: string[] = [];
+  for (const [name, base] of [
+    ['Dactyl fit', hand.DACTYL],
+    ['Natural', hand.NATURAL],
+  ] as const)
+    for (const [knob, set, lo, hi, step] of knobs) {
+      let prev: { row: ReturnType<typeof hand.solveHand>['row']; fault: boolean } | undefined;
+      for (let i = 0; lo + i * step <= hi + 1e-9; i++) {
+        const v = Math.round((lo + i * step) * 100) / 100,
+          s = structuredClone(base);
+        set(s, v);
+        const row = hand.solveHand(s).row,
+          fault = row.some((k) => k.away || Math.abs(k.roll) > hand.BACK_OF_THUMB || k.miss > 0.01);
+        if (prev && !fault && !prev.fault)
+          row.forEach((k, j) => {
+            const mm = k.at.distanceTo(prev!.row[j].at),
+              turn = (k.n.angleTo(prev!.row[j].n) * 180) / Math.PI;
+            if (mm > 4 || turn > 12)
+              jumps.push(`${name}, ${knob} ${v}: ${mm.toFixed(1)} mm, ${turn.toFixed(0)}°`);
+          });
+        prev = { row, fault };
+      }
+    }
+  assert.deepEqual(jumps, []);
 });

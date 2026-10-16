@@ -417,7 +417,9 @@ function touch(q: number[], n = Z) {
     out = Math.sign(side.dot(mid.clone().sub(INDEX_MCP))) || 1,
     // Into the key, across the bone: to the flat's edge when it tilts at all.
     g = n.clone().negate().addScaledVector(th.u, th.u.dot(n)).normalize(),
-    across = Math.max(-1, Math.min(1, g.dot(side) / 0.05));
+    // The pad is soft: as the key tilts across it, where it bears moves from
+    // the middle of the flat to its edge over about 15°.
+    across = Math.max(-1, Math.min(1, g.dot(side) / Math.sin(rad(15))));
   return {
     p: mid
       .clone()
@@ -482,8 +484,8 @@ type ThumbPose = {
    * palmar abduction (+ lowering the thumb as it swings out) and of curl. */
   reach: { palmar: number; curl: number };
   /** The press: degrees from palmar abduction alone (0) toward the curl
-   * alone (90; − straightening). With it as much radial abduction as makes
-   * the press square to the reach. */
+   * alone (90; − straightening), less as much of the reach mix as makes it
+   * square to the reach. */
   press: number;
 };
 /** How far the thumb's MCP and IP go, degrees: a guess as the fit bounds them (they hyperextend a little). */
@@ -581,11 +583,15 @@ const reachMix = (t: ThumbPose): Mix => [1, t.reach.palmar, t.reach.curl];
  * out of the cap), the reach through it (`sweep`: which way the touching
  * point goes as the thumb moves by the reach mix, swinging out), and the
  * press (a Mix per mm into the key). The press is `t.press`'s mix of palmar
- * abduction and curl, with as much radial abduction as moves the touching
- * point square to the reach. The key faces against the press, so the reach
- * lies in its plane. Where the thumb touches depends on which way the key
- * faces (touch), so it's settled over a few rounds. */
+ * abduction and curl, less as much of the reach mix as moves the touching
+ * point along the reach, so it's square to the reach. The key faces against
+ * it, the reach in its plane. Where the thumb touches depends on which way
+ * the key faces (touch), so it's settled round by round. `away`: the press
+ * moves the thumb off the key it touches (the key would have to be on the
+ * thumb's other side). */
 function keyAt(q: number[], t: ThumbPose) {
+  const reach = reachMix(t),
+    share = [0, Math.cos(rad(t.press)), Math.sin(rad(t.press))];
   let n = Z.clone();
   for (let i = 0; ; i++) {
     const tp = touch(q, n),
@@ -604,12 +610,23 @@ function keyAt(q: number[], t: ThumbPose) {
       ),
       along = (m: Mix) =>
         J[0].clone().multiplyScalar(m[0]).addScaledVector(J[1], m[1]).addScaledVector(J[2], m[2]),
-      sweep = along(reachMix(t)).normalize(),
-      share = [0, Math.cos(rad(t.press)), Math.sin(rad(t.press))],
-      mix = [-along(share).dot(sweep) / J[0].dot(sweep), share[1], share[2]],
-      d = along(mix);
-    n = d.clone().normalize().negate();
-    if (i === 3) return { p: tp.p, n, roll: tp.roll, sweep, press: mix.map((v) => v / d.length()) };
+      r = along(reach),
+      k = along(share).dot(r) / r.lengthSq(),
+      mix = share.map((v, j) => v - k * reach[j]),
+      d = along(mix),
+      next = d.clone().normalize().negate(),
+      away = next.dot(n) < 0,
+      moved = next.angleTo(n);
+    if (!away) n = next;
+    if (away || moved < 1e-7 || i === 40)
+      return {
+        p: tp.p,
+        n,
+        roll: tp.roll,
+        sweep: r.normalize(),
+        press: mix.map((v) => v / d.length()),
+        away,
+      };
   }
 }
 /** From the key `from` (the thumb at `from.q` touching it at `from.p`), the
@@ -631,6 +648,8 @@ function thumbAlong(from: { q: number[]; p: T.Vector3 }, sign: number, gap: numb
   const s = (lo + hi) / 2;
   return { q: at(s), miss: Math.abs(off(s)) };
 }
+/** Degrees on its side past which a key meets the back of the thumb. */
+const BACK_OF_THUMB = 120;
 /** Degrees the MCP or IP is past its range at `q`. */
 const pastJoints = (q: number[]) => {
   const past = (v: number, [lo, hi]: number[]) => Math.max(0, lo - v, v - hi);
@@ -651,14 +670,27 @@ const pastJoints = (q: number[]) => {
 function thumbRow(t: ThumbPose, spacing: number, top: number, two?: TwoRows) {
   const z0 = top - t.drop;
   // The home key's place and height hold whichever way it faces, and the
-  // thumb touches it where it does: settled over a few rounds.
+  // thumb touches it where it does: settled round by round (halfway each
+  // round after the first ten, in case it swings back and forth).
   let n = Z.clone(),
     home = thumbAt(t.around, z0, 0, n);
-  for (let i = 0; i < 3; i++) {
-    n = keyAt(home.q, t).n;
+  for (let i = 0; i < 40; i++) {
+    const next = keyAt(home.q, t).n,
+      moved = next.angleTo(n);
+    n = i < 10 ? next : n.clone().add(next).normalize();
     home = thumbAt(t.around, z0, 0, n);
+    if (moved < 1e-7) break;
   }
-  const hp = touch(home.q, n).p;
+  const hp = keyAt(home.q, t).p;
+  // Off its place round the arc or its height, if it didn't settle.
+  home = {
+    ...home,
+    miss:
+      home.miss +
+      Math.abs(hp.z - z0) +
+      rad(Math.abs(deg(Math.atan2(hp.y - arc.centre[1], hp.x - arc.centre[0])) - t.around)) *
+        arc.radius_mm,
+  };
   let from = { q: home.q, p: hp },
     gap = spacing,
     f = 0;
@@ -702,6 +734,7 @@ function thumbRow(t: ThumbPose, spacing: number, top: number, two?: TwoRows) {
       roll: k.roll,
       around: deg(Math.atan2(k.p.y - arc.centre[1], k.p.x - arc.centre[0])),
       press: k.press,
+      away: k.away,
     };
   });
   return Object.assign(row, { mid: from });
@@ -1390,6 +1423,15 @@ function check(
         ),
       }))
       .filter((x) => x.past > 0.5),
+    /** Thumb keys met with the back of the thumb: on its side past
+     * BACK_OF_THUMB (in the photos it lay at about 100–107° on the paper). */
+    backOfThumb: h.row.flatMap((k, i) =>
+      Math.abs(k.roll) > BACK_OF_THUMB
+        ? [{ key: `thumb ${['far', 'home', 'near'][i]}`, roll: Math.abs(k.roll) }]
+        : [],
+    ),
+    /** Thumb keys the press moves the thumb off. */
+    pressAway: h.row.flatMap((k, i) => (k.away ? [`thumb ${['far', 'home', 'near'][i]}`] : [])),
     /** The arm can't carry the hand far enough sideways for the inner column. */
     innerShort: h.inner.limited,
     /** mm the wrist height is past what any reach gives at this curl. */
@@ -1477,6 +1519,10 @@ const problems = (r: ReturnType<typeof check>) => [
   ...r.capHits.map((x) => `${capName(x.a)} hits ${capName(x.b)} (${x.depth.toFixed(1)} mm)`),
   ...r.handHits.map((x) => `${x.a} ${x.during}: into ${x.b} (${x.depth.toFixed(1)} mm)`),
   ...r.short.map(([k, m]) => `${k} out of reach (${m.toFixed(0)} mm)`),
+  ...r.pressAway.map((k) => `pressing ${k}, the thumb moves off it`),
+  ...r.backOfThumb.map(
+    (x) => `${x.key} meets the back of the thumb (on its side by ${x.roll.toFixed(0)}°)`,
+  ),
   ...r.pastJoints.map(
     (x) => `${x.key}: the thumb's MCP or IP ${x.past.toFixed(0)}° past its range`,
   ),
@@ -2236,6 +2282,7 @@ export const _test = {
   moveBy,
   thumbRow,
   touch,
+  BACK_OF_THUMB,
   twistAt,
   thumbAt,
   photoPose,
