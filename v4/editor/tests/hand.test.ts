@@ -421,8 +421,8 @@ test("keys whose tiles overlap aren't valid: the boards and the parts hanging un
     ROWS.map((r) => `matrix_index_${r} matrix_inner_${r}`).sort(),
   );
   assert.deepEqual(tiles(hand.NATURAL), []);
-  // Yours's thumb as it was: the far and home keys tilt together, so their
-  // boards (20 mm under the keycaps' tops) meet.
+  // Yours's thumb as it was, each key facing its own press: the far and home
+  // keys tilt together, so their boards (20 mm under the keycaps' tops) meet.
   assert.deepEqual(
     tiles({
       ...structuredClone(hand.YOURS),
@@ -431,6 +431,24 @@ test("keys whose tiles overlap aren't valid: the boards and the parts hanging un
     }),
     ['thumb_far thumb_home'],
   );
+});
+test('far and near thumb keys parallel to the home key: as it faces and turned as it is, where the thumb touches a key facing that way, pressed at an angle', () => {
+  const at = (s: Settings) => hand.solveHand(s).row,
+    yours = at(hand.YOURS),
+    own = at({ ...structuredClone(hand.YOURS), thumb: { ...hand.YOURS.thumb, parallel: false } }),
+    [far, home, near] = yours,
+    R = (k: (typeof yours)[number]) => new T.Matrix3().setFromMatrix4(k.frame).elements;
+  assert.equal(home.slant, 0);
+  for (const k of [far, near]) {
+    R(k).forEach((v, i) => assert.ok(Math.abs(v - R(home)[i]) < 1e-9));
+    assert.ok(k.n.angleTo(home.n) < 1e-9);
+    assert.ok(k.slant > 5 && k.slant < 30, `${k.slant}`);
+    assert.ok(!k.away);
+    assert.ok(Math.abs(k.at.distanceTo(home.at) - hand.YOURS.spacing) < 0.05);
+  }
+  // Each facing its own press, they tilt in toward the home key: 20–30°.
+  for (const i of [0, 2]) assert.ok(own[i].n.angleTo(home.n) > (10 * Math.PI) / 180);
+  assert.ok(own.every((k) => k.slant === 0));
 });
 test('the extra thumb keys: under the gaps between the thumb keys, toward the wrist, the thumb curled more; laid out, checked and in the frame only when on', () => {
   const on = { ...structuredClone(hand.YOURS), extra: { ...hand.START.extra, on: true } },
