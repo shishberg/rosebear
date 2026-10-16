@@ -3,7 +3,7 @@
 // sample is the screen point and, where the ray hits the model, the world point
 // and normal on it. Save sends the strokes, the camera, a note and a screenshot
 // to the dev server, which writes them to marks/ (see vite.config.ts).
-// Delete all removes every saved mark, for all views.
+// Delete all removes every saved mark.
 // ?mark=<id> opens on a saved mark's view; ?marks=0 hides the saved marks.
 import * as T from 'three';
 import type { OrbitControls } from 'three/addons/controls/OrbitControls.js';
@@ -14,8 +14,6 @@ type Mark = {
   id: string;
   time: string;
   commit: string;
-  variant: string;
-  thumbs: string;
   note: string;
   camera: { position: number[]; target: number[]; up: number[]; fov?: number; zoom?: number };
   strokes: Stroke[];
@@ -30,8 +28,6 @@ export function setupMarks(o: {
   renderer: T.WebGLRenderer;
   // The model's meshes, and what each is (shell, keycaps…).
   targets: () => [T.Object3D, string][];
-  // What is on screen (a variant and thumb layout), and the URL query that shows it.
-  view: () => { variant: string; thumbs: string; query: string };
   // Draws the scene again, where it isn't drawn every frame.
   render?: () => void;
 }) {
@@ -83,13 +79,13 @@ export function setupMarks(o: {
     }
     return meshes;
   }
-  // Frees the GPU buffers; Group.clear alone leaves them.
+  // Frees the GPU buffers; removing a mesh from its group alone leaves them.
+  function free(m: T.Mesh) {
+    m.geometry.dispose();
+    (m.material as T.Material).dispose();
+  }
   function empty(g: T.Group) {
-    for (const o of g.children) {
-      const m = o as T.Mesh;
-      m.geometry.dispose();
-      (m.material as T.Material).dispose();
-    }
+    g.children.forEach((m) => free(m as T.Mesh));
     g.clear();
   }
   // The stroke being drawn is the only one that changes, so only it is rebuilt.
@@ -103,24 +99,20 @@ export function setupMarks(o: {
   function redrawLive() {
     for (const m of live) {
       current.remove(m);
-      m.geometry.dispose();
-      (m.material as T.Material).dispose();
+      free(m);
     }
     live = draw(stroke!, 0xff2a2a, current);
     render();
   }
   function showSaved() {
     empty(saved);
-    const v = o.view();
     saved.visible = $<HTMLInputElement>('mk-show').checked;
-    for (const m of marks)
-      if (m.variant === v.variant && m.thumbs === v.thumbs)
-        m.strokes.forEach((s) => draw(s, 0xffd21a, saved));
+    for (const m of marks) m.strokes.forEach((s) => draw(s, 0xffd21a, saved));
     $('mk-list').innerHTML = marks.length
       ? marks
           .map(
             (m) =>
-              `<div style="margin-top:4px;${m.variant === v.variant && m.thumbs === v.thumbs ? '' : 'opacity:.5'}"><a href="#" data-go="${m.id}" style="color:#ffd21a">${m.id}</a> <a href="#" data-del="${m.id}" style="color:#f88" title="delete">×</a><br>${m.note ? m.note.replace(/</g, '&lt;') : '<i>no note</i>'}</div>`,
+              `<div style="margin-top:4px"><a href="#" data-go="${m.id}" style="color:#ffd21a">${m.id}</a> <a href="#" data-del="${m.id}" style="color:#f88" title="delete">×</a><br>${m.note ? m.note.replace(/</g, '&lt;') : '<i>no note</i>'}</div>`,
           )
           .join('')
       : '<div style="color:#9aa;margin-top:4px">No saved marks.</div>';
@@ -165,18 +157,14 @@ export function setupMarks(o: {
     e.preventDefault();
     const m = marks.find((q) => q.id === (a.dataset.go ?? a.dataset.del));
     if (!m) return;
-    if (a.dataset.go) {
-      const v = o.view();
-      if (m.variant !== v.variant || m.thumbs !== v.thumbs)
-        location.search = `?variant=${m.variant}&thumbs=${m.thumbs}&mark=${m.id}`;
-      else go(m);
-    } else if (confirm(`Delete mark ${m.id}?`)) {
+    if (a.dataset.go) go(m);
+    else if (confirm(`Delete mark ${m.id}?`)) {
       await fetch('/__marks/' + m.id, { method: 'DELETE' });
       await load();
     }
   };
   $('mk-delall').onclick = async () => {
-    if (!confirm(`Delete all ${marks.length} saved marks, for every variant?`)) return;
+    if (!confirm(`Delete all ${marks.length} saved marks?`)) return;
     await fetch('/__marks', { method: 'DELETE' });
     await load();
   };
@@ -189,13 +177,13 @@ export function setupMarks(o: {
     const shot = canvas.toDataURL('image/png');
     saved.visible = was;
     render();
-    const v = o.view(),
-      hits = strokes.flatMap((s) => s.hits).filter((h): h is NonNullable<Hit> => !!h),
+    const hits = strokes.flatMap((s) => s.hits).filter((h): h is NonNullable<Hit> => !!h),
       box = new T.Box3().setFromPoints(hits.map((h) => new T.Vector3(...h.p)));
     const body = {
-      variant: v.variant,
-      thumbs: v.thumbs,
-      query: v.query,
+      // The dev server names mark files by variant.
+      variant: 'chassis',
+      thumbs: 'editor',
+      query: location.search,
       note: $<HTMLTextAreaElement>('mk-note').value.trim(),
       camera: {
         position: camera.position.toArray().map(r1),
@@ -265,9 +253,11 @@ export function setupMarks(o: {
     redrawLive();
   });
   canvas.addEventListener('pointerup', () => {
-    if (stroke && !stroke.hits.some(Boolean)) strokes.pop();
+    if (stroke && !stroke.hits.some(Boolean)) {
+      strokes.pop();
+      redraw();
+    }
     stroke = undefined;
-    redraw();
   });
   addEventListener('keydown', (e) => {
     if ((e.target as HTMLElement).matches('input,textarea,[contenteditable]')) return;
@@ -285,11 +275,5 @@ export function setupMarks(o: {
   });
   return {
     painting: () => painting,
-    // After the model changes: drop unsaved strokes, redraw the saved marks for it.
-    shown() {
-      strokes = [];
-      redraw();
-      showSaved();
-    },
   };
 }

@@ -49,7 +49,7 @@ import {
 } from './geometry';
 
 /** Sizes in mm. */
-export const FRAME = {
+const FRAME = {
   /** The plate ring past the switch pocket. */
   wall: 1.6,
   /** How far the ring's outside lip reaches down from the plate top. */
@@ -120,7 +120,7 @@ export type FrameResult = {
 };
 
 /** The keys the hand lays out: the finger matrix and the thumb row. */
-export function frameKeys(cfg: Config) {
+function frameKeys(cfg: Config) {
   return [
     ...cfg.geometry.columns.flatMap((c) => ROWS.map((r) => `matrix_${c.name}_${r}`)),
     ...cfg.geometry.thumb.keys.map((k) => `thumb_${k.name}`),
@@ -132,7 +132,7 @@ const label = (n: string) => n.replace(/^matrix_/, '').replace('_', ' ');
 /** Where pressing each corner of each key's cap top pushes the frame: the
  * press, along the switch, met with the floor (keys facing within 80° of
  * sideways only; one facing further pushes the frame along the desk). */
-export function presses(
+function presses(
   cfg: Config,
   frames: ReturnType<typeof componentFrames>,
   keys: string[],
@@ -154,7 +154,7 @@ export function presses(
   });
 }
 /** The convex hull of points in the plane, anticlockwise. */
-export function convex(ps: number[][]) {
+function convex(ps: number[][]) {
   const s = [...ps].sort((a, b) => a[0] - b[0] || a[1] - b[1]),
     turn = (o: number[], a: number[], b: number[]) =>
       (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]),
@@ -169,7 +169,7 @@ export function convex(ps: number[][]) {
   return [...half(s), ...half(s.reverse())];
 }
 /** How far point p is inside a convex polygon (anticlockwise), mm; negative outside. */
-export function inside(poly: number[][], p: number[]) {
+function inside(poly: number[][], p: number[]) {
   return Math.min(
     ...poly.map((a, i) => {
       const b = poly[(i + 1) % poly.length],
@@ -182,7 +182,7 @@ export function inside(poly: number[][], p: number[]) {
 /** Whether a strut of radius `r` from a to b clears every switch (its hole,
  * and its pocket down past the pins) and keycap (pressed to rest, with the
  * switch top under it): each a box in its key's frame. */
-export function clearOf(
+function clearOf(
   cfg: Config,
   frames: ReturnType<typeof componentFrames>,
   keys: string[],
@@ -236,7 +236,6 @@ function makeFrame(wasm: ManifoldToplevel, cfg: Config) {
     sw = cfg.switch,
     frames = componentFrames(cfg),
     keys = frameKeys(cfg),
-    thumbs = keys.filter(isThumb),
     plate = sw.clip_land_thickness_mm,
     pocket = sw.seat_outer_mm.map((x) => x / 2),
     hp = pocket.map((x) => x + FRAME.wall),
@@ -250,7 +249,6 @@ function makeFrame(wasm: ManifoldToplevel, cfg: Config) {
     axis = (n: string, i: number) => frames[n].elements.slice(i * 4, i * 4 + 3),
     lowest = (ps: Vec3[]) => Math.min(...ps.map((p) => p[2])),
     floor = Math.min(...keys.map((n) => lowest(box(n, hp, deep, deep)))),
-    down = (ps: Vec3[], z = floor) => [...ps, ...ps.map((p) => [p[0], p[1], z] as Vec3)],
     centre = (n: string) => frames[n].elements.slice(12, 15),
     dist3 = (n: string, m: string) => Math.hypot(...centre(n).map((x, i) => x - centre(m)[i])),
     /** Which side of key n faces key m: its axis (0 across, 1 along the

@@ -4,7 +4,7 @@ import { test, type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import Module from 'manifold-3d';
-import { clone, componentFrames, defaults, ROWS } from '../src/geometry';
+import { clone, defaults, ROWS } from '../src/geometry';
 import { buildFrame } from '../src/hand-frame';
 import { _test as hand } from '../src/hand-prototype';
 
@@ -82,7 +82,7 @@ test('Dactyl fit: the hand reaches every key touching nothing else, and it fits 
   report(t, r);
   assert.deepEqual(r.r.handHits, []);
   assert.deepEqual(r.r.capHits, []);
-  assert.ok(r.r.height.all <= hand.TRAY, `${r.r.height.all.toFixed(1)} mm tall`);
+  assert.ok(r.r.height <= hand.TRAY, `${r.r.height.toFixed(1)} mm tall`);
   assert.deepEqual(hand.problems(r.r), []);
 });
 // Natural's printed frame: the index brushed the thumb cluster, which the

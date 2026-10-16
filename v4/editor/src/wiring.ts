@@ -74,7 +74,7 @@ export interface Wiring {
 }
 
 /** Extra sizes for the wiring, in mm, that are not in the config. */
-export const WIRING = {
+const WIRING = {
   /** The wire port's inside end is this far inside the plate corners. */
   slotInside: 3,
   /** The wire port runs halfway down from this far under the lower of its two plate corners to the base. */
@@ -205,7 +205,7 @@ const facing = (m: Matrix4, dir: number[]) => {
  * its end inside the finger columns, `centre` where it crosses the line
  * between the two keys' plate corners.
  */
-export function wirePort(cfg: Config, frames = componentFrames(cfg)) {
+function wirePort(cfg: Config, frames = componentFrames(cfg)) {
   const plateHalf = plateHalfWidths(cfg);
   const [a, b] = ['inner', 'index'].map((c) => `matrix_${c}_bottom`);
   const corner = (n: string, other: string) => {
@@ -243,12 +243,6 @@ export function wirePort(cfg: Config, frames = componentFrames(cfg)) {
   };
 }
 
-/** The closest distance between segments pq and rs. */
-export function segmentDistance(p: V3, q: V3, r: V3, s: V3) {
-  return Math.sqrt(
-    segmentDistance2(p[0], p[1], p[2], q[0], q[1], q[2], r[0], r[1], r[2], s[0], s[1], s[2]),
-  );
-}
 /** The squared closest distance between two segments, from their end coordinates. */
 function segmentDistance2(
   px: number,
@@ -408,7 +402,6 @@ interface Lane {
 
 /** A box in a key's frame that wires must keep out of. */
 interface Obstacle {
-  name?: string;
   inverse: Matrix4;
   lo: V3;
   hi: V3;
@@ -468,7 +461,6 @@ export function wiring(cfg: Config, frames = componentFrames(cfg)): Wiring {
         point(m, [i & 1 ? hi[0] : lo[0], i & 2 ? hi[1] : lo[1], i & 4 ? hi[2] : lo[2]]),
       );
       list.push({
-        name: `${key} ${obstacles.length}`,
         inverse,
         lo,
         hi,
@@ -1443,7 +1435,7 @@ const segmentPart = (
  * through the port panel, whose end face it crosses at x = `panel`, to
  * outside_mm beyond it.
  */
-export function ribbonPath(cfg: Config, panel = defaultPanel(cfg)) {
+function ribbonPath(cfg: Config, panel = defaultPanel(cfg)) {
   const a = cfg.adapter;
   const r = cfg.ribbon;
   const [bx, , bz] = a.board_mm;
@@ -1466,7 +1458,7 @@ export function ribbonPath(cfg: Config, panel = defaultPanel(cfg)) {
   return points;
 }
 /** The adapter-frame x the landing must stop short of, clear of the slack loop. */
-export function landingEnd(cfg: Config) {
+function landingEnd(cfg: Config) {
   const a = cfg.adapter;
   return -a.board_mm[0] / 2 + a.connector_inset_mm - 3 - 2 * cfg.ribbon.loop_radius_mm;
 }

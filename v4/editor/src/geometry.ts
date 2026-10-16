@@ -146,7 +146,7 @@ export function columnFrames(cfg: Config, ci: number) {
  * centred on position_mm. Each key also tilts toward the cluster's middle by
  * well_deg per key step, rising so its centre stays on a circle through the
  * middle of the cluster. */
-export function clusterFrames(c: Cluster) {
+function clusterFrames(c: Cluster) {
   const root = frame(c.position_mm, c.rotation_deg),
     n = c.keys.length,
     R = c.arc.radius_mm;
@@ -195,7 +195,7 @@ export function componentFrames(cfg: Config) {
  * the base, 14 mm at the top, 11 mm high) and travel (3.5 mm), where a project
  * still has the earlier guesses.
  */
-export function migrate(c: Record<string, any>) {
+function migrate(c: Record<string, any>) {
   const d = defaultConfig as Record<string, any>;
   if (!(c.schema >= 2)) {
     c.adapter = clone(d.adapter);

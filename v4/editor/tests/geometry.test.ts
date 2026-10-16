@@ -19,8 +19,6 @@ import { crossings, holes, nets, wiring } from '../src/wiring';
 import ref from './python-reference.json';
 const pos = (m: { elements: number[] }) => new Vector3(...m.elements.slice(12, 15));
 const normal = (m: { elements: number[] }) => new Vector3(...m.elements.slice(8, 11));
-// The defaults with the keycap sizes the chassis was laid out for, before they
-// were measured.
 test('default column heights reproduce the Python reference finger poses', () => {
   // The heights and sideways tilts were taken from the old paraboloid surface, so
   // the finger keys sit where the Python generator put them.
@@ -121,8 +119,7 @@ test('default chassis passes: one piece on one footprint, clear of the tile pock
   assert.deepEqual(r.report.solder, []);
   assert(r.report.keycaps.every((k) => k.passed));
   assert(r.report.capGaps.every((g) => g.gap > 0));
-  assert(r.report.openings.every((o) => o.removed > 0 && o.covered === 9 && o.blocked === 0));
-  assert(r.report.openings.length > 0 && r.report.openings.every((o) => o.passed === true));
+  assert(r.report.openings.length > 0 && r.report.openings.every((o) => o.passed));
   assert(r.report.passed);
   const mounted = new wasm.Manifold(
     new wasm.Mesh({ numProp: 3, vertProperties: r.mesh.positions, triVerts: r.mesh.indices }),

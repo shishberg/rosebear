@@ -84,7 +84,6 @@ type Host = {
   snapshot: () => void;
   edited: () => void;
   render: () => void;
-  rebuild: () => void;
 };
 const FINGERS = ['index', 'middle', 'ring', 'pinky'] as const;
 type Finger = (typeof FINGERS)[number];
@@ -99,50 +98,6 @@ const deg = (r: number) => (r * 180) / Math.PI;
 /** Key `name`'s cap top above the plate. */
 const capHeight = (c: Config, name: string) =>
   c.switch.keycap_bottom_above_plate_mm + capSize(c, name)[2];
-
-/** Least squares by Gauss–Newton with backtracking. */
-function fit(res: (x: number[]) => number[], x0: number[]) {
-  let x = x0.slice();
-  const n = x.length,
-    cost = (v: number[]) => res(v).reduce((s, r) => s + r * r, 0);
-  for (let it = 0; it < 80; it++) {
-    const r0 = res(x),
-      J = x.map((_, j) => {
-        const y = x.slice();
-        y[j] += 0.01;
-        return res(y).map((v, i) => (v - r0[i]) / 0.01);
-      }),
-      A = J.map((a, i) =>
-        J.map((b, j) => a.reduce((s, v, k) => s + v * b[k], 0) + (i === j ? 1e-6 : 0)),
-      ),
-      g = J.map((a) => -a.reduce((s, v, k) => s + v * r0[k], 0));
-    // Solve A δ = g by elimination.
-    const M = A.map((row, i) => [...row, g[i]]);
-    for (let c = 0; c < n; c++) {
-      const p = M.reduce(
-        (b, row, i) => (i >= c && Math.abs(row[c]) > Math.abs(M[b][c]) ? i : b),
-        c,
-      );
-      [M[c], M[p]] = [M[p], M[c]];
-      for (let i = 0; i < n; i++)
-        if (i !== c) {
-          const f = M[i][c] / M[c][c];
-          for (let k = c; k <= n; k++) M[i][k] -= f * M[c][k];
-        }
-    }
-    const step = M.map((row, i) => row[n] / row[i]),
-      c0 = cost(x);
-    let k = Math.min(1, 10 / (Math.hypot(...step) || 1)),
-      next = x;
-    for (let h = 0; h < 12; h++, k /= 2) {
-      next = x.map((v, i) => v + k * step[i]);
-      if (cost(next) < c0) break;
-    }
-    if (Math.hypot(...next.map((v, i) => v - x[i])) < 1e-4) break;
-    x = next;
-  }
-  return x;
-}
 
 // ---------------------------------------------------------------- fingers
 /** pad: where the finger touches (at rest, the measured print; on a key, the
@@ -206,7 +161,6 @@ function finger(f: Finger, mcp: number, pip: number, abd = 0): Chain {
     p.sub(c.mcp).applyAxisAngle(Z, rad(abd)).add(c.mcp);
   return c;
 }
-const curled = (f: Finger, curl: number, abd = 0) => finger(f, 0.4 * curl, curl, abd);
 
 /** The resting PIP bend, so how far it can straighten before the finger is flat. */
 const PIP_BEND = Object.fromEntries(
@@ -331,10 +285,7 @@ function innerColumn(index: Pose[], gap: number, angle: number) {
   }
   return {
     poses: at(hi),
-    slide: hi,
     limited: hi >= lim[1] - 0.01 || hi <= lim[0] + 0.01,
-    /** Any index pose carried over to the inner column. */
-    place: (p: Pose) => moved(p, p.chain.mcp, angle, side.clone().multiplyScalar(hi)),
     /** An index pose `t` of the way over (0–1). */
     placeAt: (p: Pose, t: number) =>
       moved(p, p.chain.mcp, angle * t, side.clone().multiplyScalar(hi * t)),
@@ -427,7 +378,7 @@ function touch(q: number[], n = Z) {
   return {
     p: th.axis
       .clone()
-      .addScaledVector(th.u, along * (along > 0 ? THUMB_END - THUMB_R - TL[2] : TL[2]))
+      .addScaledVector(th.u, along * (THUMB_END - THUMB_R - TL[2]))
       .addScaledVector(side, across * THUMB_EDGE)
       .addScaledVector(into, THUMB_R),
     n,
@@ -1298,7 +1249,7 @@ function heightOf(c: Config, caps: Cap[], R: T.Matrix4) {
       for (const y of [-sw.body_mm[1] / 2, sw.body_mm[1] / 2])
         low = Math.min(low, new T.Vector3(x, y, seat).applyMatrix4(m).z);
   }
-  return { all: high - low + base };
+  return high - low + base;
 }
 /** The hand frame onto the desk (rotation only): the tent, then the hand's turn. */
 const deskOf = (s: Settings) => frame([0, 0, 0], [0, s.tent, 0]).multiply(turnOf(s));
@@ -1621,7 +1572,7 @@ const problems = (r: ReturnType<typeof check>) => [
         `wrist ${Math.abs(r.wristOff).toFixed(0)} mm too ${r.wristOff > 0 ? 'high' : 'low'} for this curl`,
       ]
     : []),
-  ...(r.height.all > TRAY ? [`${r.height.all.toFixed(1)} mm tall (tray ${TRAY} mm)`] : []),
+  ...(r.height > TRAY ? [`${r.height.toFixed(1)} mm tall (tray ${TRAY} mm)`] : []),
 ];
 /** The settings (degrees) that `apply` makes of a rotation, nearest `prev`:
  * of the two ways to write it with the middle angle, the one that moves least. */
@@ -1819,7 +1770,7 @@ export function setupHand(host: Host) {
     note.innerHTML = wrong.length
       ? `<div style="color:#ff9a8a">Not valid:<ul style="margin:2px 0;padding-left:18px">${wrong.map((w) => `<li>${w}</li>`).join('')}</ul></div>`
       : r.frameChecked
-        ? `<div style="color:#9be39b">Valid (${r.height.all.toFixed(0)} mm tall).</div>`
+        ? `<div style="color:#9be39b">Valid (${r.height.toFixed(0)} mm tall).</div>`
         : 'Checking…';
     // How far the thumb rolls onto its outer edge to meet each key (0: the
     // middle of the pad; 90: the side of the thumb).
@@ -2284,24 +2235,17 @@ export function setupHand(host: Host) {
   return { layout, update, buildCase: () => s().buildCase };
 }
 
-/** For scripts that fit presets (in the browser, through Vite). */
+/** Internals for the tests and the fingerprint. */
 export const _test = {
   T,
-  fit,
   thumb,
-  rotQ,
   pressed,
   moveBy,
   thumbRow,
-  touch,
   BACK_OF_THUMB,
   twistAt,
-  thumbAt,
   photoPose,
-  printAngle,
-  arc,
   C,
-  thumbRest,
   cmcPoses: cmc.poses,
   prints: hand.measured.thumb_prints,
   THUMB_R,
@@ -2309,9 +2253,7 @@ export const _test = {
   solveHand,
   capsOf,
   check,
-  reachHits,
   partHits,
-  palmPoints,
   anchorOf,
   applyHand,
   worldOf,
@@ -2319,10 +2261,7 @@ export const _test = {
   TRAY,
   rowPose,
   wayOf,
-  innerColumn,
-  moved,
   turnOf,
-  deskOf,
   NATURAL,
   DACTYL,
   YOURS,

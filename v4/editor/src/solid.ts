@@ -59,7 +59,6 @@ export interface Clearance {
   name: string;
   size: V3;
   margin: number;
-  travel: number;
   atRest: number;
   swept: number;
   passed: boolean;
@@ -99,7 +98,6 @@ export interface Report {
   volume: number;
   triangles: number;
   milliseconds: number;
-  notes: string[];
 }
 export interface Highlight {
   name: string;
@@ -303,26 +301,22 @@ function build(
   body = body.add(M.union(seatPlates)).subtract(M.union(seatTrims));
   const cuts: Manifold[] = [...clipCuts];
   const openings: Report['openings'] = [];
-  const record = (
-    name: string,
-    cutter: Manifold,
-    size: number[],
-    pose: Matrix4,
-    bottom: number,
-    top: number,
-  ) => {
+  for (const [name, m] of keyNodes) {
+    const bottom = -sw.body_below_plate_mm - CHECKS.openingBelowBody;
+    const top = CHECKS.openingTop;
+    const cutter = place(box([...hole, top - bottom], [0, 0, (top + bottom) / 2]), m);
     // Nine probes across the opening: covered if the chassis is there at all,
     // blocked if any of it is left once the opening's height is punched out.
     let covered = 0;
     let blocked = 0;
     const inset = CHECKS.probeInset;
-    for (const x of [-size[0] / 2 + inset, 0, size[0] / 2 - inset])
-      for (const y of [-size[1] / 2 + inset, 0, size[1] / 2 - inset]) {
-        const probe = place(box([0.3, 0.3, 24], [x, y, 0]), pose);
+    for (const x of [-hole[0] / 2 + inset, 0, hole[0] / 2 - inset])
+      for (const y of [-hole[1] / 2 + inset, 0, hole[1] / 2 - inset]) {
+        const probe = place(box([0.3, 0.3, 24], [x, y, 0]), m);
         const hit = within(body, probe).intersect(probe);
         if (hit.volume() > CHECKS.empty) {
           covered++;
-          const punch = place(box([0.4, 0.4, top - bottom], [x, y, (top + bottom) / 2]), pose);
+          const punch = place(box([0.4, 0.4, top - bottom], [x, y, (top + bottom) / 2]), m);
           const rest = hit.subtract(punch);
           if (rest.volume() > CHECKS.empty) blocked++;
         }
@@ -332,18 +326,6 @@ function build(
     if (!passed) highlights.push({ name, kind: 'opening', mesh: meshData(cutter) });
     openings.push({ name, removed, covered, blocked, passed });
     cuts.push(cutter);
-  };
-  for (const [name, m] of keyNodes) {
-    const bottom = -sw.body_below_plate_mm - CHECKS.openingBelowBody;
-    const top = CHECKS.openingTop;
-    record(
-      name,
-      place(box([...hole, top - bottom], [0, 0, (top + bottom) / 2]), m),
-      hole,
-      m,
-      bottom,
-      top,
-    );
   }
   const cut = body.subtract(M.union(cuts));
   if (cut.status() !== 'NoError' || cut.volume() <= 0)
@@ -527,7 +509,6 @@ function build(
       name,
       size,
       margin,
-      travel: sw.travel_mm,
       atRest,
       swept,
       passed: atRest <= CHECKS.overlap && swept <= CHECKS.overlap,
@@ -592,10 +573,6 @@ function build(
       volume: result.volume(),
       triangles: mesh.indices.length / 3,
       milliseconds: performance.now() - start,
-      notes: [
-        'Component/keycap envelopes are conservative boxes.',
-        'Flat seats and clip reliefs are generated. PCB retainers remain unimplemented. Minimum thickness and global self-intersections are not certified.',
-      ],
     },
   };
 }

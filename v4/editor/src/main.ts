@@ -1,8 +1,7 @@
 import * as T from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { toCreasedNormals } from 'three/addons/utils/BufferGeometryUtils.js';
 import { STLExporter } from 'three/addons/exporters/STLExporter.js';
-import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { mergeGeometries, toCreasedNormals } from 'three/addons/utils/BufferGeometryUtils.js';
 import {
   defaults,
   clone,
@@ -51,7 +50,6 @@ $('load-error').textContent = loadProblem;
 const undo: Project[] = [],
   redo: Project[] = [];
 let hasShell = false,
-  buildRequests = 0,
   selected = '';
 // PROTOTYPE ?hand (hand-prototype.ts): lays the keys out from its state
 // (project.hand) and redraws the hand after each edit, and builds the case
@@ -784,7 +782,6 @@ function requestBuild() {
   const id = revision;
   $('fit-badge').className = '';
   $('fit-badge').textContent = 'Building chassis & checking fit…';
-  buildRequests++;
   // PROTOTYPE: ?plates=narrow[&slope=deg] (chassis.ts narrowPlates), ?recess=mm.
   const sent = clone(project),
     q = new URLSearchParams(location.search);
@@ -1208,12 +1205,9 @@ window.addEventListener('keydown', (e) => {
 // Used by browser tests to inspect the exact state behind visible controls.
 Object.assign(window, {
   rosebearEditor: {
-    getBuildRequests: () => buildRequests,
-    getShellId: () => shell.geometry.uuid,
     getProject: () => clone(project),
     getRevision: () => revision,
     getSolidRevision: () => solidRevision,
-    getReport: () => report,
     getSelected: () => selected,
     getVisible: () => ({ shell: shell.visible, base: basePlate.visible, trim: trim.visible }),
     handleScreen: (id: string) => {
@@ -1236,17 +1230,6 @@ Object.assign(window, {
         visible: failures.visible && m.visible,
         triangles: (m as T.Mesh).geometry.getIndex()!.count / 3,
       })),
-    viewNormal: () => camera.getWorldDirection(new T.Vector3()).toArray(),
-    lookFrom: (offset: V3, zoom = 1, target?: V3) => {
-      if (target) controls.target.set(...target);
-      camera.up.set(0, 0, 1);
-      camera.position.copy(controls.target).add(new T.Vector3(...offset));
-      camera.zoom = zoom;
-      camera.lookAt(controls.target);
-      camera.updateProjectionMatrix();
-      controls.update();
-      render();
-    },
   },
 });
 // Review marks painted on the model, saved by the dev server (vite.config.ts),
@@ -1264,7 +1247,6 @@ const marks = !import.meta.env.DEV
         [trim, 'trim'],
         ...parts.children.map((o): [T.Object3D, string] => [o, o.userData.group ?? 'other']),
       ],
-      view: () => ({ variant: 'chassis', thumbs: 'editor', query: location.search }),
       render,
     });
 if (import.meta.env.DEV && new URLSearchParams(location.search).has('hand'))
@@ -1281,7 +1263,6 @@ if (import.meta.env.DEV && new URLSearchParams(location.search).has('hand'))
     snapshot,
     edited,
     render,
-    rebuild: () => requestBuild(),
   }));
 restoreView();
 historyButtons();

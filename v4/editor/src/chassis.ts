@@ -66,7 +66,7 @@ export interface ChassisResult {
  * slope degrees to plate thickness - 1 below it; from there on to the wall,
  * the plate is only its bottom 1 mm.
  */
-export function narrowPlates(cfg: Config) {
+function narrowPlates(cfg: Config) {
   const c = cfg.chassis as { plate_style?: string; plate_slope?: number };
   return c.plate_style === 'narrow' ? { rim: 0.8, slope: c.plate_slope ?? 60 } : undefined;
 }
@@ -77,11 +77,11 @@ export function narrowPlates(cfg: Config) {
  * neighbours' (the highest of them at each point), so each key has its own flat
  * face with creases between them, out to the well's wall.
  */
-export function facetFloor(cfg: Config) {
+function facetFloor(cfg: Config) {
   return (cfg.chassis as { plate_style?: string }).plate_style === 'facets';
 }
 
-export const SIZES = {
+const SIZES = {
   /** The skirt round each well's edge, under its plates, is this thick (plan), */
   skirt: 1.2,
   /** and reaches this far down. */
