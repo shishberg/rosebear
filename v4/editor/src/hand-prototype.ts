@@ -339,10 +339,15 @@ const cmc = hand.thumb.assumed_cmc,
   C = V(cmc.cmc),
   TL = [cmc.metacarpal_mm, hand.thumb.segment_mm.mcp_ip, hand.thumb.segment_mm.ip_pad],
   thumbRest = cmc.poses['1'],
-  /** The last section: round, the pad THUMB_R below the bone; its end
-   * THUMB_END past the IP (the traced outline's tip, photo A). */
+  /** The last section: wider than deep, a flat pad THUMB_R below the bone
+   * with round edges (radius THUMB_R), THUMB_W across (an estimate, not
+   * measured); its end THUMB_END past the IP (the traced outline's tip,
+   * photo A). */
   THUMB_R = cmc.pad_below_distal_axis_mm,
+  THUMB_W = 22,
   THUMB_END = hand.thumb.segment_mm.ip_end,
+  /** How far each round edge's centre is from the bone, sideways. */
+  THUMB_EDGE = THUMB_W / 2 - THUMB_R,
   /** The index knuckle, to tell the thumb's outer edge (away from it) from its inner. */
   INDEX_MCP = V(hand.fingers.index.rest.joints.mcp);
 /** The thumb's turn about the metacarpal (q[2], + the pad toward the palm)
@@ -384,9 +389,11 @@ function thumb(q: number[]) {
     I,
     axis,
     pad: axis.clone().addScaledVector(nail, -THUMB_R),
-    /** The last bone's direction, and square to it the nail's side. */
+    /** The last bone's direction, square to it the nail's side, and across
+     * the thumb. */
     u,
     nail,
+    side: u.clone().cross(nail),
     /** Where the last section's centreline stops (round, its end THUMB_R on). */
     end: I.clone().addScaledVector(u, THUMB_END - THUMB_R),
   };
@@ -397,28 +404,29 @@ function thumb(q: number[]) {
  * straight down lies in a plane through the CMC; and the key lies along the
  * last bone (as on the Dactyl with the wrist low: the thumb along the key,
  * pressing straight down by abduction). So the key is the plane through the
- * CMC along the last bone that touches the round last section halfway along
- * it, on the pad's side of the two; the press is straight into it, the swing
- * that moves the thumb out of that plane. `roll`: degrees from the middle of
- * the pad to where it touches, + toward its outer edge (away from the index). */
+ * CMC along the last bone that touches the last section halfway along it, on
+ * its outer edge (away from the index), where the Dactyl's thumb keys meet it;
+ * the press is straight into it, the swing that moves the thumb out of that
+ * plane. `roll`: how far the nail tilts from parallel to the key, + toward the
+ * outer edge (0: the key flat on the pad). */
 function touch(q: number[]) {
   const th = thumb(q),
     mid = th.I.clone().addScaledVector(th.u, THUMB_END / 2),
-    w = mid.clone().sub(C),
-    side = th.u.clone().cross(th.nail);
+    side = th.side,
+    out = Math.sign(side.dot(mid.clone().sub(INDEX_MCP))) || 1,
+    // The outer edge's centre, halfway along.
+    edge = mid.clone().addScaledVector(side, out * THUMB_EDGE),
+    w = edge.clone().sub(C);
   w.addScaledVector(th.u, -w.dot(th.u));
-  // n·(mid − C) = THUMB_R puts the touching point, THUMB_R down n from mid, in the plane.
-  // Of the two such planes, one each side of the thumb, the one on its outer
-  // edge (the side away from the index), where the Dactyl's thumb keys meet it.
-  // (The CMC, MCP and IP bend in one plane, the nail's, so the two are mirror
-  // images and the pad can't choose between them.)
-  // (With the thumb straight out from the CMC, the last bone's line passing
-  // within THUMB_R of it, no such plane touches the thumb: the nearest, under
-  // the pad, misses the CMC by the difference.)
+  // n·(edge − C) = THUMB_R puts the touching point, THUMB_R down n from the
+  // edge's centre, in the plane. Of the two such planes, the one outside the
+  // outer edge (the rest of the thumb on the key's side of it).
+  // (With the thumb straight out from the CMC, the edge's line passing within
+  // THUMB_R of it, no such plane touches the thumb: the nearest misses the
+  // CMC by the difference.)
   const miss = Math.max(0, THUMB_R - w.length()),
     c = Math.min(1, THUMB_R / w.length()),
     wn = w.normalize(),
-    out = Math.sign(side.dot(mid.clone().sub(INDEX_MCP))) || 1,
     [n] = [1, -1]
       .map((k) =>
         wn
@@ -428,7 +436,7 @@ function touch(q: number[]) {
       )
       .sort((a, b) => a.dot(side) * out - b.dot(side) * out);
   return {
-    p: mid.clone().addScaledVector(n, -THUMB_R),
+    p: edge.clone().addScaledVector(n, -THUMB_R),
     n,
     roll: deg(n.angleTo(th.nail)) * Math.sign(-n.dot(side) * out),
     /** How far the key's plane misses the CMC, mm (0 but for a thumb
@@ -954,7 +962,15 @@ const thumbPart = (th: Thumb, may: string[], by = new T.Vector3()): Part => {
     segs: [
       [v(C), v(th.M), 11],
       [v(th.M), v(th.I), 10.5],
-      [v(th.I), v(th.end), THUMB_R],
+      // The last section's two round edges (with the flat between them).
+      ...[-1, 1].map(
+        (k) =>
+          [
+            v(th.I).addScaledVector(th.side, k * THUMB_EDGE),
+            v(th.end).addScaledVector(th.side, k * THUMB_EDGE),
+            THUMB_R,
+          ] as [T.Vector3, T.Vector3, number],
+      ),
     ],
     may,
   };
@@ -1305,14 +1321,14 @@ function check(
  * and facings closest to its keys, of the valid layouts (15°, 0.29: the
  * fitting is a test, in tests/hand.test.ts; its home keys face you 13°, the
  * Dactyl's 7.5°: closer, the bottom keys run into the thumb keys or each
- * other). The thumb turned forward from rest by eye (sweep -1.9), then, with
- * its keys along the last bone, abducted 9° and straightened 23° (the MCP and
- * IP): the valid pose nearest that whose roll onto the outer edge (42°) is
- * nearest the 30° or so felt on the Dactyl. (Unstraightened it rolls 81° and
- * presses into the next key; the roll swings from 62° at 20° straightened to
- * 22° at 24°.) The gaps tuned by eye on a printed frame: rows closer, the
- * inner column further out; the thumb keys 25.5 mm apart, as close as this
- * pose allows.
+ * other). The thumb turned forward from rest by eye (sweep -1.9, abduction
+ * 7.6), then, with its keys along the last bone, straightened 22° (the MCP
+ * and IP): of the valid poses, the one whose roll onto the outer edge (40°)
+ * is nearest the 30° or so felt on the Dactyl (23°, rolled 29°, puts the near
+ * thumb key into the inner bottom key). Unstraightened it rolls 78° and
+ * presses into the next key; the roll swings from 53° at 20° straightened to
+ * 10° at 24°. The gaps tuned by eye on a printed frame: rows closer, the
+ * inner column further out, the thumb keys further apart.
  * The fingers come out 3–8 mm off the Dactyl's in the index, middle and ring
  * columns, more in the inner and pinky (the Dactyl raises its outer columns
  * into a bowl, which these settings can't). Valid with the 1×3 cluster, 65 mm
@@ -1330,8 +1346,8 @@ const DACTYL: Settings = {
   from: 'reach',
   reachMix: 0.29,
   pressMix: 1.4,
-  thumb: { sweep: -1.9, abduct: 9, curl: -23, bend: 0 },
-  spacing: 25.5,
+  thumb: { sweep: -1.9, abduct: 7.6, curl: -22, bend: 0 },
+  spacing: 24.5,
   cluster: '1×3',
   // The 1u row, a key's depth from the 1.5u, on the curled side, reached
   // square to the press. (A reach mix like the fingers' 0.4 moves the thumb's
@@ -1350,9 +1366,9 @@ const DACTYL: Settings = {
  * resting middle finger now goes 3 mm into the index home key. (On its
  * printed frame the index brushed the thumb cluster, which the model doesn't
  * reproduce.) The thumb, refitted with its keys along the last bone: the
- * least change is to straighten it 21° (the MCP and IP; less and pressing one
- * key it goes into the next), rolling it 58° onto its outer edge, the keys
- * 23.8 mm apart. */
+ * least change is to straighten it 15° (the MCP and IP; less and it goes
+ * into the next key or the far key, or the keys into each other's seats on
+ * the frame), rolling it 67° onto its outer edge, the keys 27 mm apart. */
 const NATURAL: Settings = {
   tent: 1,
   roll: 0,
@@ -1366,8 +1382,8 @@ const NATURAL: Settings = {
   from: 'reach',
   reachMix: 0.4,
   pressMix: 1.4,
-  thumb: { sweep: 0, abduct: 0, curl: -21, bend: 0 },
-  spacing: 23.8,
+  thumb: { sweep: 0, abduct: 0, curl: -15, bend: 0 },
+  spacing: 27,
   cluster: '1×3',
   two: { gap: 19.5, from: 'press', reachMix: 0.4 },
 };
