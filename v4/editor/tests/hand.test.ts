@@ -88,8 +88,8 @@ test('Dactyl fit: the hand reaches every key touching nothing else, and it fits 
   assert.deepEqual(r.r.capHits, []);
   assert.ok(r.r.height.all <= hand.TRAY, `${r.r.height.all.toFixed(1)} mm tall`);
 });
-test('Dactyl fit, the thumb nudged across and down: pressing the near key, it touches the home key', () => {
-  const r = layout(withThumb(hand.DACTYL, { sweep: -7, abduct: 10 }));
+test('Dactyl fit, the thumb further from the palm, pressing less toward the fingers: pressing the near key, it touches the home key', () => {
+  const r = layout(withThumb(hand.DACTYL, { cmcDir: 45, abduct: 15 }));
   assert.ok(r.r.handHits.some((x) => x.a === 'thumb' && x.b === 'thumb home'));
 });
 // Natural's printed frame: the index brushed the thumb cluster, which the

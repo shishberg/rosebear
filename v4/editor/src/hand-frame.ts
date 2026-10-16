@@ -48,7 +48,7 @@ export const FRAME = {
   /** The floor rails: width and height. */
   rail: [3, 2],
   /** How far a corner's bracket reaches out past it, and down (more, in
-   * these steps, up to five, until its leg misses everything). */
+   * these steps, up to twelve, until its leg misses everything). */
   bracket: 4,
   /** The struts' square. */
   strut: 2.4,
@@ -358,7 +358,8 @@ export function buildFrame(wasm: ManifoldToplevel, cfg: Config): FrameResult {
               return { top, foot: [top[0], top[1], floor] as Vec3 };
             };
             let b = FRAME.bracket;
-            while (b < FRAME.bracket * 5 && !clear(reach(b).top, reach(b).foot)) b += FRAME.bracket;
+            while (b < FRAME.bracket * 12 && !clear(reach(b).top, reach(b).foot))
+              b += FRAME.bracket;
             return {
               key,
               p: at(key, sx * hp[0], sy * hp[1], -FRAME.lip),
