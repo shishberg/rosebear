@@ -19,18 +19,17 @@
  * Thumb: a ball joint at the assumed CMC, hinges at the MCP and IP. Its pose
  * at each key starts from the photos': the pose that put the pad on each
  * print as it swept round (rest, swept in, out and back, all on one arc),
- * interpolated by the place round that arc. It presses by swinging the whole
- * thumb at the CMC, so each key lies in a plane through the CMC and along
- * the last bone, touching the last section where it touched the paper, on
- * its outer edge (touch). How far it lies on that edge is set (roll): the
- * thumb straightens at the MCP and IP alike from the photos' bends until it
- * does (the roll comes from the bends alone), swings round until the key is
- * back at its place round the arc, then abducts at the CMC to lower the key
- * as set (which carries it toward you). The home key's place round the arc,
- * the drop and the roll are set; the far and near keys go further round and
- * back, the spacing from it. The thumb's turn about the metacarpal isn't
- * set: it comes with the CMC's swing (twistAt), as it does in the hand. Each
- * key lines up with the row through it.
+ * interpolated by the place round that arc. Each key is square to the sweep
+ * round the arc (sweeping from key to key runs across the key tops) and lies
+ * along the last bone, touching the last section where it touched the
+ * paper, on its lower edge (touch; how far it lies on its side falls out,
+ * and the readout says it); the thumb presses it straight down, swinging at
+ * the CMC and bending at the MCP and IP together. The thumb swings round
+ * until the key is at its place round the arc, then abducts at the CMC to
+ * lower the key as set (which carries it toward you). The home key's place
+ * round the arc and the drop are set; the far and near keys go further
+ * round and back, the spacing from it. The thumb's turn about the metacarpal isn't
+ * set: it comes with the CMC's swing (twistAt), as it does in the hand.
  * The palm is a sketch.
  * Settings: two presets (near the Dactyl Manuform, valid and tuned by eye; the least
  * change from the resting hand that makes a valid layout), a rotation handle
@@ -405,108 +404,94 @@ function thumb(q: number[]) {
   };
 }
 /** Where the thumb meets a key and which way the key faces (`n`, out of the
- * cap toward the thumb). The thumb presses by swinging at the CMC, which moves
- * every point of it square to the line from the CMC, so a key it presses
- * straight down lies in a plane through the CMC; and the key lies along the
- * last bone (as on the Dactyl with the wrist low: the thumb along the key,
- * pressing straight down by abduction). So the key is the plane through the
- * CMC along the last bone that touches the last section where it touched the
- * paper in the photos (the print, ip_pad past the IP), on its outer edge
- * (away from the index); the press is straight into it, the swing that moves
- * the thumb out of that plane. `roll`: how far the nail tilts from parallel to the key, + toward the
- * outer edge (0: the key flat on the pad). */
+ * cap toward the thumb). The key is square to the sweep (level, round the
+ * arc's centre), so sweeping the thumb from key to key runs across the key
+ * tops, and it lies along the last bone, facing up. It touches the lower of
+ * the last section's round edges where the thumb touched the paper in the
+ * photos (the print, ip_pad past the IP). `roll`: how far the nail tilts
+ * from parallel to the key, + toward the outer edge (away from the index; 0:
+ * the key flat on the pad). */
 function touch(q: number[]) {
   const th = thumb(q),
     mid = th.axis,
     side = th.side,
     out = Math.sign(side.dot(mid.clone().sub(INDEX_MCP))) || 1,
-    // The outer edge's centre, at the print.
-    edge = mid.clone().addScaledVector(side, out * THUMB_EDGE),
-    w = edge.clone().sub(C);
-  w.addScaledVector(th.u, -w.dot(th.u));
-  // n·(edge − C) = THUMB_R puts the touching point, THUMB_R down n from the
-  // edge's centre, in the plane. Of the two such planes, the one outside the
-  // outer edge (the rest of the thumb on the key's side of it).
-  // (With the thumb straight out from the CMC, the edge's line passing within
-  // THUMB_R of it, no such plane touches the thumb: the nearest misses the
-  // CMC by the difference.)
-  const miss = Math.max(0, THUMB_R - w.length()),
-    c = Math.min(1, THUMB_R / w.length()),
-    wn = w.normalize(),
-    [n] = [1, -1]
-      .map((k) =>
-        wn
-          .clone()
-          .multiplyScalar(c)
-          .addScaledVector(th.u.clone().cross(wn), k * Math.sqrt(1 - c * c)),
-      )
-      .sort((a, b) => a.dot(side) * out - b.dot(side) * out);
+    r = Math.atan2(mid.y - arc.centre[1], mid.x - arc.centre[0]),
+    sweep = new T.Vector3(-Math.sin(r), Math.cos(r), 0),
+    n = th.u.clone().cross(sweep).normalize();
+  if (n.z < 0) n.negate();
+  // The round edge further down n touches the key.
+  const k = side.dot(n) > 0 ? -1 : 1,
+    edge = mid.clone().addScaledVector(side, k * THUMB_EDGE);
   return {
-    p: edge.clone().addScaledVector(n, -THUMB_R),
+    p: edge.addScaledVector(n, -THUMB_R),
     n,
+    /** The sweep: level, round the arc's centre, away from the fingers. */
+    sweep,
     roll: deg(n.angleTo(th.nail)) * Math.sign(-n.dot(side) * out),
-    /** How far the key's plane misses the CMC, mm (0 but for a thumb
-     * pointing straight out from it): the press is then off square. */
-    miss,
   };
 }
 /** Which way the thumb presses at q: straight into the key it touches. */
 const pressDir = (q: number[]) => touch(q).n.negate();
 /** The thumb `mm` along its press from `q` (− back off the key): swinging at
- * the CMC (the turn about the metacarpal coming with the swing) so the point
- * touching the key moves straight down the key's travel, a quarter mm at a
- * time. */
+ * the CMC (the turn about the metacarpal coming with the swing) and bending
+ * the MCP and IP alike, mixed so the point touching the key moves straight
+ * down the key's travel, a quarter mm at a time. */
 function pressed(q: number[], mm: number) {
   const t0 = touch(q),
     th0 = thumb(q),
     // The touching point, held in the last bone's frame as the thumb moves.
     rel = t0.p.clone().sub(th0.I),
-    local = [rel.dot(th0.u), rel.dot(th0.nail), rel.dot(th0.u.clone().cross(th0.nail))],
+    local = [rel.dot(th0.u), rel.dot(th0.nail), rel.dot(th0.side)],
     at = (q: number[]) => {
       const th = thumb(q);
       return th.I.clone()
         .addScaledVector(th.u, local[0])
         .addScaledVector(th.nail, local[1])
-        .addScaledVector(th.u.clone().cross(th.nail), local[2]);
+        .addScaledVector(th.side, local[2]);
     },
-    go = (q: number[], yaw: number, pitch: number) => {
+    go = (q: number[], [yaw, pitch, bend]: number[]) => {
       const y = q[0] + yaw,
         p = q[1] + pitch;
-      return [y, p, q[2] + twistAt(y, p) - twistAt(q[0], q[1]), q[3], q[4]];
+      return [y, p, q[2] + twistAt(y, p) - twistAt(q[0], q[1]), q[3] + bend, q[4] + bend];
     },
     want = t0.n.clone().multiplyScalar(-Math.sign(mm));
   for (let left = Math.abs(mm); left > 1e-6;) {
     const step = Math.min(0.25, left),
       p0 = at(q),
-      // A twentieth of a degree each way, and the mix of them that moves the point `want`.
-      a = at(go(q, 0.05, 0))
-        .sub(p0)
-        .divideScalar(0.05),
-      b = at(go(q, 0, 0.05))
-        .sub(p0)
-        .divideScalar(0.05),
-      [aa, ab, bb, aw, bw] = [a.dot(a), a.dot(b), b.dot(b), a.dot(want), b.dot(want)],
-      det = aa * bb - ab * ab,
-      x = [(bb * aw - ab * bw) / det, (aa * bw - ab * aw) / det],
-      // The turn about the metacarpal bends with the swing's direction (sharply
-      // at rest), so that mix is only a start: the swing's direction is then
-      // found by trial, `r` degrees of swing at angle `f`, until the point
-      // moves along `want` and not across it.
-      across = p0.clone().sub(C).cross(want).normalize(),
-      by = (f: number, r: number) => go(q, r * Math.cos(f), r * Math.sin(f)),
-      miss = (f: number, r: number) => at(by(f, r)).sub(p0).dot(across);
-    let r = step / a.clone().multiplyScalar(x[0]).addScaledVector(b, x[1]).length(),
-      f = Math.atan2(x[1], x[0]);
-    r *= Math.hypot(x[0], x[1]);
-    for (let i = 0; i < 3; i++) {
-      // Secant on the direction, then the size again for this step (the path curves).
-      const h = 1e-3,
-        m0 = miss(f, r),
-        m1 = miss(f + h, r);
-      if (m1 !== m0) f -= (m0 * h) / (m1 - m0);
-      r *= step / at(by(f, r)).distanceTo(p0);
-    }
-    q = by(f, r);
+      // A twentieth of a degree of each, and the mix of them that moves the
+      // point `step` along `want` (twice: the swing's turn about the
+      // metacarpal bends sharply near rest).
+      cols = [0, 1, 2].map((i) =>
+        at(
+          go(
+            q,
+            [0, 1, 2].map((j) => (i === j ? 0.05 : 0)),
+          ),
+        )
+          .sub(p0)
+          .divideScalar(0.05),
+      ),
+      M = new T.Matrix3()
+        .set(
+          cols[0].x,
+          cols[1].x,
+          cols[2].x,
+          cols[0].y,
+          cols[1].y,
+          cols[2].y,
+          cols[0].z,
+          cols[1].z,
+          cols[2].z,
+        )
+        .invert();
+    let x = want.clone().multiplyScalar(step).applyMatrix3(M);
+    const err = p0
+      .clone()
+      .addScaledVector(want, step)
+      .sub(at(go(q, x.toArray())));
+    x = x.add(err.applyMatrix3(M));
+    q = go(q, x.toArray());
     left -= step;
   }
   return q;
@@ -534,11 +519,6 @@ type ThumbPose = {
    * hand's frame (square to the surface the hand rested on in the photos,
    * where the thumb rested level with the fingertips). */
   drop: number;
-  /** Degrees the thumb lies on its outer edge on the keys (0: the pad flat
-   * on the key, the nail facing out of it; 90: on its side, the nail square
-   * to the key). The thumb straightens (or curls), the MCP and IP alike, from
-   * the photos' bends until it does. */
-  roll: number;
 };
 /** How far the thumb's MCP and IP go, degrees: a guess (they hyperextend a little). */
 const MCP_RANGE = [-10, 90],
@@ -570,52 +550,27 @@ function photoPose(a: number) {
     { past: Math.abs(a - c) },
   );
 }
-/** The thumb's pose `a` degrees round the arc (photoPose), straightened at
- * the MCP and IP alike until it lies `roll` degrees on its outer edge on the
- * key (touch(): the roll is set by how bent it is alone, not by where the
- * CMC aims it), then bent `bend` degrees more at each (rolling it further
- * onto its side). Then the CMC swings it across the palm until
- * the key is back `a` degrees round the arc (straightening carries it out,
- * away from the fingers), and abducts it until the key is at height `z` in
- * the hand frame: the abduction lowers the thumb and carries it toward you.
- * Its turn about the metacarpal is the photos', and what comes with the
- * swing (twistAt). `miss`: mm short of `z` within ±40° of abduction, off the
- * arc's place within ±60° of swing, along the arc past the photos, and
- * degrees short of straightening to `roll` (0: reached). `straight`: degrees
- * straightened, less `bend`. */
-function thumbAt(a: number, z: number, roll: number, bend = 0) {
+/** The thumb's pose `a` degrees round the arc (photoPose), bent `bend`
+ * degrees more at the MCP and IP alike. Then the CMC swings it across the
+ * palm until the key is back `a` degrees round the arc, and abducts it until
+ * the key is at height `z` in the hand frame: the abduction lowers the thumb
+ * and carries it toward you. Its turn about the metacarpal is the photos',
+ * and what comes with the swing (twistAt). `miss`: mm short of `z` within
+ * ±40° of abduction, off the arc's place within ±60° of swing, and along the
+ * arc past the photos (0: reached). */
+function thumbAt(a: number, z: number, bend = 0) {
   const b = photoPose(a),
-    bent = (t: number, d = 0, y = 0) => [
+    bent = (d = 0, y = 0) => [
       b[0] + y,
       b[1] + d,
       b[2] + twistAt(b[0] + y, b[1] + d) - twistAt(b[0], b[1]),
-      clamp(b[3] - t, MCP_RANGE),
-      clamp(b[4] - t, IP_RANGE),
+      clamp(b[3] + bend, MCP_RANGE),
+      clamp(b[4] + bend, IP_RANGE),
     ],
-    rollOf = (t: number) => touch(bent(t)).roll;
-  // It rolls further onto its side the more it's bent; straightened past
-  // where the last bone points at the CMC the roll jumps about. Out in 2°
-  // steps to the first straightening that rolls it no further than `roll`,
-  // then bisect.
-  let t0 = -30,
-    t1 = -30;
-  if (rollOf(t0) < roll) t1 = t0;
-  else {
-    while (t1 < 70 && rollOf(t1) > roll) [t0, t1] = [t1, t1 + 2];
-    if (rollOf(t1) > roll) t0 = t1;
-  }
-  if (t0 !== t1)
-    for (let i = 0; i < 40; i++) {
-      const m = (t0 + t1) / 2;
-      if (rollOf(m) > roll) t0 = m;
-      else t1 = m;
-    }
-  const rollMiss = Math.abs(rollOf((t0 + t1) / 2) - roll),
-    straight = (t0 + t1) / 2 - bend,
     // Abducted to height `z`, swung `y` across the palm: the touch drops as
     // the thumb abducts, bisect.
     lowered = (y: number) => {
-      const zOf = (d: number) => touch(bent(straight, d, y)).p.z;
+      const zOf = (d: number) => touch(bent(d, y)).p.z;
       let lo = -40,
         hi = 40;
       if (zOf(lo) < z) hi = lo;
@@ -626,7 +581,7 @@ function thumbAt(a: number, z: number, roll: number, bend = 0) {
           if (zOf(m) > z) lo = m;
           else hi = m;
         }
-      return bent(straight, (lo + hi) / 2, y);
+      return bent((lo + hi) / 2, y);
     },
     // From -90° (round the far side of the centre from the fingers, it wraps).
     aroundOf = (q: number[]) => {
@@ -649,27 +604,15 @@ function thumbAt(a: number, z: number, roll: number, bend = 0) {
     t = touch(q);
   return {
     q,
-    miss:
-      Math.abs(t.p.z - z) +
-      (rad(Math.abs(aroundOf(q) - a)) + rad(b.past)) * arc.radius_mm +
-      rollMiss,
+    miss: Math.abs(t.p.z - z) + (rad(Math.abs(aroundOf(q) - a)) + rad(b.past)) * arc.radius_mm,
     a,
-    straight,
   };
 }
 /** From `from` (the thumb at `a0` degrees round the arc), the thumb further
  * round (sign +1, away from the fingers) or back, at the same height and curl,
  * until the key it touches is `gap` mm from `from`'s, centre to centre. */
-function thumbAlong(
-  from: T.Vector3,
-  a0: number,
-  sign: number,
-  gap: number,
-  z: number,
-  roll: number,
-  bend = 0,
-) {
-  const at = (a: number) => thumbAt(a, z, roll, bend),
+function thumbAlong(from: T.Vector3, a0: number, sign: number, gap: number, z: number, bend = 0) {
+  const at = (a: number) => thumbAt(a, z, bend),
     off = (a: number) => touch(at(a).q).p.distanceTo(from) - gap;
   // Out in 2° steps until past `gap`, then bisect.
   let lo = a0,
@@ -693,19 +636,19 @@ function thumbAlong(
  * cluster the 1u keys go either side, `spacing` / 2 from its middle, the thumb bent more
  * at the MCP and IP (curling it in under the hand) until they're `two.gap`
  * mm from the 1.5u (negative: straightened, the other way). Each key touches the thumb as touch() has it
- * (along the last bone, in the plane through the CMC, pressed straight
- * down). Frames: z out of the cap, x toward the near key. `miss`: mm the
+ * (square to the sweep, along the last bone, pressed straight down).
+ * Frames: z out of the cap, x toward the near key. `miss`: mm the
  * thumb falls short of the key. */
 function thumbRow(t: ThumbPose, spacing: number, top: number, two?: TwoRows) {
   const z = top - t.drop,
-    home = thumbAt(t.around, z, t.roll),
+    home = thumbAt(t.around, z),
     hp = touch(home.q).p,
     pair = (bend: number) => {
-      const mid = thumbAt(t.around, z, t.roll, bend),
+      const mid = thumbAt(t.around, z, bend),
         mp = touch(mid.q).p;
       return {
         mp,
-        ends: [1, -1].map((k) => thumbAlong(mp, t.around, k, spacing / 2, z, t.roll, bend)),
+        ends: [1, -1].map((k) => thumbAlong(mp, t.around, k, spacing / 2, z, bend)),
       };
     };
   let ends: ReturnType<typeof thumbAt>[];
@@ -725,22 +668,16 @@ function thumbRow(t: ThumbPose, spacing: number, top: number, two?: TwoRows) {
     }
     const f = off((b0 + b1) / 2);
     ends = pair((b0 + b1) / 2).ends.map((e) => ({ ...e, miss: e.miss + Math.abs(f) }));
-  } else ends = [1, -1].map((k) => thumbAlong(hp, t.around, k, spacing, z, t.roll));
+  } else ends = [1, -1].map((k) => thumbAlong(hp, t.around, k, spacing, z));
   const keys = [ends[0], home, ends[1]],
-    touches = keys.map((k) => touch(k.q)),
-    ats = touches.map((k) => k.p),
-    /** Each key lines up with the row through it, as the finger keys do with
-     * their column: x along the line from its neighbour (the 1u row's, on a
-     * 1.5u + 2×1u cluster). */
-    line = (i: number) =>
-      two || i === 1 ? ats[2].clone().sub(ats[0]) : ats[i / 2 + 1].clone().sub(ats[i / 2]);
+    touches = keys.map((k) => touch(k.q));
+  // Each key square to the sweep: x along it, toward the near key.
   return keys.map(({ q, miss }, i) => {
-    const { p, n, roll } = touches[i],
-      x = line(i).normalize(),
-      xx = x.addScaledVector(n, -x.dot(n)).normalize(),
-      m = new T.Matrix4().makeBasis(xx, new T.Vector3().crossVectors(n, xx), n).setPosition(p);
+    const { p, n, roll, sweep } = touches[i],
+      x = sweep.clone().negate(),
+      m = new T.Matrix4().makeBasis(x, new T.Vector3().crossVectors(n, x), n).setPosition(p);
     /** `at`: where the thumb touches the key (its cap top's centre). */
-    return { at: p, q, frame: m, miss, roll, around: keys[i].a, straight: keys[i].straight };
+    return { at: p, q, frame: m, miss, roll, around: keys[i].a };
   });
 }
 
@@ -1422,11 +1359,10 @@ function check(
     innerShort: h.inner.limited,
     /** mm the wrist height is past what any reach gives at this curl. */
     wristOff: s.from === 'reach' ? mixFor(s.curl.middle, s.wristHeight).off : 0,
-    /** Thumb keys it can't press straight down with its pad: met with the
-     * back of the thumb (rolled past 90°), or the thumb pointing at the CMC. */
+    /** Thumb keys met with the back of the thumb (rolled past 90°). */
     crooked: h.row
       .map((k, i) => [['far', 'home', 'near'][i], touch(k.q)] as const)
-      .filter(([, t]) => Math.abs(t.roll) > 90 || t.miss > 0.5),
+      .filter(([, t]) => Math.abs(t.roll) > 90),
     height: heightOf(c, caps, deskOf(s)),
   };
 }
@@ -1462,7 +1398,7 @@ const DACTYL: Settings = {
   from: 'reach',
   wristHeight: 63.1,
   pressMix: 1.4,
-  thumb: { around: 121, drop: 5.5, roll: 60 },
+  thumb: { around: 121, drop: 5.5 },
   spacing: 31,
   cluster: '1×3',
   // The 1u row a key's depth inside the 1.5u, the thumb curled in under the
@@ -1498,7 +1434,7 @@ const NATURAL: Settings = {
   from: 'reach',
   wristHeight: 111.5,
   pressMix: 1.4,
-  thumb: { around: 112, drop: 0, roll: 60 },
+  thumb: { around: 112, drop: 0 },
   spacing: 30,
   cluster: '1×3',
   two: { gap: 19.5 },
@@ -1509,10 +1445,9 @@ const problems = (r: ReturnType<typeof check>) => [
   ...r.capHits.map((x) => `${capName(x.a)} hits ${capName(x.b)} (${x.depth.toFixed(1)} mm)`),
   ...r.handHits.map((x) => `${x.a} ${x.during}: into ${x.b} (${x.depth.toFixed(1)} mm)`),
   ...r.short.map(([k, m]) => `${k} out of reach (${m.toFixed(0)} mm)`),
-  ...r.crooked.map(([k, t]) =>
-    t.miss > 0.5
-      ? `thumb ${k} pressed off square (the thumb points at the CMC)`
-      : `thumb ${k} met with the back of the thumb (rolled ${Math.abs(t.roll).toFixed(0)}°)`,
+  ...r.crooked.map(
+    ([k, t]) =>
+      `thumb ${k} met with the back of the thumb (rolled ${Math.abs(t.roll).toFixed(0)}°)`,
   ),
   ...(r.innerShort ? ['inner column out of reach'] : []),
   ...(Math.abs(r.wristOff) > 0.5
@@ -1622,6 +1557,7 @@ export function setupHand(host: Host) {
         Math.round(wristHeightAt(v.curl?.middle ?? s.curl.middle, v.reachMix) * 2) / 2;
     if (typeof v.wrist === 'number' && v.pitch === undefined) v.pitch = v.wrist;
     if (v.thumb && v.thumb.around === undefined) delete v.thumb;
+    if (v.thumb) delete v.thumb.roll;
     if (v.two) v.two = { gap: v.two.gap };
     for (const k of Object.keys(v) as (keyof typeof s)[])
       if (k in s)
@@ -1748,7 +1684,7 @@ export function setupHand(host: Host) {
     // middle of the pad; 90: the side of the thumb).
     note.insertAdjacentHTML(
       'beforeend',
-      `<div>Thumb keys round the arc: ${row.map((k, i) => `${['far', 'home', 'near'][i]} ${k.around.toFixed(0)}°`).join(', ')} (the photos ${PRINT_POSES[0].a.toFixed(0)}–${PRINT_POSES[PRINT_POSES.length - 1].a.toFixed(0)}°). Bent at the MCP / IP: ${row.map((k) => `${k.q[3].toFixed(0)}° / ${k.q[4].toFixed(0)}°`).join(', ')} (at rest ${thumbRest[3].toFixed(0)}° / ${thumbRest[4].toFixed(0)}°). Straightened from the photos' bends by ${row.map((k) => `${k.straight.toFixed(0)}°`).join(', ')}.</div>`,
+      `<div>Thumb keys round the arc: ${row.map((k, i) => `${['far', 'home', 'near'][i]} ${k.around.toFixed(0)}°`).join(', ')} (the photos ${PRINT_POSES[0].a.toFixed(0)}–${PRINT_POSES[PRINT_POSES.length - 1].a.toFixed(0)}°). Bent at the MCP / IP: ${row.map((k) => `${k.q[3].toFixed(0)}° / ${k.q[4].toFixed(0)}°`).join(', ')} (at rest ${thumbRest[3].toFixed(0)}° / ${thumbRest[4].toFixed(0)}°). On its side by ${row.map((k) => `${k.roll.toFixed(0)}°`).join(', ')} (0: the pad flat on the key, 90: the nail upright).</div>`,
     );
     if (s.from === 'reach')
       note.insertAdjacentHTML(
@@ -2012,13 +1948,6 @@ export function setupHand(host: Host) {
     -20,
     50,
     0.5,
-  );
-  slider(
-    'thumb on its outer edge on the keys (°: 0 the pad flat, 90 the nail upright)',
-    () => s.thumb.roll,
-    (v) => (s.thumb.roll = v),
-    20,
-    90,
   );
   radios(
     'Thumb keys',

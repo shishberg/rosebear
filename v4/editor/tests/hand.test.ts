@@ -89,17 +89,19 @@ test('Dactyl fit: the hand reaches every key touching nothing else, and it fits 
 // model doesn't (yet) reproduce. Reported, not asserted.
 test('Natural', (t) => report(t, layout(hand.NATURAL)));
 
-test('each thumb key lies along the last bone in a plane through the CMC, and the thumb presses it straight down', () => {
+test('each thumb key is square to the sweep round the arc and lies along the last bone, and the thumb presses it straight down', () => {
   for (const s of [hand.DACTYL, hand.NATURAL])
     hand.solveHand(s).row.forEach((k, i) => {
       const at = `${['far', 'home', 'near'][i]} (${s === hand.DACTYL ? 'Dactyl fit' : 'Natural'})`,
         th = hand.thumb(k.q),
         n = new T.Vector3().setFromMatrixColumn(k.frame, 2);
       assert.ok(Math.abs(n.dot(th.u)) < 1e-6, `${at}: not along the last bone`);
+      const r = Math.atan2(th.axis.y - hand.arc.centre[1], th.axis.x - hand.arc.centre[0]);
       assert.ok(
-        Math.abs(n.dot(k.at.clone().sub(hand.C))) < 1e-3,
-        `${at}: its plane misses the CMC`,
+        Math.abs(n.x * -Math.sin(r) + n.y * Math.cos(r)) < 1e-6,
+        `${at}: not square to the sweep`,
       );
+      assert.ok(n.z > 0, `${at}: facing down`);
       // The point touching the key, carried with the last bone as the thumb presses.
       const side = (t: typeof th) => t.u.clone().cross(t.nail),
         rel = k.at.clone().sub(th.I),
@@ -112,9 +114,7 @@ test('each thumb key lies along the last bone in a plane through the CMC, and th
             .addScaledVector(side(t), local[2]);
         };
       assert.deepEqual(hand.pressed(k.q, 0), k.q);
-      // It sets off straight down the key's travel; a swing at the CMC then
-      // carries it round an arc (about 85 mm across), sliding it a little
-      // sideways on the cap over the key's 4 mm.
+      // It goes straight down the key's travel.
       const start = point(0.25).sub(k.at),
         off = (start.angleTo(n.clone().negate()) * 180) / Math.PI;
       assert.ok(off < 0.2, `${at}: sets off ${off.toFixed(2)}° from the key's travel`);
@@ -131,7 +131,7 @@ test('each thumb key lies along the last bone in a plane through the CMC, and th
     });
 });
 
-test("the thumb keys: the photos' thumb pose for each place round the arc, straightened to the roll, swung back onto its place and lowered, the keys spacing apart", () => {
+test("the thumb keys: the photos' thumb pose for each place round the arc, swung back onto its place and lowered, the keys spacing apart", () => {
   for (const s of [hand.DACTYL, hand.NATURAL]) {
     const h = hand.solveHand(s),
       top = h.poses.middle[1].chain.pad.z,
@@ -147,15 +147,11 @@ test("the thumb keys: the photos' thumb pose for each place round the arc, strai
         Math.abs(round - k.around) < 0.05,
         `${at}: ${round.toFixed(2)}° round, not ${k.around}`,
       );
-      // On its outer edge as set.
-      assert.ok(Math.abs(k.roll - s.thumb.roll) < 0.05, `${at}: rolled ${k.roll.toFixed(2)}°`);
-      // The photos' pose for its place round the arc, the MCP and IP
-      // straightened alike; its turn about the metacarpal the photos', and
-      // what comes with the swing.
+      // The photos' pose for its place round the arc: its bends, and its turn
+      // about the metacarpal the photos' and what comes with the swing.
       const q0 = hand.photoPose(k.around);
       assert.ok(
-        Math.abs(q0[3] - k.q[3] - k.straight) < 0.05 &&
-          Math.abs(q0[4] - k.q[4] - k.straight) < 0.05,
+        Math.abs(q0[3] - k.q[3]) < 1e-9 && Math.abs(q0[4] - k.q[4]) < 1e-9,
         `${at}: bent ${k.q[3].toFixed(1)}/${k.q[4].toFixed(1)}, the photos ${q0[3].toFixed(1)}/${q0[4].toFixed(1)}`,
       );
       assert.ok(
@@ -174,35 +170,27 @@ test("the thumb keys: the photos' thumb pose for each place round the arc, strai
   }
 });
 
-test("1.5u + 2×1u: the thumb bent more alike at the MCP and IP until, at the 1.5u's place round the arc, it touches the gap from the 1.5u, the 1u keys half the spacing either side", () => {
+test("1.5u + 2×1u: the thumb bent alike at the MCP and IP until, at the 1.5u's place round the arc, it touches the gap from the 1.5u, the 1u keys half the spacing either side", () => {
   for (const gap of [19.5, 8]) {
     const s = { ...structuredClone(hand.DACTYL), cluster: '1.5u + 2×1u', two: { gap } },
       h = hand.solveHand(s),
       [a, home, b] = h.row,
       at = `gap ${gap}`;
     for (const k of h.row) assert.ok(k.miss < 0.01, `${at}: misses by ${k.miss.toFixed(2)}`);
-    // One extra bend, more for a gap toward the palm (the 1.5u's pose is
-    // bent none), within the joints' range.
+    // One extra bend at the MCP and IP alike, more for a gap toward the palm
+    // (the 1.5u's pose is the photos'), within the joints' range.
     const z = home.at.z,
-      bend = (() => {
-        // The bend that gives the 1u keys' poses: read off the far one, then
-        // the near one must agree.
-        let lo = -90,
-          hi = 90;
-        for (let i = 0; i < 50; i++) {
-          const m = (lo + hi) / 2;
-          if (hand.thumbAt(a.around, z, s.thumb.roll, m).straight > a.straight) lo = m;
-          else hi = m;
-        }
-        return (lo + hi) / 2;
-      })();
+      bend = a.q[3] - hand.photoPose(a.around)[3];
     for (const k of [a, b]) {
-      const q = hand.thumbAt(k.around, z, s.thumb.roll, bend).q;
-      assert.ok(Math.max(...q.map((v, j) => Math.abs(v - k.q[j]))) < 0.05, `${at}: bent alike`);
+      const q0 = hand.photoPose(k.around);
+      assert.ok(
+        Math.abs(k.q[3] - q0[3] - bend) < 1e-6 && Math.abs(k.q[4] - q0[4] - bend) < 1e-6,
+        `${at}: bent alike`,
+      );
       assert.ok(k.q[3] < 89 && k.q[4] < 89, `${at}: at the joints' end`);
     }
     assert.ok(Math.sign(bend) === Math.sign(gap), `${at}: bent ${bend.toFixed(1)}°`);
-    const mid = hand.touch(hand.thumbAt(s.thumb.around, z, s.thumb.roll, bend).q).p;
+    const mid = hand.touch(hand.thumbAt(s.thumb.around, z, bend).q).p;
     assert.ok(
       Math.abs(mid.distanceTo(home.at) - Math.abs(gap)) < 0.05,
       `${at}: ${mid.distanceTo(home.at).toFixed(2)} mm from the 1.5u`,
@@ -234,15 +222,12 @@ test("the photos' thumb poses put it on each print, above the paper", () => {
   }
 });
 
-test("a thumb key it can't press straight down with its pad isn't valid", () => {
-  // The thumb straightened until the last bone points at the CMC, then past it.
-  const q = (curl: number) => {
-    const yaw = 123.1,
-      pitch = 25.2;
-    return [yaw, pitch, hand.twistAt(yaw, pitch), 32.3 + curl, 25.5 + curl];
-  };
-  assert.ok(hand.touch(q(-25)).miss > 0.5);
-  assert.ok(Math.abs(hand.touch(q(-35)).roll) > 90);
+test("a thumb key met with the back of the thumb isn't valid", () => {
+  // The photos' pose swept in: rolled past its side.
+  const q = hand.photoPose(92),
+    s = { ...structuredClone(hand.NATURAL), thumb: { around: 92, drop: 0 } };
+  assert.ok(hand.touch(q).roll > 90);
+  assert.ok(hand.check(clone(defaults).config, s).crooked.length > 0);
 });
 
 const FINGERS = ['index', 'middle', 'ring', 'pinky'] as const;
