@@ -10,9 +10,13 @@ in the configuration. File paths are relative to `v4/editor/`.
 ## Construction
 
 The default chassis is the **Skeletyl** (`src/skeletyl.ts`, `chassis.style:
-"skeletyl"`): the key plates joined into columns and rows, swept ends at the
-column ends, walls under the outer edges, and one rail round the outline on the
-floor, the walls standing on it only along the outline. The base plate inside
+"skeletyl"`): a rib along each finger column and each thumb row, and one rail
+round the outline on the floor. A rib is one swept solid: the key plates as
+slabs, curved webs between them tangent to the plates, and a lip and round at
+each end, clear of the tile pocket and the switch. An end on the outline drops
+to the floor onto the rail; the others hang. Where two keys are too steep or
+too far round to web, the rib is parted there and both ends stop flush at their
+plates. Nothing is cut out of the frame. The base plate inside
 the outline is the bottom section; it carries the adapter mount and the
 ribbon's landing, the ribbon leaving through a notch in the rail. The
 assembly is soldered first and lifted in, so the frame has no wire ways and

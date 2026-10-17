@@ -114,16 +114,16 @@ export function loft(
   );
 }
 // The solid through rings of points (counter-clockwise in each ring's own
-// plane), each placed in 3D by its own map. Each group's consecutive rings are
-// joined point to point, and its ends capped unless it says not. share: a
-// ring's points that are another's (its point index to the vertex's).
-// extra: more faces, as polygons of [ring, point] (counter-clockwise in the
-// first ring's plane, facing back along it).
+// plane), each placed in 3D by its own map (given the point and its index).
+// Each group's consecutive rings are joined point to point, and its ends
+// capped unless it says not. share: a ring's points that are another's (its
+// point index to the vertex's). extra: more faces, as polygons of [ring,
+// point] (counter-clockwise in the first ring's plane, facing back along it).
 export function mesh(
   k: Kit,
   rings: {
     pts: [number, number][];
-    place: (w: number, z: number) => Vec3;
+    place: (w: number, z: number, j: number) => Vec3;
     share?: Map<number, number>;
   }[],
   groups: { rings: number[]; open?: [boolean, boolean] }[] = [{ rings: rings.map((_, i) => i) }],
@@ -135,7 +135,7 @@ export function mesh(
   let nv = 0;
   for (const r of rings) {
     base.push(nv);
-    for (const [w, z] of r.pts) verts.push(...r.place(w, z));
+    r.pts.forEach(([w, z], j) => verts.push(...r.place(w, z, j)));
     nv += r.pts.length;
   }
   const id = (r: number, j: number) => rings[r].share?.get(j) ?? base[r] + j;

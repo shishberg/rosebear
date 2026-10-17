@@ -30,7 +30,7 @@ import type { Manifold, ManifoldToplevel, Vec3 } from 'manifold-3d';
 import { Matrix4 } from 'three';
 import { keycapEnvelope, isKey, isThumb, point, tileUnderside, type Config } from './geometry';
 import { seatSettings } from './seats';
-import { facetFloor, narrowPlates, sheet, tilePocketHalf } from './plates';
+import { facetFloor, narrowPlates, PLATES, sheet, tilePocketDepth, tilePocketHalf } from './plates';
 import { capsule, down, keycapSolid, place, slab } from './manifold-util';
 import { shell } from './shell';
 import { skeletyl } from './skeletyl';
@@ -68,8 +68,6 @@ const SIZES = {
   skirtPiece: 0.5,
   /** Skirts keep this far clear of a tile's edge (plan): its edge pads, and a soldering iron's way up to them. */
   skirtClear: 1.5,
-  /** The switch body and pins below the plate top: kept clear under the switch hole. */
-  switchBelowPlate: 13,
   /** The keycap's room is this much wider than the cap plus its clearance, in total. */
   keycapRoomExtra: 0.2,
   /** The keycap room's height above the cap's lowest point. */
@@ -133,13 +131,9 @@ function pockets(
   keyNames: string[],
 ) {
   const plateThickness = cfg.chassis.plate_thickness_mm;
-  const tile = cfg.tile;
   const sw = cfg.switch;
   // The tile, its components and the switch body, below the plate.
-  const pocketDepth =
-    -tileUnderside(cfg) +
-    Math.max(0, ...tile.components.map((c) => c.size_mm[2] / 2 - c.center_mm[2])) +
-    tile.component_clearance_mm;
+  const pocketDepth = tilePocketDepth(cfg);
   const pocketHalf = tilePocketHalf(cfg);
   return M.union(
     keyNames.flatMap((n) => [
@@ -155,10 +149,10 @@ function pockets(
           [
             sw.cutout_mm[0] + sw.cutout_clearance_mm,
             sw.cutout_mm[1] + sw.cutout_clearance_mm,
-            SIZES.switchBelowPlate - plateThickness,
+            PLATES.switchBelowPlate - plateThickness,
           ],
           true,
-        ).translate([0, 0, -(SIZES.switchBelowPlate + plateThickness) / 2]),
+        ).translate([0, 0, -(PLATES.switchBelowPlate + plateThickness) / 2]),
         frames[n],
       ),
     ]),
@@ -347,11 +341,10 @@ export function buildChassis(
 }
 
 /**
- * The Skeletyl: its frame less the tile pockets, with the
- * glue pads and the keycap rooms, on a base plate inside its outline (skin_mm
- * thick, the frame standing 1 mm into it). The plate carries the adapter's
- * mount and the ribbon's landing, which ends where the ribbon leaves through a
- * notch in the frame.
+ * The Skeletyl: its frame with the glue pads, on a base plate inside its
+ * outline (skin_mm thick, the frame's rail standing on the floor in it). The
+ * plate carries the adapter's mount and the ribbon's landing, which ends where
+ * the ribbon leaves through a notch in the frame.
  */
 function skeletylChassis(
   wasm: ManifoldToplevel,
@@ -368,7 +361,7 @@ function skeletylChassis(
     ),
   );
   const built = skeletyl(wasm, cfg, frames);
-  const cleared = built.frame.subtract(pockets(M, cfg, frames, keyNames)).add(pads);
+  const framed = built.frame.add(pads);
   // The base plate: inside the outline the frame stands on.
   const footprint = new CS([built.outline], 'NonZero');
   // The landing, in the adapter's frame, from `out` (where the ribbon leaves) in to its end.
@@ -415,7 +408,7 @@ function skeletylChassis(
     ]),
     adapter,
   );
-  const uncarved = cleared.subtract(notch);
+  const uncarved = framed.subtract(notch);
   // The keycap rooms are only checked: the frame is built clear of them.
   const { roomCuts } = keycapRooms(M, cfg, frames, keyNames, uncarved);
   const e = adapter.elements;
