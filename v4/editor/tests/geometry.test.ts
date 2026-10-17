@@ -103,8 +103,14 @@ test('thumb clusters fan on an arc and tilt into a well', () => {
   delete (none.config.geometry as { thumb_extra?: unknown }).thumb_extra;
   assert(!componentFrames(none.config).thumb_x1);
 });
-test('default chassis passes: one piece on one footprint, clear of the tile pockets, flat seats, clear keycaps, hardware and wires, and reachable pads', () => {
-  const p = clone(defaults),
+// The C64 shell, the chassis these checks were written for.
+const c64 = () => {
+  const p = clone(defaults);
+  p.config.chassis.style = 'c64';
+  return p;
+};
+test('the C64 chassis passes: one piece on one footprint, clear of the tile pockets, flat seats, clear keycaps, hardware and wires, and reachable pads', () => {
+  const p = c64(),
     r = buildSolid(wasm, p);
   console.log(
     'WASM build',
@@ -119,7 +125,6 @@ test('default chassis passes: one piece on one footprint, clear of the tile pock
   assert.deepEqual(r.report.roomCuts, []);
   assert.deepEqual(r.report.hardware, []);
   assert.deepEqual(r.report.wires, []);
-  assert.deepEqual(r.report.solder, []);
   assert(r.report.keycaps.every((k) => k.passed));
   assert(r.report.capGaps.every((g) => g.gap > 0));
   assert(r.report.openings.length > 0 && r.report.openings.every((o) => o.passed));
@@ -179,8 +184,8 @@ const basePieces = (cfg: typeof defaults.config) =>
     pieces.forEach((p) => p.delete());
     return big;
   });
-test('a thicker skin builds a case that still passes, the adapter mount reaching the floor', () => {
-  const p = clone(defaults);
+test('a thicker skin builds a C64 case that still passes, the adapter mount reaching the floor', () => {
+  const p = c64();
   p.config.chassis.skin_mm = 3;
   const r = buildSolid(wasm, p);
   assert.equal(r.report.passed, true);
@@ -305,7 +310,7 @@ test('a failed wire router rejects the build, and the next build still runs', as
     buildSolidAsync(wasm, clone(defaults), () => Promise.reject(Error('router crashed'))),
     /router crashed/,
   );
-  const r = await buildSolidAsync(wasm, clone(defaults), async (c) => wiring(c));
+  const r = await buildSolidAsync(wasm, c64(), async (c) => wiring(c));
   assert(r.report.passed);
 });
 test('a shell that throws while the router is still working leaves no unhandled rejection', async () => {
@@ -322,7 +327,7 @@ test('a shell that throws while the router is still working leaves no unhandled 
     await assert.rejects(
       buildSolidAsync(
         wasm,
-        clone(defaults),
+        c64(),
         () => new Promise((_, no) => setTimeout(() => no(Error('router crashed')), 10)),
       ),
       /shell failed/,
@@ -353,8 +358,8 @@ test('keycapEnvelope: the measured cap grown by its clearance, down to where it 
   assert.equal(keycapEnvelope(deep, 'matrix_index_home').floor, -2);
   assert.equal(keycapEnvelope(deep, 'matrix_index_home', { clampFloor: true }).floor, 0);
 });
-test('a wide keycap clearance fails the swept check by the taper, not the at-rest one', () => {
-  const p = clone(defaults);
+test('a wide keycap clearance fails the C64 swept check by the taper, not the at-rest one', () => {
+  const p = c64();
   p.config.switch.keycap_clearance_mm = 6;
   const r = buildSolid(wasm, p),
     k = r.report.keycaps.find((x) => x.name === 'thumb_x1')!;

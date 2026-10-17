@@ -5,8 +5,9 @@ Three.js and Manifold WebAssembly. KiCad/PCB generation stays in the offline v4
 pipeline.
 
 The editor edits the **key layout**; the chassis is generated from it. The
-construction is the C64-styled case chosen from the shape prototypes (see
-[design status](../docs/design-status.md)).
+construction is the Skeletyl-style frame; the C64-styled case chosen earlier from
+the shape prototypes (see [design status](../docs/design-status.md)) is kept as
+`?chassis=c64`.
 
 How the case is built and wired is in [editor chassis and wiring](../docs/editor-chassis.md).
 The wiring, the tile pads, the FFC adapter and the ribbon dimensions are

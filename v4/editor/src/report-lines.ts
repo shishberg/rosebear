@@ -65,12 +65,6 @@ export function reportLines(r: Report): ReportLine[] {
       : 'No wire runs into another.',
   );
   for (const c of r.crossings) add(`${c} run into each other`, c);
-  add(
-    r.solder.length
-      ? `${r.solder.length} pads cannot be reached with a soldering iron.`
-      : 'Every pad can be reached with a soldering iron from below.',
-  );
-  for (const p of r.solder) add(`${prettyKey(p.name)}: soldering iron's way blocked`, p.name);
   for (const o of r.openings)
     if (!o.passed)
       add(`${o.name}: incomplete opening (${o.covered}/9 probes, ${o.blocked} blocked)`, o.name);

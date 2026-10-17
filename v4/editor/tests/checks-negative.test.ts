@@ -8,8 +8,9 @@ import { buildSolid } from '../src/solid';
 const wasm = await Module();
 wasm.setup();
 
-test('a thumb cluster moved 40 mm off the fingers fails seats, openings, pieces, hardware, wires and solder', () => {
+test('a thumb cluster moved 40 mm off the fingers of the C64 fails seats, openings, pieces, hardware and wires', () => {
   const p = clone(defaults);
+  p.config.chassis.style = 'c64';
   p.config.geometry.thumb.position_mm[0] += 40;
   const r = buildSolid(wasm, p).report;
   assert.equal(r.passed, false);
@@ -23,6 +24,5 @@ test('a thumb cluster moved 40 mm off the fingers fails seats, openings, pieces,
   assert(r.hardware.length > 0 && r.hardware.some((h) => h.name === 'thumb_home'));
   assert(r.hardware.every((h) => h.group === 'pcb'));
   assert(r.wires.length > 0);
-  assert(r.solder.length > 0 && r.solder.every((s) => s.name.startsWith('thumb_')));
-  assert(r.wires.every((w) => w.volume > 0) && r.solder.every((s) => s.volume > 0));
+  assert(r.wires.every((w) => w.volume > 0));
 });

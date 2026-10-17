@@ -518,7 +518,7 @@ test('the extra keys are fitted with the thumb in its range, though the row swin
 test('the extra thumb keys hang off the row under its gaps, and exist only when on', () => {
   const on = {
       ...structuredClone(hand.YOURS),
-      extra: { ...hand.START.extra, on: true },
+      extra: { ...hand.EXTRA, on: true },
     },
     { c, r, frame } = layout(on),
     anchor = hand.anchorOf(clone(defaults).config),

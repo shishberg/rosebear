@@ -1,5 +1,7 @@
-// Chassis: the C64-styled shell (shell/) with the key plates in its wells,
-// built from the key poses.
+// Chassis: chassis.style "skeletyl" (the default) is the open Skeletyl-style
+// frame (skeletyl.ts) on a flat base plate; "c64" is the C64-styled shell
+// (shell/) with the key plates in its wells. Both are built from the key poses.
+// The C64:
 // The shell is a hollow case parted along a groove all round: the case above
 // it, and the bottom section below, which is the base the adapter stands on.
 // In each well the plates make one sheet: each key's plate, joined to its
@@ -31,7 +33,12 @@ import { seatSettings } from './seats';
 import { facetFloor, narrowPlates, sheet, tilePocketHalf } from './plates';
 import { capsule, down, keycapSolid, place, slab } from './manifold-util';
 import { shell } from './shell';
-import { wiring, type Wiring } from './wiring';
+import { skeletyl } from './skeletyl';
+import { landingBox, wiring, type Wiring } from './wiring';
+
+/** Which chassis to build: "skeletyl" (the default) or "c64". */
+export const chassisStyle = (cfg: Config) =>
+  (cfg.chassis as { style?: string }).style === 'c64' ? 'c64' : 'skeletyl';
 
 export interface ChassisResult {
   /** The case above the parting line, with the plates. */
@@ -77,6 +84,11 @@ const SIZES = {
   glueLayer: 0.15,
   /** The adapter's rests stand this far in from its hole edge. */
   adapterRestIn: 7,
+  /** Skeletyl tie tunnels: centres this far in from the landing's ends, tops this far under its top. */
+  tieIn: 2.75,
+  tieBridge: 1,
+  /** The Skeletyl's ribbon notch reaches this far out from the landing. */
+  notchLength: 40,
 } as const;
 
 /**
@@ -271,8 +283,10 @@ export function buildChassis(
   frames: Record<string, Matrix4>,
   // The wires and the shell, when the caller has made them already.
   wired: Wiring = wiring(cfg, frames),
-  built = shell({ wasm, cfg, frames }),
+  given?: ReturnType<typeof shell>,
 ): ChassisResult {
+  if (chassisStyle(cfg) === 'skeletyl') return skeletylChassis(wasm, cfg, frames);
+  const built = given ?? shell({ wasm, cfg, frames });
   const M = wasm.Manifold;
   const keyNames = Object.keys(frames).filter(isKey);
   const [fingerWell, thumbWell] = built.wells;
@@ -328,6 +342,92 @@ export function buildChassis(
     trim: built.trim,
     panel: built.panel,
     split: built.split,
+    roomCuts,
+  };
+}
+
+/**
+ * The Skeletyl: its frame less the tile pockets, with the
+ * glue pads and the keycap rooms, on a base plate inside its outline (skin_mm
+ * thick, the frame standing 1 mm into it). The plate carries the adapter's
+ * mount and the ribbon's landing, which ends where the ribbon leaves through a
+ * notch in the frame.
+ */
+function skeletylChassis(
+  wasm: ManifoldToplevel,
+  cfg: Config,
+  frames: Record<string, Matrix4>,
+): ChassisResult {
+  const M = wasm.Manifold;
+  const CS = wasm.CrossSection;
+  const keyNames = Object.keys(frames).filter(isKey);
+  const glue = gluePads(cfg);
+  const pads = M.union(
+    keyNames.flatMap((n) =>
+      glue.boxes.map((b) => place(M.cube(b.size, true).translate(b.center), frames[n])),
+    ),
+  );
+  const built = skeletyl(wasm, cfg, frames);
+  const cleared = built.frame.subtract(pockets(M, cfg, frames, keyNames)).add(pads);
+  // The base plate: inside the outline the frame stands on.
+  const footprint = new CS([built.outline], 'NonZero');
+  // The landing, in the adapter's frame, from `out` (where the ribbon leaves) in to its end.
+  const r = cfg.ribbon;
+  const land = landingBox(cfg);
+  const out = land.end - land.length;
+  const into = 0.5;
+  const adapter = frames.adapter;
+  const landing = place(
+    M.cube([land.length, land.width, land.top - land.bottom + into]).translate([
+      out,
+      -land.width / 2,
+      land.bottom - into,
+    ]),
+    adapter,
+  );
+  const [tw, th] = r.tie_slot_mm;
+  const tunnels = place(
+    M.union(
+      [out + SIZES.tieIn, land.end - SIZES.tieIn].map((x) =>
+        M.cube([tw, land.width + 2, th], true).translate([
+          x,
+          0,
+          land.top - SIZES.tieBridge - th / 2,
+        ]),
+      ),
+    ),
+    adapter,
+  );
+  const base = footprint
+    .extrude(cfg.chassis.skin_mm)
+    .add(adapterMount(wasm, cfg, frames))
+    .add(landing)
+    .subtract(tunnels);
+  // The ribbon's notch, from the landing out, low over the base plate.
+  const width = r.width_mm + 2 * r.notch_clearance_mm;
+  const top = land.top + r.thickness_mm + r.notch_clearance_mm;
+  const bottom = land.bottom - cfg.chassis.skin_mm - 1;
+  const notch = place(
+    M.cube([SIZES.notchLength, width, top - bottom]).translate([
+      out - SIZES.notchLength,
+      -width / 2,
+      bottom,
+    ]),
+    adapter,
+  );
+  const uncarved = cleared.subtract(notch);
+  // The keycap rooms are only checked: the frame is built clear of them.
+  const { roomCuts } = keycapRooms(M, cfg, frames, keyNames, uncarved);
+  const e = adapter.elements;
+  return {
+    body: uncarved,
+    base,
+    trim: M.union([]),
+    // The landing's outer end, in world x (as the C64's panel face, for the ribbon's path).
+    panel: e[12] + e[0] * out,
+    // The frame stands 1 mm into the plate: its footprint just above the floor
+    // must be one area, as the C64's just above its parting line.
+    split: 0,
     roomCuts,
   };
 }

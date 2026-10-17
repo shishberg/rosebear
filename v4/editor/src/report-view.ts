@@ -17,13 +17,12 @@ const KIND_STYLE: Record<Highlight['kind'], { color: number; order: number }> = 
   seat: { color: 0xf16bd8, order: 6 },
   loose: { color: 0xf16bd8, order: 6 },
   wire: { color: 0x40e0ff, order: 6 },
-  solder: { color: 0x40e0ff, order: 6 },
 };
 const LEGEND: [Highlight['kind'], string][] = [
   ['rest', 'Red: at-rest / hardware collision'],
   ['travel', 'Orange: travel + clearance collision'],
   ['opening', 'Pink: opening / switch-seat defect / loose piece'],
-  ['wire', 'Cyan: wire into the chassis / blocked soldering access'],
+  ['wire', 'Cyan: wire into the chassis'],
 ];
 $('fit-legend').replaceChildren(
   ...LEGEND.flatMap(([kind, text], i) => {

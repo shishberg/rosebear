@@ -23,6 +23,7 @@ import hand from '../../../hand/left-hand.json';
 import { capsOf, check, partHits, problems, thumbPart, trisOf, TRAY } from './check';
 import {
   DACTYL,
+  EXTRA,
   MIX_MIN,
   NATURAL,
   NO_CURL,
@@ -97,4 +98,5 @@ export const _test = {
   problems,
   stateOf,
   START,
+  EXTRA,
 };

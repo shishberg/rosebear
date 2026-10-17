@@ -69,6 +69,15 @@ export function measure() {
   $('size').textContent = box.isEmpty()
     ? 'Size: no chassis'
     : `Size: ${s.x.toFixed(1)} W × ${s.y.toFixed(1)} D × ${s.z.toFixed(1)} H mm`;
+  // How tall the board stands, to the keycaps' tops, with the bottom section and without.
+  const top = box.max.z;
+  const caps = new T.Box3();
+  for (const o of parts.children) if (o.userData.group === 'keycaps') caps.expandByObject(o);
+  const high = Math.max(top, caps.isEmpty() ? top : caps.max.z);
+  const body = new T.Box3().expandByObject(shell);
+  $('height').textContent = box.isEmpty()
+    ? ''
+    : `${(high - box.min.z).toFixed(1)} mm tall with keycaps, ${(high - body.min.z).toFixed(1)} without the bottom section`;
   bounds.visible = $('bounds').matches(':checked') && !box.isEmpty();
 }
 export const parts = new T.Group();

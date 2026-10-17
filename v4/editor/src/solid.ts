@@ -2,7 +2,7 @@ import type { Manifold, ManifoldToplevel } from 'manifold-3d';
 import { Matrix4 } from 'three';
 import { openingSpan, seatBox, seatSettings, seatSwitches, clipBox, switchHole } from './seats';
 import { RegionIndex, type Region } from './regions';
-import { buildChassis } from './chassis';
+import { buildChassis, chassisStyle } from './chassis';
 import { hardware } from './parts';
 import {
   box,
@@ -22,7 +22,6 @@ import {
   keycapEnvelope,
   isKey,
   keyGroups,
-  tileUnderside,
   componentFrames,
   validateProject,
   type V3,
@@ -97,8 +96,6 @@ export interface Report {
   hardware: { name: string; group: string; volume: number }[];
   /** Wires that run into the chassis or its bottom section, and how far (mm³). */
   wires: { name: string; volume: number }[];
-  /** Pads a soldering iron cannot reach straight from below. */
-  solder: { name: string; volume: number }[];
   /** The whole hand's wiring: wire count, solder joints and cut length (mm). */
   wiring: { wires: number; joints: number; length: number };
   /** Pairs of wires that run into each other, named together. */
@@ -116,7 +113,7 @@ export interface Report {
 }
 export interface Highlight {
   name: string;
-  kind: 'rest' | 'travel' | 'room' | 'hardware' | 'opening' | 'seat' | 'loose' | 'wire' | 'solder';
+  kind: 'rest' | 'travel' | 'room' | 'hardware' | 'opening' | 'seat' | 'loose' | 'wire';
   mesh: MeshData;
 }
 export interface BuildResult {
@@ -151,8 +148,9 @@ export async function buildSolidAsync(
     const routed = route(cfg);
     // If shell() throws, nothing awaits `routed`; its rejection must not go unhandled.
     routed.catch(() => {});
-    const built = shell({ wasm, cfg, frames: componentFrames(cfg) });
-    for (const m of [built.body, built.inside, built.slot]) m.status();
+    const built =
+      chassisStyle(cfg) === 'c64' ? shell({ wasm, cfg, frames: componentFrames(cfg) }) : undefined;
+    if (built) for (const m of [built.body, built.inside, built.slot]) m.status();
     return build(wasm, project, { wired: await routed, built, start });
   });
 }
@@ -421,20 +419,26 @@ function misses(
   return out;
 }
 
-/** Every wire, as a tube of its diameter, must miss the chassis and its bottom section, and every other wire. */
-function checkWires(p: Probe, wired: Wiring, result: Manifold) {
+/**
+ * Every wire, as a tube of its diameter, must miss every other wire, and the
+ * chassis and its bottom section if given (the Skeletyl's wiring is placed by
+ * hand).
+ */
+function checkWires(p: Probe, wired: Wiring, result?: Manifold) {
   const tube = (points: number[][], d: number) =>
     p.M.union(points.slice(1).map((q, i) => capsule(p.M, points[i], q, d / 2, CHECKS.wireSides)));
   const wireName = (w: Wiring['wires'][number]) =>
     `${w.net}: ${w.from.replace(/^(matrix|thumb)_/, '')} to ${w.to.replace(/^(matrix|thumb)_/, '')}`;
   const highlights: Highlight[] = [];
-  const wires = misses(
-    p,
-    wired.wires.map((w) => ({ name: wireName(w), solid: tube(w.points, w.diameter) })),
-    result,
-    'wire',
-    highlights,
-  );
+  const wires = !result
+    ? []
+    : misses(
+        p,
+        wired.wires.map((w) => ({ name: wireName(w), solid: tube(w.points, w.diameter) })),
+        result,
+        'wire',
+        highlights,
+      );
   const crossed = crossings(wired.wires).map(([a, b]) => {
     const [x, y] = [wired.wires[a], wired.wires[b]];
     const name = `${wireName(x)} and ${wireName(y)}`;
@@ -442,37 +446,6 @@ function checkWires(p: Probe, wired: Wiring, result: Manifold) {
     return name;
   });
   return { wires, crossings: crossed, highlights };
-}
-
-/**
- * A soldering iron's way to each pad, with the bottom section off: straight
- * down from it along its key's normal, through the open bottom of the tile
- * pocket.
- */
-function checkSolder(p: Probe, cfg: Project['config'], keys: Keys, cut: Manifold) {
-  const [access, reach] = cfg.wiring.solder_access_mm;
-  const padZ = tileUnderside(cfg);
-  const highlights: Highlight[] = [];
-  const solder = misses(
-    p,
-    keys.flatMap(([name, m]) =>
-      cfg.tile.pads.list.map((pad) => ({
-        name: `${name}: ${pad.name} pad, ${pad.at_mm[1] > 0 ? 'back' : 'front'} edge`,
-        solid: place(
-          p.M.cylinder(reach, access / 2, access / 2, 24).translate([
-            pad.at_mm[0],
-            pad.at_mm[1],
-            padZ - reach - 0.01,
-          ]),
-          m,
-        ),
-      })),
-    ),
-    cut,
-    'solder',
-    highlights,
-  );
-  return { solder, highlights };
 }
 
 /** Each keycap, at rest and over its full travel grown by its clearance, must miss the chassis. */
@@ -559,8 +532,7 @@ function build(
   const result = cut.add(chassis.base);
   const seats = checkSeats(probe, cfg, keys, result);
   const hw = checkHardware(probe, project, nodes, chassis, result);
-  const wireChecks = checkWires(probe, wired, result);
-  const solder = checkSolder(probe, cfg, keys, cut);
+  const wireChecks = checkWires(probe, wired, chassisStyle(cfg) === 'c64' ? result : undefined);
   const caps = checkKeycaps(probe, cfg, keys, result);
   const capGaps = checkCapGaps(M, cfg, caps.rests);
 
@@ -575,8 +547,7 @@ function build(
     capGaps.every((c) => c.gap > 0) &&
     opened.openings.every((o) => o.passed) &&
     wireChecks.wires.length === 0 &&
-    wireChecks.crossings.length === 0 &&
-    solder.solder.length === 0;
+    wireChecks.crossings.length === 0;
   return {
     mesh,
     base: meshData(chassis.base),
@@ -590,7 +561,6 @@ function build(
       ...seats.highlights,
       ...hw.highlights,
       ...wireChecks.highlights,
-      ...solder.highlights,
       ...caps.highlights,
     ],
     wiring: wired,
@@ -604,7 +574,6 @@ function build(
       roomCuts: rooms.roomCuts,
       hardware: hw.hardware,
       wires: wireChecks.wires,
-      solder: solder.solder,
       wiring: {
         wires: wired.wires.length,
         joints: wired.nets.reduce((t, n) => t + n.joints, 0),

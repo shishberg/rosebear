@@ -786,9 +786,10 @@ function barsOf(c: Ctx, bars: Bars, legs: Leg[], all: Leg[], truss: Truss[]) {
 /** The feet round a plate's outline, in order: their convex hull, dug in to
  * each foot inside it near an edge (the one nearest an edge, where the edge is
  * more than twice as long as the foot is from its nearer end, or the foot is
- * within a rail's width of it; and the ring doesn't cross itself), as far as
- * it goes. The feet left inside are under the keys. */
-function outline(feet: Vec3[]) {
+ * within a rail's `width` of it; no further than `deepest` from the edge; and
+ * the ring doesn't cross itself), as far as it goes. The feet left inside are
+ * under the keys. (The Skeletyl chassis's outline too.) */
+export function outline(feet: Vec3[], width: number = FRAME.rail[0], deepest = Infinity) {
   const gap = (a: Vec3, b: Vec3) => Math.hypot(a[0] - b[0], a[1] - b[1]),
     /** How far p is from the segment a b, in plan. */
     off = (p: Vec3, a: Vec3, b: Vec3) => {
@@ -815,7 +816,8 @@ function outline(feet: Vec3[]) {
           .sort((x, y) => x.d - y.d)[0];
       if (
         !near ||
-        (near.d > FRAME.rail[0] && gap(a, b) <= 2 * Math.min(gap(a, near.p), gap(b, near.p)))
+        near.d > deepest ||
+        (near.d > width && gap(a, b) <= 2 * Math.min(gap(a, near.p), gap(b, near.p)))
       )
         continue;
       const { p } = near;

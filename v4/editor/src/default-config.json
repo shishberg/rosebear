@@ -349,6 +349,7 @@
     ]
   },
   "chassis": {
+    "style": "skeletyl",
     "plate_thickness_mm": 3,
     "plate_margin_mm": 0.9,
     "skin_mm": 2

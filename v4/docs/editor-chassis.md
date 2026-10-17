@@ -9,7 +9,18 @@ in the configuration. File paths are relative to `v4/editor/`.
 
 ## Construction
 
-`src/chassis.ts` builds the chassis from the key poses, on the case from `src/shell/`:
+The default chassis is the **Skeletyl** (`src/skeletyl.ts`, `chassis.style:
+"skeletyl"`): the key plates joined into columns and rows, swept ends at the
+column ends, walls under the outer edges, and one rail round the outline on the
+floor, the walls standing on it only along the outline. The base plate inside
+the outline is the bottom section; it carries the adapter mount and the
+ribbon's landing, the ribbon leaving through a notch in the rail. The
+assembly is soldered first and lifted in, so the frame has no wire ways and
+the checks don't test the wires against it. The board's height to the keycaps'
+tops shows under its size.
+
+`chassis.style: "c64"` (or `?chassis=c64`) builds the C64 case below instead.
+`src/chassis.ts` builds it from the key poses, on the case from `src/shell/`:
 
 - **Case**: a Commodore 64 style "breadbin". The finger keys sit in one well;
   the thumb row's deck is carried on in front of it as part of the same solid,
