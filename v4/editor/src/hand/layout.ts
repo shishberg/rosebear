@@ -331,7 +331,7 @@ export const NO_CURL: Settings = {
 export const SWUNG_IN: Settings = {
   ...structuredClone(NO_CURL),
   thumb: { ...NO_CURL.thumb, around: 110, drop: 18.5, turn: 23.5, pivot: 30 },
-  extra: { ...NO_CURL.extra!, lower: 5 },
+  extra: { ...NO_CURL.extra!, lower: -1 },
 };
 /** Everything the panel sets: the layout's settings, what the hand is shown
  * doing and which parts of the panel are open. One state, kept in the project
