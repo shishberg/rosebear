@@ -686,6 +686,33 @@ test('a truss along each outside wall: diagonals from each side end to a foot, s
   }
 });
 
+test("the rails run round the plates' outlines and between the thumb's and fingers' keys, and every foot stands on one", () => {
+  const turn = (o: number[], a: number[], b: number[]) =>
+      Math.sign((a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])),
+    cross = ([a, b]: number[][], [c, d]: number[][]) =>
+      turn(a, b, c) * turn(a, b, d) < 0 && turn(c, d, a) * turn(c, d, b) < 0;
+  // No curl with the extra keys: the thumb's keys and the fingers' are one
+  // plate, with feet under where they meet.
+  const all = [
+    ...PRESETS,
+    ['No curl, extra keys', { ...hand.NO_CURL, extra: { ...hand.NO_CURL.extra!, on: true } }],
+  ] as const;
+  for (const [name, s] of all) {
+    const { frame } = layout(s),
+      { rails } = frame,
+      ends = new Set(rails.flat().map((p) => p.join()));
+    // None crosses another, under the keys.
+    rails.forEach((a, i) =>
+      rails.slice(i + 1).forEach((b) => assert.ok(!cross(a, b), `${name}: two rails cross`)),
+    );
+    for (const m of frame.truss)
+      assert.ok(
+        ends.has(m.foot.join()),
+        `${name}: ${m.key} ${m.side} end ${m.end}: no rail at its foot`,
+      );
+  }
+});
+
 test('a web too thin to print is left out, the truss and the other webs holding its keys', () => {
   // The bottom row 16 mm from home: the pinky's bottom key sits well below
   // the ring's, so the web between them is a steep wall, a third of it too
@@ -797,7 +824,7 @@ test('a frame is built where two joined keys overlap or a bar has no length', ()
         thumb: { around: 167, drop: -20, reach: { palmar: 2, curl: 0.05 }, press: 10 },
         spacing: 40,
       },
-      tris: 13156,
+      tris: 12780,
       pieces: 1,
     },
     {
@@ -814,7 +841,7 @@ test('a frame is built where two joined keys overlap or a bar has no length', ()
         thumb: { around: 155, drop: -16, reach: { palmar: 2, curl: -2 }, press: 82 },
         spacing: 32,
       },
-      tris: 11198,
+      tris: 11134,
       pieces: 1,
     },
   ];

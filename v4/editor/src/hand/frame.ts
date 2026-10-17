@@ -22,8 +22,11 @@
  *   like a corner's where the switches hang out past the wall) down to one
  *   foot under the side's middle, moved out until both clear the switches;
  *   where the plate's too low for a diagonal of 30° or more, a post. A
- *   rail runs round each plate's feet, and one ties the thumb's to the
- *   fingers'. A press that would push the frame well outside its base is a
+ *   rail runs round each plate's outline, from foot to foot; where the
+ *   thumb's and fingers' keys are one plate, another runs between them,
+ *   round the thumb's side facing the fingers. A foot on neither has no
+ *   rail to stand on, so its legs, diagonals and posts are left out. A rail
+ *   ties the thumb's plate to the fingers' where they're apart. A press that would push the frame well outside its base is a
  *   warning.
  * - Every switch (down past its pins), keycap (pressed to rest) and switch top
  *   is cut out of all of it except the switch seats (the clip land round each
@@ -121,6 +124,8 @@ export type FrameResult = {
   }[];
   /** The webs left out, too thin to print: the keys each was between. */
   websLeftOut: [string, string][];
+  /** The floor rails, from foot to foot. */
+  rails: [Vec3, Vec3][];
 };
 
 /** The keys the hand lays out: the finger matrix and the thumb row, and the
@@ -333,13 +338,14 @@ function makeFrame(wasm: ManifoldToplevel, cfg: Config, extra: boolean) {
     keep = keepOut(c),
     bars = barTools(c),
     sides = joinedSides(c, joined),
-    legs = buildLegs(c, bars, sides);
-  faults.push(...legs.faults);
-  solids.push(...legs.solids);
-  const truss = buildTruss(c, bars, joined, sides, legs.legs);
-  faults.push(...truss.faults);
-  solids.push(...truss.solids);
-  solids.push(...rails(c, bars.rail, joined, [...legs.legs, ...truss.truss]));
+    allLegs = buildLegs(c, bars, sides),
+    allTruss = buildTruss(c, bars, joined, sides, allLegs),
+    plan = planRails(c, joined, [...allLegs, ...allTruss]),
+    legs = { legs: allLegs.filter((l) => plan.kept.has(l.foot)) },
+    truss = { truss: allTruss.filter((m) => plan.kept.has(m.foot)) },
+    built = barsOf(c, bars, legs.legs, allLegs, truss.truss);
+  faults.push(...built.faults);
+  solids.push(...built.solids, ...plan.rails.map(([a, b]) => bars.rail(a, b)));
   const warnings = tipWarnings(c, [...legs.legs, ...truss.truss]);
 
   // Nothing below the floor: the slicer would support it. The webs go in
@@ -379,6 +385,7 @@ function makeFrame(wasm: ManifoldToplevel, cfg: Config, extra: boolean) {
       foot,
     })),
     websLeftOut: left.map(({ n, m }) => [n, m] as [string, string]),
+    rails: plan.rails,
   };
 }
 
@@ -521,31 +528,23 @@ const joinedSides = (c: Ctx, joined: [string, string][]) =>
 
 /** The legs, on each plate's outer corners (see the header): the corners whose
  * key has no neighbour across either of its sides. */
-function buildLegs(c: Ctx, { clear, strut, fan, knot }: Bars, sides: Set<string>) {
-  const { keys, corners, hp, at, floor, column } = c,
-    legs = keys.flatMap((key) =>
-      corners
-        .filter(([sx, sy]) => !sides.has(`${key} ${[0, sx]}`) && !sides.has(`${key} ${[1, sy]}`))
-        .map(([sx, sy]) => {
-          const reach = (b: number) => {
-              const top = at(key, sx * (hp[0] + b), sy * hp[1], -FRAME.lip - b);
-              return { top, foot: [top[0], top[1], floor] as Vec3 };
-            },
-            b = extend(FRAME.bracket, (b) => clear(reach(b).top, reach(b).foot));
-          return { key, corner: [sx, sy], ...reach(b) };
-        }),
-    ),
-    faults: string[] = [],
-    solids: Manifold[] = [];
-  for (const { key, corner, top, foot } of legs) {
-    if (!clear(top, foot))
-      faults.push(`${label(key)}: the leg under its corner hits a switch or keycap`);
-    solids.push(fan(column(key, corner), top), knot(top), ...strut(top, foot, true));
-  }
-  return { legs, faults, solids };
+function buildLegs(c: Ctx, { clear }: Bars, sides: Set<string>) {
+  const { keys, corners, hp, at, floor } = c;
+  return keys.flatMap((key) =>
+    corners
+      .filter(([sx, sy]) => !sides.has(`${key} ${[0, sx]}`) && !sides.has(`${key} ${[1, sy]}`))
+      .map(([sx, sy]) => {
+        const reach = (b: number) => {
+            const top = at(key, sx * (hp[0] + b), sy * hp[1], -FRAME.lip - b);
+            return { top, foot: [top[0], top[1], floor] as Vec3 };
+          },
+          b = extend(FRAME.bracket, (b) => clear(reach(b).top, reach(b).foot));
+        return { key, corner: [sx, sy], ...reach(b) };
+      }),
+  );
 }
 
-type Leg = ReturnType<typeof buildLegs>['legs'][number];
+type Leg = ReturnType<typeof buildLegs>[number];
 /** A truss node: a leg's top (`corner`), a spot on a plate's corner (`plate`),
  * or a gap between two keys' walls (`gap`), which can move out and down on a
  * bracket `b` mm along `reach`, from `home` halfway down the wall's edge. A
@@ -584,7 +583,7 @@ const raise = (g: Gap) => {
  * miss the switches. */
 function buildTruss(
   c: Ctx,
-  { strut, fan, knot, clear }: Bars,
+  { clear }: Bars,
   joined: [string, string][],
   sides: Set<string>,
   legs: Leg[],
@@ -750,9 +749,27 @@ function buildTruss(
       node.top = pos(node.b);
       return { ...m, foot: below(node.top), post: true };
     }),
-    truss: (Member & { post: boolean })[] = [...diagonals, ...posts],
+    truss: (Member & { post: boolean })[] = [...diagonals, ...posts];
+  return truss;
+}
+type Truss = ReturnType<typeof buildTruss>[number];
+
+/** The legs' and truss's bars, and where one hits a switch or keycap. A
+ * corner's bracket stays wherever a diagonal leaves from it, its leg left
+ * out or not (`all`: every leg, `legs` those kept). */
+function barsOf(c: Ctx, bars: Bars, legs: Leg[], all: Leg[], truss: Truss[]) {
+  const { column } = c,
+    { clear, strut, fan, knot } = bars,
     faults: string[] = [],
-    solids: Manifold[] = [];
+    solids: Manifold[] = [],
+    from = new Set(truss.map((m) => m.node.top));
+  for (const { key, corner, top, foot } of all) {
+    const kept = legs.some((l) => l.foot === foot);
+    if (!kept && !from.has(top)) continue;
+    if (kept && !clear(top, foot))
+      faults.push(`${label(key)}: the leg under its corner hits a switch or keycap`);
+    solids.push(fan(column(key, corner), top), knot(top), ...(kept ? strut(top, foot, true) : []));
+  }
   for (const { key, node, foot, post } of truss) {
     if (!clear(node.top, foot))
       faults.push(
@@ -763,42 +780,146 @@ function buildTruss(
   // A gap's bracket: from its column out to its node.
   for (const node of new Set(truss.map((m) => m.node)))
     if (node.kind === 'gap' && node.b) solids.push(fan(node.anchor, node.top), knot(node.top));
-  return { truss, faults, solids };
+  return { faults, solids };
 }
 
-/** A rail round each plate's feet, and one from each plate's to the nearest
- * foot of those before it, so it prints as one piece. */
-function rails(
-  c: Ctx,
-  rail: Bars['rail'],
-  joined: [string, string][],
-  members: { key: string; foot: Vec3 }[],
-) {
+/** The feet round a plate's outline, in order: their convex hull, dug in to
+ * each foot inside it near an edge (the one nearest an edge, where the edge is
+ * more than twice as long as the foot is from its nearer end, or the foot is
+ * within a rail's width of it; and the ring doesn't cross itself), as far as
+ * it goes. The feet left inside are under the keys. */
+function outline(feet: Vec3[]) {
+  const gap = (a: Vec3, b: Vec3) => Math.hypot(a[0] - b[0], a[1] - b[1]),
+    /** How far p is from the segment a b, in plan. */
+    off = (p: Vec3, a: Vec3, b: Vec3) => {
+      const d = [b[0] - a[0], b[1] - a[1]],
+        l2 = d[0] ** 2 + d[1] ** 2,
+        t = l2 ? Math.max(0, Math.min(1, ((p[0] - a[0]) * d[0] + (p[1] - a[1]) * d[1]) / l2)) : 0;
+      return Math.hypot(p[0] - a[0] - d[0] * t, p[1] - a[1] - d[1] * t);
+    },
+    turn = (o: Vec3, a: Vec3, b: Vec3) =>
+      Math.sign((a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])),
+    /** Whether segments a b and c d cross (not just meet at an end). */
+    cross2 = (a: Vec3, b: Vec3, c: Vec3, d: Vec3) =>
+      turn(a, b, c) * turn(a, b, d) < 0 && turn(c, d, a) * turn(c, d, b) < 0,
+    ring = convex(feet) as Vec3[],
+    inside = feet.filter((f) => !ring.includes(f)),
+    edge = (i: number) => [ring[i], ring[(i + 1) % ring.length]] as const;
+  for (let dug = true; dug && ring.length > 2;) {
+    dug = false;
+    for (let i = 0; i < ring.length && !dug; i++) {
+      const [a, b] = edge(i),
+        near = inside
+          .map((p) => ({ p, d: off(p, a, b) }))
+          .filter(({ p, d }) => ring.every((_, j) => j === i || off(p, ...edge(j)) >= d))
+          .sort((x, y) => x.d - y.d)[0];
+      if (
+        !near ||
+        (near.d > FRAME.rail[0] && gap(a, b) <= 2 * Math.min(gap(a, near.p), gap(b, near.p)))
+      )
+        continue;
+      const { p } = near;
+      if (
+        ring.some((_, j) => {
+          const [c, d] = edge(j);
+          return j !== i && (cross2(a, p, c, d) || cross2(p, b, c, d));
+        })
+      )
+        continue;
+      ring.splice(i + 1, 0, p);
+      inside.splice(inside.indexOf(p), 1);
+      dug = true;
+    }
+  }
+  return ring;
+}
+
+/** The floor rails (see the header), and the feet they reach: a rail round
+ * each plate's outline; where the thumb's and fingers' keys are one plate, one
+ * between them, round the thumb's outline where it's inside the plate's, taking
+ * in the feet within a rail's width of it; and one from each plate's feet to
+ * the nearest of those before it, so it prints as one piece. */
+function planRails(c: Ctx, joined: [string, string][], members: { key: string; foot: Vec3 }[]) {
   const { keys } = c,
-    solids: Manifold[] = [],
+    rails: [Vec3, Vec3][] = [],
+    kept = new Set<Vec3>(),
     piece = Object.fromEntries(keys.map((k) => [k, k])),
     root = (k: string): string => (piece[k] === k ? k : root(piece[k]));
   for (const [a, b] of joined) piece[root(a)] = root(b);
-  const plates = [...new Set(keys.map(root))].map((g) => {
-      // (A span's diagonals share their foot.)
-      const own = [...new Set(members.filter((l) => root(l.key) === g).map((l) => l.foot))],
-        mid = [0, 1].map((k) => own.reduce((t, f) => t + f[k], 0) / own.length),
-        turn = (f: Vec3) => Math.atan2(f[1] - mid[1], f[0] - mid[0]);
-      return own.sort((a, b) => turn(a) - turn(b));
-    }),
+  // (A span's diagonals share their foot.)
+  const plates = [...new Set(keys.map(root))].map((g) => [
+      ...new Set(members.filter((l) => root(l.key) === g).map((l) => l.foot)),
+    ]),
+    thumb = new Set(members.filter((l) => isThumb(l.key)).map((l) => l.foot)),
     gap = (a: Vec3, b: Vec3) => Math.hypot(a[0] - b[0], a[1] - b[1]);
   plates.forEach((own, i) => {
-    if (own.length > 1)
-      own.forEach((f, j) => {
-        if (own.length > 2 || j === 0) solids.push(rail(f, own[(j + 1) % own.length]));
+    const ring = own.length > 2 ? outline(own) : own,
+      seams =
+        own.length > 2
+          ? seamsOf(
+              ring,
+              own,
+              own.filter((f) => thumb.has(f)),
+            )
+          : [];
+    if (ring.length > 1)
+      ring.forEach((f, j) => {
+        if (ring.length > 2 || j === 0) rails.push([f, ring[(j + 1) % ring.length]]);
       });
-    const before = plates.slice(0, i).flat(),
+    for (const s of seams) s.slice(1).forEach((f, j) => rails.push([s[j], f]));
+    for (const f of [...ring, ...seams.flat()]) kept.add(f);
+    const before = plates
+        .slice(0, i)
+        .flat()
+        .filter((f) => kept.has(f)),
       tie = own
+        .filter((f) => kept.has(f))
         .flatMap((a) => before.map((b) => ({ a, b, d: gap(a, b) })))
         .sort((x, y) => x.d - y.d)[0];
-    if (tie) solids.push(rail(tie.a, tie.b));
+    if (tie) rails.push([tie.a, tie.b]);
   });
-  return solids;
+  return { rails, kept };
+}
+
+/** Where the thumb's keys and the fingers' are one plate (outline `ring`, its
+ * feet `own`), the rails between them: the thumb's outline (from its feet,
+ * `thumb`) where it leaves the plate's, from a foot on that to the next, each
+ * a path of feet; then each other foot inside within a rail's width of one,
+ * taken into it. */
+function seamsOf(ring: Vec3[], own: Vec3[], thumb: Vec3[]) {
+  if (thumb.length < 3 || thumb.length === own.length) return [];
+  const t = outline(thumb),
+    on = new Set(ring),
+    next = (a: Vec3, b: Vec3) => {
+      const i = ring.indexOf(a),
+        j = ring.indexOf(b);
+      return Math.abs(i - j) === 1 || Math.abs(i - j) === ring.length - 1;
+    },
+    start = t.findIndex((f) => on.has(f)),
+    seams: Vec3[][] = [];
+  if (start < 0) return [];
+  let path = [t[start]];
+  for (let k = 1; k <= t.length; k++) {
+    const f = t[(start + k) % t.length];
+    path.push(f);
+    if (!on.has(f)) continue;
+    if (path.length > 2 || !next(path[0], f)) seams.push(path);
+    path = [f];
+  }
+  const off = (p: Vec3, a: Vec3, b: Vec3) => {
+      const d = [b[0] - a[0], b[1] - a[1]],
+        l2 = d[0] ** 2 + d[1] ** 2,
+        u = l2 ? Math.max(0, Math.min(1, ((p[0] - a[0]) * d[0] + (p[1] - a[1]) * d[1]) / l2)) : 0;
+      return Math.hypot(p[0] - a[0] - d[0] * u, p[1] - a[1] - d[1] * u);
+    },
+    taken = new Set([...ring, ...seams.flat()]);
+  for (const p of own.filter((f) => !taken.has(f))) {
+    const best = seams
+      .flatMap((s, si) => s.slice(1).map((b, j) => ({ si, j, d: off(p, s[j], b) })))
+      .sort((x, y) => x.d - y.d)[0];
+    if (best && best.d <= FRAME.rail[0]) seams[best.si].splice(best.j + 1, 0, p);
+  }
+  return seams;
 }
 
 /** A pad under each foot: what's there of the bars and rails, near the
