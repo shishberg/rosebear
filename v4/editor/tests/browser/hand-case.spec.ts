@@ -6,7 +6,9 @@ test('?hand shows no shell, trim or bottom section until the case is built', asy
   await page.goto('/?hand');
   await page.evaluate(() => localStorage.clear());
   await page.reload();
-  await expect(page.locator('#view-state')).toContainText('Case not built', { timeout: 30000 });
+  await expect(page.locator('#view-state')).toContainText(/mm tall/, {
+    timeout: 30000,
+  });
   // The View box asks for the bottom section; only the hand's build-case gate hides it.
   await expect(page.locator('#base')).toBeChecked();
   const visible = () => page.evaluate(() => (window as any).rosebearEditor.getVisible());

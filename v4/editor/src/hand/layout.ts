@@ -223,24 +223,26 @@ export const EXTRA: Extra = { on: false, south: 37, tilt: 32, lower: 3, along: 0
 export const DACTYL: Settings = {
   tent: 15,
   roll: 0,
-  pitch: 5.5,
+  pitch: 3,
   bend: 0,
-  curl: { index: 10.5, middle: 10.5, ring: 10.5, pinky: 10.5 },
+  curl: { index: 12.5, middle: 12.5, ring: 12.5, pinky: 12.5 },
   innerGap: 19,
   innerAngle: 0,
   top: 14.7,
   bottom: 14.7,
   from: 'reach',
-  wristHeight: 56.0,
+  wristHeight: 49.2,
   pressMix: 1.4,
   thumb: {
-    around: 124,
+    around: 126.5,
     drop: 13,
     reach: { palmar: -0.3, curl: 0.3 },
     press: -45,
     parallel: false,
+    turn: 0,
+    pivot: 50,
   },
-  spacing: 24.5,
+  spacing: 25,
   cluster: '1×3',
   // The 1u row a key's depth inside the 1.5u, the thumb curled in under the
   // hand.
@@ -263,7 +265,14 @@ export const NATURAL: Settings = {
   from: 'reach',
   wristHeight: 112.7,
   pressMix: 1.4,
-  thumb: { around: 112, drop: 0, reach: { palmar: -0.3, curl: 0.3 }, press: -45 },
+  thumb: {
+    around: 112,
+    drop: 0,
+    reach: { palmar: -0.3, curl: 0.3 },
+    press: -45,
+    turn: 0,
+    pivot: 50,
+  },
   spacing: 23,
   cluster: '1×3',
   two: { gap: 19.5 },
@@ -291,19 +300,38 @@ export const YOURS: Settings = {
     reach: { palmar: 0.5, curl: 0.55 },
     press: -3,
     parallel: true,
+    turn: 0,
+    pivot: 50,
   },
   spacing: 26.5,
   cluster: '1×3',
   two: { gap: 19.5 },
 };
 /** Yours with the thumb keeping its resting bend on every key (no curl), each
- * key pressed with the pad. The extra keys slid 3 mm toward the near key,
- * where the thumb reaches x2. */
+ * key pressed with the pad. The extra keys as last printed: 10 mm lower,
+ * slid 8.5 mm toward the far key. */
 export const NO_CURL: Settings = {
   ...structuredClone(YOURS),
-  thumb: { around: 116, drop: 16, reach: { palmar: 1.1, curl: 0 }, press: -20, parallel: true },
+  thumb: {
+    around: 116,
+    drop: 16,
+    reach: { palmar: 1.1, curl: 0 },
+    press: -20,
+    parallel: true,
+    turn: 0,
+    pivot: 50,
+  },
   spacing: 25,
-  extra: { ...EXTRA, along: -3 },
+  extra: { ...EXTRA, lower: 10, along: 8.5 },
+};
+/** No curl with the thumb row turned toward the thumb's base, as round a
+ * dome, until the home key is about halfway to where x1 was, in place and
+ * in facing (fitted by a probe to 22°, then set by hand), the extra keys 5 mm
+ * lower than the row's face. */
+export const SWUNG_IN: Settings = {
+  ...structuredClone(NO_CURL),
+  thumb: { ...NO_CURL.thumb, around: 110, drop: 18.5, turn: 23.5, pivot: 30 },
+  extra: { ...NO_CURL.extra!, lower: 5 },
 };
 /** Everything the panel sets: the layout's settings, what the hand is shown
  * doing and which parts of the panel are open. One state, kept in the project

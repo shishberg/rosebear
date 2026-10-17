@@ -362,6 +362,11 @@ export type ThumbPose = {
    * each still tilts along the row, about y, as near square to its press as
    * that leaves. Their tiles' edges stay parallel to the home key's. */
   parallel?: boolean;
+  /** Degrees the row turns, as one, about a line along it `pivot` mm under
+   * the home key's top (+: toward the thumb's base, the keys' faces turning
+   * with them, as round a dome), the thumb refitted to each key. */
+  turn?: number;
+  pivot?: number;
 };
 /** How far the thumb's MCP and IP go, degrees: a guess as the fit bounds them (they hyperextend a little). */
 const MCP_RANGE = [-15, 90],
@@ -573,13 +578,66 @@ export function thumbRow(t: ThumbPose, spacing: number, top: number, two?: TwoRo
     from = { q: m.q, p: touch(m.q, n).p };
     gap = spacing / 2;
   }
-  const at = thumbKey(home.q, home.miss, t),
-    face = t.parallel ? at : undefined,
+  const flat = thumbKey(home.q, home.miss, t),
+    face = t.parallel ? flat : undefined,
     ends = [1, -1].map((k) => thumbAlong(from, k, gap, t, face && ((q) => hinged(q, t, face)))),
-    keys = [ends[0], ends[1]].map((k) => thumbKey(k.q, k.miss + f, t, face));
+    row = [
+      thumbKey(ends[0].q, ends[0].miss + f, t, face),
+      flat,
+      thumbKey(ends[1].q, ends[1].miss + f, t, face),
+    ];
+  if (!two) inLine(row[1], row[0].at, row[2].at);
+  const [far, at, near] = t.turn ? turned(row, t) : row,
+    keys = [far, near];
   // `mid`: where the far and near keys are measured from (on 1.5u + 2×1u,
   // their middle).
   return Object.assign([keys[0], at, keys[1]], { mid: from });
+}
+/** The row (far, home, near) turned `t.turn` degrees as one about the line
+ * along the home key's x `t.pivot` mm under its top (+: toward the thumb's
+ * base), the thumb's pose on each refitted to touch it there (reachKey). */
+function turned(row: ThumbKey[], t: ThumbPose): ThumbKey[] {
+  const home = row[1],
+    x = new T.Vector3().setFromMatrixColumn(home.frame, 0),
+    base = thumb(home.q).M,
+    toward = Math.sign(new T.Vector3().crossVectors(x, home.n).dot(base.clone().sub(home.at))) || 1,
+    R = new T.Matrix4().makeRotationAxis(x, rad(t.turn ?? 0) * toward),
+    pivot = home.at.clone().addScaledVector(home.n, -(t.pivot ?? 0)),
+    M = new T.Matrix4()
+      .makeTranslation(pivot)
+      .multiply(R)
+      .multiply(new T.Matrix4().makeTranslation(pivot.clone().negate()));
+  return row.map((k) => {
+    const at = k.at.clone().applyMatrix4(M),
+      n = k.n.clone().transformDirection(R),
+      fit = reachKey(at, n, k.q, k.n),
+      f = keyFacing(fit.q, t, n);
+    return {
+      slant: f.slant,
+      at,
+      q: fit.q,
+      n,
+      frame: M.clone().multiply(k.frame),
+      miss: k.miss + fit.miss,
+      roll: f.roll,
+      around: aroundOf(at),
+      press: f.press,
+      away: f.away,
+    };
+  });
+}
+/** On the 1×3 the 1.5u home key lies across the row (its y): slide it along
+ * its length until its centre is in line with the far and near keys'
+ * (between `a` and `b`), not staggered by the arc's curve. The thumb still
+ * touches it where it did (`at`), off its centre. */
+function inLine(home: { at: T.Vector3; frame: T.Matrix4 }, a: T.Vector3, b: T.Vector3) {
+  const line = b.clone().sub(a).normalize(),
+    square = (v: T.Vector3) => v.addScaledVector(line, -v.dot(line)),
+    off = square(a.clone().sub(home.at)),
+    y = new T.Vector3().setFromMatrixColumn(home.frame, 1),
+    across = square(y.clone()),
+    s = across.lengthSq() > TOL.degenerate ? off.dot(across) / across.lengthSq() : 0;
+  home.frame.setPosition(home.at.clone().addScaledVector(y, s));
 }
 /** Which way a far or near key at `q` faces, keeping `face`'s y (the home
  * key's): as it would facing its own press (keyAt), tilted across the row
@@ -593,7 +651,7 @@ function hinged(q: number[], t: ThumbPose, face: { frame: T.Matrix4 }, axis = 1)
  * it, toward the near key. Or, given the home key (`face`), the key with
  * its y, tilted along the row as near square to its own press as that
  * leaves (hinged, keyFacing). `at`: where the thumb touches the key (its cap
- * top's centre). `slant`: degrees the press is off square to the key. */
+ * top's centre, but for the 1×3's home key: inLine). `slant`: degrees the press is off square to the key. */
 function thumbKey(q: number[], miss: number, t: ThumbPose, face?: { frame: T.Matrix4 }, axis = 1) {
   const k = face ? keyFacing(q, t, hinged(q, t, face, axis)) : keyAt(q, t),
     x = face ? new T.Vector3().setFromMatrixColumn(face.frame, axis) : k.sweep.clone().negate(),
@@ -703,6 +761,21 @@ export function extraKeys(row: ThumbKey[], t: ThumbPose, { south, tilt, lower, a
  * twentieths, a few damped Newton steps (each at most 5°) on each, so it
  * changes smoothly as the key does. `miss`: mm short. */
 function reachKey(at: T.Vector3, n: T.Vector3, q0: number[], n0: T.Vector3) {
+  // From a straight thumb the steps may stall short of a key that needs it
+  // curled: also start curled 30° and 60° at the MCP and IP, keeping the
+  // closest (the least past the joints' ends first).
+  const tries = [0, 30, 60].map((b) =>
+    reachFrom(
+      at,
+      n,
+      q0.map((v, j) => (j === 3 ? clamp(v + b, MCP_RANGE) : j === 4 ? clamp(v + b, IP_RANGE) : v)),
+      n0,
+    ),
+  );
+  const score = (r: { q: number[]; miss: number }) => Math.round(pastJoints(r.q)) * 1000 + r.miss;
+  return tries.reduce((a, b) => (score(b) < score(a) - TOL.residual ? b : a));
+}
+function reachFrom(at: T.Vector3, n: T.Vector3, q0: number[], n0: T.Vector3) {
   const from = touch(q0, n0).p,
     pose = (u: number[]) => moveBy(q0, u);
   let u = [0, 0, 0],
@@ -734,7 +807,13 @@ function reachKey(at: T.Vector3, n: T.Vector3, q0: number[], n0: T.Vector3) {
       if (big > 5) d = d.map((v) => (v * 5) / big);
       const next = u.map((v, j) => v + d[j]),
         fn = off(next);
-      if (Math.hypot(...fn) < Math.hypot(...f)) [u, f, lambda] = [next, fn, lambda / 3];
+      // Never further past the joints' ends: from a straight thumb, bending
+      // back would reach as well as curling.
+      if (
+        Math.hypot(...fn) < Math.hypot(...f) &&
+        pastJoints(pose(next)) <= Math.max(pastJoints(pose(u)), TOL.residual)
+      )
+        [u, f, lambda] = [next, fn, lambda / 3];
       else lambda *= 4;
     }
   }

@@ -113,6 +113,8 @@ export const BASIC: Spec[] = [
     -90,
     90,
   ),
+  slider('thumb.turn', 'thumb row turn (°)', -45, 45, 0.5),
+  slider('thumb.pivot', 'thumb row turn pivot depth (mm)', 0, 150, 1),
   checkbox(
     'thumb.parallel',
     "Far and near thumb keys' edges parallel to the home key's (tilted only along the row)",

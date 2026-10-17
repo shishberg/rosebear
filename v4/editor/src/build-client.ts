@@ -66,7 +66,7 @@ export function requestBuild() {
   for (const o of [shell, trim]) o.visible = !S.handCase || S.handCase();
   visibility();
   if (S.handCase && !S.handCase()) {
-    $('view-state').textContent = 'Case not built (prototype: tick Build the case)';
+    $('view-state').textContent = S.handHeight?.() ?? '';
     return;
   }
   if (S.drag || busy) {

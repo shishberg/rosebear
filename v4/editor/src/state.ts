@@ -30,6 +30,7 @@ export const S = {
   handLayout: undefined as (() => void) | undefined,
   handUpdate: undefined as (() => void) | undefined,
   handCase: undefined as (() => boolean) | undefined,
+  handHeight: undefined as (() => string) | undefined,
   revision: 0,
   solidRevision: -1,
   report: undefined as Report | undefined,

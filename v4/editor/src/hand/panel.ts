@@ -12,6 +12,7 @@ import {
   EXTRA,
   NATURAL,
   NO_CURL,
+  SWUNG_IN,
   YOURS,
   anchorOf,
   applyHand,
@@ -161,6 +162,7 @@ export function setupHand(host: Host) {
       throw e;
     }
   }
+  let height = '';
   function draw() {
     const c = cfg(),
       built = wasm && buildFrame(wasm, c, s().extra.on),
@@ -188,11 +190,16 @@ export function setupHand(host: Host) {
     group.matrixWorldNeedsUpdate = true;
     placeHandle(c);
     const wrong = problems(r);
-    note.innerHTML = wrong.length
-      ? `<div style="color:#ff9a8a">Not valid:<ul style="margin:2px 0;padding-left:18px">${wrong.map((w) => `<li>${w}</li>`).join('')}</ul></div>`
-      : r.frameChecked
-        ? `<div style="color:#9be39b">Valid (${r.height.toFixed(0)} mm tall).</div>`
-        : 'Checking…';
+    // The height, valid or not, here and (the case not built) under the view.
+    height = `${r.height.toFixed(1)} mm tall`;
+    if (!s().buildCase) document.getElementById('view-state')!.textContent = height;
+    note.innerHTML =
+      `<div>${height}</div>` +
+      (wrong.length
+        ? `<div style="color:#ff9a8a">Not valid:<ul style="margin:2px 0;padding-left:18px">${wrong.map((w) => `<li>${w}</li>`).join('')}</ul></div>`
+        : r.frameChecked
+          ? `<div style="color:#9be39b">Valid.</div>`
+          : 'Checking…');
     // How far the thumb rolls onto its outer edge to meet each key (0: the
     // middle of the pad; 90: the side of the thumb).
     note.insertAdjacentHTML(
@@ -235,7 +242,7 @@ export function setupHand(host: Host) {
     [
       'Dactyl fit',
       DACTYL,
-      "Near the Dactyl Manuform, at a reach seen on it (the wrist 56.0 mm up): the finger curl, pitch, thumb keys' place on the arc and gaps whose keys come closest to its keys.",
+      "Near the Dactyl Manuform, at a reach seen on it (the wrist 49.2 mm up): the finger curl, pitch, thumb keys' place on the arc and gaps whose keys come closest to its keys.",
     ],
     [
       'Natural',
@@ -248,6 +255,7 @@ export function setupHand(host: Host) {
       NO_CURL,
       'Yours with the thumb keys nearly where they were, the thumb reaching and pressing them without curling (pressing each with the pad).',
     ],
+    ['Swung in', SWUNG_IN, 'No curl, the thumb row turned in.'],
   ] as const) {
     const b = document.createElement('button');
     b.textContent = name;
@@ -353,6 +361,8 @@ export function setupHand(host: Host) {
     layout,
     update,
     buildCase: () => s().buildCase,
+    /** How tall the board stands, for the view's status line. */
+    height: () => height,
     /** What marks may be painted on, and what each is. */
     targets: (): [T.Object3D, string][] => [[frameView, 'test frame']],
   };

@@ -82,6 +82,7 @@ if (import.meta.env.DEV && new URLSearchParams(location.search).has('hand'))
     layout: S.handLayout,
     update: S.handUpdate,
     buildCase: S.handCase,
+    height: S.handHeight,
     targets: handTargets,
   } = setupHand({
     scene,

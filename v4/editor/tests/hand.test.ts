@@ -7,6 +7,7 @@ import Module from 'manifold-3d';
 import { clone, componentFrames, defaults, ROWS } from '../src/geometry';
 import { buildFrame } from '../src/hand/frame';
 import { _test as hand } from '../src/hand';
+import { pastJoints } from '../src/hand/model';
 
 const { T } = hand;
 const wasm = await Module();
@@ -405,14 +406,15 @@ test("keys whose tiles overlap aren't valid: the boards and the parts hanging un
   );
   assert.deepEqual(tiles(hand.NATURAL), []);
   // Yours's thumb as it was, each key facing its own press: the far and home
-  // keys tilt together, so their boards (20 mm under the keycaps' tops) meet.
+  // keys tilt together, so their boards (20 mm under the keycaps' tops) meet,
+  // and the home key's and the near's (the 1.5u in line with them).
   assert.deepEqual(
     tiles({
       ...structuredClone(hand.YOURS),
       thumb: { around: 116.5, drop: 14.5, reach: { palmar: 0.5, curl: 0.55 }, press: -3 },
       spacing: 26.8,
     }),
-    ['thumb_far thumb_home'],
+    ['thumb_far thumb_home', 'thumb_home thumb_near'],
   );
 });
 test("far and near thumb keys keep the home key's y, tilted only along the row", () => {
@@ -435,6 +437,83 @@ test("far and near thumb keys keep the home key's y, tilted only along the row",
   // three facing alike, 10° off).
   assert.ok(near.slant < 5, `${near.slant}`);
   assert.ok(own.every((k) => k.slant === 0));
+});
+test("the 1×3's 1.5u home key is centred in line with the far and near keys, the thumb touching it where it did", () => {
+  const centre = (k: { frame: InstanceType<typeof T.Matrix4> }) =>
+    new T.Vector3().setFromMatrixPosition(k.frame);
+  for (const [name, s] of PRESETS) {
+    const [far, home, near] = hand.solveHand(s).row,
+      line = near.at.clone().sub(far.at).normalize(),
+      y = new T.Vector3().setFromMatrixColumn(home.frame, 1),
+      square = (v: InstanceType<typeof T.Vector3>) => v.clone().addScaledVector(line, -v.dot(line)),
+      off = square(centre(home).sub(far.at));
+    // Not staggered along its length (y, across the row) off the line.
+    assert.ok(Math.abs(off.dot(square(y).normalize())) < 1e-6, `${name}: ${off.dot(y)} mm`);
+    // Slid along its length only, from where the thumb touches it.
+    const slid = centre(home).sub(home.at);
+    assert.ok(slid.clone().cross(y).length() < 1e-6, name);
+    assert.ok(slid.length() < 14, `${name}: ${slid.length()} mm off its centre`);
+    // The far and near keys centred where the thumb touches them.
+    for (const k of [far, near]) assert.ok(centre(k).distanceTo(k.at) < 1e-9, name);
+  }
+  // The 1.5u + 2×1u's 1.5u lies along the row: as the thumb touches it.
+  const two = hand.solveHand({ ...structuredClone(hand.DACTYL), cluster: '1.5u + 2×1u' }).row;
+  assert.ok(centre(two[1]).distanceTo(two[1].at) < 1e-9);
+});
+test('the thumb row turns as one about a line along it under the home key, the thumb refitted to each key', () => {
+  const s0 = hand.NO_CURL,
+    flat = hand.solveHand(s0).row,
+    turn = 20,
+    pivot = 30,
+    row = hand.solveHand({ ...structuredClone(s0), thumb: { ...s0.thumb, turn, pivot } }).row,
+    home = flat[1],
+    about = home.at.clone().addScaledVector(home.n, -pivot),
+    base = hand.thumb(home.q).M,
+    x = new T.Vector3().setFromMatrixColumn(home.frame, 0);
+  // The home key turned `turn` degrees, toward the thumb's base.
+  assert.ok(Math.abs(T.MathUtils.radToDeg(row[1].n.angleTo(home.n)) - turn) < 1e-6);
+  assert.ok(row[1].n.clone().sub(home.n).dot(base.clone().sub(home.at)) > 0);
+  const sign = Math.sign(home.n.clone().cross(row[1].n).dot(x));
+  row.forEach((k, i) => {
+    const was = flat[i];
+    // Each key as turned about the home key's x, the pivot line fixed.
+    assert.ok(
+      k.n.angleTo(was.n.clone().applyAxisAngle(x, T.MathUtils.degToRad(turn) * sign)) < 1e-6,
+      `key ${i}`,
+    );
+    assert.ok(Math.abs(k.at.distanceTo(about) - was.at.distanceTo(about)) < 1e-6, `key ${i}`);
+    // Rigid: the keys as far apart as before, each frame as turned as its normal.
+    for (const j of [0, 1, 2])
+      assert.ok(Math.abs(k.at.distanceTo(row[j].at) - was.at.distanceTo(flat[j].at)) < 1e-6);
+    // The thumb refitted to touch it there.
+    assert.ok(k.miss < 0.01, `key ${i}: ${k.miss} mm short`);
+    assert.ok(new T.Vector3().setFromMatrixColumn(k.frame, 2).angleTo(k.n) < 1e-6);
+  });
+  // Turned 0°, as not turned.
+  const zero = hand.solveHand({
+    ...structuredClone(s0),
+    thumb: { ...s0.thumb, turn: 0, pivot },
+  }).row;
+  zero.forEach((k, i) => assert.ok(k.at.distanceTo(flat[i].at) < 1e-12));
+});
+test('the extra keys are fitted with the thumb in its range, though the row swings in where it is straight', () => {
+  // Swung in to 100° the thumb is nearly straight on the row; bending back
+  // it would touch x1 too, but past its joints.
+  const s = {
+      ...structuredClone(hand.NO_CURL),
+      thumb: { ...hand.NO_CURL.thumb, around: 100 },
+      extra: { ...hand.NO_CURL.extra!, on: true },
+    },
+    h = hand.solveHand(s);
+  assert.ok(h.row[1].q[3] < 0 && h.row[1].q[4] < 0, 'the thumb straight on the row');
+  h.extra.forEach((k, i) =>
+    assert.equal(
+      pastJoints(k.q),
+      0,
+      `x${i + 1}: MCP ${k.q[3].toFixed(0)}°, IP ${k.q[4].toFixed(0)}°`,
+    ),
+  );
+  assert.ok(h.extra[0].miss < 0.01, `x1: ${h.extra[0].miss} mm short`);
 });
 test('the extra thumb keys hang off the row under its gaps, and exist only when on', () => {
   const on = {
@@ -498,8 +577,11 @@ test('the extra thumb keys hang off the row under its gaps, and exist only when 
   // thumb, though the thumb's tip, all the model presses with, meets them so).
   assert.ok(r.h.extra.every((k) => Math.abs(k.roll) > hand.BACK_OF_THUMB));
   assert.deepEqual(wrongOf(on), []);
-  // No curl's own place for them is clear too.
-  assert.deepEqual(wrongOf({ ...hand.NO_CURL, extra: { ...hand.NO_CURL.extra!, on: true } }), []);
+  // No curl's own place for them, as printed, is clear but for x2 a little
+  // past the thumb's reach.
+  assert.deepEqual(wrongOf({ ...hand.NO_CURL, extra: { ...hand.NO_CURL.extra!, on: true } }), [
+    'thumb x2 out of reach (5 mm)',
+  ]);
   const off = layout(hand.YOURS);
   assert.ok(frame.volume > off.frame.volume + 0.5, 'the frame holds the extra keys');
   // Off: none, and the cluster as it was by default.
@@ -726,8 +808,11 @@ test('a web too thin to print is left out, the truss and the other webs holding 
   );
   assert.equal(frame.pieces, 1);
   assert.deepEqual(frame.faults, []);
-  // The presets have every web.
-  for (const s of [hand.DACTYL, hand.NATURAL]) assert.deepEqual(layout(s).frame.websLeftOut, []);
+  // Natural has every web; the curled presets step down so from the ring's
+  // bottom key to the pinky's, and leave that one out.
+  assert.deepEqual(layout(hand.NATURAL).frame.websLeftOut, []);
+  for (const s of [hand.DACTYL, hand.YOURS, hand.NO_CURL])
+    assert.deepEqual(layout(s).frame.websLeftOut, [['matrix_ring_bottom', 'matrix_pinky_bottom']]);
 });
 
 test('the thumb keys move smoothly as each thumb setting changes, wherever the layout is free of thumb faults', () => {
@@ -824,7 +909,7 @@ test('a frame is built where two joined keys overlap or a bar has no length', ()
         thumb: { around: 167, drop: -20, reach: { palmar: 2, curl: 0.05 }, press: 10 },
         spacing: 40,
       },
-      tris: 12780,
+      tris: 12792,
       pieces: 1,
     },
     {
@@ -841,7 +926,7 @@ test('a frame is built where two joined keys overlap or a bar has no length', ()
         thumb: { around: 155, drop: -16, reach: { palmar: 2, curl: -2 }, press: 82 },
         spacing: 32,
       },
-      tris: 11134,
+      tris: 11572,
       pieces: 1,
     },
   ];

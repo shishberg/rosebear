@@ -33,7 +33,12 @@ result. The readout says first whether the layout is valid, or lists what is wro
   abduction, palmar abduction and curl. Each key faces against the press (`keyAt`).
   `thumbRow` places the far, home and near keys round the arc by `around`, `drop` and
   `spacing`. The `parallel` setting makes the far and near keys keep the home key's y,
-  tilted along the row toward their press.
+  tilted along the row toward their press. In the `1×3` the 1.5u home key lies across
+  the row and slides along its length to sit in line with the far and near keys'
+  centres (`inLine`); the thumb still touches it where it did. `turn` and `pivot` turn
+  the row as one about a line along it, `pivot` mm under the home key (+ toward the
+  thumb's base, the faces turning with the keys, as round a dome), and the thumb's pose
+  on each key is refitted (`turned`). Sliding round the arc turns the keys the other way.
 - **Clusters**: `1×3`, or `1.5u + 2×1u`, where the two 1u keys form a second row whose
   middle is `two.gap` mm from the 1.5u key, each key `spacing` / 2 from that middle.
 - **Extra thumb keys** x1 and x2 (optional, `extraKeys`): a second row hung off the thumb row
@@ -48,8 +53,11 @@ result. The readout says first whether the layout is valid, or lists what is wro
 - **Presets** (`src/hand/layout.ts`, the "Start from" buttons): `Dactyl fit` (near the Dactyl Manuform, fitted by a test
   to the valid layout whose keys are closest to it), `Natural` (the least change from
   the resting hand that is valid), `Yours` (set by hand in the editor from the Dactyl
-  fit, then the thumb refitted) and `No curl` (Yours with the thumb reaching and pressing
-  without curling). `tests/hand.test.ts` checks that each is valid, with the test frame too.
+  fit, then the thumb refitted), `No curl` (Yours with the thumb reaching and pressing
+  without curling, the extra keys as last printed) and `Swung in` (No curl with the row
+  turned toward the thumb's base, the home key about halfway to where x1 was).
+  `tests/hand.test.ts` checks that each but Swung in is valid, with the test frame too;
+  Swung in's warnings are the model's limits.
 
 ## The checks
 
@@ -85,7 +93,9 @@ full rules.
 `src/hand/controls.ts`: a Basic section and an Advanced one that shares its ranges, with
 the preset buttons, Copy and Paste settings (the layout as JSON), choices of where the hand
 and thumb are drawn, a pressing animation and a rotation handle that turns the hand. **Build
-the case** builds the chassis from the layout, and often fails. All of it is one state in
+the case** builds the chassis from the layout, and often fails; until it's ticked, the
+line under the view shows the board's height against the tray (the panel always does).
+All of it is one state in
 the project, so Undo, the autosave and Save project carry it.
 
 ## Running it

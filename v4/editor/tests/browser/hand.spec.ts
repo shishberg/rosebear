@@ -9,12 +9,12 @@ test('the hand readout checks every reach against the keycaps and the frame', as
   await page.reload();
   const note = page.locator('#hand-note');
   // The Dactyl fit, once the frame is built and checked too.
-  await expect(note).toContainText('Valid (', { timeout: 30000 });
+  await expect(note).toContainText('Valid.', { timeout: 30000 });
   await expect(note).toContainText(/Between rows the MCP bends -0\.10° per PIP degree/);
   // Natural, valid too.
   await page.getByRole('button', { name: 'Natural' }).click();
   await expect(note).toContainText(/Between rows the MCP bends 0\.40° per PIP degree/);
-  await expect(note).toContainText('Valid (', { timeout: 30000 });
+  await expect(note).toContainText('Valid.', { timeout: 30000 });
   // The wrist height sets the reach between rows, and says when no reach gives it.
   const wrist = page.locator('label', { hasText: 'wrist height (mm' });
   await wrist.locator('input').focus();
@@ -109,7 +109,7 @@ test('the column and cluster handles and fields are off in ?hand', async ({ page
   await page.goto('/?hand');
   await page.evaluate(() => localStorage.clear());
   await page.reload();
-  await expect(page.locator('#hand-note')).toContainText('Valid (', { timeout: 30000 });
+  await expect(page.locator('#hand-note')).toContainText('Valid.', { timeout: 30000 });
   const h = await page.evaluate(() =>
     (window as any).rosebearEditor.handleScreen('key:matrix_middle_top'),
   );
@@ -123,7 +123,7 @@ test('the column and cluster handles and fields are off in ?hand', async ({ page
 
 const PANEL = [
   '-- basic',
-  'buttons Dactyl fit, Natural, Yours, No curl',
+  'buttons Dactyl fit, Natural, Yours, No curl, Swung in',
   'buttons Copy settings, Paste settings',
   'radios Fingers on top=top, home=home, bottom=bottom',
   'radios Thumb on rest=rest, far=far, home=home, near=near, x1=x1, x2=x2',
@@ -138,6 +138,8 @@ const PANEL = [
   'slider thumb reach: palmar abduction per degree of radial abduction (+ lowers it swinging out) [-2, 2, 0.05]',
   'slider thumb reach: curl per degree of radial abduction [-2, 2, 0.05]',
   'slider thumb press: from palmar abduction (0°) toward curling (90°; − straightening) [-90, 90, 1]',
+  'slider thumb row turn (°) [-45, 45, 0.5]',
+  'slider thumb row turn pivot depth (mm) [0, 150, 1]',
   "check Far and near thumb keys' edges parallel to the home key's (tilted only along the row)",
   'radios Thumb keys 1×3=1×3, 1.5u + 2×1u=1.5u + 2×1u',
   "check Extra thumb keys x1, x2: a second row under the gaps, toward the thumb's base",
@@ -212,7 +214,7 @@ test('the hand panel keeps its controls, labels and ranges, and each type edits 
   await page.evaluate(() => localStorage.clear());
   await page.reload();
   const note = page.locator('#hand-note');
-  await expect(note).toContainText('Valid (', { timeout: 30000 });
+  await expect(note).toContainText('Valid.', { timeout: 30000 });
   expect(await page.evaluate(PANEL_SCRIPT)).toEqual(PANEL);
   const hand = () =>
     page.evaluate(
@@ -270,8 +272,8 @@ test('the hand panel keeps its controls, labels and ranges, and each type edits 
   await along.fill('5');
   expect((await hand()).extra.along).toBe(5);
   await page.getByRole('button', { name: 'No curl' }).click();
-  await expect(along).toHaveValue('-3');
-  expect((await hand()).extra).toEqual({ on: true, south: 37, tilt: 32, lower: 3, along: -3 });
+  await expect(along).toHaveValue('8.5');
+  expect((await hand()).extra).toEqual({ on: true, south: 37, tilt: 32, lower: 10, along: 8.5 });
   await page.getByRole('button', { name: 'Yours' }).click();
   await expect(along).toHaveValue('0');
   expect(await off()).toContain('press mix: PIP+DIP° per MCP°');
@@ -283,7 +285,7 @@ test('marks can be painted on the test frame', async ({ page }) => {
   await page.goto('/?hand');
   await page.evaluate(() => localStorage.clear());
   await page.reload();
-  await expect(page.locator('#hand-note')).toContainText('Valid (', { timeout: 30000 });
+  await expect(page.locator('#hand-note')).toContainText('Valid.', { timeout: 30000 });
   await page.getByText('Test frame (print this way up, with supports)').click();
   await expect(page.getByText(/cm³/)).toBeVisible();
   // Saving is caught here, so no mark is written.
