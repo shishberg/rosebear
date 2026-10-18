@@ -12,6 +12,8 @@ import {
   keyGroups,
   tileUnderside,
 } from '../src/geometry';
+import { hardware } from '../src/parts';
+import { tilePocketDepth } from '../src/plates';
 import { freeAfter } from '../src/manifold-util';
 import { buildSolid, buildSolidAsync } from '../src/solid';
 import { buildChassis } from '../src/chassis';
@@ -65,6 +67,22 @@ test('a project saved with fields since removed, or without ones every build rea
   assert.equal(p.config.switch.keycap_clearance_mm, defaults.config.switch.keycap_clearance_mm);
   assert.equal(p.config.chassis.skin_mm, 2.5);
   assert(!('base_thickness_mm' in p.config.chassis));
+});
+test("the tile pocket and the drawn parts measure the tile's parts from the board's top", () => {
+  // A part's center_mm[2] is from the board's top (its switch side): the
+  // socket sits on the underside, so the pocket reaches the plate's depth to
+  // the board, the board, the socket and the parts' clearance below the plate top.
+  const t = defaults.config.tile;
+  const socket = t.components.find((p) => p.name === 'hotswap socket')!;
+  const depth = t.plate_top_to_pcb_top_mm + t.size_mm[2] + socket.size_mm[2];
+  assert(Math.abs(socket.center_mm[2] + t.size_mm[2] + socket.size_mm[2] / 2) < 1e-9);
+  assert(Math.abs(tilePocketDepth(defaults.config) - depth - t.component_clearance_mm) < 1e-9);
+  const drawn = hardware(defaults).filter(
+    (p) => p.group === 'components' && p.name.startsWith('matrix_index_home: '),
+  );
+  assert.equal(drawn.length, t.components.length);
+  const lowest = Math.min(...drawn.map((p) => p.center[2] - p.size[2] / 2));
+  assert(Math.abs(lowest + depth) < 1e-9);
 });
 test('shared per-key helpers', () => {
   const c = defaults.config;

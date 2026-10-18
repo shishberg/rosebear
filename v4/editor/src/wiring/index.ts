@@ -15,7 +15,7 @@
 //           inner and index columns' bottom keys, inside the case's hollow;
 //  slack loop  the arch the ribbon makes between the connector and the landing,
 //           so a pull held by the ties never reaches the connector.
-import { componentFrames, isKey, tileUnderside, type Config } from '../geometry';
+import { componentFrames, isKey, tileBottom, tileUnderside, type Config } from '../geometry';
 import { tilePocketHalf } from '../plates';
 import { holes, padParts, adapterParts, landingBox } from './adapter';
 import { assignPlaces, diameterOf, optionsOf } from './candidates';
@@ -48,14 +48,7 @@ export function wiring(cfg: Config, frames = componentFrames(cfg)): Wiring {
   const hole = holes(cfg, frames);
   const port = wirePort(cfg, frames);
   const grid = portGrid(port, port.diameter / 2 - w.power_wire_mm / 2);
-  const componentDepth = Math.max(
-    ...tile.components.map(
-      (p) =>
-        -(p.center_mm[2] - tile.plate_top_to_pcb_top_mm - p.size_mm[2] / 2) +
-        padZ +
-        tile.component_clearance_mm,
-    ),
-  );
+  const componentDepth = padZ - tileBottom(cfg) + tile.component_clearance_mm;
   const env: Env = {
     cfg,
     frames,

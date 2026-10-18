@@ -1,6 +1,6 @@
 // What wires keep out of, and the test for a wire's segment against it.
 import type { Matrix4 } from 'three';
-import { isThumb, point, type V3 } from '../geometry';
+import { isThumb, point, tilePartCentre, type V3 } from '../geometry';
 import { PLATES, plateEdges, plateHalfWidths } from '../plates';
 import { WIRING, distance, type Env } from './common';
 
@@ -36,7 +36,6 @@ export function obstaclesOf(env: Env, keys: string[]): Obstacles {
   const plateHalf = plateHalfWidths(cfg);
   const [hx, hy] = env.half;
   const c = tile.component_clearance_mm;
-  const tileTop = -tile.plate_top_to_pcb_top_mm;
   const reach: Record<string, number[][]> = Object.assign(
     {},
     plateEdges(cfg, frames, keys.filter(isThumb)).reach,
@@ -83,11 +82,13 @@ export function obstaclesOf(env: Env, keys: string[]): Obstacles {
         b[along] = hi(along) + (r[along][1] ? 0 : PLATES.neighbourGap / 2);
         box(a, b, plates);
       }
-    for (const p of tile.components)
+    for (const p of tile.components) {
+      const at = tilePartCentre(cfg, p);
       box(
-        p.center_mm.map((x, k) => x + (k === 2 ? tileTop : 0) - p.size_mm[k] / 2 - c) as V3,
-        p.center_mm.map((x, k) => x + (k === 2 ? tileTop : 0) + p.size_mm[k] / 2 + c) as V3,
+        at.map((x, k) => x - p.size_mm[k] / 2 - c) as V3,
+        at.map((x, k) => x + p.size_mm[k] / 2 + c) as V3,
       );
+    }
   }
 
   // The obstacles in a grid of square cells in plan, each in every cell its

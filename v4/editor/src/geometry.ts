@@ -52,8 +52,25 @@ export const isKey = (name: string) => isThumb(name) || name.startsWith('matrix_
 export const capClearance = (c: Config, n: string) =>
   (c.switch.keycap_clearance_overrides_mm as Record<string, number>)[n] ??
   c.switch.keycap_clearance_mm;
-/** The z of the tile's underside (where its pads are), in key coordinates. */
-export const tileUnderside = (c: Config) => -(c.tile.plate_top_to_pcb_top_mm + c.tile.size_mm[2]);
+// The tile in key coordinates. Its parts' center_mm[2] is measured from the
+// board's top (its switch side), so every use goes through these.
+/** The z of the tile's top, its switch side. */
+export const tileTop = (c: Config) => -c.tile.plate_top_to_pcb_top_mm;
+/** The z of the tile's underside (where its pads are). */
+export const tileUnderside = (c: Config) => tileTop(c) - c.tile.size_mm[2];
+type TilePart = Config['tile']['components'][number];
+/** A tile part's centre (the hotswap socket, LED or diode under the board). */
+export const tilePartCentre = (c: Config, p: TilePart): V3 => [
+  p.center_mm[0],
+  p.center_mm[1],
+  tileTop(c) + p.center_mm[2],
+];
+/** The z of the tile's lowest point: its underside, or the bottom of its lowest part. */
+export const tileBottom = (c: Config) =>
+  Math.min(
+    tileUnderside(c),
+    ...c.tile.components.map((p) => tilePartCentre(c, p)[2] - p.size_mm[2] / 2),
+  );
 /** Key names by group: the finger keys, the thumb row and the extra thumb row. */
 export const keyGroups = (c: Config) => {
   const g = c.geometry as { thumb_extra?: Cluster } & typeof c.geometry,

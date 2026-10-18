@@ -28,7 +28,15 @@
 // axis. "Plan" means the world XY plane.
 import type { Manifold, ManifoldToplevel, Vec3 } from 'manifold-3d';
 import { Matrix4 } from 'three';
-import { keycapEnvelope, isKey, isThumb, point, tileUnderside, type Config } from './geometry';
+import {
+  keycapEnvelope,
+  isKey,
+  isThumb,
+  point,
+  tileTop,
+  tileUnderside,
+  type Config,
+} from './geometry';
 import { seatSettings } from './seats';
 import { facetFloor, narrowPlates, PLATES, sheet, tilePocketDepth, tilePocketHalf } from './plates';
 import { capsule, down, keycapSolid, place, slab } from './manifold-util';
@@ -99,7 +107,7 @@ export function gluePads(cfg: Config) {
   const seat = seatSettings(cfg).outer;
   const plate = cfg.chassis.plate_thickness_mm;
   const top = -plate + SIZES.glueInto;
-  const bottom = -tile.plate_top_to_pcb_top_mm + SIZES.glueLayer;
+  const bottom = tileTop(cfg) + SIZES.glueLayer;
   const boxes: { center: Vec3; size: Vec3 }[] = [];
   for (const sx of [-1, 1])
     for (const sy of [-1, 1])

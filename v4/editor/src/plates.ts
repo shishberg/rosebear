@@ -2,7 +2,7 @@
 // out of them), and each well's sheet of plates, which the chassis builds on.
 import type { CrossSection, ManifoldToplevel, Vec3 } from 'manifold-3d';
 import type { Matrix4 } from 'three';
-import { point, tileUnderside, type Config } from './geometry';
+import { point, tileBottom, type Config } from './geometry';
 import { down, prism } from './manifold-util';
 import { seatSettings } from './seats';
 
@@ -40,10 +40,7 @@ export const tilePocketHalf = (cfg: Config): HalfWidths => [
 ];
 
 /** How far the tile pocket reaches below the plate top: the tile, its components and their clearance. */
-export const tilePocketDepth = (cfg: Config) =>
-  -tileUnderside(cfg) +
-  Math.max(0, ...cfg.tile.components.map((c) => c.size_mm[2] / 2 - c.center_mm[2])) +
-  cfg.tile.component_clearance_mm;
+export const tilePocketDepth = (cfg: Config) => -tileBottom(cfg) + cfg.tile.component_clearance_mm;
 
 /** The plates' half-widths: plate_margin past the seat, and always far enough to cover the tile pocket. */
 export function plateHalfWidths(cfg: Config): HalfWidths {
