@@ -27,10 +27,8 @@ row/column harness topology works in either direction. The RGB part and exact
 power demand remain unidentified. Test a short column at the intended supply
 and wiring length before assembling the full harness.
 
-Open: whether the tiles need extra decoupling. Test a short column first and
-add one hand-wired ceramic capacitor per column (12 total) only if testing
-shows it helps; the value is not chosen. This is not equivalent to LED-local
-decoupling.
+Decided: no capacitors on the hand side, bulk or per column. The pod keeps the
+100 nF across its level shifter.
 
 ## Physical handwiring layout
 
