@@ -30,16 +30,20 @@ interface PortRun {
   points: V3[];
   stray: boolean;
 }
-/** A route, whether a leg strayed, and whether a join between two keys' legs found no way past the plates. */
+/**
+ * A route, whether a leg strayed, whether a join between two keys' legs found
+ * no way past the plates, and whether it runs lower than the floor allows.
+ */
 interface Route {
   points: V3[];
   strayed: boolean;
   stuck: boolean;
+  low: boolean;
 }
 
 /** The ways a wire can be routed in `env`, with the legs and joins they share cached. */
 export function pathsIn(env: Env, { blocked, plates }: Obstacles) {
-  const { cfg, frames, padZ, loomZ, half, port, grid } = env;
+  const { cfg, frames, padZ, loomZ, floorZ, half, port, grid } = env;
   const { side, axis, axisLength, places } = grid;
   const pitch = WIRING.portPitch;
   const toward = (key: string, to: V3) => edgeToward(frames, key, to);
@@ -218,7 +222,13 @@ export function pathsIn(env: Env, { blocked, plates }: Obstacles) {
    * A route for a wire of radius `keep` in `lane`, through the wire port at
    * `place`. `a` is a pad, or for a feed the point at the adapter's hole.
    */
-  const route = (a: Pad | V3, b: Pad, lane: Lane, place: V3, keep: number): Route => {
+  const routeOf = (
+    a: Pad | V3,
+    b: Pad,
+    lane: Lane,
+    place: V3,
+    keep: number,
+  ): Omit<Route, 'low'> => {
     if (Array.isArray(a)) {
       let strayed: boolean;
       let path: V3[];
@@ -259,6 +269,16 @@ export function pathsIn(env: Env, { blocked, plates }: Obstacles) {
       strayed: path.stray || fl.stray,
       stuck: false,
     };
+  };
+
+  /**
+   * A route for a wire of radius `keep`, as routeOf, and whether it runs too
+   * low: its underside below the floor's top anywhere. Its segments are
+   * straight, so its points are its lowest.
+   */
+  const route = (a: Pad | V3, b: Pad, lane: Lane, place: V3, keep: number): Route => {
+    const r = routeOf(a, b, lane, place, keep);
+    return { ...r, low: r.points.some((p) => p[2] - keep < floorZ - 1e-9) };
   };
 
   // Many routes share segments (their legs), so each segment is tested once.

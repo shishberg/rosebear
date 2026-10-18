@@ -379,7 +379,20 @@ test("the wiring joins each net's pads and adapter hole, for a 4 × 5 matrix", (
   ]);
   // On the layout before Swung in, no wire runs into another.
   const pre = preSwung().config;
-  assert.deepEqual(crossed(wiring(pre, componentFrames(pre))), []);
+  const wPre = wiring(pre, componentFrames(pre));
+  assert.deepEqual(crossed(wPre), []);
+  // Every wire's underside stays the floor's skin above the base: its
+  // centreline at least skin_mm plus its radius above z = 0.
+  for (const [c, ww] of [
+    [cfg, w],
+    [pre, wPre],
+  ] as const)
+    for (const x of ww.wires)
+      for (const p of x.points)
+        assert(
+          p[2] >= c.chassis.skin_mm + x.diameter / 2 - 1e-9,
+          `${x.net} ${x.from}-${x.to} at z ${p[2].toFixed(3)}`,
+        );
   assert.equal(
     w.nets.reduce((s, n) => s + n.joints, 0),
     200,

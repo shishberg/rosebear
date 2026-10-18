@@ -125,8 +125,11 @@ tops shows under its size.
   sideways, down to the leg's depth, then straight out to the tile edge facing
   where the wire goes. A pad's own edge is the tile edge it is nearest. A leg over
   that edge runs 0.6 mm below the tile; one along it runs from 2.7 mm down, 0.9 mm
-  deeper for each wired pad near the same edge it passes under; one across the
-  tile runs just under its parts. A wire between
+  deeper for each wired pad near the same edge it passes under; between two
+  tiles it may also, last of its choices, shift out to the pad's own edge just
+  inside the pocket and run along it 0.6 mm below the tile (the **rim**), which
+  keeps it shallow where a low edge would take the run under the pads below the
+  floor; one across the tile runs just under its parts. A wire between
   two tiles joins its two legs with a straight run. Where that would run into a
   plate or its reach, it steps back under the higher tile and drops, or turns a
   corner in plan, or runs under both ends.
@@ -138,8 +141,10 @@ tops shows under its size.
   across to the adapter.
 - **Routing**: each wire has many candidate routes (depths, shifts, port places
   and loom levels). Routes
-  that run into a tile, its parts or a plate, or that shift out past the
-  tile's pocket, are dropped. The wires then negotiate: each takes its cheapest
+  that run into a tile, its parts or a plate, that shift out past the
+  tile's pocket, or whose underside runs below the base plate's top
+  (`chassis.skin_mm` above z = 0) are dropped; a wire left with no route fails
+  the routing. The wires then negotiate: each takes its cheapest
   route given the others, and routes that meet another wire cost more each
   round until none meet. Pairs that still meet are repaired together with the
   wires most in their way. Routing runs in a worker of its own

@@ -54,6 +54,7 @@ export function wiring(cfg: Config, frames = componentFrames(cfg)): Wiring {
     frames,
     padZ,
     loomZ: cfg.chassis.skin_mm + w.loom_height_mm,
+    floorZ: cfg.chassis.skin_mm,
     half: tilePocketHalf(cfg),
     componentDepth,
     wiredPads: tile.pads.list
@@ -67,10 +68,20 @@ export function wiring(cfg: Config, frames = componentFrames(cfg)): Wiring {
   const paths = pathsIn(env, obstaclesOf(env, keys));
   const placeOf = assignPlaces(env, specs, ends, paths.leg);
 
-  // Route with the usual choices first; if wires still meet, again with every
-  // place in the port and every depth, and keep the better.
+  // Route with the usual choices first; if wires still meet, or some wire has
+  // no route above the floor, again with every place in the port and every
+  // depth, and keep the better. A wire with no route above the floor even
+  // then fails the routing.
   const solve = (wide: boolean) => {
     const options = optionsOf(env, paths, specs, ends, placeOf, wide);
+    const none = specs.filter((_, i) => !options[i].length);
+    if (none.length) {
+      if (!wide) return { left: Infinity, paths: [] };
+      throw Error(
+        `No route keeps these wires' undersides ${env.floorZ} mm above the base: ` +
+          none.map((s) => `${s.net.name} ${s.from}-${s.to}`).join(', '),
+      );
+    }
     const { left, choice } = negotiate(options, wide);
     return { left, paths: choice.map((k, i) => options[i][k].tube.points) };
   };

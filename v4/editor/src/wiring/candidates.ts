@@ -207,28 +207,45 @@ function candidates(env: Env, s: Spec, own: number | undefined, wide: boolean) {
                   rank: i + j + (x ? 1 : 0) + (y ? 1 : 0) + (n ? 1 : 0) + 2 * e,
                 });
     }
-  else
-    for (let i = 0; i < da.length; i++)
-      for (let j = 0; j < db.length; j++)
-        for (let x = 0; x < WIRING.edgeAsides.length; x++)
-          for (let y = 0; y < WIRING.edgeAsides.length; y++)
-            out.push({
-              lane: {
-                da: da[i],
-                db: db[j],
-                aside: WIRING.edgeAsides[x],
-                asideB: WIRING.edgeAsides[y],
-              },
-              place: [0, 0, 0],
-              rank: i + j + (x ? 1 : 0) + (y ? 1 : 0),
-            });
+  else {
+    const wa = legWays(env, s.a as Pad, edgeOf(env, s, 'a'), da, d);
+    const wb = legWays(env, s.b, edgeOf(env, s, 'b'), db, d);
+    for (const a of wa)
+      for (const b of wb)
+        out.push({
+          lane: { da: a.depth, db: b.depth, aside: a.aside, asideB: b.aside },
+          place: [0, 0, 0],
+          rank: a.rank + b.rank,
+        });
+  }
   return out.sort((x, y) => x.rank - y.rank);
 }
 
 /**
+ * The ways a leg between two keys may leave its tile by `edge`: each of its
+ * `depths` with each of the edge asides, and, where the edge is not the pad's
+ * own, along the rim: shifted out to its own edge just inside the pocket,
+ * outside the other pads on that edge, and run along it just under the tile.
+ * Last of the choices, it keeps a leg shallow where a low edge would take the
+ * run under the strip below the floor.
+ */
+const legWays = (env: Env, p: Pad, edge: Edge, depths: number[], d: number) => {
+  const ways: { depth: number; aside: number; rank: number }[] = depths.flatMap((depth, i) =>
+    WIRING.edgeAsides.map((aside, x) => ({ depth, aside, rank: i + (x ? 1 : 0) })),
+  );
+  const [own, sign] = ownEdge(p, env.half);
+  if (own !== edge[0]) {
+    const rim = sign * (env.half[own] - d / 2 - WIRING.depthMargin) - p.xy[own];
+    ways.push({ depth: WIRING.hopDepth, aside: rim, rank: WIRING.rimRank });
+  }
+  return ways;
+};
+
+/**
  * Each wire's routes as options, without those that run into a tile (unless
- * all do) or shift out past the tile's pocket. Each end stays on its own pad
- * or hole: one wire fits a tile's hole.
+ * all do), shift out past the tile's pocket or run below the floor (its
+ * underside under env.floorZ). Each end stays on its own pad or hole: one
+ * wire fits a tile's hole.
  */
 export function optionsOf(
   env: Env,
@@ -241,8 +258,8 @@ export function optionsOf(
   return specs.map((s, i) => {
     const d = diameterOf(env, s);
     const all = candidates(env, s, placeOf.get(i), wide).flatMap(({ lane, place, rank }) => {
-      const { points, strayed, stuck } = paths.route(ends[i].a, ends[i].b, lane, place, d / 2);
-      if (strayed) return [];
+      const { points, strayed, stuck, low } = paths.route(ends[i].a, ends[i].b, lane, place, d / 2);
+      if (strayed || low) return [];
       return {
         tube: tubeOf(points, d),
         rank,

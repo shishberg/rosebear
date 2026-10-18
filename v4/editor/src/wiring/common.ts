@@ -99,6 +99,8 @@ export interface Env {
   padZ: number;
   /** Height of the loom's bottom level in world z. */
   loomZ: number;
+  /** The lowest a wire's underside may run, in world z: the floor's skin above the base (z = 0). */
+  floorZ: number;
   /** The tile pocket's half-widths. */
   half: [number, number];
   /** How far below a tile's underside its tallest part reaches, with clearance. */
@@ -132,6 +134,8 @@ export const WIRING = {
   stripDepth: 2.7,
   /** A run along the pads' strip goes this much deeper for each pad it passes under. */
   stripStep: 0.9,
+  /** The rank of a leg's run along its pad's own edge (the rim), after every depth and aside. */
+  rimRank: 5,
   /** How many depths each leg tries. */
   depthChoices: 4,
   /** Spacing of a leg's depth choices. */
