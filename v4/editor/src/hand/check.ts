@@ -43,6 +43,7 @@ import {
   twoOf,
   wayOf,
 } from './layout';
+import { tilePocketDepth, tilePocketHalf } from '../plates';
 
 /** A keycap: its top's centre and frame (z out of the cap), its size at the
  * base, and its top face (x, y), smaller: it tapers. */
@@ -387,15 +388,17 @@ export function partHits(board: Board, part: Part): Hit[] {
   return Object.entries(deepest).map(([b, depth]) => ({ a: part.who, b, depth }));
 }
 /** How tall the board stands, hand frame turned onto the desk by `R`: from the
- * highest keycap corner down to the lowest switch body's bottom, plus the base. */
+ * highest keycap corner down to the lowest corner of a tile pocket (the tile,
+ * its parts and their clearance, the lowest thing under a key), plus the base,
+ * as if the lowest pocket stood on the floor. */
 function heightOf(c: Config, caps: Cap[], R: T.Matrix4) {
-  const sw = c.switch,
+  const [px, py] = tilePocketHalf(c),
     base = c.chassis.skin_mm;
   let high = -Infinity,
     low = Infinity;
   for (const k of caps) {
     const m = R.clone().multiply(k.top),
-      seat = -k.size[2] - sw.keycap_bottom_above_plate_mm - sw.body_below_plate_mm;
+      pocket = -k.size[2] - c.switch.keycap_bottom_above_plate_mm - tilePocketDepth(c);
     for (const [w, h] of [
       [k.size, -k.size[2]],
       [k.face, 0],
@@ -403,9 +406,8 @@ function heightOf(c: Config, caps: Cap[], R: T.Matrix4) {
       for (const x of [-w[0] / 2, w[0] / 2])
         for (const y of [-w[1] / 2, w[1] / 2])
           high = Math.max(high, new T.Vector3(x, y, h).applyMatrix4(m).z);
-    for (const x of [-sw.body_mm[0] / 2, sw.body_mm[0] / 2])
-      for (const y of [-sw.body_mm[1] / 2, sw.body_mm[1] / 2])
-        low = Math.min(low, new T.Vector3(x, y, seat).applyMatrix4(m).z);
+    for (const x of [-px, px])
+      for (const y of [-py, py]) low = Math.min(low, new T.Vector3(x, y, pocket).applyMatrix4(m).z);
   }
   return high - low + base;
 }

@@ -74,7 +74,9 @@ result. The readout says first whether the layout is valid, or lists what is wro
 - rows or thumb keys out of reach, the thumb's MCP or IP past its range, a press that
   moves the thumb off the key, a key met with the back of the thumb, the inner column
   out of reach, and a wrist height the finger curl can't give;
-- the board's height against the 66 mm tray.
+- the board's height against the 66 mm tray: from the highest keycap corner down to the
+  lowest corner of a tile pocket (the tile, its parts and their clearance), plus the floor's
+  skin, as if the lowest pocket stood on the floor.
 
 ## The test frame
 
