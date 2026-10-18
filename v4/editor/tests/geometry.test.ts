@@ -236,7 +236,6 @@ test("the default (Swung in) Skeletyl builds one piece, failing only Swung in's 
       'matrix_pinky_bottom',
       'thumb_home: hotswap socket',
       'thumb_near',
-      'thumb_near: hotswap socket',
     ],
   );
   assert.deepEqual(r.wires, []);

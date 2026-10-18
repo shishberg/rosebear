@@ -6,11 +6,13 @@
 // stations: at each, a cross-section of four points, the rib's top and
 // underside at both its sides (the plates' edges across the keys). Over a key
 // the rib is the key's plate, an exact slab the switch seat is cut into.
-// Between neighbouring keys a web carries the top and the underside from one
-// plate to the next along cubics tangent to both. Past each end key a short
-// lip carries the plate on along its own axis, and a round turns it down to
-// vertical; the lip is as long as it must be for the round, and the drop
-// under it, to clear the end key's tile pocket and switch body. Where the next
+// Between neighbouring keys a web sweeps the rib from one plate's edge to the
+// next (`sweep`: each side along a cubic tangent to both plates, a circular
+// arc where it can be). Past each end key a short
+// lip carries the plate on along its own axis, and a round sweeps it over and
+// down to vertical; the round (where the end rises) or else the lip is as big
+// as it must be for the round, and the drop under it, to clear the end key's
+// tile pocket and switch body. Where the next
 // key's plate edge isn't past this one's along either key's axis (the plates
 // overlap in plan, or a web would fold back) the rib parts there, and each
 // part has its own ends: a round where it clears what the other keys hold
@@ -33,7 +35,9 @@
 // own parts (skeletyl-ends.prototype.ts lists the variants): "tie" adds a floor
 // tie to the rail, across under them, and drops the ends that can onto it;
 // "join" carries a finger front on in a web to a thumb key's plate; "both"
-// joins where it can and ties the rest; "none" leaves them hanging.
+// joins where it can and ties the rest; "flow" first carries a thumb row's end
+// on into a column's front as one rib, then joins and ties as "both"; "none"
+// leaves them hanging.
 //
 // Terms, as in chassis.ts, and:
 //  rib      a run of keys along one key axis, swept as one solid;
@@ -45,8 +49,11 @@
 //  band     the wall filling between neighbouring columns' drops;
 //  tie      PROTOTYPE ?ends=: a bar of the rail's section across the floor,
 //           rail to rail, that hanging ends drop onto;
+//  pose     where a rib passes and how it lies there: its top's middle, its
+//           heading and across, its width and thickness (Pose);
 //  join     PROTOTYPE ?ends=: a finger front carried on in a web to a thumb
-//           key's plate edge instead of a round.
+//           key's plate edge instead of a round; a thumb row's end carried
+//           on into a column's front (flow) is one too.
 import type { CrossSection, Manifold, ManifoldToplevel } from 'manifold-3d';
 import type { Matrix4 } from 'three';
 import {
@@ -78,9 +85,9 @@ import { END_SUPPORTS } from './skeletyl-ends.prototype';
 export const SIZES = {
   /** The ends and the rail are this thick, unless chassis.wall_mm says. */
   wall: 2.4,
-  /** The ends' rounds have this outer radius, unless chassis.end_radius_mm says. */
+  /** The ends' rounds have at least this outer radius, unless chassis.end_radius_mm says. */
   endRadius: 5,
-  /** An end's lip is at least this long, and grows by lipStep until its round and drop clear the end key's tile pocket and switch body by endGap. Rounds, drops and bands keep endGap from what the other keys hold too, or are not built. */
+  /** An end's lip is at least this long. Its round (where the end rises off the plate) or else its lip grows by lipStep until the round and the drop clear the end key's tile pocket and switch body by endGap. Rounds, drops and bands keep endGap from what the other keys hold too, or are not built. */
   lip: 1,
   lipStep: 0.1,
   endGap: 0.3,
@@ -112,6 +119,8 @@ export const SIZES = {
   joinReach: 20,
   joinInto: 0.5,
   tieRound: 5,
+  /** PROTOTYPE ?ends=: a joined end's surfaces are meshed in triangles about this big (joinSolid). */
+  joinMesh: 1,
 } as const;
 
 /** A key in a rib: its plate's centre, the key axis the rib runs along, across it, and its normal (right-handed: a = c × n). */
@@ -132,11 +141,11 @@ interface Rib {
 }
 /** How a rib's end finishes: flush with the plate's edge, a round alone, a round and a drop to the floor, its foot carried on along the end this far (plan) to the outline (or the tie), or (PROTOTYPE ?ends=) a web joining it to another key's plate. */
 type End = 'flush' | 'hang' | { out: number } | { join: Join };
-/** PROTOTYPE ?ends=: where a joined end's web lands: on the plate edge of `key`, at each side (s -1, 1) its [top, underside] corner, the web arriving along `into` (plan and plate, into that plate). */
+/** PROTOTYPE ?ends=: where a joined end's rib lands: on a plate edge of `key`, as a pose heading into that plate (its sides those of the end's own, heading out), carried on `into` mm past it. */
 interface Join {
   key: string;
-  land: [Pair, Pair];
-  into: V3;
+  land: Pose;
+  into: number;
 }
 const isDrop = (e: End): e is { out: number } => typeof e === 'object' && 'out' in e;
 const isJoin = (e: End): e is { join: Join } => typeof e === 'object' && 'join' in e;
@@ -182,13 +191,94 @@ const unitPlan = (v: number[]) => {
   return [v[0] / l, v[1] / l];
 };
 const lerp = (p: V3, q: V3, f: number) => add(p, scale(sub(q, p), f));
-/** A web's edge from A, leaving along unit ta, to B, arriving along unit tb: the cubic tangent to both, handles a third of the way. */
-function cubic(A: V3, ta: V3, B: V3, tb: V3) {
-  const handle = Math.hypot(...sub(B, A)) / 3;
-  const ctrl = [A, add(A, scale(ta, handle)), sub(B, scale(tb, handle)), B];
-  return (f: number) => {
-    const w = [(1 - f) ** 3, 3 * f * (1 - f) ** 2, 3 * f * f * (1 - f), f ** 3];
-    return ctrl.reduce((sum, q, m) => add(sum, scale(q, w[m])), [0, 0, 0] as V3);
+const unit = (v: V3) => scale(v, 1 / Math.hypot(...v));
+
+/**
+ * Where a rib passes and how it lies there: `p` is the middle of its top,
+ * heading along unit `t`, across along unit `c` (square to t; side s, -1 or 1,
+ * is s·half out along c), its underside `thick` below the top along -n, where
+ * n = t × c. Over a key's plate edge: p the edge's middle, t and c the key's
+ * a and c (so n is the key's normal), half the plate's half-width across and
+ * thick the plate's.
+ */
+interface Pose {
+  p: V3;
+  t: V3;
+  c: V3;
+  half: number;
+  thick: number;
+}
+/** Side s of a pose: [top, underside]. */
+const poseSide = (q: Pose, s: number): Pair => {
+  const top = add(q.p, scale(q.c, s * q.half));
+  return [top, sub(top, scale(cross(q.t, q.c), q.thick))];
+};
+/** The same pose, heading the other way (its sides swap; n stays). */
+const flip = (q: Pose): Pose => ({ ...q, t: scale(q.t, -1), c: scale(q.c, -1) });
+/** Pose q carried straight on along its heading by `length`. */
+const ahead = (q: Pose, length: number): Pose => ({ ...q, p: add(q.p, scale(q.t, length)) });
+/** The pose at plate edge u (-1 or 1 along) of key k, heading along k.a. */
+const edgePose = (d: Dims, k: RibKey, u: number): Pose => ({
+  p: keyPoint(k, d.plateHalf, u, 0, 0),
+  t: k.a,
+  c: k.c,
+  half: across(k, d.plateHalf),
+  thick: d.plate,
+});
+
+/**
+ * The rib from pose a to pose b: the `steps` poses after a, up to and
+ * including b. Each of its sides' tops runs along the cubic leaving a's side
+ * along a.t and arriving at b's along b.t, its handles by default those that
+ * make a circular arc of the turn between a.t and b.t (a third of the chord
+ * when straight; poses on a circle about an axis across them sweep that arc),
+ * or `reach` mm at each end, given for the middle and scaled to each side's
+ * chord. So in a tight turn the rib fans about its inner side rather than
+ * folding back over it, and it twists only as the two poses differ. Its
+ * normal turns at an even rate from a's to b's (as the heading does round an
+ * arc), the underside thick below the top along it; thick goes smoothly from
+ * a's to b's.
+ */
+function sweep(a: Pose, b: Pose, steps: number, reach?: [number, number]): Pose[] {
+  const at = sweepAt(a, b, reach);
+  return [...Array(steps).keys()].map((i) => at((i + 1) / steps));
+}
+
+/** The rib from pose a to pose b (as `sweep`), as its pose at f along: a at 0, b at 1. */
+function sweepAt(a: Pose, b: Pose, reach?: [number, number]): (f: number) => Pose {
+  const turn = Math.acos(Math.max(-1, Math.min(1, dot(a.t, b.t))));
+  const arc = turn < 1e-6 ? 1 / 3 : ((2 / 3) * Math.tan(turn / 4)) / Math.sin(turn / 2);
+  const middle = Math.hypot(...sub(b.p, a.p));
+  // Side s's top at f along.
+  const side = (s: number) => {
+    const [A, B] = [a, b].map((q) => poseSide(q, s)[0]);
+    const chord = Math.hypot(...sub(B, A));
+    const [ra, rb] = reach
+      ? reach.map((r) => (r * chord) / (middle || 1))
+      : [arc * chord, arc * chord];
+    const ctrl = [A, add(A, scale(a.t, ra)), sub(B, scale(b.t, rb)), B];
+    const sum = (w: number[]) => ctrl.reduce((x, q, m) => add(x, scale(q, w[m])), [0, 0, 0] as V3);
+    return (f: number) => sum([(1 - f) ** 3, 3 * f * (1 - f) ** 2, 3 * f * f * (1 - f), f ** 3]);
+  };
+  const [left, right] = [side(-1), side(1)];
+  const [na, nb] = [a, b].map((q) => cross(q.t, q.c));
+  const angle = Math.acos(Math.max(-1, Math.min(1, dot(na, nb))));
+  const normal = (f: number) =>
+    angle < 1e-6 ? na : add(scale(na, Math.sin((1 - f) * angle)), scale(nb, Math.sin(f * angle)));
+  const smooth = (f: number) => 3 * f * f - 2 * f ** 3;
+  return (f: number): Pose => {
+    if (f <= 0) return a;
+    if (f >= 1) return b;
+    const [l, r] = [left(f), right(f)];
+    const c = unit(sub(r, l));
+    const n = normal(f);
+    return {
+      p: lerp(l, r, 0.5),
+      t: unit(cross(c, n)),
+      c,
+      half: Math.hypot(...sub(r, l)) / 2,
+      thick: a.thick + (b.thick - a.thick) * smooth(f),
+    };
   };
 }
 
@@ -271,67 +361,109 @@ function webbable(d: Dims, p: RibKey, q: RibKey) {
   return past(p, q, 1) && past(q, p, -1);
 }
 
+/** Whether plan point [x, z] is inside polygon `ring`. */
+function inside(ring: number[][], [x, z]: number[]) {
+  let odd = false;
+  ring.forEach((a, i) => {
+    const b = ring[(i + 1) % ring.length];
+    if (a[1] > z !== b[1] > z && x < a[0] + ((z - a[1]) * (b[0] - a[0])) / (b[1] - a[1]))
+      odd = !odd;
+  });
+  return odd;
+}
+const add2 = (p: number[], q: number[]) => [p[0] + q[0], p[1] + q[1]];
+/** How far [x, z] is from the polyline `line` (in the same plane). */
+const fromLine = (line: number[][], [x, z]: number[]) =>
+  Math.min(...line.slice(1).map((b, i) => gap([line[i], b], [x, z, 0])));
+
+/**
+ * The lip and round past key k's plate edge u (-1 or 1 along): each side's
+ * path (its pose side s, -1 or 1; the rib's side u·s) out from the plate's
+ * corner, [top, underside]. The lip carries the plate on along its own axis,
+ * thinning to a wall; the round sweeps it over and down until it heads
+ * straight down, where a drop can stand under it. Each side turns on the
+ * same arc, in the upright plane along the end, so the end doesn't twist: it
+ * keeps the plate's tilt across, as the drop under it does. They are as small as
+ * lets the inner faces, and a drop straight down from them, clear the end
+ * key's tile pocket and switch body by endGap. Where the end rises off the
+ * plate the round grows for that (from the end radius), so it rolls over in a
+ * wider arc rather than running on up the plate's slope; where it is level or
+ * falls, the lip grows.
+ */
+function endRound(d: Dims, k: RibKey, u: number) {
+  const edge = u > 0 ? edgePose(d, k, u) : flip(edgePose(d, k, u));
+  const t = edge.t;
+  const h = [...unitPlan(t), 0] as V3;
+  const [cos, sin] = [Math.hypot(t[0], t[1]), t[2]];
+  // The round's outward direction where its tangent is at angle a up from h.
+  const out = (a: number): V3 => add(scale(h, -Math.sin(a)), [0, 0, Math.cos(a)]);
+  const start = Math.atan2(sin, cos);
+  // Each side's path: from its corner, a lip L long, then a round of radius R
+  // about a centre under the lip's end.
+  const build = (L: number, R: number) => (s: number) => {
+    const corner = poseSide(edge, s);
+    const centre = sub(add(corner[0], scale(t, L)), scale(out(start), R));
+    const round = [...Array(SIZES.roundSteps + 1).keys()].map((j): Pair => {
+      const a = start + ((-Math.PI / 2 - start) * j) / SIZES.roundSteps;
+      return [add(centre, scale(out(a), R)), add(centre, scale(out(a), R - d.wall))];
+    });
+    return [corner, ...round];
+  };
+  // In the plate's own plane (along t and n from its edge's middle, seen
+  // along c): the room under each side is under the plate (its underside
+  // inside), the lip's and the round's inner face, and straight down from its
+  // end; what must stay clear is the pocket's and switch body's edge under it.
+  const n = cross(t, edge.c);
+  const plane = (p: V3) => [dot(sub(p, edge.p), t), dot(sub(p, edge.p), n)];
+  const down = plane(add(edge.p, [0, 0, -1e3]));
+  const keep = d.keepClear.flatMap(([half, depth]) =>
+    [-d.plate, -depth].map((z) => plane(keyPoint(k, half, u, 0, z))),
+  );
+  const clear = (sides: (s: number) => Pair[]) =>
+    [-1, 1].every((s) => {
+      const face = sides(s).map(([, under]) => plane(under));
+      const end = face.at(-1)!;
+      const under = (x: number) => [x, -d.plate + 0.01];
+      const line = [...face.slice(1), add2(end, down)];
+      const room = [under(-100), under(0), ...line, add2(under(-100), down)];
+      return keep.every((p) => inside(room, p) && fromLine(line, p) >= SIZES.endGap);
+    });
+  let [L, R] = [SIZES.lip, d.radius];
+  while (!clear(build(L, R)) && L < 50 && R < 50) {
+    if (sin > 0) R += SIZES.lipStep;
+    else L += SIZES.lipStep;
+  }
+  return build(L, R);
+}
+
 /**
  * One side (s, -1 or 1 across) of the end of key k that faces u (-1 or 1
  * along), from the plate's corner out. A flush end stops there. A joined end
  * (PROTOTYPE ?ends=join) runs on as a cubic web to its landing on a thumb
- * plate's edge, then a little into that plate. Otherwise a lip runs on along
- * the key's axis, then the round turns down, in the upright plane through that
- * axis, until it is vertical. A dropping end drops from
- * there, and its foot curves out along the end to the outline (its `out`),
- * meeting the floor at 45° (or flatter, if the round is low). The lip is as
- * short as lets the round's inner face, and the drop's below it, clear the
- * tile pocket and switch body by endGap. Nothing goes below the floor.
+ * plate's edge, then a little into that plate. Otherwise its lip and round
+ * (endRound) turn it over and down until it is vertical. A dropping end drops
+ * from there, and its foot curves out along the end to the outline (its
+ * `out`), meeting the floor at 45° (or flatter, if the round is low). Nothing
+ * goes below the floor.
  */
 function endSide(d: Dims, k: RibKey, u: number, s: number, end: End): Pair[] {
   const path: Pair[] = [[corner(d, k, u, s, 0), corner(d, k, u, s, -d.plate)]];
   if (end === 'flush') return path;
   if (isJoin(end)) {
-    // PROTOTYPE ?ends=join: a web on to the other plate's edge, as between
-    // keys, then on into that plate.
+    // PROTOTYPE ?ends=: the rib on to the other plate's edge, as between
+    // keys, then on into that plate. Heading out, the end's side s is its
+    // pose's side u·s.
     const { land, into } = end.join;
-    const to = land[(s + 1) / 2];
-    const [top, under] = [0, 1].map((j) => cubic(path[0][j], scale(k.a, u), to[j], into));
-    for (let j = 1; j < SIZES.webSteps; j++)
-      path.push([top(j / SIZES.webSteps), under(j / SIZES.webSteps)]);
-    path.push(to, to.map((p) => add(p, scale(into, SIZES.joinInto))) as Pair);
+    const from = u > 0 ? edgePose(d, k, u) : flip(edgePose(d, k, u));
+    // A station every 5° of its turn, at least as many as a web's.
+    const turn = Math.acos(Math.max(-1, Math.min(1, dot(from.t, land.t))));
+    const poses = sweep(from, land, Math.max(SIZES.webSteps, Math.ceil(turn / (Math.PI / 36))));
+    if (into > 0) poses.push(ahead(land, into));
+    path.push(...poses.map((q) => poseSide(q, u * s)));
     return path;
   }
-  const R = d.radius;
-  const inner = d.radius - d.wall;
-  const E = path[0][0];
-  const t = scale(k.a, u);
-  const h = [...unitPlan(t), 0] as V3;
-  const [cos, sin] = [Math.hypot(t[0], t[1]), t[2]];
-  // What must stay clear, in the round's plane: out along h from E, and up.
-  const keep = d.keepClear.flatMap(([half, depth]) =>
-    [-1, 1].flatMap((sc) =>
-      [-d.plate, -depth].map((z) => {
-        const p = sub(keyPoint(k, half, u, sc, z), E);
-        return [dot(p, h), p[2]];
-      }),
-    ),
-  );
-  // With a lip L long, the round's centre is at (cx, cz): a point is clear if
-  // it is under the lip, inside the round, or inside the drop.
-  const clear = (L: number) => {
-    const cx = L * cos + R * sin;
-    const cz = L * sin - R * cos;
-    const room = inner - SIZES.endGap;
-    return keep.every(
-      ([x, z]) => x <= cx || (z >= cz ? Math.hypot(x - cx, z - cz) <= room : x <= cx + room),
-    );
-  };
-  let L = SIZES.lip;
-  while (!clear(L) && L < 50) L += SIZES.lipStep;
-  // The round's outward direction where its tangent is at angle a up from h.
-  const out = (a: number): V3 => add(scale(h, -Math.sin(a)), [0, 0, Math.cos(a)]);
-  const start = Math.atan2(sin, cos);
-  const centre = sub(add(E, scale(t, L)), scale(out(start), R));
-  for (let j = 0; j <= SIZES.roundSteps; j++) {
-    const a = start + ((-Math.PI / 2 - start) * j) / SIZES.roundSteps;
-    path.push([add(centre, scale(out(a), R)), add(centre, scale(out(a), inner))]);
-  }
+  path.push(...endRound(d, k, u)(u * s).slice(1));
+  const h = [...unitPlan(scale(k.a, u)), 0] as V3;
   if (end !== 'hang') {
     // The drop, and its foot: from `rise` up the outer face curves out by
     // the end's `out` along h, leaving the drop and meeting the floor upright
@@ -363,16 +495,12 @@ function ribSide(d: Dims, rib: Rib, s: number, ends: End[], over?: (string | und
   on[on.length - 1] = keys[0].name;
   keys.forEach((k, i) => {
     if (i > 0) {
-      // The web from the last key's plate: its top and its underside, each a cubic.
-      const p = keys[i - 1];
-      const web = (z: number) => cubic(corner(d, p, 1, s, z), p.a, corner(d, k, -1, s, z), k.a);
-      const [top, under] = [web(0), web(-d.plate)];
-      for (let j = 1; j < SIZES.webSteps; j++) {
-        path.push([top(j / SIZES.webSteps), under(j / SIZES.webSteps)]);
-        on.push('');
-      }
-      path.push([corner(d, k, -1, s, 0), corner(d, k, -1, s, -d.plate)]);
-      on.push(k.name);
+      // The web from the last key's plate's edge to this one's.
+      const web = sweep(edgePose(d, keys[i - 1], 1), edgePose(d, k, -1), SIZES.webSteps);
+      web.forEach((q, j) => {
+        path.push(poseSide(q, s));
+        on.push(j < web.length - 1 ? '' : k.name);
+      });
     }
     path.push([corner(d, k, 1, s, 0), corner(d, k, 1, s, -d.plate)]);
     on.push(k.name);
@@ -396,14 +524,132 @@ const solid = (wasm: ManifoldToplevel, cfg: Config, stations: Station[]) =>
     stations.map((st) => ({ pts: square, place: (_w: number, _z: number, j: number) => st[j] })),
   );
 
-/** A rib's solid. */
+/** A rib's solid. PROTOTYPE ?ends=: a joined end is a solid of its own (joinSolid), the rib flush at its plate edge. */
 function ribSolid(wasm: ManifoldToplevel, cfg: Config, d: Dims, rib: Rib, ends: End[]) {
-  const [left, right] = [-1, 1].map((s) => ribSide(d, rib, s, ends));
-  return solid(
+  const flush = ends.map((e) => (isJoin(e) ? 'flush' : e));
+  const [left, right] = [-1, 1].map((s) => ribSide(d, rib, s, flush));
+  const body = solid(
     wasm,
     cfg,
     left.map((l, i): Station => [l[1], right[i][1], right[i][0], l[0]]),
   );
+  const joins = ends.flatMap((e, i) =>
+    isJoin(e) ? [joinSolid(wasm, d, ...endKey(rib, i), e.join)] : [],
+  );
+  return joins.length ? wasm.Manifold.union([body, ...joins]) : body;
+}
+
+/**
+ * PROTOTYPE ?ends=: the solid of the end of key k that faces u (-1 or 1
+ * along), joined to its landing (endSide), meshed evenly. A rib's stations
+ * each run straight across its whole width, and round a tight turn its outer
+ * side runs several times as far as its inner, so the quads between stations
+ * would be long slivers fanning out from the inner side. Instead the
+ * cross-section's outline is cut into lanes about joinMesh apart (across the
+ * top and the underside, down the sides), each lane runs along the rib with
+ * points about joinMesh apart along its own length, and neighbouring lanes
+ * are stitched with triangles, each advancing whichever lane is behind (along
+ * the rib). Each point lies on its station's straight line across, so it is
+ * the same surface as the stations', sampled finer.
+ */
+function joinSolid(wasm: ManifoldToplevel, d: Dims, k: RibKey, u: number, join: Join): Manifold {
+  const { land, into } = join;
+  const from = u > 0 ? edgePose(d, k, u) : flip(edgePose(d, k, u));
+  const at = sweepAt(from, land);
+  // The pose g along: the sweep from 0 to 1, and at each end on into the
+  // plate (at least joinInto, inside the plate's slab), so that it overlaps
+  // the plates it joins rather than only meeting them face to face.
+  const [back, on] = [SIZES.joinInto, Math.max(into, SIZES.joinInto)];
+  const pose = (g: number) =>
+    g < 0 ? ahead(from, back * g) : g <= 1 ? at(g) : ahead(land, on * (g - 1));
+  const spans = [-1, 0, 1, 2];
+  const h = SIZES.joinMesh;
+  // The lanes, round the cross-section: the top from side -1 to 1, down side
+  // 1, the underside back, up side -1.
+  const m = Math.ceil((2 * Math.max(from.half, land.half)) / h);
+  const v = Math.ceil(Math.max(from.thick, land.thick) / h);
+  const lanes: ((q: Pose) => V3)[] = [];
+  // Across (0 at side -1, 1 at side 1) and down (0 top, 1 underside).
+  const lane = (across: number, down: number) => (q: Pose) => {
+    const [[lt, lu], [rt, ru]] = [-1, 1].map((s) => poseSide(q, s));
+    return lerp(lerp(lt, rt, across), lerp(lu, ru, across), down);
+  };
+  for (let j = 0; j <= m; j++) lanes.push(lane(j / m, 0));
+  for (let j = 1; j < v; j++) lanes.push(lane(1, j / v));
+  for (let j = m; j >= 0; j--) lanes.push(lane(j / m, 1));
+  for (let j = v - 1; j > 0; j--) lanes.push(lane(0, j / v));
+  // Each lane's points, about h apart along it, and along the sweep at least
+  // one every 5° its heading or normal turns, as the stations are (the inner
+  // lanes run little way while the rib twists round them): [g, point].
+  const turn = (p: V3, q: V3) => Math.acos(Math.max(-1, Math.min(1, dot(p, q))));
+  const normal = (q: Pose) => cross(q.t, q.c);
+  const steps = Math.ceil(
+    Math.max(turn(from.t, land.t), turn(normal(from), normal(land))) / (Math.PI / 36),
+  );
+  const fine = 128;
+  const points = lanes.map((path) =>
+    spans.slice(1).flatMap((g1, i) => {
+      const g0 = spans[i];
+      const dense = [...Array(fine + 1).keys()].map((j) => path(pose(g0 + ((g1 - g0) * j) / fine)));
+      const run = [0];
+      dense.slice(1).forEach((p, j) => run.push(run[j] + Math.hypot(...sub(p, dense[j]))));
+      const n = Math.max(1, Math.ceil(run[fine] / h), g0 === 0 ? steps : 0);
+      return [...Array(n + 1).keys()].slice(i ? 1 : 0).map((j): [number, V3] => {
+        const want = (run[fine] * j) / n;
+        let after = 1;
+        while (after < fine && run[after] < want) after++;
+        const f = (want - run[after - 1]) / (run[after] - run[after - 1] || 1);
+        const g = g0 + ((g1 - g0) * (after - 1 + Math.min(1, Math.max(0, f)))) / fine;
+        return [g, path(pose(g))];
+      });
+    }),
+  );
+  const verts: number[] = [];
+  const ids = points.map((lane) => lane.map(([, p]) => verts.push(...p) / 3 - 1));
+  const tris: number[] = [];
+  // Neighbouring lanes stitched, oriented outward: going round the lanes is
+  // going from top (n) to side 1 (c), so a triangle from a lane ahead (t) to
+  // the next faces t × c = n out on the top, and so on round.
+  ids.forEach((A, a) => {
+    const b = (a + 1) % ids.length;
+    const B = ids[b];
+    const [ga, gb] = [points[a], points[b]].map((lane) => lane.map(([g]) => g));
+    let [i, j] = [0, 0];
+    while (i < A.length - 1 || j < B.length - 1) {
+      if (j === B.length - 1 || (i < A.length - 1 && ga[i + 1] <= gb[j + 1])) {
+        tris.push(A[i], A[i + 1], B[j]);
+        i++;
+      } else {
+        tris.push(A[i], B[j + 1], B[j]);
+        j++;
+      }
+    }
+  });
+  // The two ends closed, facing back along the rib and on along it.
+  [0, 1].forEach((last) => {
+    const q = pose(last ? spans.at(-1)! : spans[0]);
+    const ring = ids.map((lane) => (last ? lane.at(-1)! : lane[0]));
+    const plan = ring.map((id): [number, number] => {
+      const p = sub(verts.slice(id * 3, id * 3 + 3) as V3, q.p);
+      return [dot(p, q.c), dot(p, normal(q))];
+    });
+    const ccw = area2(plan) > 0;
+    const order = ring.map((_, i) => (ccw ? i : ring.length - 1 - i));
+    for (const [x, y, z] of wasm.triangulate([order.map((i) => plan[i])])) {
+      // Seen from along +t the plan is wound counter-clockwise, so it faces on.
+      const tri = [x, y, z].map((i) => ring[order[i]]);
+      tris.push(...(last ? tri : [tri[0], tri[2], tri[1]]));
+    }
+  });
+  const solid = new wasm.Manifold(
+    new wasm.Mesh({
+      numProp: 3,
+      vertProperties: new Float32Array(verts),
+      triVerts: new Uint32Array(tris),
+    }),
+  );
+  if (solid.status() !== 'NoError') throw new Error(`joinSolid: ${solid.status()}`);
+  return solid;
 }
 
 /** A rib's end key and which way its end faces along it (end 0: first, 1: last). */
@@ -760,7 +1006,7 @@ function joinTo(
 ): { join: Join } | undefined {
   const [k, u] = endKey(rib, 0);
   const w = across(k, d.plateHalf);
-  const ahead = scale(k.a, u);
+  const out = scale(k.a, u);
   const options = thumbs.flatMap((t) =>
     [0, 1].flatMap((axis) =>
       [-1, 1].flatMap((sign) => {
@@ -774,30 +1020,79 @@ function joinTo(
         const at = [-1, 1].map((s) => dot(sub(corner(d, k, u, s, 0), mid), e));
         if (Math.abs(at[1] - at[0]) < w) return [];
         const centre = Math.max(-Math.max(0, he - w), Math.min(he - w, (at[0] + at[1]) / 2));
-        const land = [0, 1].map((i): Pair => {
-          const p = add(mid, scale(e, centre + Math.sign(at[i] - at[1 - i]) * w));
-          return [p, add(p, scale(t.n, -d.plate))];
-        }) as [Pair, Pair];
+        // Landing the front's side s (its pose's side u·s, heading out) toward
+        // where that side's corner meets the edge.
+        const land: Pose = {
+          p: add(mid, scale(e, centre)),
+          t: into,
+          c: scale(e, u * Math.sign(at[1] - at[0])),
+          half: w,
+          thick: d.plate,
+        };
         // In plan, every point of the landing ahead of every point of the
         // front's edge, along the front, and every point of that edge short
         // of the landing, along the way in.
         const edge = [-1, 1].flatMap((s) => [0, -d.plate].map((z) => corner(d, k, u, s, z)));
-        const to = land.flat();
-        const [h, g] = [ahead, into].map((v) => [...unitPlan(v), 0] as V3);
+        const to = [-1, 1].flatMap((s) => poseSide(land, s));
+        const [h, g] = [out, into].map((v) => [...unitPlan(v), 0] as V3);
         const past = edge.every((a) =>
           to.every((b) => dot(sub(b, a), h) > 0 && dot(sub(b, a), g) > 0),
         );
         if (!past) return [];
-        const join = { join: { key: t.name, land, into } };
+        const join = { join: { key: t.name, land, into: SIZES.joinInto } };
         const [left, right] = [-1, 1].map((s) => endSide(d, k, u, s, join));
         if (!clearOf(cfg, frames, samples(left, right, 1), [k.name, t.name])) return [];
         const from = lerp(left[0][0], right[0][0], 0.5);
-        const length = Math.hypot(...sub(lerp(land[0][0], land[1][0], 0.5), from).slice(0, 2));
+        const length = Math.hypot(...sub(land.p, from).slice(0, 2));
         return length <= SIZES.joinReach ? [{ join, length }] : [];
       }),
     ),
   );
   return options.sort((x, y) => x.length - y.length)[0]?.join;
+}
+
+/**
+ * PROTOTYPE ?ends=flow: a thumb row's end (rib `row`, end e) carried on into a
+ * column's front (`column`'s first end) as one rib: from the row end's plate
+ * edge, a sweep to the front's plate edge, arriving along the column, the
+ * front then flush. With how long it is (plan, edge to edge) and the other
+ * keys it runs into (keySpace), but for those the two plate edges it joins
+ * already run into (the layout's doing, which the checks report). None if it
+ * would fold back on itself.
+ */
+function flowTo(
+  cfg: Config,
+  d: Dims,
+  frames: Record<string, Matrix4>,
+  row: Rib,
+  e: number,
+  column: Rib,
+): { end: { join: Join }; length: number; hits: string[] } | undefined {
+  const [k, u] = endKey(row, e);
+  const front = column.keys[0];
+  const end = { join: { key: front.name, land: edgePose(d, front, -1), into: 0 } };
+  const [left, right] = [-1, 1].map((s) => endSide(d, k, u, s, end));
+  // Each station wholly ahead of the one before (beyond the plane it lies
+  // in, heading on) and that one wholly behind it: it doesn't fold back.
+  const plane = (m: number): [V3, V3] => {
+    const [l, r] = [left[m], right[m]];
+    return [lerp(l[0], r[1], 0.5), unit(cross(sub(r[0], l[0]), sub(l[0], l[1])))];
+  };
+  const on = left.slice(1).every((_, m) => {
+    const [[o0, n0], [o1, n1]] = [plane(m), plane(m + 1)];
+    return (
+      [left[m + 1], right[m + 1]].flat().every((q) => dot(sub(q, o0), n0) > 0) &&
+      [left[m], right[m]].flat().every((q) => dot(sub(q, o1), n1) < 0)
+    );
+  });
+  if (!on) return undefined;
+  // What it runs into, but for what the two plate edges it joins already do.
+  const into = (points: V3[]) =>
+    Object.keys(frames).filter((n) => isKey(n) && !keySpace(cfg, { [n]: frames[n] }).clear(points));
+  const already = into([0, left.length - 1].flatMap((m) => [left[m], right[m]].flat()));
+  const hits = into(samples(left, right, 1)).filter((n) => !already.includes(n));
+  const length = Math.hypot(...sub(end.join.land.p, edgePose(d, k, u).p).slice(0, 2));
+  return { end, length, hits };
 }
 
 /**
@@ -979,7 +1274,35 @@ export function skeletyl(
   const support = (cfg.chassis as { ends?: string }).ends ?? 'none';
   if (!END_SUPPORTS.some((x) => x.key === support))
     throw Error(`Unknown ends "${support}": one of ${END_SUPPORTS.map((x) => x.key)}`);
-  if (support === 'join' || support === 'both') {
+  if (support === 'flow') {
+    // Each thumb row's hanging end carried on into a hanging column front,
+    // clear of the other keys, nearest first, each used once.
+    const fronts = all.flatMap((rib, i) =>
+      rib.run < columns && all.findIndex((r) => r.run === rib.run) === i && ends[i][0] === 'hang'
+        ? [i]
+        : [],
+    );
+    const options = all
+      .flatMap((rib, i) =>
+        rib.run < columns
+          ? []
+          : [0, 1].flatMap((e) =>
+              ends[i][e] === 'hang' || ends[i][e] === 'flush'
+                ? fronts.flatMap((j) => {
+                    const flow = flowTo(cfg, d, frames, rib, e, all[j]);
+                    return flow && !flow.hits.length ? [{ i, e, j, ...flow }] : [];
+                  })
+                : [],
+            ),
+      )
+      .sort((x, y) => x.length - y.length);
+    for (const x of options)
+      if (!isJoin(ends[x.i][x.e]) && ends[x.j][0] === 'hang') {
+        ends[x.i][x.e] = x.end;
+        ends[x.j][0] = 'flush';
+      }
+  }
+  if (support === 'join' || support === 'both' || support === 'flow') {
     const thumbs = all.filter((rib) => rib.run >= columns).flatMap((rib) => rib.keys);
     all.forEach((rib, i) => {
       const front = rib.run < columns && all.findIndex((r) => r.run === rib.run) === i;
@@ -988,7 +1311,7 @@ export function skeletyl(
     });
   }
   const tie =
-    support === 'tie' || support === 'both'
+    support === 'tie' || support === 'both' || support === 'flow'
       ? floorTie(wasm, cfg, d, frames, all, ends, ring)
       : undefined;
   const solids = all.map((rib, i) => ribSolid(wasm, cfg, d, rib, ends[i]));
