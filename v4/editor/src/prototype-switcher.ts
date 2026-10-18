@@ -1,9 +1,11 @@
-// PROTOTYPE switcher bar: a fixed pill at the bottom of the dev editor that
-// cycles one URL parameter through a prototype's variants (← label →, or the
-// ← and → keys when nothing editable is focused). Each switch rewrites the
-// parameter with history.replaceState, so the URL stays shareable and a
-// reload keeps the variant, then calls onChange. Used by build-client.ts for
-// ?walls= (skeletyl-walls.prototype.ts).
+// PROTOTYPE switcher bar: a pill at the bottom of the dev editor that cycles
+// one URL parameter through a prototype's variants (← label →, or a pair of
+// keys, ← and → by default, when nothing editable is focused). Each switch
+// rewrites the parameter with history.replaceState, so the URL stays shareable
+// and a reload keeps the variant, then calls onChange. Several bars stack up
+// from the bottom, the first made lowest. Used by build-client.ts for ?walls=
+// (skeletyl-walls.prototype.ts; ← →) and ?ends= (skeletyl-ends.prototype.ts;
+// ↑ ↓).
 
 export interface Switcher {
   /** Shows or hides the bar (and its keys). */
@@ -15,16 +17,14 @@ export function prototypeSwitcher(o: {
   param: string;
   options: readonly { key: string; name: string }[];
   onChange: () => void;
+  /** The keys for the previous and next variant, and the glyphs on their buttons (default the ← and → keys). */
+  keys?: { prev: [string, string]; next: [string, string] };
 }): Switcher {
+  const { prev, next } = o.keys ?? { prev: ['ArrowLeft', '←'], next: ['ArrowRight', '→'] };
   const bar = document.createElement('div');
   bar.id = `prototype-switcher-${o.param}`;
-  bar.title = `PROTOTYPE: ?${o.param}= (← / → to switch)`;
+  bar.title = `PROTOTYPE: ?${o.param}= (${prev[1]} / ${next[1]} to switch)`;
   bar.style.cssText = [
-    'position:fixed',
-    'left:50%',
-    'bottom:14px',
-    'transform:translateX(-50%)',
-    'z-index:1000',
     'display:none',
     'align-items:center',
     'gap:4px',
@@ -47,8 +47,8 @@ export function prototypeSwitcher(o: {
   };
   const label = document.createElement('span');
   label.style.cssText = 'min-width:16em;text-align:center';
-  bar.append(button('←', -1), label, button('→', 1));
-  document.body.append(bar);
+  bar.append(button(prev[1], -1), label, button(next[1], 1));
+  stack().append(bar);
 
   const current = () => new URLSearchParams(location.search).get(o.param) ?? o.options[0].key;
   const draw = () => {
@@ -70,9 +70,9 @@ export function prototypeSwitcher(o: {
   addEventListener('keydown', (e) => {
     if (bar.style.display === 'none' || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
     if ((e.target as HTMLElement).closest?.('input,textarea,select,[contenteditable]')) return;
-    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+    if (e.key !== prev[0] && e.key !== next[0]) return;
     e.preventDefault();
-    go(e.key === 'ArrowLeft' ? -1 : 1);
+    go(e.key === prev[0] ? -1 : 1);
   });
   draw();
   return {
@@ -80,4 +80,26 @@ export function prototypeSwitcher(o: {
       bar.style.display = on ? 'flex' : 'none';
     },
   };
+}
+
+/** The fixed column at the bottom of the page the bars stack in, the first made lowest. */
+function stack() {
+  let column = document.getElementById('prototype-switchers');
+  if (!column) {
+    column = document.createElement('div');
+    column.id = 'prototype-switchers';
+    column.style.cssText = [
+      'position:fixed',
+      'left:50%',
+      'bottom:14px',
+      'transform:translateX(-50%)',
+      'z-index:1000',
+      'display:flex',
+      'flex-direction:column-reverse',
+      'align-items:center',
+      'gap:6px',
+    ].join(';');
+    document.body.append(column);
+  }
+  return column;
 }

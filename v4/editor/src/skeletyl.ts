@@ -29,6 +29,8 @@
 // checks report anything that runs into the tiles or the keycaps.
 // PROTOTYPE: chassis.walls (?walls=) adds walls under the outer sides, built
 // by skeletyl-walls.prototype.ts from a WallSide per side; "none" adds none.
+// PROTOTYPE: chassis.ends (?ends=) adds supports under the hanging ends, built
+// by skeletyl-ends.prototype.ts from one EndsFrame; "none" adds none.
 //
 // Terms, as in chassis.ts, and:
 //  rib      a run of keys along one key axis, swept as one solid;
@@ -63,6 +65,7 @@ import { mesh } from './shell/loft';
 import { switchHole } from './seats';
 import { outline } from './hand/frame';
 import { skeletylWalls, type WallPoint, type WallSide } from './skeletyl-walls.prototype';
+import { railHelpers, skeletylEnds, type EndsFrame, type RibEnd } from './skeletyl-ends.prototype';
 
 /** Construction sizes in mm. */
 export const SIZES = {
@@ -546,10 +549,10 @@ function band(
 const OPENING_PROBE_DEPTH = 12;
 
 /**
- * PROTOTYPE ?walls=: what every key holds (keyBoxes) and its switch hole's
- * column as far down as the openings check probes it, each box in its key's
- * frame and grown by endGap; with whether a point is clear of them all, and
- * how far out along a plan direction from a point everything is.
+ * PROTOTYPE ?walls= and ?ends=: what every key holds (keyBoxes) and its
+ * switch hole's column as far down as the openings check probes it, each box
+ * in its key's frame and grown by endGap; with whether a point is clear of
+ * them all, and how far out along a plan direction from a point everything is.
  */
 function keySpace(cfg: Config, frames: Record<string, Matrix4>) {
   const hole = switchHole(cfg).map((x) => x / 2);
@@ -665,6 +668,75 @@ function wallSide(
 }
 
 /**
+ * PROTOTYPE ?ends=: the frame as an EndsFrame for the end-support variants
+ * (skeletyl-ends.prototype.ts documents each field): every rib end as built
+ * (endSide), the rail, and the key space.
+ */
+function endsFrame(
+  cfg: Config,
+  d: Dims,
+  frames: Record<string, Matrix4>,
+  all: Rib[],
+  ends: End[][],
+  named: string[],
+  ring: [number, number][],
+  innerRing: [number, number][],
+): EndsFrame {
+  const columns = cfg.geometry.columns.length;
+  const flat = (p: number[]): V3 => [...unitPlan(p), 0] as V3;
+  const list = all.flatMap((rib, i) =>
+    [0, 1].map((e): RibEnd => {
+      const [k, u] = endKey(rib, e);
+      const kind = ends[i][e];
+      const finish = typeof kind === 'object' ? 'drop' : kind;
+      const sides = [-1, 1].map((s) => endSide(d, k, u, s, kind)) as [Pair[], Pair[]];
+      const at = finish === 'flush' ? 0 : SIZES.roundSteps + 1;
+      const [outer, inner] = [0, 1].map((j) => [sides[0][at][j], sides[1][at][j]]) as [
+        [V3, V3],
+        [V3, V3],
+      ];
+      const centre = scale([...outer, ...inner].reduce(add), 1 / 4);
+      return {
+        rib: named[i],
+        group: rib.run < columns ? 'finger' : 'thumb',
+        ...(rib.run < columns ? { column: rib.run } : {}),
+        key: k.name,
+        at: e ? 'last' : 'first',
+        parted: rib.parted[e],
+        finish,
+        out: flat(scale(k.a, u)),
+        across: flat(k.c),
+        bottom: { outer, inner },
+        centre,
+        height: centre[2],
+        sides,
+      };
+    }),
+  );
+  const fronts = [...Array(columns).keys()].map((c) =>
+    list.find((x) => x.column === c && x.at === 'first')!,
+  );
+  const toPinky = flat(sub(fronts.at(-1)!.centre, fronts[0].centre));
+  // Square to toPinky, on the side the fronts face.
+  const square = flat(cross(toPinky, [0, 0, 1]));
+  const facing = fronts.reduce((sum, f) => sum + dot(f.out, square), 0) >= 0 ? 1 : -1;
+  const space = keySpace(cfg, frames);
+  return {
+    ends: list,
+    hanging: list.filter((x) => x.finish === 'hang'),
+    fronts,
+    columns,
+    toPinky,
+    toFront: scale(square, facing),
+    wall: d.wall,
+    rail: { height: SIZES.railHeight, inner: innerRing, outer: ring },
+    ...railHelpers(ring, d.wall),
+    clear: space.clear,
+    room: (from, out) => space.room(from, out, toRing(ring, from, out)),
+  };
+}
+
+/**
  * The frame: the ribs, the bands between their drops, and the rail round the
  * outline that the ends standing on it drop to. It stands on z = 0.
  */
@@ -731,32 +803,36 @@ export function skeletyl(
   const area = new wasm.CrossSection([ring], 'NonZero');
   const inside = area.offset(-d.wall, 'Round');
   const rail = area.subtract(inside).extrude(SIZES.railHeight);
+  // The ribs' names (as the wall and end variants have them), and the rail's inner edge.
+  const named = all.map((rib) => {
+    const n =
+      rib.run < columns
+        ? cfg.geometry.columns[rib.run].name
+        : rib.run === columns
+          ? 'thumb'
+          : 'thumb extra';
+    const same = all.filter((r) => r.run === rib.run);
+    return same.length > 1 ? `${n} #${same.indexOf(rib) + 1}` : n;
+  });
+  const innerRing = () =>
+    inside
+      .toPolygons()
+      .map((p) => p.map((q) => [q[0], q[1]] as [number, number]))
+      .reduce((x, y) => (area2(y) > area2(x) ? y : x));
   // PROTOTYPE ?walls= (skeletyl-walls.prototype.ts): walls under the outer sides.
-  const walls = skeletylWalls(
-    wasm,
-    cfg,
-    (cfg.chassis as { walls?: string }).walls ?? 'none',
-    () => {
-      const innerRing = inside
-        .toPolygons()
-        .map((p) => p.map((q) => [q[0], q[1]] as [number, number]))
-        .reduce((x, y) => (area2(y) > area2(x) ? y : x));
-      const named = all.map((rib) => {
-        const n =
-          rib.run < columns
-            ? cfg.geometry.columns[rib.run].name
-            : rib.run === columns
-              ? 'thumb'
-              : 'thumb extra';
-        const same = all.filter((r) => r.run === rib.run);
-        return same.length > 1 ? `${n} #${same.indexOf(rib) + 1}` : n;
-      });
-      return all.flatMap((rib, i) =>
-        outer(rib)
-          ? [wallSide(cfg, d, frames, rib, ends[i], outward(rib), named[i], ring, innerRing)]
-          : [],
-      );
-    },
+  const walls = skeletylWalls(wasm, cfg, (cfg.chassis as { walls?: string }).walls ?? 'none', () =>
+    all.flatMap((rib, i) =>
+      outer(rib)
+        ? [wallSide(cfg, d, frames, rib, ends[i], outward(rib), named[i], ring, innerRing())]
+        : [],
+    ),
   );
-  return { frame: wasm.Manifold.union([...solids, ...bands, rail, ...walls]), outline: ring };
+  // PROTOTYPE ?ends= (skeletyl-ends.prototype.ts): supports under the hanging ends.
+  const supports = skeletylEnds(wasm, cfg, (cfg.chassis as { ends?: string }).ends ?? 'none', () =>
+    endsFrame(cfg, d, frames, all, ends, named, ring, innerRing()),
+  );
+  return {
+    frame: wasm.Manifold.union([...solids, ...bands, rail, ...walls, ...supports]),
+    outline: ring,
+  };
 }

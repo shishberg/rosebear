@@ -9,6 +9,7 @@ import { setShell, updateWiring, visibility } from './scene-parts';
 import { setBadge, updateFailures, showReport } from './report-view';
 import { prototypeSwitcher } from './prototype-switcher';
 import { WALL_DESIGNS } from './skeletyl-walls.prototype';
+import { END_SUPPORTS } from './skeletyl-ends.prototype';
 
 let busy = false,
   pending = false,
@@ -16,10 +17,19 @@ let busy = false,
 let inFlight: { id: number; project: Project } | undefined;
 let worker: Worker,
   workerBuilds = 0;
-// PROTOTYPE ?walls=: the dev editor's bar cycling the Skeletyl's wall designs,
-// each switch rebuilding the chassis.
+// PROTOTYPE ?walls= and ?ends=: the dev editor's bars cycling the Skeletyl's
+// wall designs (← →) and its end supports (↑ ↓, the bar above), each switch
+// rebuilding the chassis.
 const walls = import.meta.env.DEV
   ? prototypeSwitcher({ param: 'walls', options: WALL_DESIGNS, onChange: () => requestBuild() })
+  : undefined;
+const ends = import.meta.env.DEV
+  ? prototypeSwitcher({
+      param: 'ends',
+      options: END_SUPPORTS,
+      onChange: () => requestBuild(),
+      keys: { prev: ['ArrowUp', '↑'], next: ['ArrowDown', '↓'] },
+    })
   : undefined;
 // A safety net: a fresh worker takes over every 8 builds, in case a build leaves
 // geometry-engine memory behind that its own cleanup missed.
@@ -86,6 +96,7 @@ export function requestBuild() {
   setBadge('', 'Building chassis & checking fit…');
   const sent = prototypeOverrides(S.project, location.search);
   walls?.show(sent.config.chassis.style !== 'c64');
+  ends?.show(sent.config.chassis.style !== 'c64');
   $('subtitle').textContent =
     `Right hand · ${sent.config.chassis.style === 'c64' ? 'C64' : 'Skeletyl'} chassis`;
   inFlight = { id, project: sent };
