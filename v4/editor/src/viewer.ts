@@ -72,7 +72,8 @@ export function measure() {
   // How tall the board stands, to the keycaps' tops, with the bottom section and without.
   const top = box.max.z;
   const caps = new T.Box3();
-  for (const o of parts.children) if (o.userData.group === 'keycaps') caps.expandByObject(o);
+  // Precise: a tilted keycap's own box, turned, would stand higher than its corners.
+  for (const o of parts.children) if (o.userData.group === 'keycaps') caps.expandByObject(o, true);
   const high = Math.max(top, caps.isEmpty() ? top : caps.max.z);
   const body = new T.Box3().expandByObject(shell);
   $('height').textContent = box.isEmpty()
