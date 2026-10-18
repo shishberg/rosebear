@@ -20,8 +20,9 @@
 // The outline is a ring round the free ends' feet (where their drops would
 // meet the floor straight down) and the outer sides of the first and last
 // columns' and the thumb rows' plates and tile pockets: their convex hull,
-// dug in a little, its corners in rounded but where a drop or a band stands
-// on it. The ends whose feet are near it drop to the floor: the rib carried
+// dug in a little, taking in where any key's switch hole column comes down
+// near the floor (the rail keeps clear of it, as the openings check wants),
+// its corners in rounded but where a drop or a band stands on it. The ends whose feet are near it drop to the floor: the rib carried
 // on from the bottom of its round down to the rail, as one sweep (as between
 // keys), straight down where the outline runs under it, else bending out
 // along the end to it, and landing square on it (across along it), where that
@@ -696,14 +697,17 @@ const feet = (d: Dims, rib: Rib, end: number) =>
 /**
  * The outline, counter-clockwise: round the feet's convex hull, dug in at most
  * digDeepest, and the outer sides' plates' and tile pockets' hulls, its
- * corners in rounded to `corner` (trimmed back where drops stand on it).
+ * corners in rounded to `corner` (trimmed back where drops stand on it). It
+ * also takes in each of `keep` (plan points) and the rail's width round it, so
+ * the rail stays out of them.
  */
-function rounded(wasm: ManifoldToplevel, d: Dims, feet: V3[], sides: V3[][]) {
+function rounded(wasm: ManifoldToplevel, d: Dims, feet: V3[], sides: V3[][], keep: V3[][]) {
   const plan = (ps: V3[]) => ps.map((p) => [p[0], p[1]] as [number, number]);
   const round = (c: CrossSection, by: number) => c.offset(by, 'Round', 2, SIZES.cornerSegments);
   const area = wasm.CrossSection.union([
     new wasm.CrossSection([plan(outline(feet, d.wall, SIZES.digDeepest))], 'NonZero'),
     ...sides.map((side) => wasm.CrossSection.hull([plan(side)])),
+    ...keep.map((ps) => round(wasm.CrossSection.hull([plan(ps)]), d.wall)),
   ]);
   // Out by R and back: the corners in rounded to R, the corners out kept.
   return largest(round(round(area, SIZES.corner), -SIZES.corner));
@@ -812,13 +816,13 @@ function keyBoxes(cfg: Config, n: string): [V3, V3][] {
   ];
 }
 
-/** Whether points stay endGap clear of what every key but `except` holds. */
+/** Whether points stay endGap clear of what every key but `except` holds and of its switch hole's column (holeColumn). */
 function clearOfKeys(cfg: Config, frames: Record<string, Matrix4>, points: V3[], except?: string) {
   return Object.keys(frames)
     .filter((n) => isKey(n) && n !== except)
     .every((n) => {
       const e = frames[n].elements;
-      const boxes = keyBoxes(cfg, n);
+      const boxes = [...keyBoxes(cfg, n), holeColumn(cfg)];
       return points.every((p) => {
         const q = sub(p, [e[12], e[13], e[14]]);
         const local = [0, 4, 8].map((i) => dot(q, [e[i], e[i + 1], e[i + 2]]));
@@ -893,18 +897,56 @@ function band(
 /** How far below the plate top the openings check probes each switch hole's column (solid.ts CHECKS.probeHeight / 2). */
 const OPENING_PROBE_DEPTH = 12;
 
-/**
- * PROTOTYPE ?walls= and ?ends=: what every key holds (keyBoxes) and its
- * switch hole's column as far down as the openings check probes it, each box
- * in its key's frame and grown by endGap; with whether a point is clear of
- * them all, and how far out along a plan direction from a point everything is.
- */
-function keySpace(cfg: Config, frames: Record<string, Matrix4>) {
+/** A key's switch hole's column as far down as the openings check probes it, in its own coordinates ([centre, half-widths]). */
+function holeColumn(cfg: Config): [V3, V3] {
   const hole = switchHole(cfg).map((x) => x / 2);
-  const column: [V3, V3] = [
+  return [
     [0, 0, -OPENING_PROBE_DEPTH / 2],
     [hole[0], hole[1], OPENING_PROBE_DEPTH / 2],
   ];
+}
+
+/**
+ * The part of each key's switch hole's column (holeColumn), grown by endGap,
+ * that comes below height z: its corners there and where its edges cross z.
+ * The rail (z its height) must stay out of these.
+ */
+function columnsBelow(cfg: Config, frames: Record<string, Matrix4>, z: number): V3[][] {
+  const [c, h] = holeColumn(cfg);
+  return Object.keys(frames)
+    .filter(isKey)
+    .flatMap((n) => {
+      const e = frames[n].elements;
+      const at = (q: V3): V3 => {
+        const [x, y, w] = q.map((v, i) => c[i] + v * (h[i] + SIZES.endGap));
+        return [0, 1, 2].map((i) => e[12 + i] + x * e[i] + y * e[4 + i] + w * e[8 + i]) as V3;
+      };
+      // Corner i has its x, y, z at the high side where bit 2, 1, 0 is set.
+      const corners = [...Array(8).keys()].map((i) =>
+        at([i & 4 ? 1 : -1, i & 2 ? 1 : -1, i & 1 ? 1 : -1]),
+      );
+      const cuts = [...Array(8).keys()].flatMap((i) =>
+        [1, 2, 4]
+          .filter((b) => !(i & b))
+          .flatMap((b) => {
+            const [p, q] = [corners[i], corners[i | b]];
+            if ((p[2] - z) * (q[2] - z) >= 0) return [];
+            return [lerp(p, q, (z - p[2]) / (q[2] - p[2]))];
+          }),
+      );
+      const below = [...corners.filter((p) => p[2] <= z), ...cuts];
+      return below.length > 2 ? [below] : [];
+    });
+}
+
+/**
+ * PROTOTYPE ?walls= and ?ends=: what every key holds (keyBoxes) and its
+ * switch hole's column (holeColumn), each box in its key's frame and grown by
+ * endGap; with whether a point is clear of them all, and how far out along a
+ * plan direction from a point everything is.
+ */
+function keySpace(cfg: Config, frames: Record<string, Matrix4>) {
+  const column = holeColumn(cfg);
   const boxes = Object.keys(frames)
     .filter(isKey)
     .flatMap((n) => {
@@ -1351,6 +1393,7 @@ export function skeletyl(
     d,
     all.flatMap((rib) => free(rib).flatMap((e) => feet(d, rib, e))),
     all.filter(outer).map(outerSide),
+    columnsBelow(cfg, frames, SIZES.railHeight),
   );
   const kind = (rib: Rib, e: number): End => {
     if (rib.parted[e]) return endClear(cfg, d, frames, rib, e, 'hang') ? 'hang' : 'flush';

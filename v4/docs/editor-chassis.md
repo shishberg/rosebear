@@ -18,8 +18,10 @@ each end, clear of the tile pocket and the switch. The outline is rounded
 (10 mm corners in, cut back square where a drop or band stands on it) and
 runs round where the ends would drop straight down and round the outer sides
 of the first and last columns and the thumb rows (their plates and tile
-pockets), with no margin past them, so the rail is under their edges; it digs
-in at most 12 mm between the thumb and finger keys. An end near the outline
+pockets), with no margin past them, so the rail is under their edges, but
+out round any switch hole's column that comes down near the floor, so the
+rail keeps clear of it; it digs in at most 12 mm between the thumb and finger
+keys. An end near the outline
 drops to the floor: the rib carried on down from its round as one sweep,
 straight down where the rail runs under it, else bending out along the end to
 it, landing square on the rail. The others hang. Where neighbouring columns both drop close together, a band joins their
