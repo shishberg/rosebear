@@ -327,7 +327,7 @@ export const NO_CURL: Settings = {
 /** No curl with the thumb row turned toward the thumb's base, as round a
  * dome, until the home key is about halfway to where x1 was, in place and
  * in facing (fitted by a probe to 22°, then set by hand), the extra keys 1 mm
- * above the row's face (the board 58.6 mm tall). The start. */
+ * above the row's face (the board 62.9 mm tall). The start. */
 export const SWUNG_IN: Settings = {
   ...structuredClone(NO_CURL),
   thumb: { ...NO_CURL.thumb, around: 110, drop: 18.5, turn: 23.5, pivot: 30 },
