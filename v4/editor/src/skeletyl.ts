@@ -244,8 +244,9 @@ const edgePose = (d: Dims, k: RibKey, u: number): Pose => ({
  * chord. So in a tight turn the rib fans about its inner side rather than
  * folding back over it, and it twists only as the two poses differ. Its
  * normal turns at an even rate from a's to b's (as the heading does round an
- * arc), the underside thick below the top along it; thick goes smoothly from
- * a's to b's.
+ * arc), the underside thick below the top along it (n unit and square to
+ * across, so the section is the rib's own all the way); thick goes smoothly
+ * from a's to b's.
  */
 function sweep(a: Pose, b: Pose, steps: number, reach?: [number, number]): Pose[] {
   const at = sweepAt(a, b, reach);
@@ -271,6 +272,8 @@ function sweepAt(a: Pose, b: Pose, reach?: [number, number]): (f: number) => Pos
   const [left, right] = [side(-1), side(1)];
   const [na, nb] = [a, b].map(normalOf);
   const angle = Math.acos(Math.max(-1, Math.min(1, dot(na, nb))));
+  // Which way the normal points f along (slerp's direction; it is made unit,
+  // and square to across, below).
   const normal = (f: number) =>
     angle < 1e-6 ? na : add(scale(na, Math.sin((1 - f) * angle)), scale(nb, Math.sin(f * angle)));
   const smooth = (f: number) => 3 * f * f - 2 * f ** 3;
@@ -279,7 +282,8 @@ function sweepAt(a: Pose, b: Pose, reach?: [number, number]): (f: number) => Pos
     if (f >= 1) return b;
     const [l, r] = [left(f), right(f)];
     const c = unit(sub(r, l));
-    const n = normal(f);
+    const towards = normal(f);
+    const n = unit(sub(towards, scale(c, dot(towards, c))));
     return {
       p: lerp(l, r, 0.5),
       t: unit(cross(c, n)),
