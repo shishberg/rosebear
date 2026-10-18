@@ -49,7 +49,12 @@ export function specsOf(env: Env, keys: string[]) {
       let from = hole[net.pin];
       let previous: Pad | undefined;
       chain.forEach((key, i) => {
-        const options = padsOf(key, net.pads[0]);
+        // One wire to a pad: a directed net arrives at its first pad and
+        // leaves from its second. An undirected net's pads are alike: it
+        // arrives at the one nearest where it comes from and leaves from
+        // another, nearest the next key.
+        const both = [...new Set([...padsOf(key, net.pads[0]), ...padsOf(key, net.pads[1])])];
+        const options = net.directed ? padsOf(key, net.pads[0]) : both;
         if (!options.length) throw Error(`Tile has no ${net.pads[0]} pad for ${net.name}`);
         const arrive = nearest(options, from);
         specs.push(
@@ -57,10 +62,8 @@ export function specsOf(env: Env, keys: string[]) {
             ? { net, from: previous.key, to: key, a: previous, b: arrive }
             : { net, from: `hole ${net.pin}`, to: key, a: net.pin, b: arrive },
         );
-        // Leave from a different pad of the same name, if the tile has one,
-        // nearest the next key.
         const next = chain[i + 1];
-        const outs = padsOf(key, net.pads[1]);
+        const outs = net.directed ? padsOf(key, net.pads[1]) : both;
         const others = outs.filter((p) => p !== arrive);
         previous = next
           ? nearest(others.length ? others : outs, point(frames[next], [0, 0, 0]))
@@ -70,9 +73,9 @@ export function specsOf(env: Env, keys: string[]) {
     }
   }
 
-  // Two wires on one pad sit side by side along it, the one heading further
-  // along the pad on that side; two on one hole sit side by side across the
-  // hole row.
+  // Two wires on one pad (on a tile with only one of its net's pads) sit side
+  // by side along it, the one heading further along the pad on that side;
+  // two on one adapter hole sit side by side across the hole row.
   const otherEnd = (s: Spec, end: Pad | number): V3 => {
     const e = end === s.b ? s.a : s.b;
     return typeof e === 'number' ? hole[e] : e.at;
@@ -113,5 +116,5 @@ export function specsOf(env: Env, keys: string[]) {
         : shiftedPad(s.a, shift(s, s.a)),
     b: shiftedPad(s.b, shift(s, s.b)),
   }));
-  return { pads, padsOf, specs, ends };
+  return { pads, specs, ends };
 }

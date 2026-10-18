@@ -20,22 +20,24 @@ const crossesPort = (s: Spec) =>
 /**
  * The depths a wire may run at below a tile, nearest first, by what its leg
  * on that tile does: out over the pad's own edge (a hop, just under the
- * tile), along the pads' strip past other pads (under their drops), or
- * across the tile under its parts.
+ * tile), along that edge's strip past other wired pads (under their drops),
+ * or across the tile under its parts.
  */
 const legDepths = (env: Env, p: Pad, [axis, sign]: Edge, d: number) => {
   const r = d / 2;
+  const [ownAxis, ownSign] = ownEdge(p, env.half);
   // Along the strip, a wire runs a step deeper for each pad it passes under
   // on its way to the edge.
-  const passes = env.cfg.tile.pads.list.filter(
-    (q) => Math.sign(q.at_mm[1]) === Math.sign(p.xy[1]) && sign * (q.at_mm[0] - p.xy[0]) > 1e-6,
-  ).length;
+  const passes = env.wiredPads.filter((q) => {
+    const [a, s] = ownEdge({ xy: q }, env.half);
+    return a === ownAxis && s === ownSign && sign * (q[axis] - p.xy[axis]) > 1e-6;
+  }).length;
   const from =
-    axis === 1 && sign === Math.sign(p.xy[1])
-      ? WIRING.hopDepth
-      : axis === 0
-        ? WIRING.stripDepth + passes * WIRING.stripStep
-        : env.componentDepth + r + WIRING.depthMargin;
+    axis === ownAxis
+      ? sign === ownSign
+        ? WIRING.hopDepth
+        : env.componentDepth + r + WIRING.depthMargin
+      : WIRING.stripDepth + passes * WIRING.stripStep;
   return [...Array(WIRING.depthChoices).keys()].map(
     (k) => Math.max(from, r + WIRING.depthMargin) + k * WIRING.depthStep,
   );
@@ -47,7 +49,7 @@ const edgeOf = (env: Env, s: Spec, end: 'a' | 'b'): Edge => {
   const p = (end === 'a' ? s.a : s.b) as Pad;
   const other = end === 'a' ? s.b : s.a;
   if (typeof other === 'number')
-    return isThumb(p.key) ? edgeToward(frames, p.key, port.outside) : ownEdge(p);
+    return isThumb(p.key) ? edgeToward(frames, p.key, port.outside) : ownEdge(p, env.half);
   if (isThumb(p.key) !== isThumb(other.key))
     return edgeToward(frames, p.key, isThumb(p.key) ? port.outside : port.inside);
   return edgeToward(frames, p.key, point(frames[other.key], [0, 0, 0]));
@@ -155,7 +157,7 @@ function candidates(env: Env, s: Spec, own: number | undefined, wide: boolean) {
   const sides = WIRING.edgeAsides.slice(0, WIRING.portAsides);
   const depthTries = wide ? WIRING.depthChoices : WIRING.longDepths;
   // A feed leaves by its pad's own edge or by the edge facing its hole.
-  const home = ownEdge(s.b);
+  const home = ownEdge(s.b, env.half);
   const toward = isFeed ? edgeToward(frames, s.b.key, hole[s.a as number]) : home;
   const edges = toward[0] === home[0] && toward[1] === home[1] ? [home] : [home, toward];
   if (isFeed && !through)
@@ -174,7 +176,7 @@ function candidates(env: Env, s: Spec, own: number | undefined, wide: boolean) {
   // by its pad's own edge.
   const t = (isFeed || isThumb(s.b.key) ? s.b : s.a) as Pad;
   const facingPort = edgeToward(frames, t.key, port.outside);
-  const thumbEdges = [facingPort, ownEdge(t)].filter(
+  const thumbEdges = [facingPort, ownEdge(t, env.half)].filter(
     (e, k, all) => !k || e[0] !== all[0][0] || e[1] !== all[0][1],
   );
   if (isFeed)
@@ -225,44 +227,28 @@ function candidates(env: Env, s: Spec, own: number | undefined, wide: boolean) {
 
 /**
  * Each wire's routes as options, without those that run into a tile (unless
- * all do) or shift out past the tile's pocket. A wire may also end on the
- * tile's other pad of the same name (the tile joins its two + pads, and its
- * two G pads), unshifted.
+ * all do) or shift out past the tile's pocket. Each end stays on its own pad
+ * or hole: one wire fits a tile's hole.
  */
 export function optionsOf(
   env: Env,
   paths: Paths,
   specs: Spec[],
   ends: { a: Pad | V3; b: Pad }[],
-  padsOf: (key: string, name: string) => Pad[],
   placeOf: Map<number, number>,
   wide: boolean,
 ): Option[][] {
-  const others = (end: Pad | number): (Pad | number)[] =>
-    typeof end === 'number' ? [] : padsOf(end.key, end.name).filter((p) => p !== end);
   return specs.map((s, i) => {
     const d = diameterOf(env, s);
-    const all = [s.a, ...others(s.a)].flatMap((a, ka) =>
-      [s.b, ...others(s.b)].flatMap((b, kb) =>
-        candidates(env, { ...s, a, b: b as Pad }, placeOf.get(i), wide).flatMap(
-          ({ lane, place, rank }) => {
-            const { points, strayed, stuck } = paths.route(
-              ka ? (a as Pad) : ends[i].a,
-              kb ? (b as Pad) : ends[i].b,
-              lane,
-              place,
-              d / 2,
-            );
-            if (strayed) return [];
-            return {
-              tube: tubeOf(points, d),
-              rank: rank + (ka ? WIRING.otherPad : 0) + (kb ? WIRING.otherPad : 0),
-              blocked: stuck || paths.hitsTiles(points, d / 2),
-            };
-          },
-        ),
-      ),
-    );
+    const all = candidates(env, s, placeOf.get(i), wide).flatMap(({ lane, place, rank }) => {
+      const { points, strayed, stuck } = paths.route(ends[i].a, ends[i].b, lane, place, d / 2);
+      if (strayed) return [];
+      return {
+        tube: tubeOf(points, d),
+        rank,
+        blocked: stuck || paths.hitsTiles(points, d / 2),
+      };
+    });
     const clear = all.filter((o) => !o.blocked);
     return (clear.length ? clear : all.map((o) => ({ ...o, rank: o.rank + WIRING.blockedRank })))
       .sort((x, y) => x.rank - y.rank)

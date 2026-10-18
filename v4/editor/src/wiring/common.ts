@@ -103,6 +103,8 @@ export interface Env {
   half: [number, number];
   /** How far below a tile's underside its tallest part reaches, with clearance. */
   componentDepth: number;
+  /** Where on a tile (x, y) the pads and holes are that some net's wires end on. */
+  wiredPads: [number, number][];
   hole: Record<number, V3>;
   port: Port;
   grid: PortGrid;
@@ -184,8 +186,6 @@ export const WIRING = {
   repairWork: 5000000,
   /** If any still meet when routing with every choice, negotiating starts again this many times. */
   restarts: 3,
-  /** The cost of ending a wire on the tile's other pad of the same name. */
-  otherPad: 2,
   /** Wires may touch: they count as passing into each other only past this much. */
   touch: 0.02,
   /** Centre spacing of two wires on one pad, along it. */

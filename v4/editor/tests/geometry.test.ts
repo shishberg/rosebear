@@ -16,7 +16,7 @@ import { hardware } from '../src/parts';
 import { tilePocketDepth } from '../src/plates';
 import { freeAfter } from '../src/manifold-util';
 import { buildSolid, buildSolidAsync } from '../src/solid';
-import { buildChassis } from '../src/chassis';
+import { buildChassis, gluePads } from '../src/chassis';
 import { shell } from '../src/shell';
 import { crossings, holes, nets, wiring } from '../src/wiring';
 import ref from './python-reference.json';
@@ -83,6 +83,48 @@ test("the tile pocket and the drawn parts measure the tile's parts from the boar
   assert.equal(drawn.length, t.components.length);
   const lowest = Math.min(...drawn.map((p) => p.center[2] - p.size[2] / 2));
   assert(Math.abs(lowest + depth) < 1e-9);
+  // The measured tile: 5 mm to the board, 1.6 mm board, 1.9 mm socket, 0.3 mm clearance.
+  assert(Math.abs(tilePocketDepth(defaults.config) - 8.8) < 1e-9);
+});
+test("the glue pads keep off the tile's corner notches and the holes near its edges", () => {
+  const t = defaults.config.tile;
+  const { boxes } = gluePads(defaults.config);
+  assert(boxes.length > 0);
+  const keep = t.pads.ring_mm / 2;
+  for (const b of boxes) {
+    const lo = [0, 1].map((k) => b.center[k] - b.size[k] / 2);
+    const hi = [0, 1].map((k) => b.center[k] + b.size[k] / 2);
+    // Every point of the pad is on the tile: inside its edges, and outside each
+    // corner's notch.
+    for (const k of [0, 1])
+      assert(lo[k] >= -t.size_mm[k] / 2 - 1e-9 && hi[k] <= t.size_mm[k] / 2 + 1e-9);
+    for (const cx of [-1, 1])
+      for (const cy of [-1, 1]) {
+        const corner = [(cx * t.size_mm[0]) / 2, (cy * t.size_mm[1]) / 2];
+        const nearest = [0, 1].map((k) => Math.min(Math.max(corner[k], lo[k]), hi[k]));
+        assert(
+          Math.hypot(nearest[0] - corner[0], nearest[1] - corner[1]) >=
+            t.corner_notch_radius_mm - 1e-9,
+        );
+      }
+    // And clear of every hole's ring.
+    for (const h of t.pads.list.filter((h) => h.hole)) {
+      const nearest = [0, 1].map((k) => Math.min(Math.max(h.at_mm[k], lo[k]), hi[k]));
+      assert(Math.hypot(nearest[0] - h.at_mm[0], nearest[1] - h.at_mm[1]) > keep, h.name);
+    }
+  }
+});
+test('a project on the provisional tile loads with the measured one, and its nets with its holes', () => {
+  const p = clone(defaults) as any;
+  const c = p.config;
+  c.schema = 5;
+  c.tile.provisional = true;
+  c.tile.size_mm = [19, 19, 1.6];
+  c.tile.pads = { size_mm: [1.2, 1.8], list: [{ name: 'DI', at_mm: [7, -8.6] }] };
+  const old: Record<string, string[]> = { DATA: ['DI', 'DO'], '+5V': ['+', '+'], GND: ['G', 'G'] };
+  for (const n of c.wiring.nets) if (old[n.name]) n.pads = old[n.name];
+  validateProject(p);
+  assert.deepEqual(p.config, defaults.config);
 });
 test('shared per-key helpers', () => {
   const c = defaults.config;
@@ -234,33 +276,20 @@ test("the default (Swung in) Skeletyl builds one piece, failing only Swung in's 
   assert.equal(r.footprint.length, 1);
   assert.equal(r.seats.length, 20);
   assert.deepEqual(failing(r.seats), ['matrix_pinky_bottom', 'thumb_near', 'thumb_x2']);
-  assert.deepEqual(failing(r.keycaps), [
-    'matrix_pinky_home',
-    'matrix_pinky_bottom',
-    'thumb_x1',
-    'thumb_x2',
-  ]);
+  assert.deepEqual(failing(r.keycaps), ['matrix_pinky_bottom', 'thumb_x1', 'thumb_x2']);
   assert.deepEqual(
     r.roomCuts.map((c) => c.name),
-    ['matrix_pinky_home', 'matrix_pinky_bottom', 'thumb_x1', 'thumb_x2'],
+    ['matrix_pinky_bottom', 'thumb_x1', 'thumb_x2'],
   );
   assert(r.openings.length > 0);
   assert.deepEqual(failing(r.openings), ['thumb_home', 'thumb_near']);
   assert.deepEqual(
     r.hardware.map((h) => h.name),
-    [
-      'matrix_middle_bottom',
-      'matrix_ring_bottom',
-      'matrix_pinky_bottom',
-      'thumb_home: hotswap socket',
-      'thumb_near',
-    ],
+    ['matrix_pinky_bottom'],
   );
   assert.deepEqual(r.wires, []);
   assert.deepEqual(r.crossings, [
-    'RX: near to home and +5V: home to near',
-    'GND: pinky_home to pinky_bottom and GND: pinky_bottom to ring_bottom',
-    'GND: home to near and GND: near to x1',
+    'RB: ring_bottom to pinky_bottom and +5V: pinky_bottom to ring_bottom',
   ]);
   assert.deepEqual(
     r.capGaps.filter((g) => !(g.gap > 0)).map((g) => g.between),
@@ -334,18 +363,19 @@ test("the wiring joins each net's pads and adapter hole, for a 4 × 5 matrix", (
     assert.equal(wires.filter((x) => x.feed).length, net.chains?.length ?? 1, net.name);
   }
   assert.equal(w.wires.length, 100);
+  // One wire to a tile's hole or pad: two don't fit a hole.
+  const ends = w.wires.flatMap((x) => [x.points[0], x.points.at(-1)!]);
+  for (const p of w.pads)
+    assert(ends.filter((e) => near(e, p.at)).length <= 1, `${p.key} ${p.name} at ${p.xy}`);
   const crossed = (w: ReturnType<typeof wiring>) =>
     crossings(w.wires).map(
       ([a, b]) =>
         `${w.wires[a].net} ${w.wires[a].from}-${w.wires[a].to} × ${w.wires[b].net} ${w.wires[b].from}-${w.wires[b].to}`,
     );
-  // On Swung in (the default) three wires run into others: two between the
-  // thumb home and near keys, one at the pinky bottom key. Pinned, so a change
-  // shows up.
+  // On Swung in (the default) one wire runs into another, between the pinky
+  // and ring bottom keys. Pinned, so a change shows up.
   assert.deepEqual(crossed(w), [
-    'RX thumb_near-thumb_home × +5V thumb_home-thumb_near',
-    'GND matrix_pinky_home-matrix_pinky_bottom × GND matrix_pinky_bottom-matrix_ring_bottom',
-    'GND thumb_home-thumb_near × GND thumb_near-thumb_x1',
+    'RB matrix_ring_bottom-matrix_pinky_bottom × +5V matrix_pinky_bottom-matrix_ring_bottom',
   ]);
   // On the layout before Swung in, no wire runs into another.
   const pre = preSwung().config;

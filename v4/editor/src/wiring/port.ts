@@ -23,8 +23,11 @@ export const edgeToward = (frames: Record<string, Matrix4>, key: string, to: V3)
   return facing(frames[key], [to[0] - c[0], to[1] - c[1]]);
 };
 
-/** A pad's own edge: the one it sits beside. */
-export const ownEdge = (p: Pick<Pad, 'xy'>): Edge => [1, Math.sign(p.xy[1]) || 1];
+/** A pad's own edge: the tile edge it sits nearest, `half` the tile pocket's half-widths. */
+export const ownEdge = (p: Pick<Pad, 'xy'>, half: number[]): Edge => {
+  const axis = half[0] - Math.abs(p.xy[0]) < half[1] - Math.abs(p.xy[1]) ? 0 : 1;
+  return [axis, Math.sign(p.xy[axis]) || 1];
+};
 
 /**
  * The wire port from under the thumb row to under the finger columns: a

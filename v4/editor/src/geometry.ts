@@ -210,7 +210,8 @@ export function componentFrames(cfg: Config) {
  * panel, and the trackpad is gone. Schema 4 moves the ribbon's landing onto
  * the port panel's insert. Schema 5 has the measured keycaps (18.5 mm square at
  * the base, 14 mm at the top, 11 mm high) and travel (3.5 mm), where a project
- * still has the earlier guesses.
+ * still has the earlier guesses. Schema 6 has the measured tile (17 mm, its
+ * holes and edge pads), where a project still has the provisional one.
  */
 function migrate(c: Record<string, any>) {
   const d = defaultConfig as Record<string, any>;
@@ -242,6 +243,23 @@ function migrate(c: Record<string, any>) {
     }
     if (s?.travel_mm === 4) s.travel_mm = d.switch.travel_mm;
     c.schema = 5;
+  }
+  if (!(c.schema >= 6)) {
+    // Schema 6: the measured tile. A project still on the provisional 19 mm
+    // tile, with its pads read from a photo, takes the measured tile, and its
+    // nets take the measured holes' and pads' names.
+    const t = c.tile;
+    if (t && (t.provisional || JSON.stringify(t.size_mm) === '[19,19,1.6]')) {
+      c.tile = clone(d.tile);
+      if (c.wiring) {
+        c.wiring.description = d.wiring.description;
+        for (const n of c.wiring.nets ?? []) {
+          const now = d.wiring.nets.find((m: { name: string }) => m.name === n.name);
+          if (now) n.pads = clone(now.pads);
+        }
+      }
+    }
+    c.schema = 6;
   }
   if (c.chassis && c.chassis.skin_mm === undefined && c.chassis.base_thickness_mm !== undefined)
     c.chassis.skin_mm = c.chassis.base_thickness_mm;
