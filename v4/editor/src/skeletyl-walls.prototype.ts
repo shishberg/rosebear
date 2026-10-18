@@ -116,8 +116,8 @@ function newell(pts: V3[]): V3 {
 }
 const centroid = (pts: V3[]) => scale(pts.reduce(add), 1 / pts.length);
 
-/** The sweep the walls' and the ends' kits hand their variants (WallKit.sweep). */
-export function sweep(wasm: ManifoldToplevel, cfg: Config, sections: V3[][]) {
+/** The sweep the walls' kit hands its variants (WallKit.sweep). */
+function sweep(wasm: ManifoldToplevel, cfg: Config, sections: V3[][]) {
   // Wind every section counter-clockwise seen from ahead, as mesh() wants.
   const ahead = sub(centroid(sections[1]), centroid(sections[0]));
   const secs =

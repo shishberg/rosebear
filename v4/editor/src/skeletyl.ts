@@ -29,8 +29,11 @@
 // checks report anything that runs into the tiles or the keycaps.
 // PROTOTYPE: chassis.walls (?walls=) adds walls under the outer sides, built
 // by skeletyl-walls.prototype.ts from a WallSide per side; "none" adds none.
-// PROTOTYPE: chassis.ends (?ends=) adds supports under the hanging ends, built
-// by skeletyl-ends.prototype.ts from one EndsFrame; "none" adds none.
+// PROTOTYPE: chassis.ends (?ends=) supports the hanging ends from the frame's
+// own parts (skeletyl-ends.prototype.ts lists the variants): "tie" adds a floor
+// tie to the rail, across under them, and drops the ends that can onto it;
+// "join" carries a finger front on in a web to a thumb key's plate; "both"
+// joins where it can and ties the rest; "none" leaves them hanging.
 //
 // Terms, as in chassis.ts, and:
 //  rib      a run of keys along one key axis, swept as one solid;
@@ -39,7 +42,11 @@
 //           if it stands on the outline;
 //  foot     where an end's drop would meet the floor straight down, on its
 //           outer face (before it is carried out to the outline);
-//  band     the wall filling between neighbouring columns' drops.
+//  band     the wall filling between neighbouring columns' drops;
+//  tie      PROTOTYPE ?ends=: a bar of the rail's section across the floor,
+//           rail to rail, that hanging ends drop onto;
+//  join     PROTOTYPE ?ends=: a finger front carried on in a web to a thumb
+//           key's plate edge instead of a round.
 import type { CrossSection, Manifold, ManifoldToplevel } from 'manifold-3d';
 import type { Matrix4 } from 'three';
 import {
@@ -65,7 +72,7 @@ import { mesh } from './shell/loft';
 import { switchHole } from './seats';
 import { outline } from './hand/frame';
 import { skeletylWalls, type WallPoint, type WallSide } from './skeletyl-walls.prototype';
-import { railHelpers, skeletylEnds, type EndsFrame, type RibEnd } from './skeletyl-ends.prototype';
+import { END_SUPPORTS } from './skeletyl-ends.prototype';
 
 /** Construction sizes in mm. */
 export const SIZES = {
@@ -101,6 +108,10 @@ export const SIZES = {
   plateSteps: 5,
   /** The rail round the outline: its height. */
   railHeight: 6,
+  /** PROTOTYPE ?ends=: a column's front joins a thumb key's plate edge at most this far off (plan, middle to middle), its web reaching joinInto into the plate; the tie's bends and its fillets into the rail are rounded to tieRound (plan). */
+  joinReach: 20,
+  joinInto: 0.5,
+  tieRound: 5,
 } as const;
 
 /** A key in a rib: its plate's centre, the key axis the rib runs along, across it, and its normal (right-handed: a = c × n). */
@@ -119,8 +130,16 @@ interface Rib {
   keys: RibKey[];
   parted: [boolean, boolean];
 }
-/** How a rib's end finishes: flush with the plate's edge, a round alone, or a round and a drop to the floor, its foot carried on along the end this far (plan) to the outline. */
-type End = 'flush' | 'hang' | { out: number };
+/** How a rib's end finishes: flush with the plate's edge, a round alone, a round and a drop to the floor, its foot carried on along the end this far (plan) to the outline (or the tie), or (PROTOTYPE ?ends=) a web joining it to another key's plate. */
+type End = 'flush' | 'hang' | { out: number } | { join: Join };
+/** PROTOTYPE ?ends=: where a joined end's web lands: on the plate edge of `key`, at each side (s -1, 1) its [top, underside] corner, the web arriving along `into` (plan and plate, into that plate). */
+interface Join {
+  key: string;
+  land: [Pair, Pair];
+  into: V3;
+}
+const isDrop = (e: End): e is { out: number } => typeof e === 'object' && 'out' in e;
+const isJoin = (e: End): e is { join: Join } => typeof e === 'object' && 'join' in e;
 /** A point on one side of a rib: [top, underside]; on a drop, [outer face, inner face]. */
 type Pair = [V3, V3];
 /** A station: [left underside, right underside, right top, left top]. */
@@ -163,6 +182,15 @@ const unitPlan = (v: number[]) => {
   return [v[0] / l, v[1] / l];
 };
 const lerp = (p: V3, q: V3, f: number) => add(p, scale(sub(q, p), f));
+/** A web's edge from A, leaving along unit ta, to B, arriving along unit tb: the cubic tangent to both, handles a third of the way. */
+function cubic(A: V3, ta: V3, B: V3, tb: V3) {
+  const handle = Math.hypot(...sub(B, A)) / 3;
+  const ctrl = [A, add(A, scale(ta, handle)), sub(B, scale(tb, handle)), B];
+  return (f: number) => {
+    const w = [(1 - f) ** 3, 3 * f * (1 - f) ** 2, 3 * f * f * (1 - f), f ** 3];
+    return ctrl.reduce((sum, q, m) => add(sum, scale(q, w[m])), [0, 0, 0] as V3);
+  };
+}
 
 /**
  * The runs of keys the ribs are made from, in order: each finger column front
@@ -245,9 +273,11 @@ function webbable(d: Dims, p: RibKey, q: RibKey) {
 
 /**
  * One side (s, -1 or 1 across) of the end of key k that faces u (-1 or 1
- * along), from the plate's corner out. A flush end stops there. Otherwise a
- * lip runs on along the key's axis, then the round turns down, in the upright
- * plane through that axis, until it is vertical. A dropping end drops from
+ * along), from the plate's corner out. A flush end stops there. A joined end
+ * (PROTOTYPE ?ends=join) runs on as a cubic web to its landing on a thumb
+ * plate's edge, then a little into that plate. Otherwise a lip runs on along
+ * the key's axis, then the round turns down, in the upright plane through that
+ * axis, until it is vertical. A dropping end drops from
  * there, and its foot curves out along the end to the outline (its `out`),
  * meeting the floor at 45° (or flatter, if the round is low). The lip is as
  * short as lets the round's inner face, and the drop's below it, clear the
@@ -256,6 +286,17 @@ function webbable(d: Dims, p: RibKey, q: RibKey) {
 function endSide(d: Dims, k: RibKey, u: number, s: number, end: End): Pair[] {
   const path: Pair[] = [[corner(d, k, u, s, 0), corner(d, k, u, s, -d.plate)]];
   if (end === 'flush') return path;
+  if (isJoin(end)) {
+    // PROTOTYPE ?ends=join: a web on to the other plate's edge, as between
+    // keys, then on into that plate.
+    const { land, into } = end.join;
+    const to = land[(s + 1) / 2];
+    const [top, under] = [0, 1].map((j) => cubic(path[0][j], scale(k.a, u), to[j], into));
+    for (let j = 1; j < SIZES.webSteps; j++)
+      path.push([top(j / SIZES.webSteps), under(j / SIZES.webSteps)]);
+    path.push(to, to.map((p) => add(p, scale(into, SIZES.joinInto))) as Pair);
+    return path;
+  }
   const R = d.radius;
   const inner = d.radius - d.wall;
   const E = path[0][0];
@@ -324,16 +365,7 @@ function ribSide(d: Dims, rib: Rib, s: number, ends: End[], over?: (string | und
     if (i > 0) {
       // The web from the last key's plate: its top and its underside, each a cubic.
       const p = keys[i - 1];
-      const web = (z: number) => {
-        const A = corner(d, p, 1, s, z);
-        const B = corner(d, k, -1, s, z);
-        const handle = Math.hypot(...sub(B, A)) / 3;
-        const ctrl = [A, add(A, scale(p.a, handle)), sub(B, scale(k.a, handle)), B];
-        return (f: number) => {
-          const w = [(1 - f) ** 3, 3 * f * (1 - f) ** 2, 3 * f * f * (1 - f), f ** 3];
-          return ctrl.reduce((sum, q, m) => add(sum, scale(q, w[m])), [0, 0, 0] as V3);
-        };
-      };
+      const web = (z: number) => cubic(corner(d, p, 1, s, z), p.a, corner(d, k, -1, s, z), k.a);
       const [top, under] = [web(0), web(-d.plate)];
       for (let j = 1; j < SIZES.webSteps; j++) {
         path.push([top(j / SIZES.webSteps), under(j / SIZES.webSteps)]);
@@ -407,9 +439,18 @@ function rounded(wasm: ManifoldToplevel, d: Dims, feet: V3[], sides: V3[][]) {
     .map((p) => p.map((q) => [q[0], q[1]] as [number, number]))
     .reduce((x, y) => (area2(y) > area2(x) ? y : x));
 }
-/** How far the ring is from p along plan direction h: the first crossing ahead if p is inside it, else the nearest. */
-function toRing(ring: [number, number][], p: V3, h: V3) {
-  const hits = ring.flatMap((a, i) => {
+/** How far (plan) p is from the segment [a, b]. */
+function gap([a, b]: number[][], p: V3) {
+  const e = [b[0] - a[0], b[1] - a[1]];
+  const f = Math.max(
+    0,
+    Math.min(1, ((p[0] - a[0]) * e[0] + (p[1] - a[1]) * e[1]) / (e[0] ** 2 + e[1] ** 2 || 1)),
+  );
+  return Math.hypot(a[0] + e[0] * f - p[0], a[1] + e[1] * f - p[1]);
+}
+/** How far along plan direction h from p each crossing of the ring is (behind is negative). */
+const crossings = (ring: number[][], p: V3, h: V3) =>
+  ring.flatMap((a, i) => {
     const b = ring[(i + 1) % ring.length];
     const e = [b[0] - a[0], b[1] - a[1]];
     const w = [a[0] - p[0], a[1] - p[1]];
@@ -417,6 +458,9 @@ function toRing(ring: [number, number][], p: V3, h: V3) {
     const f = (h[1] * w[0] - h[0] * w[1]) / den;
     return Math.abs(den) > 1e-12 && f >= 0 && f < 1 ? [(w[0] * e[1] - w[1] * e[0]) / den] : [];
   });
+/** How far the ring is from p along plan direction h: the first crossing ahead if p is inside it, else the nearest. */
+function toRing(ring: [number, number][], p: V3, h: V3) {
+  const hits = crossings(ring, p, h);
   const ahead = hits.filter((t) => t > 0);
   return ahead.length % 2
     ? Math.min(...ahead)
@@ -501,11 +545,11 @@ function endClear(
 /** One side of a dropping end, from the bottom of its round to the floor. */
 const dropSide = (d: Dims, rib: Rib, end: number, s: number, kind: End) =>
   endSide(d, ...endKey(rib, end), s, kind).slice(SIZES.roundSteps + 1);
-/** A point on a drop side at height z, its outer and inner faces. */
+/** A point on a drop side at height z (or its top, if z is above it), its outer and inner faces. */
 function dropAt(side: Pair[], z: number): Pair {
   const i = Math.max(0, side.findIndex((p) => p[0][2] <= z) - 1);
   const [p, q] = [side[i], side[i + 1] ?? side[i]];
-  const f = p[0][2] - q[0][2] > 1e-9 ? (p[0][2] - z) / (p[0][2] - q[0][2]) : 0;
+  const f = p[0][2] - q[0][2] > 1e-9 ? Math.max(0, (p[0][2] - z) / (p[0][2] - q[0][2])) : 0;
   return [lerp(p[0], q[0], f), lerp(p[1], q[1], f)];
 }
 
@@ -653,7 +697,7 @@ function wallSide(
   }));
   const space = keySpace(cfg, frames);
   const room = (from: V3, out: V3) => space.room(from, out, toRing(ring, from, out));
-  const finish = (e: End) => (typeof e === 'object' ? 'drop' : e);
+  const finish = (e: End) => (isDrop(e) ? 'drop' : isJoin(e) ? 'flush' : e);
   return {
     name,
     points,
@@ -667,73 +711,216 @@ function wallSide(
   };
 }
 
+/** PROTOTYPE ?ends=: whether points are clear of what every key but those `except` holds and of their switch holes' columns (keySpace). */
+const clearOf = (
+  cfg: Config,
+  frames: Record<string, Matrix4>,
+  points: V3[],
+  except: string[] = [],
+) =>
+  keySpace(
+    cfg,
+    Object.fromEntries(Object.entries(frames).filter(([n]) => !except.includes(n))),
+  ).clear(points);
+
 /**
- * PROTOTYPE ?ends=: the frame as an EndsFrame for the end-support variants
- * (skeletyl-ends.prototype.ts documents each field): every rib end as built
- * (endSide), the rail, and the key space.
+ * PROTOTYPE ?ends=: whether a rib's end can drop as `kind` onto the tie: its
+ * drop (below the round, which it has anyway) is clear of the other keys,
+ * tested every mm or so down it.
  */
-function endsFrame(
+function dropClear(
+  cfg: Config,
+  d: Dims,
+  frames: Record<string, Matrix4>,
+  rib: Rib,
+  end: number,
+  kind: End,
+) {
+  const [left, right] = [-1, 1].map((s) => dropSide(d, rib, end, s, kind));
+  const top = Math.max(left[0][0][2], right[0][0][2]);
+  const levels = [...Array(Math.ceil(top) + 1).keys()].map((j) => (top * j) / Math.ceil(top));
+  const [l, r] = [left, right].map((side) => levels.map((z) => dropAt(side, z)));
+  return clearOf(cfg, frames, samples(l, r), [endKey(rib, end)[0].name]);
+}
+
+/**
+ * PROTOTYPE ?ends=join: a column's front (rib's first end) joined to a thumb
+ * key's plate: a web from the front's plate edge to the nearest thumb plate
+ * edge it can reach without folding back (each edge past the other, as
+ * between keys) or running into the other keys, landing the rib's width
+ * along that edge, centred where the front's corners meet it, but kept on it.
+ * None if it can reach none, or only one turned more than 60° from it.
+ */
+function joinTo(
+  cfg: Config,
+  d: Dims,
+  frames: Record<string, Matrix4>,
+  rib: Rib,
+  thumbs: RibKey[],
+): { join: Join } | undefined {
+  const [k, u] = endKey(rib, 0);
+  const w = across(k, d.plateHalf);
+  const ahead = scale(k.a, u);
+  const options = thumbs.flatMap((t) =>
+    [0, 1].flatMap((axis) =>
+      [-1, 1].flatMap((sign) => {
+        // t's plate edge `sign` along its key axis (axis 0) or across it (1).
+        const [v, e] = axis ? [t.c, t.a] : [t.a, t.c];
+        const [hv, he] = axis
+          ? [across(t, d.plateHalf), along(t, d.plateHalf)]
+          : [along(t, d.plateHalf), across(t, d.plateHalf)];
+        const into = scale(v, -sign);
+        const mid = add(t.o, scale(v, sign * hv));
+        const at = [-1, 1].map((s) => dot(sub(corner(d, k, u, s, 0), mid), e));
+        if (Math.abs(at[1] - at[0]) < w) return [];
+        const centre = Math.max(-Math.max(0, he - w), Math.min(he - w, (at[0] + at[1]) / 2));
+        const land = [0, 1].map((i): Pair => {
+          const p = add(mid, scale(e, centre + Math.sign(at[i] - at[1 - i]) * w));
+          return [p, add(p, scale(t.n, -d.plate))];
+        }) as [Pair, Pair];
+        // In plan, every point of the landing ahead of every point of the
+        // front's edge, along the front, and every point of that edge short
+        // of the landing, along the way in.
+        const edge = [-1, 1].flatMap((s) => [0, -d.plate].map((z) => corner(d, k, u, s, z)));
+        const to = land.flat();
+        const [h, g] = [ahead, into].map((v) => [...unitPlan(v), 0] as V3);
+        const past = edge.every((a) =>
+          to.every((b) => dot(sub(b, a), h) > 0 && dot(sub(b, a), g) > 0),
+        );
+        if (!past) return [];
+        const join = { join: { key: t.name, land, into } };
+        const [left, right] = [-1, 1].map((s) => endSide(d, k, u, s, join));
+        if (!clearOf(cfg, frames, samples(left, right, 1), [k.name, t.name])) return [];
+        const from = lerp(left[0][0], right[0][0], 0.5);
+        const length = Math.hypot(...sub(lerp(land[0][0], land[1][0], 0.5), from).slice(0, 2));
+        return length <= SIZES.joinReach ? [{ join, length }] : [];
+      }),
+    ),
+  );
+  return options.sort((x, y) => x.length - y.length)[0]?.join;
+}
+
+/**
+ * PROTOTYPE ?ends=tie: the floor tie, as the plan of a strip the rail's width
+ * (the rail extrudes it with its own section), and the hanging ends that drop
+ * onto it (changed in `ends`). It runs through where each hanging end that
+ * could drop straight down clear of the keys would stand, in order across the
+ * hand, and on at each end to the rail: straight on, or else to the rail's
+ * nearest point, whichever is clear of the keys; its bends rounded. Then each
+ * of those ends drops onto it as onto the rail, its foot carried out to the
+ * tie's far side, where that is clear. None if no hanging end could drop.
+ */
+function floorTie(
+  wasm: ManifoldToplevel,
   cfg: Config,
   d: Dims,
   frames: Record<string, Matrix4>,
   all: Rib[],
   ends: End[][],
-  named: string[],
   ring: [number, number][],
-  innerRing: [number, number][],
-): EndsFrame {
-  const columns = cfg.geometry.columns.length;
-  const flat = (p: number[]): V3 => [...unitPlan(p), 0] as V3;
-  const list = all.flatMap((rib, i) =>
-    [0, 1].map((e): RibEnd => {
+) {
+  const spots = all.flatMap((rib, i) =>
+    [0, 1].flatMap((e) => {
+      if (ends[i][e] !== 'hang' || !dropClear(cfg, d, frames, rib, e, { out: 0 })) return [];
       const [k, u] = endKey(rib, e);
-      const kind = ends[i][e];
-      const finish = typeof kind === 'object' ? 'drop' : kind;
-      const sides = [-1, 1].map((s) => endSide(d, k, u, s, kind)) as [Pair[], Pair[]];
-      const at = finish === 'flush' ? 0 : SIZES.roundSteps + 1;
-      const [outer, inner] = [0, 1].map((j) => [sides[0][at][j], sides[1][at][j]]) as [
-        [V3, V3],
-        [V3, V3],
-      ];
-      const centre = scale([...outer, ...inner].reduce(add), 1 / 4);
-      return {
-        rib: named[i],
-        group: rib.run < columns ? 'finger' : 'thumb',
-        ...(rib.run < columns ? { column: rib.run } : {}),
-        key: k.name,
-        at: e ? 'last' : 'first',
-        parted: rib.parted[e],
-        finish,
-        out: flat(scale(k.a, u)),
-        across: flat(k.c),
-        bottom: { outer, inner },
-        centre,
-        height: centre[2],
-        sides,
-      };
+      const h = [...unitPlan(scale(k.a, u)), 0] as V3;
+      const [a, b] = feet(d, rib, e);
+      return [{ i, e, h, foot: lerp(a, b, 0.5), across: [...unitPlan(k.c), 0] as V3 }];
     }),
   );
-  const fronts = [...Array(columns).keys()].map((c) =>
-    list.find((x) => x.column === c && x.at === 'first')!,
+  if (!spots.length) return undefined;
+  // Where each would stand: its drop's middle, half a wall back from the foot.
+  const stands = spots.map((x) => sub(x.foot, scale(x.h, d.wall / 2)));
+  // Across the hand: along the line through the two farthest apart.
+  const pairs = stands.flatMap((p, i) => stands.slice(i + 1).map((q) => [p, q]));
+  const [p0, p1] = pairs.reduce(
+    (x, y) => (Math.hypot(...sub(y[0], y[1])) > Math.hypot(...sub(x[0], x[1])) ? y : x),
+    [stands[0], add(stands[0], spots[0].across)],
   );
-  const toPinky = flat(sub(fronts.at(-1)!.centre, fronts[0].centre));
-  // Square to toPinky, on the side the fronts face.
-  const square = flat(cross(toPinky, [0, 0, 1]));
-  const facing = fronts.reduce((sum, f) => sum + dot(f.out, square), 0) >= 0 ? 1 : -1;
-  const space = keySpace(cfg, frames);
-  return {
-    ends: list,
-    hanging: list.filter((x) => x.finish === 'hang'),
-    fronts,
-    columns,
-    toPinky,
-    toFront: scale(square, facing),
-    wall: d.wall,
-    rail: { height: SIZES.railHeight, inner: innerRing, outer: ring },
-    ...railHelpers(ring, d.wall),
-    clear: space.clear,
-    room: (from, out) => space.room(from, out, toRing(ring, from, out)),
+  const dir = [...unitPlan(sub(p1, p0)), 0] as V3;
+  // Whether the tie from p to q is clear of the keys.
+  const clear = (p: V3, q: V3) => {
+    const n = Math.ceil(Math.hypot(...sub(q, p)) / 2);
+    const side = [...unitPlan([p[1] - q[1], q[0] - p[0]]), 0] as V3;
+    const points = [...Array(n + 1).keys()].flatMap((j) =>
+      [-1, 1].flatMap((s) =>
+        [0, SIZES.railHeight].map((z) =>
+          add(add(lerp(p, q, j / n), scale(side, (s * d.wall) / 2)), [0, 0, z]),
+        ),
+      ),
+    );
+    return clearOf(cfg, frames, points);
   };
+  // In order, leaving out any it can't run on to clear of the keys.
+  const order = [...stands]
+    .sort((p, q) => dot(p, dir) - dot(q, dir))
+    .reduce((kept: V3[], p) => (!kept.length || clear(kept.at(-1)!, p) ? [...kept, p] : kept), []);
+  // Each end on to the rail's middle: straight on if clear, else turned as
+  // little as clears (up to square), toward where the ends face first, else
+  // straight on anyway; its last stretch turned square into the rail (if it
+  // meets it more than 15° off square).
+  const facing = spots.reduce((sum, x) => add(sum, x.h), [0, 0, 0] as V3);
+  const toRail = (p: V3, out: V3) => {
+    const leg = (turn: number) => {
+      const [c, sn] = [Math.cos(turn), Math.sin(turn)];
+      const v: V3 = [out[0] * c - out[1] * sn, out[0] * sn + out[1] * c, 0];
+      const q = add(p, scale(v, toRing(ring, p, v)));
+      // The outline's outward normal there (it runs counter-clockwise).
+      const [a, b] = ring
+        .map((x, i) => [x, ring[(i + 1) % ring.length]])
+        .reduce((x, y) => (gap(y, q) < gap(x, q) ? y : x));
+      const n = [...unitPlan([b[1] - a[1], a[0] - b[0]]), 0] as V3;
+      const end = sub(q, scale(n, d.wall / 2));
+      const square = sub(end, scale(n, 2 * SIZES.tieRound));
+      return dot(v, n) < Math.cos(Math.PI / 12) && dot(sub(square, p), v) > 0
+        ? [square, end]
+        : [end];
+    };
+    const toward = Math.sign(cross(out, facing)[2]) || 1;
+    const legs = [0, 1, 2, 3, 4, 5, 6]
+      .flatMap((j) => (j ? [j, -j] : [0]))
+      .map((j) => leg((toward * j * Math.PI) / 12));
+    return legs.find((l) => l.every((q, i) => clear(i ? l[i - 1] : p, q))) ?? legs[0];
+  };
+  const back =
+    order.length > 1 ? ([...unitPlan(sub(order[0], order[1])), 0] as V3) : scale(dir, -1);
+  const on = order.length > 1 ? ([...unitPlan(sub(order.at(-1)!, order.at(-2)!)), 0] as V3) : dir;
+  const path = [...toRail(order[0], back).reverse(), ...order, ...toRail(order.at(-1)!, on)];
+  // The centreline, each bend rounded (a quadratic between its tangent points).
+  const line = path.flatMap((p, i): V3[] => {
+    if (!i || i === path.length - 1) return [p];
+    const [a, b] = [path[i - 1], path[i + 1]];
+    const t = Math.min(SIZES.tieRound, Math.hypot(...sub(p, a)) / 2, Math.hypot(...sub(b, p)) / 2);
+    const [s, e] = [a, b].map((q) => add(p, scale([...unitPlan(sub(q, p)), 0] as V3, t)));
+    return [...Array(SIZES.roundSteps + 1).keys()].map((j) => {
+      const f = j / SIZES.roundSteps;
+      return lerp(lerp(s, p, f), lerp(p, e, f), f);
+    });
+  });
+  const disc = (p: V3) =>
+    [...Array(16).keys()].map((j): [number, number] => {
+      const a = (j * Math.PI) / 8;
+      return [p[0] + (Math.cos(a) * d.wall) / 2, p[1] + (Math.sin(a) * d.wall) / 2];
+    });
+  const strip = wasm.CrossSection.union(
+    line.slice(1).map((p, j) => wasm.CrossSection.hull([[...disc(line[j]), ...disc(p)]])),
+  );
+  // The drops: each foot carried out to the tie's far side, along the end.
+  const outline = strip.toPolygons();
+  for (const x of spots) {
+    const from = sub(x.foot, scale(x.h, 2 * d.wall));
+    const hits = outline
+      .flatMap((poly) => crossings(poly, from, x.h))
+      .filter((t) => t > 0)
+      .sort((p, q) => p - q);
+    // In and out of the strip in pairs: the first way out not a wall behind the foot.
+    const exit = hits.filter((_, j) => j % 2).find((t) => t - 2 * d.wall > -d.wall);
+    if (exit === undefined) continue;
+    const drop = { out: exit - 2 * d.wall };
+    if (drop.out <= SIZES.reach && dropClear(cfg, d, frames, all[x.i], x.e, drop))
+      ends[x.i][x.e] = drop;
+  }
+  return strip;
 }
 
 /**
@@ -787,6 +974,23 @@ export function skeletyl(
     return drop.out <= SIZES.reach && endClear(cfg, d, frames, rib, e, drop) ? drop : 'hang';
   };
   const ends = all.map((rib) => [0, 1].map((e) => kind(rib, e)));
+  // PROTOTYPE ?ends= (skeletyl-ends.prototype.ts): the columns' hanging fronts
+  // joined to the thumbs, and the floor tie that the hanging ends drop onto.
+  const support = (cfg.chassis as { ends?: string }).ends ?? 'none';
+  if (!END_SUPPORTS.some((x) => x.key === support))
+    throw Error(`Unknown ends "${support}": one of ${END_SUPPORTS.map((x) => x.key)}`);
+  if (support === 'join' || support === 'both') {
+    const thumbs = all.filter((rib) => rib.run >= columns).flatMap((rib) => rib.keys);
+    all.forEach((rib, i) => {
+      const front = rib.run < columns && all.findIndex((r) => r.run === rib.run) === i;
+      if (front && ends[i][0] === 'hang')
+        ends[i][0] = joinTo(cfg, d, frames, rib, thumbs) ?? 'hang';
+    });
+  }
+  const tie =
+    support === 'tie' || support === 'both'
+      ? floorTie(wasm, cfg, d, frames, all, ends, ring)
+      : undefined;
   const solids = all.map((rib, i) => ribSolid(wasm, cfg, d, rib, ends[i]));
   // The bands: neighbouring columns' first ribs at the front, last at the back.
   const bands = [0, 1].flatMap((e) =>
@@ -795,15 +999,26 @@ export function skeletyl(
         const i = all.flatMap((r, j) => (r.run === run ? [j] : [])).at(e ? -1 : 0)!;
         return [all[i], ends[i][e]];
       });
-      return pair.every(([, kind]) => typeof kind === 'object')
-        ? band(wasm, cfg, d, frames, e, pair)
-        : [];
+      return pair.every(([, kind]) => isDrop(kind)) ? band(wasm, cfg, d, frames, e, pair) : [];
     }),
   );
   const area = new wasm.CrossSection([ring], 'NonZero');
   const inside = area.offset(-d.wall, 'Round');
-  const rail = area.subtract(inside).extrude(SIZES.railHeight);
-  // The ribs' names (as the wall and end variants have them), and the rail's inner edge.
+  const loop = area.subtract(inside);
+  // PROTOTYPE ?ends=tie: the tie is part of the rail, filleted into it where
+  // they meet (and round its bends) as the outline's corners in are rounded.
+  const R = SIZES.tieRound;
+  const railPlan = tie
+    ? loop.add(tie).add(
+        loop
+          .add(tie)
+          .offset(R, 'Round', 2, SIZES.cornerSegments)
+          .offset(-R, 'Round', 2, SIZES.cornerSegments)
+          .intersect(tie.offset(R + d.wall)),
+      )
+    : loop;
+  const rail = railPlan.extrude(SIZES.railHeight);
+  // The ribs' names (as the wall variants have them), and the rail's inner edge.
   const named = all.map((rib) => {
     const n =
       rib.run < columns
@@ -823,16 +1038,25 @@ export function skeletyl(
   const walls = skeletylWalls(wasm, cfg, (cfg.chassis as { walls?: string }).walls ?? 'none', () =>
     all.flatMap((rib, i) =>
       outer(rib)
-        ? [wallSide(cfg, d, frames, rib, ends[i], outward(rib), named[i], ring, innerRing())]
+        ? [
+            wallSide(
+              cfg,
+              d,
+              frames,
+              rib,
+              // PROTOTYPE ?ends=join: the walls take a joined end as flush.
+              ends[i].map((e) => (isJoin(e) ? 'flush' : e)),
+              outward(rib),
+              named[i],
+              ring,
+              innerRing(),
+            ),
+          ]
         : [],
     ),
   );
-  // PROTOTYPE ?ends= (skeletyl-ends.prototype.ts): supports under the hanging ends.
-  const supports = skeletylEnds(wasm, cfg, (cfg.chassis as { ends?: string }).ends ?? 'none', () =>
-    endsFrame(cfg, d, frames, all, ends, named, ring, innerRing()),
-  );
   return {
-    frame: wasm.Manifold.union([...solids, ...bands, rail, ...walls, ...supports]),
+    frame: wasm.Manifold.union([...solids, ...bands, rail, ...walls]),
     outline: ring,
   };
 }

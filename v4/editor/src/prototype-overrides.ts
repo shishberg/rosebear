@@ -8,7 +8,7 @@ import { clone, type Project } from './geometry';
  * `?walls=none|flare|arches|truss|bones`, the Skeletyl's wall design
  * (chassis.walls; skeletyl-walls.prototype.ts, cycled by the dev editor's
  * switcher bar; absent is none, the open frame), and
- * `?ends=none|beam|arch|legs|braces`, how the Skeletyl supports its hanging rib
+ * `?ends=none|tie|join|both`, how the Skeletyl supports its hanging rib
  * ends (chassis.ends; skeletyl-ends.prototype.ts, cycled by the second bar;
  * absent is none, the ends left hanging). Returns the project to build, which
  * is the one the report records.
