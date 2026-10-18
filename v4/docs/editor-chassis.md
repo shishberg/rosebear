@@ -14,12 +14,14 @@ The default chassis is the **Skeletyl** (`src/skeletyl.ts`, `chassis.style:
 round the outline on the floor. A rib is one swept solid: the key plates as
 slabs, curved webs between them tangent to the plates, and a lip and round at
 each end, clear of the tile pocket and the switch. The outline is rounded
-(10 mm corners) and stands 5 mm out from the ends' feet and from the outer
-sides of the first and last columns and the thumb rows (their plates and tile
-pockets), so walls down those sides will have room to flare out; it digs in
-at most 12 mm between the thumb and finger keys. An end near the outline drops
-to the floor, its foot curving out along the end onto the rail; the others
-hang. Where neighbouring columns both drop close together, a band joins their
+(10 mm corners in, cut back square where a drop or band stands on it) and
+runs round where the ends would drop straight down and round the outer sides
+of the first and last columns and the thumb rows (their plates and tile
+pockets), with no margin past them, so the rail is under their edges; it digs
+in at most 12 mm between the thumb and finger keys. An end near the outline
+drops to the floor: the rib carried on down from its round as one sweep,
+straight down where the rail runs under it, else bending out along the end to
+it, landing square on the rail. The others hang. Where neighbouring columns both drop close together, a band joins their
 drops up to the lower round. Where two keys are too steep or too far round to
 web, the rib is parted there, and each end is rounded if the round clears the
 other keys' tiles, switches and keycaps, else stops flush at its plate. Drops

@@ -17,23 +17,26 @@
 // overlap in plan, or a web would fold back) the rib parts there, and each
 // part has its own ends: a round where it clears what the other keys hold
 // (their tiles, switches and keycap rooms), else flush with the plate.
-// The outline is a rounded ring round the free ends' feet (where their drops
-// would meet the floor) and the outer sides of the first and last columns'
-// and the thumb rows' plates and tile pockets: their convex hull, dug in a
-// little, then rounded and carried out by `flare`, so walls down those sides
-// can flare out clear of the tiles. The ends whose feet are near it drop to
-// the floor, each foot carried on along the end in a curve to the outline,
-// where that clears the other keys; the rest stop at the bottom of their
-// rounds. One rail round the outline, on the floor, joins the ribs into one
-// piece, and where neighbouring columns both drop, close, a band fills
-// between their drops up to the lower round.
+// The outline is a ring round the free ends' feet (where their drops would
+// meet the floor straight down) and the outer sides of the first and last
+// columns' and the thumb rows' plates and tile pockets: their convex hull,
+// dug in a little, its corners in rounded but where a drop or a band stands
+// on it. The ends whose feet are near it drop to the floor: the rib carried
+// on from the bottom of its round down to the rail, as one sweep (as between
+// keys), straight down where the outline runs under it, else bending out
+// along the end to it, and landing square on it (across along it), where that
+// clears the other keys; the rest stop at the bottom of their rounds. One
+// rail round the outline, on the floor, joins the ribs into one piece, and
+// where neighbouring columns both drop, close, a band fills between their
+// drops up to the lower round.
 // Nothing is cut out: chassis.ts adds the glue pads and the base, and the
 // checks report anything that runs into the tiles or the keycaps.
 // PROTOTYPE: chassis.walls (?walls=) adds walls under the outer sides, built
 // by skeletyl-walls.prototype.ts from a WallSide per side; "none" adds none.
 // PROTOTYPE: chassis.ends (?ends=) supports the hanging ends from the frame's
 // own parts (skeletyl-ends.prototype.ts lists the variants): "tie" adds a floor
-// tie to the rail, across under them, and drops the ends that can onto it;
+// tie to the rail, across under them, and drops the ends that can onto it
+// (landing square on it, clear of its bends and of where it meets the rail);
 // "join" carries a finger front on in a web to a thumb key's plate; "both"
 // joins where it can and ties the rest; "flow" first carries a thumb row's end
 // on into a column's front as one rib, then joins and ties as "both"; "none"
@@ -44,8 +47,10 @@
 //  station  one cross-section of a rib: its top and underside at both sides;
 //  end      a rib's lip and round past its end key, with a drop to the floor
 //           if it stands on the outline;
+//  drop     the rib carried on down from the bottom of an end's round to the
+//           floor (the rail or the tie), its outer face its top;
 //  foot     where an end's drop would meet the floor straight down, on its
-//           outer face (before it is carried out to the outline);
+//           outer face at each side;
 //  band     the wall filling between neighbouring columns' drops;
 //  tie      PROTOTYPE ?ends=: a bar of the rail's section across the floor,
 //           rail to rail, that hanging ends drop onto;
@@ -91,23 +96,19 @@ export const SIZES = {
   lip: 1,
   lipStep: 0.1,
   endGap: 0.3,
-  /** Stations inside each web, round each end's round, and along each foot's curve. */
+  /** Stations inside each web, round each end's round, and down each drop (for the checks, the bands and the walls; the drop itself is meshed finer, as a joined end is). */
   webSteps: 8,
   roundSteps: 8,
-  footSteps: 6,
+  dropSteps: 8,
   /** The outline digs in this far at most (plan), before it is rounded. */
   digDeepest: 12,
-  /** The outline stands this far out (plan) from the feet and the outer sides' plates and tile pockets it is built round: room for walls to flare out. */
-  flare: 5,
-  /** The outline's corners in are rounded to this radius (plan); its corners out to flare. */
+  /** The outline's corners in are rounded to this radius (plan), but where a drop or a band stands on it; its corners out are left sharp (a drop's corner stands on one). */
   corner: 10,
   /** Segments per full turn of the outline's rounding. */
   cornerSegments: 72,
-  /** An end drops to the floor if the outline is at most this far out along the end from the nearer of its feet (plan); its foot carries out that far. */
+  /** An end drops to the floor if the outline is at most this far out along the end from where the middle of its drop would meet the floor straight down (plan); its drop bends out that far. */
   reach: 12,
-  /** A foot carried out starts to curve out this high per mm it carries out (1.5: 45° at its steepest), lower if its round is low. */
-  footRise: 1.5,
-  /** Neighbouring columns' drops at the same end are banded together where their facing feet are at most this far apart (plan); */
+  /** Neighbouring columns' drops at the same end are banded together where their facing landings (on the floor) are at most this far apart (plan); */
   bandGap: 15,
   /** the band reaches this far into each drop. */
   bandInto: 0.5,
@@ -115,11 +116,11 @@ export const SIZES = {
   plateSteps: 5,
   /** The rail round the outline: its height. */
   railHeight: 6,
-  /** PROTOTYPE ?ends=: a column's front joins a thumb key's plate edge at most this far off (plan, middle to middle), its web reaching joinInto into the plate; the tie's bends and its fillets into the rail are rounded to tieRound (plan). */
+  /** PROTOTYPE ?ends=: a column's front joins a thumb key's plate edge at most this far off (plan, middle to middle), its web reaching joinInto into the plate (and a drop joinInto up into its round); the tie's bends and its fillets into the rail are rounded to tieRound (plan), and a drop on the tie stands at least tieRound (along it) from where it bends or from the rail's inner edge. */
   joinReach: 20,
   joinInto: 0.5,
   tieRound: 5,
-  /** PROTOTYPE ?ends=: a joined end's surfaces are meshed in triangles about this big (joinSolid). */
+  /** A drop's and (PROTOTYPE ?ends=) a joined end's surfaces are meshed in triangles about this big (sweepSolid). */
   joinMesh: 1,
 } as const;
 
@@ -139,15 +140,15 @@ interface Rib {
   keys: RibKey[];
   parted: [boolean, boolean];
 }
-/** How a rib's end finishes: flush with the plate's edge, a round alone, a round and a drop to the floor, its foot carried on along the end this far (plan) to the outline (or the tie), or (PROTOTYPE ?ends=) a web joining it to another key's plate. */
-type End = 'flush' | 'hang' | { out: number } | { join: Join };
+/** How a rib's end finishes: flush with the plate's edge, a round alone, a round and a drop to the floor (on the rail or the tie), landing as the pose `land`, or (PROTOTYPE ?ends=) a web joining it to another key's plate. */
+type End = 'flush' | 'hang' | { land: Pose } | { join: Join };
 /** PROTOTYPE ?ends=: where a joined end's rib lands: on a plate edge of `key`, as a pose heading into that plate (its sides those of the end's own, heading out), carried on `into` mm past it. */
 interface Join {
   key: string;
   land: Pose;
   into: number;
 }
-const isDrop = (e: End): e is { out: number } => typeof e === 'object' && 'out' in e;
+const isDrop = (e: End): e is { land: Pose } => typeof e === 'object' && 'land' in e;
 const isJoin = (e: End): e is { join: Join } => typeof e === 'object' && 'join' in e;
 /** A point on one side of a rib: [top, underside]; on a drop, [outer face, inner face]. */
 type Pair = [V3, V3];
@@ -199,7 +200,9 @@ const unit = (v: V3) => scale(v, 1 / Math.hypot(...v));
  * is s·half out along c), its underside `thick` below the top along -n, where
  * n = t × c. Over a key's plate edge: p the edge's middle, t and c the key's
  * a and c (so n is the key's normal), half the plate's half-width across and
- * thick the plate's.
+ * thick the plate's. n is given where it isn't t × c: at the top of a drop,
+ * where the end's round has turned the rib over to head straight down but
+ * across it is still the plate's across, tilted (dropTop).
  */
 interface Pose {
   p: V3;
@@ -207,11 +210,13 @@ interface Pose {
   c: V3;
   half: number;
   thick: number;
+  n?: V3;
 }
+const normalOf = (q: Pose) => q.n ?? cross(q.t, q.c);
 /** Side s of a pose: [top, underside]. */
 const poseSide = (q: Pose, s: number): Pair => {
   const top = add(q.p, scale(q.c, s * q.half));
-  return [top, sub(top, scale(cross(q.t, q.c), q.thick))];
+  return [top, sub(top, scale(normalOf(q), q.thick))];
 };
 /** The same pose, heading the other way (its sides swap; n stays). */
 const flip = (q: Pose): Pose => ({ ...q, t: scale(q.t, -1), c: scale(q.c, -1) });
@@ -261,7 +266,7 @@ function sweepAt(a: Pose, b: Pose, reach?: [number, number]): (f: number) => Pos
     return (f: number) => sum([(1 - f) ** 3, 3 * f * (1 - f) ** 2, 3 * f * f * (1 - f), f ** 3]);
   };
   const [left, right] = [side(-1), side(1)];
-  const [na, nb] = [a, b].map((q) => cross(q.t, q.c));
+  const [na, nb] = [a, b].map(normalOf);
   const angle = Math.acos(Math.max(-1, Math.min(1, dot(na, nb))));
   const normal = (f: number) =>
     angle < 1e-6 ? na : add(scale(na, Math.sin((1 - f) * angle)), scale(nb, Math.sin(f * angle)));
@@ -278,6 +283,7 @@ function sweepAt(a: Pose, b: Pose, reach?: [number, number]): (f: number) => Pos
       c,
       half: Math.hypot(...sub(r, l)) / 2,
       thick: a.thick + (b.thick - a.thick) * smooth(f),
+      n,
     };
   };
 }
@@ -441,10 +447,10 @@ function endRound(d: Dims, k: RibKey, u: number) {
  * along), from the plate's corner out. A flush end stops there. A joined end
  * (PROTOTYPE ?ends=join) runs on as a cubic web to its landing on a thumb
  * plate's edge, then a little into that plate. Otherwise its lip and round
- * (endRound) turn it over and down until it is vertical. A dropping end drops
- * from there, and its foot curves out along the end to the outline (its
- * `out`), meeting the floor at 45° (or flatter, if the round is low). Nothing
- * goes below the floor.
+ * (endRound) turn it over and down until it is vertical. A dropping end runs
+ * on from there down to its landing, swept as between keys: straight down,
+ * or bending out to the rail or along the tie and turning to lie along it.
+ * Nothing goes below the floor.
  */
 function endSide(d: Dims, k: RibKey, u: number, s: number, end: End): Pair[] {
   const path: Pair[] = [[corner(d, k, u, s, 0), corner(d, k, u, s, -d.plate)]];
@@ -463,29 +469,48 @@ function endSide(d: Dims, k: RibKey, u: number, s: number, end: End): Pair[] {
     return path;
   }
   path.push(...endRound(d, k, u)(u * s).slice(1));
-  const h = [...unitPlan(scale(k.a, u)), 0] as V3;
-  if (end !== 'hang') {
-    // The drop, and its foot: from `rise` up the outer face curves out by
-    // the end's `out` along h, leaving the drop and meeting the floor upright
-    // (out (3f² - 2f³) out at rise (1 - f) up), the inner face thickening to
-    // stay a wall's thickness in from it, square to the curve.
-    const [top, under] = path.at(-1)!;
-    const rise = Math.max(0, Math.min(SIZES.footRise * Math.abs(end.out), 0.9 * top[2]));
-    const at = (p: V3, z: number): V3 => [p[0], p[1], z];
-    path.push([at(top, rise), at(under, rise)]);
-    for (let j = 1; j <= SIZES.footSteps; j++) {
-      const f = j / SIZES.footSteps;
-      const p = add(at(top, rise * (1 - f)), scale(h, end.out * (3 * f * f - 2 * f ** 3)));
-      const slope = rise > 0 ? (6 * end.out * f * (1 - f)) / rise : 0;
-      path.push([p, add(p, scale(sub(under, top), Math.hypot(1, slope)))]);
-    }
-  }
+  if (isDrop(end))
+    path.push(...sweep(dropTop(d, k, u), end.land, SIZES.dropSteps).map((q) => poseSide(q, u * s)));
   return path.map((pair) => pair.map((p) => [p[0], p[1], Math.max(0, p[2])]) as Pair);
 }
 
 /**
- * One side of a rib, from its first end's foot (or round, or plate edge) to
- * its last's. `over` (if given) is filled with what each point is on: a key's
+ * The top of the drop under the end of key k that faces u (-1 or 1 along):
+ * the bottom of its round, heading straight down. Its sides are the round's,
+ * so across it is the plate's across, tilted as the plate is (one side lower),
+ * and its underside (inner face) is a wall in from its top (outer face),
+ * straight back along the end.
+ */
+function dropTop(d: Dims, k: RibKey, u: number): Pose {
+  const round = endRound(d, k, u);
+  const [l, r] = [-1, 1].map((s) => round(s).at(-1)![0]);
+  return {
+    p: lerp(l, r, 0.5),
+    t: [0, 0, -1],
+    c: unit(sub(r, l)),
+    half: Math.hypot(...sub(r, l)) / 2,
+    thick: d.wall,
+    n: [...unitPlan(scale(k.a, u)), 0] as V3,
+  };
+}
+
+/** Where a drop from `top` lands: its outer face's middle at q on the floor, heading straight down, across along plan direction `along` (the rail or the tie it stands on), as wide in plan as its top. */
+function landing(top: Pose, q: V3, along: number[]): Pose {
+  const a = [...unitPlan(along), 0] as V3;
+  return {
+    p: [q[0], q[1], 0],
+    t: [0, 0, -1],
+    c: dot(a, top.c) < 0 ? scale(a, -1) : a,
+    half: top.half * Math.hypot(top.c[0], top.c[1]),
+    thick: top.thick,
+  };
+}
+/** Where a drop from `top` would land straight down. */
+const straightDown = (top: Pose) => landing(top, top.p, top.c);
+
+/**
+ * One side of a rib, from where its first end's drop lands (or its round, or
+ * plate edge) to its last's. `over` (if given) is filled with what each point is on: a key's
  * name over its plate, "" over a web, undefined on an end.
  */
 function ribSide(d: Dims, rib: Rib, s: number, ends: End[], over?: (string | undefined)[]): Pair[] {
@@ -524,50 +549,55 @@ const solid = (wasm: ManifoldToplevel, cfg: Config, stations: Station[]) =>
     stations.map((st) => ({ pts: square, place: (_w: number, _z: number, j: number) => st[j] })),
   );
 
-/** A rib's solid. PROTOTYPE ?ends=: a joined end is a solid of its own (joinSolid), the rib flush at its plate edge. */
+/** A rib's solid. A drop, and (PROTOTYPE ?ends=) a joined end, is a solid of its own (sweepSolid), the rib stopping at the bottom of the round or flush at its plate edge. */
 function ribSolid(wasm: ManifoldToplevel, cfg: Config, d: Dims, rib: Rib, ends: End[]) {
-  const flush = ends.map((e) => (isJoin(e) ? 'flush' : e));
-  const [left, right] = [-1, 1].map((s) => ribSide(d, rib, s, flush));
+  const short = ends.map((e) => (isJoin(e) ? 'flush' : isDrop(e) ? 'hang' : e));
+  const [left, right] = [-1, 1].map((s) => ribSide(d, rib, s, short));
   const body = solid(
     wasm,
     cfg,
     left.map((l, i): Station => [l[1], right[i][1], right[i][0], l[0]]),
   );
-  const joins = ends.flatMap((e, i) =>
-    isJoin(e) ? [joinSolid(wasm, d, ...endKey(rib, i), e.join)] : [],
-  );
-  return joins.length ? wasm.Manifold.union([body, ...joins]) : body;
+  const swept = ends.flatMap((e, i) => {
+    const [k, u] = endKey(rib, i);
+    // A joined end runs on into the plates it joins (at least joinInto,
+    // inside the plate's slab) and a drop up into its round, so that each
+    // overlaps what it joins rather than only meeting it face to face.
+    if (isJoin(e)) {
+      const from = u > 0 ? edgePose(d, k, u) : flip(edgePose(d, k, u));
+      const { land, into } = e.join;
+      return [sweepSolid(wasm, from, land, SIZES.joinInto, Math.max(into, SIZES.joinInto))];
+    }
+    return isDrop(e) ? [sweepSolid(wasm, dropTop(d, k, u), e.land, SIZES.joinInto, 0)] : [];
+  });
+  return swept.length ? wasm.Manifold.union([body, ...swept]) : body;
 }
 
 /**
- * PROTOTYPE ?ends=: the solid of the end of key k that faces u (-1 or 1
- * along), joined to its landing (endSide), meshed evenly. A rib's stations
- * each run straight across its whole width, and round a tight turn its outer
- * side runs several times as far as its inner, so the quads between stations
- * would be long slivers fanning out from the inner side. Instead the
- * cross-section's outline is cut into lanes about joinMesh apart (across the
- * top and the underside, down the sides), each lane runs along the rib with
- * points about joinMesh apart along its own length, and neighbouring lanes
- * are stitched with triangles, each advancing whichever lane is behind (along
- * the rib). Each point lies on its station's straight line across, so it is
- * the same surface as the stations', sampled finer.
+ * The solid of the sweep from pose a to pose b (sweepAt), carried straight on
+ * `back` before a and `on` past b, meshed evenly. A rib's stations each run
+ * straight across its whole width, and round a tight turn its outer side runs
+ * several times as far as its inner, or as it twists its sides run across, so
+ * the quads between stations would be long slivers, or fold, and shade as
+ * streaks. Instead the cross-section's outline is cut into lanes about
+ * joinMesh apart (across the top and the underside, down the sides), each lane
+ * runs along the rib with points about joinMesh apart along its own length,
+ * and neighbouring lanes are stitched with triangles, each advancing
+ * whichever lane is behind (along the rib). Each point lies on its station's
+ * straight line across, so it is the same surface as the stations', sampled
+ * finer.
  */
-function joinSolid(wasm: ManifoldToplevel, d: Dims, k: RibKey, u: number, join: Join): Manifold {
-  const { land, into } = join;
-  const from = u > 0 ? edgePose(d, k, u) : flip(edgePose(d, k, u));
-  const at = sweepAt(from, land);
-  // The pose g along: the sweep from 0 to 1, and at each end on into the
-  // plate (at least joinInto, inside the plate's slab), so that it overlaps
-  // the plates it joins rather than only meeting them face to face.
-  const [back, on] = [SIZES.joinInto, Math.max(into, SIZES.joinInto)];
+function sweepSolid(wasm: ManifoldToplevel, a: Pose, b: Pose, back: number, on: number): Manifold {
+  const at = sweepAt(a, b);
+  // The pose g along: the sweep from 0 to 1, and before and after it straight on.
   const pose = (g: number) =>
-    g < 0 ? ahead(from, back * g) : g <= 1 ? at(g) : ahead(land, on * (g - 1));
-  const spans = [-1, 0, 1, 2];
+    g < 0 ? ahead(a, back * g) : g <= 1 ? at(g) : ahead(b, on * (g - 1));
+  const spans = [...(back > 0 ? [-1] : []), 0, 1, ...(on > 0 ? [2] : [])];
   const h = SIZES.joinMesh;
   // The lanes, round the cross-section: the top from side -1 to 1, down side
   // 1, the underside back, up side -1.
-  const m = Math.ceil((2 * Math.max(from.half, land.half)) / h);
-  const v = Math.ceil(Math.max(from.thick, land.thick) / h);
+  const m = Math.ceil((2 * Math.max(a.half, b.half)) / h);
+  const v = Math.ceil(Math.max(a.thick, b.thick) / h);
   const lanes: ((q: Pose) => V3)[] = [];
   // Across (0 at side -1, 1 at side 1) and down (0 top, 1 underside).
   const lane = (across: number, down: number) => (q: Pose) => {
@@ -582,9 +612,8 @@ function joinSolid(wasm: ManifoldToplevel, d: Dims, k: RibKey, u: number, join: 
   // one every 5° its heading or normal turns, as the stations are (the inner
   // lanes run little way while the rib twists round them): [g, point].
   const turn = (p: V3, q: V3) => Math.acos(Math.max(-1, Math.min(1, dot(p, q))));
-  const normal = (q: Pose) => cross(q.t, q.c);
   const steps = Math.ceil(
-    Math.max(turn(from.t, land.t), turn(normal(from), normal(land))) / (Math.PI / 36),
+    Math.max(turn(a.t, b.t), turn(normalOf(a), normalOf(b))) / (Math.PI / 36),
   );
   const fine = 128;
   const points = lanes.map((path) =>
@@ -610,10 +639,9 @@ function joinSolid(wasm: ManifoldToplevel, d: Dims, k: RibKey, u: number, join: 
   // Neighbouring lanes stitched, oriented outward: going round the lanes is
   // going from top (n) to side 1 (c), so a triangle from a lane ahead (t) to
   // the next faces t × c = n out on the top, and so on round.
-  ids.forEach((A, a) => {
-    const b = (a + 1) % ids.length;
-    const B = ids[b];
-    const [ga, gb] = [points[a], points[b]].map((lane) => lane.map(([g]) => g));
+  ids.forEach((A, l) => {
+    const B = ids[(l + 1) % ids.length];
+    const [ga, gb] = [points[l], points[(l + 1) % ids.length]].map((lane) => lane.map(([g]) => g));
     let [i, j] = [0, 0];
     while (i < A.length - 1 || j < B.length - 1) {
       if (j === B.length - 1 || (i < A.length - 1 && ga[i + 1] <= gb[j + 1])) {
@@ -631,7 +659,7 @@ function joinSolid(wasm: ManifoldToplevel, d: Dims, k: RibKey, u: number, join: 
     const ring = ids.map((lane) => (last ? lane.at(-1)! : lane[0]));
     const plan = ring.map((id): [number, number] => {
       const p = sub(verts.slice(id * 3, id * 3 + 3) as V3, q.p);
-      return [dot(p, q.c), dot(p, normal(q))];
+      return [dot(p, q.c), dot(p, normalOf(q))];
     });
     const ccw = area2(plan) > 0;
     const order = ring.map((_, i) => (ccw ? i : ring.length - 1 - i));
@@ -648,7 +676,7 @@ function joinSolid(wasm: ManifoldToplevel, d: Dims, k: RibKey, u: number, join: 
       triVerts: new Uint32Array(tris),
     }),
   );
-  if (solid.status() !== 'NoError') throw new Error(`joinSolid: ${solid.status()}`);
+  if (solid.status() !== 'NoError') throw new Error(`sweepSolid: ${solid.status()}`);
   return solid;
 }
 
@@ -665,25 +693,53 @@ const feet = (d: Dims, rib: Rib, end: number) =>
 
 /**
  * The outline, counter-clockwise: round the feet's convex hull, dug in at most
- * digDeepest, and the outer sides' plates' and tile pockets' hulls, rounded to
- * `corner` out and in and standing flare out from them (at a sharp corner a
- * little less).
+ * digDeepest, and the outer sides' plates' and tile pockets' hulls, its
+ * corners in rounded to `corner` (trimmed back where drops stand on it).
  */
 function rounded(wasm: ManifoldToplevel, d: Dims, feet: V3[], sides: V3[][]) {
-  const R = SIZES.corner;
   const plan = (ps: V3[]) => ps.map((p) => [p[0], p[1]] as [number, number]);
   const round = (c: CrossSection, by: number) => c.offset(by, 'Round', 2, SIZES.cornerSegments);
   const area = wasm.CrossSection.union([
     new wasm.CrossSection([plan(outline(feet, d.wall, SIZES.digDeepest))], 'NonZero'),
     ...sides.map((side) => wasm.CrossSection.hull([plan(side)])),
   ]);
-  // Out by flare and R and back by R: everywhere at least flare out, the
-  // corners out rounded to flare about the area's corners, the corners in to R.
-  // (Rounding the corners out wider would bring them in closer than flare.)
-  return round(round(area, SIZES.flare + R), -R)
+  // Out by R and back: the corners in rounded to R, the corners out kept.
+  return largest(round(round(area, SIZES.corner), -SIZES.corner));
+}
+/** The largest of a cross-section's polygons. */
+const largest = (c: CrossSection) =>
+  c
     .toPolygons()
     .map((p) => p.map((q) => [q[0], q[1]] as [number, number]))
     .reduce((x, y) => (area2(y) > area2(x) ? y : x));
+/**
+ * The outline cut back to the faces standing on it, each [a, b, outward]
+ * (plan): what rounding its corners in filled in past them, so that the rail
+ * runs straight under the drops and bands that stand on it.
+ */
+function trimmed(wasm: ManifoldToplevel, ring: [number, number][], faces: V3[][]) {
+  if (!faces.length) return ring;
+  const D = SIZES.corner;
+  const cut = faces.map(
+    ([a, b, o]) =>
+      new wasm.CrossSection(
+        [
+          [a, b, add(b, scale(o, D)), add(a, scale(o, D))].map(
+            (p) => [p[0], p[1]] as [number, number],
+          ),
+        ],
+        'NonZero',
+      ),
+  );
+  return largest(new wasm.CrossSection([ring], 'NonZero').subtract(wasm.CrossSection.union(cut)));
+}
+/** The outline's edge nearest p: along it and outward (plan, unit; it runs counter-clockwise). */
+function ringAt(ring: number[][], p: V3): [V3, V3] {
+  const [a, b] = ring
+    .map((x, i) => [x, ring[(i + 1) % ring.length]])
+    .reduce((x, y) => (gap(y, p) < gap(x, p) ? y : x));
+  const along = [...unitPlan([b[0] - a[0], b[1] - a[1]]), 0] as V3;
+  return [along, [along[1], -along[0], 0]];
 }
 /** How far (plan) p is from the segment [a, b]. */
 function gap([a, b]: number[][], p: V3) {
@@ -819,8 +875,8 @@ function band(
     const into = scale([...unitPlan(k.c), 0] as V3, -s * SIZES.bandInto);
     return dropSide(d, rib, end, s, kind).map((p) => p.map((q) => add(q, into)) as Pair);
   });
-  const feetApart = Math.hypot(...sub(sides[0].at(-1)![0], sides[1].at(-1)![0]));
-  if (feetApart > SIZES.bandGap) return [];
+  const apart = Math.hypot(...sub(sides[0].at(-1)![0], sides[1].at(-1)![0]));
+  if (apart > SIZES.bandGap) return [];
   const top = Math.min(...sides.map((side) => side[0][0][2]));
   const levels = [...new Set(sides.flatMap((side) => side.map((p) => p[0][2])))]
     .filter((z) => z <= top)
@@ -1100,10 +1156,16 @@ function flowTo(
  * (the rail extrudes it with its own section), and the hanging ends that drop
  * onto it (changed in `ends`). It runs through where each hanging end that
  * could drop straight down clear of the keys would stand, in order across the
- * hand, and on at each end to the rail: straight on, or else to the rail's
- * nearest point, whichever is clear of the keys; its bends rounded. Then each
- * of those ends drops onto it as onto the rail, its foot carried out to the
- * tie's far side, where that is clear. None if no hanging end could drop.
+ * hand, and on at each end to the rail, as clear of the keys: straight on if
+ * it meets the rail near square, or else turned square into it a little short
+ * of it; or else straight on past the end's drop by tieRound and turned as
+ * little as clears (toward where the ends face first), then square into the
+ * rail as before. Its bends are rounded. Then each of those ends drops onto
+ * it, landing square on it: across along it, its outer face on the tie's far
+ * side. Where the rail is closer to an end drop than tieRound from its side,
+ * the drops land moved along the tie away from it, bending to meet it, so that
+ * none lands in the tie's fillets into the rail. None if no hanging end could
+ * drop.
  */
 function floorTie(
   wasm: ManifoldToplevel,
@@ -1114,23 +1176,24 @@ function floorTie(
   ends: End[][],
   ring: [number, number][],
 ) {
+  const R = SIZES.tieRound;
   const spots = all.flatMap((rib, i) =>
     [0, 1].flatMap((e) => {
-      if (ends[i][e] !== 'hang' || !dropClear(cfg, d, frames, rib, e, { out: 0 })) return [];
-      const [k, u] = endKey(rib, e);
-      const h = [...unitPlan(scale(k.a, u)), 0] as V3;
-      const [a, b] = feet(d, rib, e);
-      return [{ i, e, h, foot: lerp(a, b, 0.5), across: [...unitPlan(k.c), 0] as V3 }];
+      if (ends[i][e] !== 'hang') return [];
+      const top = dropTop(d, ...endKey(rib, e));
+      const down = straightDown(top);
+      if (!dropClear(cfg, d, frames, rib, e, { land: down })) return [];
+      // Where it would stand: its drop's middle, half a wall in from its outer face.
+      const h = top.n!;
+      return [{ i, e, top, h, half: down.half, down, stand: sub(down.p, scale(h, d.wall / 2)) }];
     }),
   );
   if (!spots.length) return undefined;
-  // Where each would stand: its drop's middle, half a wall back from the foot.
-  const stands = spots.map((x) => sub(x.foot, scale(x.h, d.wall / 2)));
   // Across the hand: along the line through the two farthest apart.
-  const pairs = stands.flatMap((p, i) => stands.slice(i + 1).map((q) => [p, q]));
+  const pairs = spots.flatMap((p, i) => spots.slice(i + 1).map((q) => [p.stand, q.stand]));
   const [p0, p1] = pairs.reduce(
     (x, y) => (Math.hypot(...sub(y[0], y[1])) > Math.hypot(...sub(x[0], x[1])) ? y : x),
-    [stands[0], add(stands[0], spots[0].across)],
+    [spots[0].stand, add(spots[0].stand, spots[0].top.c)],
   );
   const dir = [...unitPlan(sub(p1, p0)), 0] as V3;
   // Whether the tie from p to q is clear of the keys.
@@ -1147,45 +1210,72 @@ function floorTie(
     return clearOf(cfg, frames, points);
   };
   // In order, leaving out any it can't run on to clear of the keys.
-  const order = [...stands]
-    .sort((p, q) => dot(p, dir) - dot(q, dir))
-    .reduce((kept: V3[], p) => (!kept.length || clear(kept.at(-1)!, p) ? [...kept, p] : kept), []);
-  // Each end on to the rail's middle: straight on if clear, else turned as
-  // little as clears (up to square), toward where the ends face first, else
-  // straight on anyway; its last stretch turned square into the rail (if it
-  // meets it more than 15° off square).
-  const facing = spots.reduce((sum, x) => add(sum, x.h), [0, 0, 0] as V3);
-  const toRail = (p: V3, out: V3) => {
-    const leg = (turn: number) => {
-      const [c, sn] = [Math.cos(turn), Math.sin(turn)];
-      const v: V3 = [out[0] * c - out[1] * sn, out[0] * sn + out[1] * c, 0];
-      const q = add(p, scale(v, toRing(ring, p, v)));
-      // The outline's outward normal there (it runs counter-clockwise).
-      const [a, b] = ring
-        .map((x, i) => [x, ring[(i + 1) % ring.length]])
-        .reduce((x, y) => (gap(y, q) < gap(x, q) ? y : x));
-      const n = [...unitPlan([b[1] - a[1], a[0] - b[0]]), 0] as V3;
-      const end = sub(q, scale(n, d.wall / 2));
-      const square = sub(end, scale(n, 2 * SIZES.tieRound));
-      return dot(v, n) < Math.cos(Math.PI / 12) && dot(sub(square, p), v) > 0
-        ? [square, end]
-        : [end];
-    };
+  const order = [...spots]
+    .sort((p, q) => dot(p.stand, dir) - dot(q.stand, dir))
+    .reduce(
+      (kept: typeof spots, x) =>
+        !kept.length || clear(kept.at(-1)!.stand, x.stand) ? [...kept, x] : kept,
+      [],
+    );
+  // Along the tie at each drop, the way the drops are in order.
+  const tangent = order.map((_, m): V3 =>
+    order.length < 2
+      ? dir
+      : ([
+          ...unitPlan(
+            sub(order[Math.min(m + 1, order.length - 1)].stand, order[Math.max(m - 1, 0)].stand),
+          ),
+          0,
+        ] as V3),
+  );
+  const facing = order.reduce((sum, x) => add(sum, x.h), [0, 0, 0] as V3);
+  // The tie on from the drop x at one end, heading out, to the rail's middle,
+  // its drop moved `moved` toward that end: the points after x's stand, and
+  // how far too close to the rail it leaves the drop.
+  const toRail = (x: (typeof spots)[number], out: V3, moved: number): [V3[], number] => {
     const toward = Math.sign(cross(out, facing)[2]) || 1;
-    const legs = [0, 1, 2, 3, 4, 5, 6]
-      .flatMap((j) => (j ? [j, -j] : [0]))
-      .map((j) => leg((toward * j * Math.PI) / 12));
-    return legs.find((l) => l.every((q, i) => clear(i ? l[i - 1] : p, q))) ?? legs[0];
+    const past = x.half + moved + R;
+    for (const j of [0, 1, 2, 3, 4, 5, 6].flatMap((j) => (j ? [j, -j] : [0]))) {
+      const [c, sn] = [
+        Math.cos((toward * j * Math.PI) / 12),
+        Math.sin((toward * j * Math.PI) / 12),
+      ];
+      const v: V3 = [out[0] * c - out[1] * sn, out[0] * sn + out[1] * c, 0];
+      const from = j ? add(x.stand, scale(out, past)) : x.stand;
+      const S = toRing(ring, from, v);
+      if (!(S > 0 && S < Infinity)) continue;
+      const n = ringAt(ring, add(from, scale(v, S)))[1];
+      const cos = dot(v, n);
+      if (cos < 0.25) continue;
+      // Turned square into the rail where it is 2R and a wall short of it.
+      const s = S - (2 * R + d.wall) / cos;
+      const square = cos < Math.cos(Math.PI / 12) && s >= (j ? R : past);
+      if (j && !square) continue;
+      const corner = add(from, scale(v, s));
+      const legs = square
+        ? [corner, add(corner, scale(n, toRing(ring, corner, n) - d.wall / 2))]
+        : [add(from, scale(v, S - d.wall / 2 / cos))];
+      const path = [x.stand, ...(j ? [from] : []), ...legs];
+      if (!path.slice(1).every((q, m) => clear(path[m], q))) continue;
+      return [path.slice(1), j || square ? 0 : Math.max(0, past - (S - d.wall / cos))];
+    }
+    // Else straight on anyway.
+    const S = toRing(ring, x.stand, out);
+    return [[add(x.stand, scale(out, S - d.wall / 2))], Math.max(0, past - (S - d.wall))];
   };
   const back =
-    order.length > 1 ? ([...unitPlan(sub(order[0], order[1])), 0] as V3) : scale(dir, -1);
-  const on = order.length > 1 ? ([...unitPlan(sub(order.at(-1)!, order.at(-2)!)), 0] as V3) : dir;
-  const path = [...toRail(order[0], back).reverse(), ...order, ...toRail(order.at(-1)!, on)];
+    order.length > 1
+      ? ([...unitPlan(sub(order[0].stand, order[1].stand)), 0] as V3)
+      : scale(dir, -1);
+  const on = order.length > 1 ? tangent.at(-1)! : dir;
+  const [first, short0] = toRail(order[0], back, 0);
+  const [last, short1] = toRail(order.at(-1)!, on, short0);
+  const path = [...first.reverse(), ...order.map((x) => x.stand), ...last];
   // The centreline, each bend rounded (a quadratic between its tangent points).
   const line = path.flatMap((p, i): V3[] => {
     if (!i || i === path.length - 1) return [p];
     const [a, b] = [path[i - 1], path[i + 1]];
-    const t = Math.min(SIZES.tieRound, Math.hypot(...sub(p, a)) / 2, Math.hypot(...sub(b, p)) / 2);
+    const t = Math.min(R, Math.hypot(...sub(p, a)) / 2, Math.hypot(...sub(b, p)) / 2);
     const [s, e] = [a, b].map((q) => add(p, scale([...unitPlan(sub(q, p)), 0] as V3, t)));
     return [...Array(SIZES.roundSteps + 1).keys()].map((j) => {
       const f = j / SIZES.roundSteps;
@@ -1200,21 +1290,23 @@ function floorTie(
   const strip = wasm.CrossSection.union(
     line.slice(1).map((p, j) => wasm.CrossSection.hull([[...disc(line[j]), ...disc(p)]])),
   );
-  // The drops: each foot carried out to the tie's far side, along the end.
-  const outline = strip.toPolygons();
-  for (const x of spots) {
-    const from = sub(x.foot, scale(x.h, 2 * d.wall));
-    const hits = outline
-      .flatMap((poly) => crossings(poly, from, x.h))
-      .filter((t) => t > 0)
-      .sort((p, q) => p - q);
-    // In and out of the strip in pairs: the first way out not a wall behind the foot.
-    const exit = hits.filter((_, j) => j % 2).find((t) => t - 2 * d.wall > -d.wall);
-    if (exit === undefined) continue;
-    const drop = { out: exit - 2 * d.wall };
-    if (drop.out <= SIZES.reach && dropClear(cfg, d, frames, all[x.i], x.e, drop))
+  // The drops, each moved along the tie away from the end the rail is too
+  // close to, its outer face on the tie's far side.
+  const moved = short0 - short1;
+  order.forEach((x, m) => {
+    const along = tangent[m];
+    const across = scale(
+      [along[1], -along[0], 0] as V3,
+      Math.sign(dot([along[1], -along[0], 0], x.h)) || 1,
+    );
+    const q = add(add(x.stand, scale(along, moved)), scale(across, d.wall / 2));
+    const drop = { land: landing(x.top, q, along) };
+    if (
+      Math.hypot(...sub(q, x.down.p)) <= SIZES.reach &&
+      dropClear(cfg, d, frames, all[x.i], x.e, drop)
+    )
       ends[x.i][x.e] = drop;
-  }
+  });
   return strip;
 }
 
@@ -1255,7 +1347,7 @@ export function skeletyl(
     );
   };
   const free = (rib: Rib) => [0, 1].filter((e) => !rib.parted[e]);
-  const ring = rounded(
+  const rough = rounded(
     wasm,
     d,
     all.flatMap((rib) => free(rib).flatMap((e) => feet(d, rib, e))),
@@ -1263,12 +1355,51 @@ export function skeletyl(
   );
   const kind = (rib: Rib, e: number): End => {
     if (rib.parted[e]) return endClear(cfg, d, frames, rib, e, 'hang') ? 'hang' : 'flush';
-    const [k, u] = endKey(rib, e);
-    const h = [...unitPlan(scale(k.a, u)), 0] as V3;
-    const drop = { out: Math.min(...feet(d, rib, e).map((p) => toRing(ring, p, h))) };
-    return drop.out <= SIZES.reach && endClear(cfg, d, frames, rib, e, drop) ? drop : 'hang';
+    // Straight down onto the outline, or bending out along the end to it.
+    const top = dropTop(d, ...endKey(rib, e));
+    const out = toRing(rough, top.p, top.n!);
+    if (!(Math.abs(out) <= SIZES.reach)) return 'hang';
+    const q = add(top.p, scale(top.n!, out));
+    const drop = { land: landing(top, q, ringAt(rough, q)[0]) };
+    return endClear(cfg, d, frames, rib, e, drop) ? drop : 'hang';
   };
   const ends = all.map((rib) => [0, 1].map((e) => kind(rib, e)));
+  // Neighbouring columns' first ribs at the front (end 0), last at the back (1).
+  const neighbours = [0, 1].flatMap((e) =>
+    [...Array(columns - 1).keys()].map((c) => ({
+      e,
+      pair: [c, c + 1].map((run) =>
+        all.flatMap((r, j) => (r.run === run ? [j] : [])).at(e ? -1 : 0)!,
+      ),
+    })),
+  );
+  // The outline cut back to the drops on it and the bands to be between them,
+  // each band from one's outer corner to the other's facing it.
+  const lands = (i: number, e: number) => {
+    const end = ends[i][e];
+    return isDrop(end) ? end.land : undefined;
+  };
+  const faces = [
+    ...all.flatMap((_, i) =>
+      [0, 1].flatMap((e) => {
+        const l = lands(i, e);
+        return l ? [[...[-1, 1].map((s) => poseSide(l, s)[0]), normalOf(l)]] : [];
+      }),
+    ),
+    ...neighbours.flatMap(({ e, pair }) => {
+      const [a, b] = pair.map((i) => lands(i, e));
+      if (!a || !b) return [];
+      const facing = (l: Pose, o: Pose) =>
+        [-1, 1]
+          .map((s) => poseSide(l, s)[0])
+          .reduce((x, y) => (gap([o.p, o.p], y) < gap([o.p, o.p], x) ? y : x));
+      const [p, q] = [facing(a, b), facing(b, a)];
+      if (Math.hypot(...sub(q, p)) > SIZES.bandGap) return [];
+      const o = [...unitPlan([q[1] - p[1], p[0] - q[0]]), 0] as V3;
+      return [[p, q, dot(o, add(normalOf(a), normalOf(b))) < 0 ? scale(o, -1) : o]];
+    }),
+  ];
+  const ring = trimmed(wasm, rough, faces);
   // PROTOTYPE ?ends= (skeletyl-ends.prototype.ts): the columns' hanging fronts
   // joined to the thumbs, and the floor tie that the hanging ends drop onto.
   const support = (cfg.chassis as { ends?: string }).ends ?? 'none';
@@ -1315,16 +1446,11 @@ export function skeletyl(
       ? floorTie(wasm, cfg, d, frames, all, ends, ring)
       : undefined;
   const solids = all.map((rib, i) => ribSolid(wasm, cfg, d, rib, ends[i]));
-  // The bands: neighbouring columns' first ribs at the front, last at the back.
-  const bands = [0, 1].flatMap((e) =>
-    [...Array(columns - 1).keys()].flatMap((c) => {
-      const pair = [c, c + 1].map((run): [Rib, End] => {
-        const i = all.flatMap((r, j) => (r.run === run ? [j] : [])).at(e ? -1 : 0)!;
-        return [all[i], ends[i][e]];
-      });
-      return pair.every(([, kind]) => isDrop(kind)) ? band(wasm, cfg, d, frames, e, pair) : [];
-    }),
-  );
+  // The bands between neighbouring columns' drops.
+  const bands = neighbours.flatMap(({ e, pair }) => {
+    const sides = pair.map((i): [Rib, End] => [all[i], ends[i][e]]);
+    return sides.every(([, kind]) => isDrop(kind)) ? band(wasm, cfg, d, frames, e, sides) : [];
+  });
   const area = new wasm.CrossSection([ring], 'NonZero');
   const inside = area.offset(-d.wall, 'Round');
   const loop = area.subtract(inside);

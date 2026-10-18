@@ -14,9 +14,12 @@
 // look like the rest of the frame (see "PROTOTYPE ?ends=" there):
 //  - none: the ends left hanging (the frame as without this switch).
 //  - tie: a floor tie, a bar of the rail's own section across the floor
-//    under the hanging ends, rail to rail, filleted into it like the
-//    outline's corners in. The hanging ends that can drop onto it clear of
-//    the keys become ordinary drops, banded to their neighbours.
+//    under the hanging ends, rail to rail, each leg turning (rounded) to meet
+//    the rail square and filleted into it like the outline's corners in. The
+//    hanging ends that can drop onto it clear of the keys become ordinary
+//    drops (bending along the end where the tie is off from straight down,
+//    landing square on it, clear of its bends and junctions), banded to their
+//    neighbours.
 //  - join: a hanging finger front near a thumb key's plate carries on as a web
 //    (like a web between keys in a rib) to that plate's facing edge, so the
 //    finger rib and the thumb rib are one; no round there.

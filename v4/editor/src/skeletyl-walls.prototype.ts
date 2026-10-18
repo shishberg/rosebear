@@ -37,10 +37,10 @@ export interface WallPoint {
   under: V3;
   /** Outward in plan (unit, z 0): across the rib here, away from the keys' middle. */
   out: V3;
-  /** What the point is on: a key's plate (`key` names it), a web between two plates, or an end (lip, round, drop, foot). */
+  /** What the point is on: a key's plate (`key` names it), a web between two plates, or an end (lip, round, drop). */
   over: 'key' | 'web' | 'end';
   key?: string;
-  /** The rail straight out from `under` along `out`, on the floor (z 0): its inner edge, centreline and outer edge (the outline). Its top is side.railHeight up. Where the side is already on or past the rail (a drop's foot) these are close to `under` or behind it. */
+  /** The rail straight out from `under` along `out`, on the floor (z 0): its inner edge, centreline and outer edge (the outline). Its top is side.railHeight up. Where the side is already on the rail (a drop's landing) these are close to `under` or behind it. */
   rail: { inner: V3; centre: V3; outer: V3 };
 }
 
@@ -52,17 +52,17 @@ export interface WallPoint {
 export interface WallSide {
   /** Which rib: the column's name (e.g. "inner", "pinky") or "thumb", with " #2" etc. if the run parted into several ribs. */
   name: string;
-  /** Along the side, from its first end to its last: first end's foot (or round's bottom, or the plate's corner if flush) up and over its round and lip, along the plates (each split into 5 between its corners) and webs, and over the last end down to its foot. */
+  /** Along the side, from its first end to its last: first end's landing (or round's bottom, or the plate's corner if flush) up and over its round and lip, along the plates (each split into 5 between its corners) and webs, and over the last end down to its landing. */
   points: WallPoint[];
   /** The keys under the side, in order, each with the points over its plate: from (its first plate corner) to (its far corner), inclusive. Between one key's `to` and the next's `from` is a web; before the first `from` and after the last `to` are the ends. A post between keys stands on a web, an arch spans a key. */
   keys: { name: string; from: number; to: number }[];
-  /** How each end (first, last) finishes: "drop" (the end drops to the floor, its foot carried out onto the rail), "hang" (a round, stopping above the floor, at its last point), or "flush" (the run parted there: the side stops at the plate's corner). A drop's points go straight down, one above another, so a wall swept along the side can't follow them: it can stop at the bottom of the round, flush with the drop's outer face, as flare does. */
+  /** How each end (first, last) finishes: "drop" (the end drops to the floor: the rib carried on down onto the rail, straight down or bending out along the end, landing square on it), "hang" (a round, stopping above the floor, at its last point), or "flush" (the run parted there: the side stops at the plate's corner). A drop's points go down, near one above another, so a wall swept along the side can't follow them: it can stop at the bottom of the round, flush with the drop's outer face, as flare does. */
   ends: ['drop' | 'hang' | 'flush', 'drop' | 'hang' | 'flush'];
   /** The wall thickness the frame is built to (its ends and rail), mm. */
   wall: number;
   /** The rail's height, mm (it is `wall` wide, inside the outline). */
   railHeight: number;
-  /** The outline (plan, counter-clockwise): the rail's outer edge. It is meant to stand 5 mm out from the outer sides' plates and tile pockets, but on some layouts (Swung in's inner column) it is barely out from them, leaving a wall no room. */
+  /** The outline (plan, counter-clockwise): the rail's outer edge. It runs round the outer sides' plates and tile pockets with no room set aside for a wall: a wall stands on the rail, or over it, under the plate's edge. */
   outline: [number, number][];
   /** Whether points stay clear (by 0.3 mm) of every key's tile and its components, switch body and keycap room (from the plate up), as the hardware and keycap checks have them, and of each switch hole's column 12 mm down (the openings check). Test a wall's faces with it (points over them, a few mm apart), not only its edges. */
   clear: (points: V3[]) => boolean;
