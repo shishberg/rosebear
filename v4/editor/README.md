@@ -10,7 +10,7 @@ the shape prototypes (see [design status](../docs/design-status.md)) is kept as
 `?chassis=c64`.
 
 How the case is built and wired is in [editor chassis and wiring](../docs/editor-chassis.md).
-The wiring, the tile pads, the FFC adapter and the ribbon dimensions are
+The tile is measured. The wiring, the FFC adapter and the ribbon dimensions are
 **provisional**; each is marked `provisional` in the configuration.
 
 ## Run
@@ -146,9 +146,9 @@ result cannot replace a newer edit. A 30-second watchdog stops a stuck worker. E
 build frees every geometry object it made, including those made with `new`, so the
 geometry engine's heap stays flat from one build to the next (`tests/geometry.test.ts` pins that
 objects made with `new` are freed); a fresh worker still takes over every eight builds as a safety net. A
-build of the default project takes about 14 s in node on a laptop, most of it the
-wire router failing to part three pairs of Swung in's wires (the layout before
-Swung in, `tests/pre-swung-config.json`, takes about 1 s; the browser
+build of the default project takes about 2 s in node on a laptop, more than half
+of it the wire router failing to part one pair of Swung in's wires (the layout
+before Swung in, `tests/pre-swung-config.json`, takes under 1 s; the browser
 routes the wires in a worker of their own while the shell is lofted). The checks cut
 each probe against the case near its key, not the whole case.
 

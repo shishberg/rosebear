@@ -20,12 +20,14 @@ are retained as a fallback. The pod and common breakout architecture still apply
 but connect purchased boards by their verified signal labels, not by the
 custom tile's W1-W8 physical pad positions.
 
-The listing's selected variant is **RGB diode R2C**. That suggests ROW2COL
-polarity, whereas the custom PCB below is COL2ROW. Confirm the purchased diode
-orientation with a multimeter and configure firmware accordingly; the same
-row/column harness topology works in either direction. The RGB part and exact
-power demand remain unidentified. Test a short column at the intended supply
-and wiring length before assembling the full harness.
+The listing's selected variant is **RGB diode R2C**, and the bought tiles
+measure **ROW2COL** (R → switch → diode → C), whereas the custom PCB below is
+COL2ROW. Configure firmware as `row2col`; the same row/column harness topology
+works in either direction. The bought tiles are 17 mm square, with through
+holes for one wire each; [design status](design-status.md) has their
+measurements, holes and wiring. The RGB part and exact power demand remain
+unidentified. Test a short column at the intended supply and wiring length
+before assembling the full harness.
 
 Decided: no capacitors on the hand side, bulk or per column. The pod keeps the
 100 nF across its level shifter.
@@ -170,16 +172,20 @@ Dots indicate joins; undotted crossings are not joined.
    C3 index, far on C4 inner. A thumb's column wire runs to its column's
    breakout pad, not along the finger column, so two wires share each column
    pad. (Earlier revisions had three thumbs as a sixth column, C5.)
-2. Join each tile's **R** pad to its row bus and **C** pad to its column bus.
-   On the PCB: COL → switch → diode anode, diode cathode → ROW. Use COL2ROW
-   matrix scanning. The thumb boards can be physically rotated independently.
-3. RGB is a separate serial chain: breakout RGB → first DI; DO → next DI;
-   continue through all 20 keys. Leave the final DO unconnected. Start with the
-   thumbs, then snake through the columns in alternating directions, to keep
-   runs short.
+2. Join each tile's **R** holes to its row bus and **C** holes to its column
+   bus. A hole takes one wire, so a bus arrives at one of the tile's two R (or
+   C) holes and leaves from the other. On the bought tiles: ROW → switch →
+   diode anode, diode cathode → COL; use ROW2COL (`row2col`) matrix scanning.
+   (On the custom PCB: COL → switch → diode anode, diode cathode → ROW,
+   COL2ROW.) The thumb boards can be physically rotated independently.
+3. RGB is a separate serial chain: breakout RGB → first tile's **in**; **out**
+   → next **in**; continue through all 20 keys. Leave the final out
+   unconnected. Start with the thumbs, then snake through the columns in
+   alternating directions, to keep runs short.
 4. All LEDs connect to the same +5 V and GND buses, electrically in parallel.
-   The two `+` pads are connected on each tile; the two `G` pads are connected.
-   These allow one incoming and one outgoing power wire without a splice.
+   Each tile's **V** hole is joined to its V edge pads, and its **G** hole to
+   its G edge pads, so one power wire arrives at the hole and one leaves from
+   the LED-edge pad without a splice.
 5. The Cirque trackpad has its own 12-way FFC to the pod and does not use the
    hand ribbon, so pins 14–19 are spare.
 
@@ -194,10 +200,10 @@ with provisional cut lengths (about 6.4 m per half, including a 40 mm service
 loop on each feed so the bottom plate and its adapter can be lifted off).
 Continuous stripped row/column buses can reduce the number of separate pieces.
 
-The 1 mm wire holes can be used for thin insulated matrix/data wire; check
-that two conductors fit comfortably where a row or column loops through one
-pad. Start with 28–30 AWG for matrix/data and 26 AWG for power buses. Wire
-length depends on the final chassis. Keep small service loops, insulate
+The bought tiles' holes (about 0.85 mm) take one wire each: a 22 AWG wire
+fits, two don't, so no row or column loops through one hole. Start with
+28–30 AWG for matrix/data and 26 AWG for power buses. Wire length depends on
+the final chassis. Keep small service loops, insulate
 crossings, and clamp the harness near each breakout instead of hanging its
 weight from solder pads. The tile is rigid: the *wires*, not the PCB, follow
 the keywell curvature. Each socket needs a supporting seat/retainer in the

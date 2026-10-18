@@ -24,8 +24,8 @@ test('key handles set height and stagger, with undo, persistence and file roundt
   const list = page.locator('#fit-list');
   await expect(list).toContainText('one piece');
   await expect(list).toContainText('17/20 flat switch seats pass');
-  await expect(list).toContainText('4 keycap rooms had to cut into the chassis.');
-  await expect(list).toContainText('3 pairs of wires run into each other.');
+  await expect(list).toContainText('3 keycap rooms had to cut into the chassis.');
+  await expect(list).toContainText('1 pairs of wires run into each other.');
   // The edits start from the layout before Swung in, which passes.
   await usePreSwung(page);
   await expect(page.locator('#fit-badge')).toHaveText('Clearance checks PASS');
@@ -177,17 +177,10 @@ test('clearance overlays isolate collisions, toggle, and clear on edit', async (
   expect(await highlights()).toEqual([]);
   await rebuilt(page);
   // Only Swung in's own keycap failures are left (the default; pinned in
-  // tests/geometry.test.ts): matrix pinky home and bottom, thumb x1 and x2,
-  // and with the keycaps' bottoms 2 mm up the ring bottom key's too.
+  // tests/geometry.test.ts): matrix pinky bottom, thumb x1 and x2.
   await expect(page.locator('#fit-badge')).toHaveText('Clearance checks FAIL');
   const capLines = page.locator('#fit-list button').filter({ hasText: / at rest; / });
-  await expect(capLines).toHaveText([
-    /^matrix ring bottom: /,
-    /^matrix pinky home: /,
-    /^matrix pinky bottom: /,
-    /^thumb x1: /,
-    /^thumb x2: /,
-  ]);
+  await expect(capLines).toHaveText([/^matrix pinky bottom: /, /^thumb x1: /, /^thumb x2: /]);
   expect(errors).toEqual([]);
 });
 test('the wiring panel lists the matrix and cut list, and the wiring follows the keys', async ({

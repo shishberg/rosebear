@@ -153,7 +153,7 @@ export function adapterParts(
   return parts;
 }
 
-/** The pads on every tile, as thin boxes on the tile's underside. */
+/** The pads and holes on every tile, as thin boxes (a hole's ring, round) on the tile's underside. */
 export function padParts(cfg: Config, frames = componentFrames(cfg)): Part[] {
   const tile = cfg.tile;
   const z = tileUnderside(cfg) - WIRING.padLift;
@@ -161,11 +161,14 @@ export function padParts(cfg: Config, frames = componentFrames(cfg)): Part[] {
     .filter(isKey)
     .flatMap((key) =>
       tile.pads.list.map((p) => ({
-        name: `${key}: ${p.name} pad`,
+        name: `${key}: ${p.name} ${p.hole ? 'hole' : 'pad'}`,
         group: 'pads',
-        size: [...tile.pads.size_mm, WIRING.padThickness] as V3,
+        size: (p.hole
+          ? [tile.pads.ring_mm, tile.pads.ring_mm, WIRING.padThickness]
+          : [...tile.pads.size_mm, WIRING.padThickness]) as V3,
         center: [p.at_mm[0], p.at_mm[1], z] as V3,
         matrix: frames[key].elements.slice(),
+        cylinder: p.hole ? tile.pads.ring_mm / 2 : undefined,
       })),
     );
 }

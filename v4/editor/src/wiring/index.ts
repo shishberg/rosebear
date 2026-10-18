@@ -15,7 +15,7 @@
 //           inner and index columns' bottom keys, inside the case's hollow;
 //  slack loop  the arch the ribbon makes between the connector and the landing,
 //           so a pull held by the ties never reaches the connector.
-import { componentFrames, isKey, tileUnderside, type Config } from '../geometry';
+import { componentFrames, isKey, tileBottom, tileUnderside, type Config } from '../geometry';
 import { tilePocketHalf } from '../plates';
 import { holes, padParts, adapterParts, landingBox } from './adapter';
 import { assignPlaces, diameterOf, optionsOf } from './candidates';
@@ -48,14 +48,7 @@ export function wiring(cfg: Config, frames = componentFrames(cfg)): Wiring {
   const hole = holes(cfg, frames);
   const port = wirePort(cfg, frames);
   const grid = portGrid(port, port.diameter / 2 - w.power_wire_mm / 2);
-  const componentDepth = Math.max(
-    ...tile.components.map(
-      (p) =>
-        -(p.center_mm[2] - tile.plate_top_to_pcb_top_mm - p.size_mm[2] / 2) +
-        padZ +
-        tile.component_clearance_mm,
-    ),
-  );
+  const componentDepth = padZ - tileBottom(cfg) + tile.component_clearance_mm;
   const env: Env = {
     cfg,
     frames,
@@ -63,18 +56,21 @@ export function wiring(cfg: Config, frames = componentFrames(cfg)): Wiring {
     loomZ: cfg.chassis.skin_mm + w.loom_height_mm,
     half: tilePocketHalf(cfg),
     componentDepth,
+    wiredPads: tile.pads.list
+      .filter((p) => nets(cfg).some((n) => n.pads.includes(p.name)))
+      .map((p) => [p.at_mm[0], p.at_mm[1]]),
     hole,
     port,
     grid,
   };
-  const { pads, padsOf, specs, ends } = specsOf(env, keys);
+  const { pads, specs, ends } = specsOf(env, keys);
   const paths = pathsIn(env, obstaclesOf(env, keys));
   const placeOf = assignPlaces(env, specs, ends, paths.leg);
 
   // Route with the usual choices first; if wires still meet, again with every
   // place in the port and every depth, and keep the better.
   const solve = (wide: boolean) => {
-    const options = optionsOf(env, paths, specs, ends, padsOf, placeOf, wide);
+    const options = optionsOf(env, paths, specs, ends, placeOf, wide);
     const { left, choice } = negotiate(options, wide);
     return { left, paths: choice.map((k, i) => options[i][k].tube.points) };
   };

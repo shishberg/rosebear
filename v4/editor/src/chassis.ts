@@ -8,10 +8,10 @@
 // neighbours' edge to edge, and reaching out on its other edges to the wall
 // round the well. Under every plate a tile pocket is kept clear, open below
 // to the hollow, so the tiles can be soldered from below with the base off.
-// Each tile is glued up against four L-shaped pads under its plate's corners,
-// outside the switch's seat; the pads set its height, and the glue holds it
-// when a switch is pressed into its socket. The ribbon leaves through the port
-// panel on the finger bin's inner end.
+// Each tile is glued up against pads under its plate's corners (Ls, parted at
+// the tile's corner notches), outside the switch's seat; the pads set its
+// height, and the glue holds it when a switch is pressed into its socket. The
+// ribbon leaves through the port panel on the finger bin's inner end.
 //
 // Terms:
 //  tile         the small bought PCB under each switch (hotswap socket, LED, diode);
@@ -19,7 +19,7 @@
 //  plate        the square a switch clips into, plate_thickness_mm thick and
 //               plate_margin_mm past the switch seat on each side, or further if
 //               needed to cover the tile and its clearance;
-//  glue pad     an L under a plate corner that a tile's top is glued to;
+//  glue pad     an L (or its legs) under a plate corner that a tile's top is glued to;
 //  well         an opening through the shell's deck that a group of keys sits in.
 //
 // Coordinates: "key coordinates" are a key's own frame, with the origin at the
@@ -28,7 +28,15 @@
 // axis. "Plan" means the world XY plane.
 import type { Manifold, ManifoldToplevel, Vec3 } from 'manifold-3d';
 import { Matrix4 } from 'three';
-import { keycapEnvelope, isKey, isThumb, point, tileUnderside, type Config } from './geometry';
+import {
+  keycapEnvelope,
+  isKey,
+  isThumb,
+  point,
+  tileTop,
+  tileUnderside,
+  type Config,
+} from './geometry';
 import { seatSettings } from './seats';
 import { facetFloor, narrowPlates, PLATES, sheet, tilePocketDepth, tilePocketHalf } from './plates';
 import { capsule, down, keycapSolid, place, slab } from './manifold-util';
@@ -74,6 +82,10 @@ const SIZES = {
   keycapRoomHeight: 60,
   /** Glue pads: each leg of the L runs in from the tile's edge to this far from the centre along it. */
   glueFrom: 4,
+  /** Glue pads stay this far clear of a tile hole's ring (a wire's end may stand through it). */
+  glueHoleGap: 0.5,
+  /** A piece of glue pad left shorter than this between the holes and the corner notch is dropped. */
+  glueMin: 1,
   /** Glue pads stay this far outside the switch seat, so nothing stands in its trim. */
   glueSeatGap: 0.1,
   /** Glue pads reach this far up into the plate. */
@@ -90,35 +102,57 @@ const SIZES = {
 } as const;
 
 /**
- * The glue pads under a key's plate, in key coordinates: four Ls, one under
- * each corner, from the plate's underside down to the glue on the tile's top.
- * Each is two boxes, [centre, size].
+ * The glue pads under a key's plate, in key coordinates, from the plate's
+ * underside down to the glue on the tile's top, as boxes ([centre, size]):
+ * under each corner an L, a leg along each of its two edges, outside the
+ * switch's seat. A leg stops short of the tile's corner notch, so with a
+ * notch the L's two legs part, and is broken where a hole through the tile
+ * is near the edge.
  */
 export function gluePads(cfg: Config) {
   const tile = cfg.tile;
   const seat = seatSettings(cfg).outer;
   const plate = cfg.chassis.plate_thickness_mm;
   const top = -plate + SIZES.glueInto;
-  const bottom = -tile.plate_top_to_pcb_top_mm + SIZES.glueLayer;
+  const bottom = tileTop(cfg) + SIZES.glueLayer;
+  const notch = tile.corner_notch_radius_mm;
+  const keep = tile.pads.ring_mm / 2 + SIZES.glueHoleGap;
+  const holes = tile.pads.list.filter((h) => h.hole).map((h) => h.at_mm);
   const boxes: { center: Vec3; size: Vec3 }[] = [];
   for (const sx of [-1, 1])
     for (const sy of [-1, 1])
       for (const axis of [0, 1]) {
-        // One leg runs along the tile's edge facing axis, from glueFrom out to the edge.
+        // One leg runs along the tile's edge facing axis, from glueFrom out
+        // towards the corner, in the stretches clear of the holes.
+        const s = [sx, sy];
         const edge = tile.size_mm[axis] / 2;
         const inner = seat[axis] / 2 + SIZES.glueSeatGap;
-        const along = tile.size_mm[1 - axis] / 2;
-        const lo: number[] = [];
-        const hi: number[] = [];
-        lo[axis] = inner;
-        hi[axis] = edge;
-        lo[1 - axis] = SIZES.glueFrom;
-        hi[1 - axis] = along;
-        const s = [sx, sy];
-        boxes.push({
-          center: [(s[0] * (lo[0] + hi[0])) / 2, (s[1] * (lo[1] + hi[1])) / 2, (top + bottom) / 2],
-          size: [hi[0] - lo[0], hi[1] - lo[1], top - bottom],
-        });
+        let runs: [number, number][] = [[SIZES.glueFrom, tile.size_mm[1 - axis] / 2 - notch]];
+        for (const h of holes) {
+          const [across, along] = [s[axis] * h[axis], s[1 - axis] * h[1 - axis]];
+          if (across + keep <= inner || across - keep >= edge) continue;
+          runs = runs.flatMap(([a, b]): [number, number][] => [
+            [a, Math.min(b, along - keep)],
+            [Math.max(a, along + keep), b],
+          ]);
+        }
+        for (const [a, b] of runs) {
+          if (b - a < SIZES.glueMin - 1e-9) continue;
+          const lo: number[] = [];
+          const hi: number[] = [];
+          lo[axis] = inner;
+          hi[axis] = edge;
+          lo[1 - axis] = a;
+          hi[1 - axis] = b;
+          boxes.push({
+            center: [
+              (s[0] * (lo[0] + hi[0])) / 2,
+              (s[1] * (lo[1] + hi[1])) / 2,
+              (top + bottom) / 2,
+            ],
+            size: [hi[0] - lo[0], hi[1] - lo[1], top - bottom],
+          });
+        }
       }
   return { boxes, top, bottom };
 }

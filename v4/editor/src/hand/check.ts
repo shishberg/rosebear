@@ -7,6 +7,8 @@ import {
   componentFrames,
   frame,
   ROWS,
+  tilePartCentre,
+  tileUnderside,
   type Config,
   type MeshData,
 } from '../geometry';
@@ -133,7 +135,7 @@ export function capHits(c: Config, caps: Cap[]) {
  * the board: hotswap socket, LED, diode) as boxes, `m` the key's frame. */
 function tileBoxes(c: Config, m: T.Matrix4): Box[] {
   const t = c.tile,
-    under = -(t.plate_top_to_pcb_top_mm + t.size_mm[2]),
+    under = tileUnderside(c),
     u = [0, 1, 2].map((i) => new T.Vector3().setFromMatrixColumn(m, i).normalize()),
     box = (at: number[], size: number[]) => ({
       c: new T.Vector3(...at).applyMatrix4(m),
@@ -142,9 +144,7 @@ function tileBoxes(c: Config, m: T.Matrix4): Box[] {
     });
   return [
     box([0, 0, under + t.size_mm[2] / 2], t.size_mm),
-    ...t.components.map((p) =>
-      box([p.center_mm[0], p.center_mm[1], under + p.center_mm[2]], p.size_mm),
-    ),
+    ...t.components.map((p) => box(tilePartCentre(c, p), p.size_mm)),
   ];
 }
 /** mm two tiles may overlap: edge to edge, as the layout rounds the keys' places (0.01 mm). */

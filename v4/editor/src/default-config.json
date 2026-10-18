@@ -1,5 +1,5 @@
 {
-  "schema": 5,
+  "schema": 6,
   "description": "Individual RGB 1U tiles; dimensions marked provisional must be measured before a full print.",
   "geometry": {
     "row_pitch_mm": 24.5,
@@ -173,64 +173,124 @@
     }
   },
   "tile": {
-    "provisional": true,
-    "size_mm": [19, 19, 1.6],
+    "description": "The bought 1U RGB key tile (MX switch, Kailh MX hotswap socket underneath), measured to about 0.3 mm. Positions are in the key's frame: mm from the stem centre seen from the switch side, +x to the right, +y towards the socket edge (seen from the parts side, x is mirrored). A part's center_mm[2] is from the board's top, its switch side; the parts hang under the board. The RGB LED's box includes its leads. Each corner has a round notch.",
+    "size_mm": [17, 17, 1.6],
+    "corner_notch_radius_mm": 1.5,
     "plate_top_to_pcb_top_mm": 5,
     "clearance_mm": 0.35,
     "component_clearance_mm": 0.3,
     "components": [
       {
         "name": "hotswap socket",
-        "size_mm": [16, 6, 2.5],
-        "center_mm": [0, 4, -2.85]
+        "size_mm": [11.6, 6.2, 1.9],
+        "center_mm": [-0.7, 4, -2.55]
       },
       {
         "name": "RGB LED",
-        "size_mm": [3.5, 3.5, 1.6],
-        "center_mm": [0, -4.5, -2.4]
+        "size_mm": [7.4, 2.8, 1.1],
+        "center_mm": [0, -4.2, -2.15]
       },
       {
         "name": "diode",
-        "size_mm": [3.6, 1.8, 1.3],
-        "center_mm": [-5, -4.5, -2.25]
+        "size_mm": [1.6, 3.4, 0.8],
+        "center_mm": [5.5, -3.7, -2]
       }
     ],
     "pads": {
-      "provisional": true,
-      "description": "Solder pads on the tile underside, from a photo. Back edge (the socket side, +y): C, G, +, DO. Front edge: R, G, +, DI. The two G pads are joined on the tile, and so are the two + pads.",
-      "size_mm": [1.2, 1.8],
+      "description": "The tile's through holes and its edge pads (on the parts side), as labelled on the tile. size_mm is an edge pad's, hole_mm and ring_mm a hole's drill and copper ring. One wire fits a hole (22 AWG at most; two don't fit). The two C holes are joined on the tile, with the spare C hole and the diode's cathode; the two R holes with the spare R hole and the socket. Each of in, out, V and G joins its hole, both its edge pads and its LED lead. The spare holes are under the socket.",
+      "size_mm": [0.9, 1.5],
+      "hole_mm": 0.85,
+      "ring_mm": 1.4,
       "list": [
         {
           "name": "C",
-          "at_mm": [-7, 8.6]
+          "at_mm": [-7.4, 6.2],
+          "hole": true
         },
         {
-          "name": "G",
-          "at_mm": [-2.5, 8.6]
-        },
-        {
-          "name": "+",
-          "at_mm": [2.5, 8.6]
-        },
-        {
-          "name": "DO",
-          "at_mm": [7, 8.6]
+          "name": "C",
+          "at_mm": [-7.25, -5.8],
+          "hole": true
         },
         {
           "name": "R",
-          "at_mm": [-7, -8.6]
+          "at_mm": [7.45, 1.6],
+          "hole": true
+        },
+        {
+          "name": "R",
+          "at_mm": [-7.25, -1.9],
+          "hole": true
+        },
+        {
+          "name": "in",
+          "at_mm": [7.65, -2.65],
+          "hole": true
+        },
+        {
+          "name": "out",
+          "at_mm": [7.7, -5],
+          "hole": true
+        },
+        {
+          "name": "V",
+          "at_mm": [-4.5, -2.8],
+          "hole": true
         },
         {
           "name": "G",
-          "at_mm": [-2.5, -8.6]
+          "at_mm": [-4.9, -6.25],
+          "hole": true
         },
         {
-          "name": "+",
-          "at_mm": [2.5, -8.6]
+          "name": "C spare",
+          "at_mm": [-3, 5.7],
+          "hole": true
         },
         {
-          "name": "DI",
-          "at_mm": [7, -8.6]
+          "name": "R spare",
+          "at_mm": [-0.6, 5.6],
+          "hole": true
+        },
+        {
+          "name": "in socket edge",
+          "at_mm": [4.6, 7.75],
+          "hole": false
+        },
+        {
+          "name": "out socket edge",
+          "at_mm": [1.7, 7.75],
+          "hole": false
+        },
+        {
+          "name": "V socket edge",
+          "at_mm": [-1.9, 7.75],
+          "hole": false
+        },
+        {
+          "name": "G socket edge",
+          "at_mm": [-4.5, 7.75],
+          "hole": false
+        },
+        {
+          "name": "out LED edge",
+          "at_mm": [4.6, -7.75],
+          "hole": false
+        },
+        {
+          "name": "in LED edge",
+          "at_mm": [1.6, -7.75],
+          "hole": false
+        },
+        {
+          "name": "V LED edge",
+          "at_mm": [-2.1, -7.75],
+          "hole": false
+        },
+        {
+          "name": "G LED edge",
+          "at_mm": [-4.8, -7.75],
+          "hole": false
         }
       ]
     }
@@ -271,7 +331,7 @@
   },
   "wiring": {
     "provisional": true,
-    "description": "Hand wiring from the tile pads to the adapter, as a 4 x 5 matrix: rows RT, RH, RB and RX (the thumbs), columns C0 (pinky) to C4 (inner). Each thumb shares a finger column but has its own wire to that column hole. LED data, +5 V and GND follow led_order; DATA runs DI to DO. pin is the ribbon pin, which is the adapter hole.",
+    "description": "Hand wiring from the tile holes and pads to the adapter, as a 4 x 5 matrix: rows RT, RH, RB and RX (the thumbs), columns C0 (pinky) to C4 (inner). Each thumb shares a finger column but has its own wire to that column hole. One wire per tile hole or pad: each row and column wire arrives at one of the tile's two R (or C) holes and the next leaves from the other; +5 V and GND use the V (or G) hole and the LED-edge pad. LED data follows led_order, in to out. pin is the ribbon pin, which is the adapter hole.",
     "signal_wire_mm": 0.6,
     "power_wire_mm": 0.9,
     "loom_height_mm": 10,
@@ -397,20 +457,20 @@
         "name": "DATA",
         "pin": 2,
         "group": "data",
-        "pads": ["DI", "DO"],
+        "pads": ["in", "out"],
         "directed": true
       },
       {
         "name": "+5V",
         "pin": 21,
         "group": "power",
-        "pads": ["+", "+"]
+        "pads": ["V", "V LED edge"]
       },
       {
         "name": "GND",
         "pin": 20,
         "group": "ground",
-        "pads": ["G", "G"]
+        "pads": ["G", "G LED edge"]
       }
     ]
   },

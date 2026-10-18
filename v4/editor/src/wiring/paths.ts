@@ -61,8 +61,10 @@ export function pathsIn(env: Env, { blocked, plates }: Obstacles) {
     const down: V3 = [shifted[0], shifted[1], padZ - depth];
     const out: V3 = [...down];
     out[axis] = sign * half[axis];
-    // A shift in toward the tile's parts waits until the wire is below them.
-    const inward = axis === 0 && aside * Math.sign(p.xy[1]) < 0;
+    // A shift in from the pad's own edge, toward the tile's parts, waits
+    // until the wire is below them.
+    const own = ownEdge(p, half);
+    const inward = own[0] === 1 - axis && aside * own[1] < 0;
     const turn: V3 = inward ? [start[0], start[1], padZ - depth] : shifted;
     const points = [p.at, ...[start, turn, down, out].map((x) => point(frames[p.key], x))];
     return { points, stray };
@@ -224,7 +226,7 @@ export function pathsIn(env: Env, { blocked, plates }: Obstacles) {
         const t = throughPort(b, lane, place, keep, lane.asideB);
         [path, strayed] = [[...t.points, beyondPort(place)], t.stray];
       } else {
-        const l = leg(b, lane.edge ?? ownEdge(b), lane.da, lane.aside, keep);
+        const l = leg(b, lane.edge ?? ownEdge(b, half), lane.da, lane.aside, keep);
         [path, strayed] = [l.points, l.stray];
       }
       const end = path.at(-1)!;

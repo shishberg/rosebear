@@ -52,8 +52,25 @@ export const isKey = (name: string) => isThumb(name) || name.startsWith('matrix_
 export const capClearance = (c: Config, n: string) =>
   (c.switch.keycap_clearance_overrides_mm as Record<string, number>)[n] ??
   c.switch.keycap_clearance_mm;
-/** The z of the tile's underside (where its pads are), in key coordinates. */
-export const tileUnderside = (c: Config) => -(c.tile.plate_top_to_pcb_top_mm + c.tile.size_mm[2]);
+// The tile in key coordinates. Its parts' center_mm[2] is measured from the
+// board's top (its switch side), so every use goes through these.
+/** The z of the tile's top, its switch side. */
+export const tileTop = (c: Config) => -c.tile.plate_top_to_pcb_top_mm;
+/** The z of the tile's underside (where its pads are). */
+export const tileUnderside = (c: Config) => tileTop(c) - c.tile.size_mm[2];
+type TilePart = Config['tile']['components'][number];
+/** A tile part's centre (the hotswap socket, LED or diode under the board). */
+export const tilePartCentre = (c: Config, p: TilePart): V3 => [
+  p.center_mm[0],
+  p.center_mm[1],
+  tileTop(c) + p.center_mm[2],
+];
+/** The z of the tile's lowest point: its underside, or the bottom of its lowest part. */
+export const tileBottom = (c: Config) =>
+  Math.min(
+    tileUnderside(c),
+    ...c.tile.components.map((p) => tilePartCentre(c, p)[2] - p.size_mm[2] / 2),
+  );
 /** Key names by group: the finger keys, the thumb row and the extra thumb row. */
 export const keyGroups = (c: Config) => {
   const g = c.geometry as { thumb_extra?: Cluster } & typeof c.geometry,
@@ -193,7 +210,8 @@ export function componentFrames(cfg: Config) {
  * panel, and the trackpad is gone. Schema 4 moves the ribbon's landing onto
  * the port panel's insert. Schema 5 has the measured keycaps (18.5 mm square at
  * the base, 14 mm at the top, 11 mm high) and travel (3.5 mm), where a project
- * still has the earlier guesses.
+ * still has the earlier guesses. Schema 6 has the measured tile (17 mm, its
+ * holes and edge pads), where a project still has the provisional one.
  */
 function migrate(c: Record<string, any>) {
   const d = defaultConfig as Record<string, any>;
@@ -225,6 +243,23 @@ function migrate(c: Record<string, any>) {
     }
     if (s?.travel_mm === 4) s.travel_mm = d.switch.travel_mm;
     c.schema = 5;
+  }
+  if (!(c.schema >= 6)) {
+    // Schema 6: the measured tile. A project still on the provisional 19 mm
+    // tile, with its pads read from a photo, takes the measured tile, and its
+    // nets take the measured holes' and pads' names.
+    const t = c.tile;
+    if (t && (t.provisional || JSON.stringify(t.size_mm) === '[19,19,1.6]')) {
+      c.tile = clone(d.tile);
+      if (c.wiring) {
+        c.wiring.description = d.wiring.description;
+        for (const n of c.wiring.nets ?? []) {
+          const now = d.wiring.nets.find((m: { name: string }) => m.name === n.name);
+          if (now) n.pads = clone(now.pads);
+        }
+      }
+    }
+    c.schema = 6;
   }
   if (c.chassis && c.chassis.skin_mm === undefined && c.chassis.base_thickness_mm !== undefined)
     c.chassis.skin_mm = c.chassis.base_thickness_mm;

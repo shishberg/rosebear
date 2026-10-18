@@ -1,7 +1,16 @@
 import { Matrix4 } from 'three';
 import { gluePads } from './chassis';
 import { adapterParts, padParts } from './wiring';
-import { capSize, capTop, componentFrames, isKey, type Project, type V3 } from './geometry';
+import {
+  capSize,
+  capTop,
+  componentFrames,
+  isKey,
+  tilePartCentre,
+  tileTop as tileTopOf,
+  type Project,
+  type V3,
+} from './geometry';
 
 /** A hardware box (or cylinder) in a key's or the board's frame, for the collision checks and the parts list. */
 export interface Part {
@@ -27,7 +36,7 @@ export function hardware(
   const tile = cfg.tile;
   const sw = cfg.switch;
   // The tile's top, below the plate top.
-  const tileTop = -tile.plate_top_to_pcb_top_mm;
+  const tileTop = tileTopOf(cfg);
   const glue = gluePads(cfg);
   const glueLayer = glue.bottom - tileTop;
   const add = (
@@ -52,13 +61,7 @@ export function hardware(
     if (isKey(name)) {
       add(name, 'pcb', tile.size_mm, [0, 0, tileTop - tile.size_mm[2] / 2], m);
       for (const c of tile.components)
-        add(
-          name + ': ' + c.name,
-          'components',
-          c.size_mm,
-          [c.center_mm[0], c.center_mm[1], c.center_mm[2] + tileTop],
-          m,
-        );
+        add(name + ': ' + c.name, 'components', c.size_mm, tilePartCentre(cfg, c), m);
       add(name, 'switch', sw.body_mm, [0, 0, sw.body_mm[2] / 2 - sw.body_below_plate_mm], m);
       const cap = capSize(cfg, name);
       add(

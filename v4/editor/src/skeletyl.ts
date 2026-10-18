@@ -70,6 +70,8 @@ import {
   ROWS,
   scale,
   sub,
+  tilePartCentre,
+  tileTop,
   type Config,
   type V3,
 } from './geometry';
@@ -795,16 +797,13 @@ const samples = (left: Pair[], right: Pair[], from = 0) =>
  */
 function keyBoxes(cfg: Config, n: string): [V3, V3][] {
   const { switch: sw, tile } = cfg;
-  const pcb = -tile.plate_top_to_pcb_top_mm;
+  const pcb = tileTop(cfg);
   const half = (size: number[]) => size.map((x) => x / 2) as V3;
   const env = keycapEnvelope(cfg, n, { clampFloor: true });
   const cap = env.z0 + env.height;
   return [
     [[0, 0, pcb - tile.size_mm[2] / 2], half(tile.size_mm)],
-    ...tile.components.map((c): [V3, V3] => [
-      [c.center_mm[0], c.center_mm[1], c.center_mm[2] + pcb],
-      half(c.size_mm),
-    ]),
+    ...tile.components.map((c): [V3, V3] => [tilePartCentre(cfg, c), half(c.size_mm)]),
     [[0, 0, sw.body_mm[2] / 2 - sw.body_below_plate_mm], half(sw.body_mm)],
     [
       [0, 0, cap / 2],

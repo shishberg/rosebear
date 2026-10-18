@@ -399,23 +399,24 @@ test("keys whose tiles overlap aren't valid: the boards and the parts hanging un
       .tileHits.map((x) => `${x.a} ${x.b}`)
       .sort();
   };
-  // Natural's inner column where it was, 18.8 mm from the index: the
-  // keycaps clear, the tiles don't.
+  // Natural's inner column 16.8 mm from the index: closer than the 17 mm
+  // tiles are wide.
   assert.deepEqual(
-    tiles({ ...structuredClone(hand.NATURAL), innerGap: 18.8 }),
+    tiles({ ...structuredClone(hand.NATURAL), innerGap: 16.8 }),
     ROWS.map((r) => `matrix_index_${r} matrix_inner_${r}`).sort(),
   );
   assert.deepEqual(tiles(hand.NATURAL), []);
   // Yours's thumb as it was, each key facing its own press: the far and home
-  // keys tilt together, so their boards (20 mm under the keycaps' tops) meet,
-  // and the home key's and the near's (the 1.5u in line with them).
+  // keys tilt together, so their boards (20 mm under the keycaps' tops) meet.
+  // (The home key's and the near's, the 1.5u in line with them, met too
+  // until the tiles were measured at 17 mm, not 19.)
   assert.deepEqual(
     tiles({
       ...structuredClone(hand.YOURS),
       thumb: { around: 116.5, drop: 14.5, reach: { palmar: 0.5, curl: 0.55 }, press: -3 },
       spacing: 26.8,
     }),
-    ['thumb_far thumb_home', 'thumb_home thumb_near'],
+    ['thumb_far thumb_home'],
   );
 });
 test("far and near thumb keys keep the home key's y, tilted only along the row", () => {
