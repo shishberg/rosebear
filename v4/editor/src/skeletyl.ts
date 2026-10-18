@@ -27,6 +27,8 @@
 // between their drops up to the lower round.
 // Nothing is cut out: chassis.ts adds the glue pads and the base, and the
 // checks report anything that runs into the tiles or the keycaps.
+// PROTOTYPE: chassis.walls (?walls=) adds walls under the outer sides, built
+// by skeletyl-walls.prototype.ts from a WallSide per side; "none" adds none.
 //
 // Terms, as in chassis.ts, and:
 //  rib      a run of keys along one key axis, swept as one solid;
@@ -58,7 +60,9 @@ import {
   type HalfWidths,
 } from './plates';
 import { mesh } from './shell/loft';
+import { switchHole } from './seats';
 import { outline } from './hand/frame';
+import { skeletylWalls, type WallPoint, type WallSide } from './skeletyl-walls.prototype';
 
 /** Construction sizes in mm. */
 export const SIZES = {
@@ -78,7 +82,7 @@ export const SIZES = {
   digDeepest: 12,
   /** The outline stands this far out (plan) from the feet and the outer sides' plates and tile pockets it is built round: room for walls to flare out. */
   flare: 5,
-  /** The outline's corners, out and in, are rounded to this radius (plan). */
+  /** The outline's corners in are rounded to this radius (plan); its corners out to flare. */
   corner: 10,
   /** Segments per full turn of the outline's rounding. */
   cornerSegments: 72,
@@ -90,6 +94,8 @@ export const SIZES = {
   bandGap: 15,
   /** the band reaches this far into each drop. */
   bandInto: 0.5,
+  /** PROTOTYPE ?walls=: a wall side has points this many steps across each plate. */
+  plateSteps: 5,
   /** The rail round the outline: its height. */
   railHeight: 6,
 } as const;
@@ -301,10 +307,16 @@ function endSide(d: Dims, k: RibKey, u: number, s: number, end: End): Pair[] {
   return path.map((pair) => pair.map((p) => [p[0], p[1], Math.max(0, p[2])]) as Pair);
 }
 
-/** One side of a rib, from its first end's foot (or round, or plate edge) to its last's. */
-function ribSide(d: Dims, rib: Rib, s: number, ends: End[]): Pair[] {
+/**
+ * One side of a rib, from its first end's foot (or round, or plate edge) to
+ * its last's. `over` (if given) is filled with what each point is on: a key's
+ * name over its plate, "" over a web, undefined on an end.
+ */
+function ribSide(d: Dims, rib: Rib, s: number, ends: End[], over?: (string | undefined)[]): Pair[] {
   const keys = rib.keys;
   const path = endSide(d, keys[0], -1, s, ends[0]).reverse();
+  const on: (string | undefined)[] = path.map(() => undefined);
+  on[on.length - 1] = keys[0].name;
   keys.forEach((k, i) => {
     if (i > 0) {
       // The web from the last key's plate: its top and its underside, each a cubic.
@@ -320,13 +332,19 @@ function ribSide(d: Dims, rib: Rib, s: number, ends: End[]): Pair[] {
         };
       };
       const [top, under] = [web(0), web(-d.plate)];
-      for (let j = 1; j < SIZES.webSteps; j++)
+      for (let j = 1; j < SIZES.webSteps; j++) {
         path.push([top(j / SIZES.webSteps), under(j / SIZES.webSteps)]);
+        on.push('');
+      }
       path.push([corner(d, k, -1, s, 0), corner(d, k, -1, s, -d.plate)]);
+      on.push(k.name);
     }
     path.push([corner(d, k, 1, s, 0), corner(d, k, 1, s, -d.plate)]);
+    on.push(k.name);
   });
-  path.push(...endSide(d, keys.at(-1)!, 1, s, ends[1]).slice(1));
+  const last = endSide(d, keys.at(-1)!, 1, s, ends[1]).slice(1);
+  path.push(...last);
+  over?.push(...on, ...last.map(() => undefined));
   return path;
 }
 
@@ -378,10 +396,10 @@ function rounded(wasm: ManifoldToplevel, d: Dims, feet: V3[], sides: V3[][]) {
     new wasm.CrossSection([plan(outline(feet, d.wall, SIZES.digDeepest))], 'NonZero'),
     ...sides.map((side) => wasm.CrossSection.hull([plan(side)])),
   ]);
-  // In by R less flare, out by 2R and back by R: the corners out are rounded
-  // to R about the corners of the area in by R less flare, and the corners in
-  // to R.
-  return round(round(round(area, SIZES.flare - R), 2 * R), -R)
+  // Out by flare and R and back by R: everywhere at least flare out, the
+  // corners out rounded to flare about the area's corners, the corners in to R.
+  // (Rounding the corners out wider would bring them in closer than flare.)
+  return round(round(area, SIZES.flare + R), -R)
     .toPolygons()
     .map((p) => p.map((q) => [q[0], q[1]] as [number, number]))
     .reduce((x, y) => (area2(y) > area2(x) ? y : x));
@@ -524,6 +542,128 @@ function band(
   return [solid(wasm, cfg, stations)];
 }
 
+/** How far below the plate top the openings check probes each switch hole's column (solid.ts CHECKS.probeHeight / 2). */
+const OPENING_PROBE_DEPTH = 12;
+
+/**
+ * PROTOTYPE ?walls=: what every key holds (keyBoxes) and its switch hole's
+ * column as far down as the openings check probes it, each box in its key's
+ * frame and grown by endGap; with whether a point is clear of them all, and
+ * how far out along a plan direction from a point everything is.
+ */
+function keySpace(cfg: Config, frames: Record<string, Matrix4>) {
+  const hole = switchHole(cfg).map((x) => x / 2);
+  const column: [V3, V3] = [
+    [0, 0, -OPENING_PROBE_DEPTH / 2],
+    [hole[0], hole[1], OPENING_PROBE_DEPTH / 2],
+  ];
+  const boxes = Object.keys(frames)
+    .filter(isKey)
+    .flatMap((n) => {
+      const e = frames[n].elements;
+      const o: V3 = [e[12], e[13], e[14]];
+      const axes = [0, 4, 8].map((i): V3 => [e[i], e[i + 1], e[i + 2]]);
+      return [...keyBoxes(cfg, n), column].map(([c, h]) => ({
+        o,
+        axes,
+        c,
+        h: h.map((x) => x + SIZES.endGap),
+      }));
+    });
+  const clear = (points: V3[]) =>
+    points.every((p) =>
+      boxes.every((b) => b.axes.some((a, i) => Math.abs(dot(sub(p, b.o), a) - b.c[i]) > b.h[i])),
+    );
+  // The last x up to `reach` where from + x out is in a box, by each box's slabs.
+  const room = (from: V3, out: V3, reach: number) => {
+    let last = 0;
+    for (const b of boxes) {
+      let [lo, hi] = [-Infinity, Infinity];
+      b.axes.forEach((a, i) => {
+        const [at, rate] = [dot(sub(from, b.o), a) - b.c[i], dot(out, a)];
+        if (Math.abs(rate) < 1e-12) {
+          if (Math.abs(at) > b.h[i]) [lo, hi] = [Infinity, -Infinity];
+          return;
+        }
+        const [p, q] = [(-b.h[i] - at) / rate, (b.h[i] - at) / rate];
+        [lo, hi] = [Math.max(lo, Math.min(p, q)), Math.min(hi, Math.max(p, q))];
+      });
+      if (lo <= hi && hi >= 0 && lo <= reach) last = Math.max(last, hi);
+    }
+    return last >= reach ? Infinity : last;
+  };
+  return { clear, room };
+}
+
+/**
+ * PROTOTYPE ?walls=: rib's outer side (s) as a WallSide for the wall
+ * variants (skeletyl-walls.prototype.ts documents each field). Its points are
+ * the rib's side as built (ribSide), outward is across the rib at each, and the
+ * rail is found straight out along it.
+ */
+function wallSide(
+  cfg: Config,
+  d: Dims,
+  frames: Record<string, Matrix4>,
+  rib: Rib,
+  ends: End[],
+  s: number,
+  name: string,
+  ring: [number, number][],
+  innerRing: [number, number][],
+): WallSide {
+  const labels: (string | undefined)[] = [];
+  const sides = [ribSide(d, rib, s, ends, labels), ribSide(d, rib, -s, ends)];
+  // Points across each plate too, between its corners (exact: it is a slab).
+  const on: (string | undefined)[] = [];
+  const [side, other] = sides.map((path) =>
+    path.flatMap((pair, i): Pair[] => {
+      const next = path[i + 1];
+      if (!labels[i] || labels[i] !== labels[i + 1]) return [pair];
+      return [...Array(SIZES.plateSteps).keys()].map(
+        (j) => pair.map((p, m) => lerp(p, next[m], j / SIZES.plateSteps)) as Pair,
+      );
+    }),
+  );
+  labels.forEach((l, i) =>
+    on.push(...Array(l && l === labels[i + 1] ? SIZES.plateSteps : 1).fill(l)),
+  );
+  const flat = (p: number[]): V3 => [p[0], p[1], 0];
+  const points = side.map(([top, under], i): WallPoint => {
+    const out = flat(unitPlan(sub(under, other[i][1])));
+    const at = (r: [number, number][]) => flat(add(under, scale(out, toRing(r, under, out))));
+    const [inner, outerEdge] = [at(innerRing), at(ring)];
+    const key = on[i] || undefined;
+    return {
+      top,
+      under,
+      out,
+      over: on[i] === undefined ? 'end' : key ? 'key' : 'web',
+      key,
+      rail: { inner, centre: lerp(inner, outerEdge, 0.5), outer: outerEdge },
+    };
+  });
+  const keys = rib.keys.map((k) => ({
+    name: k.name,
+    from: on.indexOf(k.name),
+    to: on.lastIndexOf(k.name),
+  }));
+  const space = keySpace(cfg, frames);
+  const room = (from: V3, out: V3) => space.room(from, out, toRing(ring, from, out));
+  const finish = (e: End) => (typeof e === 'object' ? 'drop' : e);
+  return {
+    name,
+    points,
+    keys,
+    ends: [finish(ends[0]), finish(ends[1])],
+    wall: d.wall,
+    railHeight: SIZES.railHeight,
+    outline: ring,
+    clear: space.clear,
+    room,
+  };
+}
+
 /**
  * The frame: the ribs, the bands between their drops, and the rail round the
  * outline that the ends standing on it drop to. It stands on z = 0.
@@ -541,13 +681,16 @@ export function skeletyl(
   // from the keys' middle, on the first and last columns and the thumb rows.
   const keys = all.flatMap((r) => r.keys);
   const middle = [0, 1].map((i) => keys.reduce((sum, k) => sum + k.o[i], 0) / keys.length);
-  const outerSide = (rib: Rib) => {
-    const s = Math.sign(
+  const outward = (rib: Rib) =>
+    Math.sign(
       rib.keys.reduce(
         (sum, k) => sum + k.c[0] * (k.o[0] - middle[0]) + k.c[1] * (k.o[1] - middle[1]),
         0,
       ),
     );
+  const outer = (rib: Rib) => rib.run === 0 || rib.run >= columns - 1;
+  const outerSide = (rib: Rib) => {
+    const s = outward(rib);
     const [pocket, depth] = d.keepClear[0];
     return rib.keys.flatMap((k) =>
       [-1, 1].flatMap((u) => [
@@ -562,7 +705,7 @@ export function skeletyl(
     wasm,
     d,
     all.flatMap((rib) => free(rib).flatMap((e) => feet(d, rib, e))),
-    all.filter((rib) => rib.run === 0 || rib.run >= columns - 1).map(outerSide),
+    all.filter(outer).map(outerSide),
   );
   const kind = (rib: Rib, e: number): End => {
     if (rib.parted[e]) return endClear(cfg, d, frames, rib, e, 'hang') ? 'hang' : 'flush';
@@ -586,6 +729,34 @@ export function skeletyl(
     }),
   );
   const area = new wasm.CrossSection([ring], 'NonZero');
-  const rail = area.subtract(area.offset(-d.wall, 'Round')).extrude(SIZES.railHeight);
-  return { frame: wasm.Manifold.union([...solids, ...bands, rail]), outline: ring };
+  const inside = area.offset(-d.wall, 'Round');
+  const rail = area.subtract(inside).extrude(SIZES.railHeight);
+  // PROTOTYPE ?walls= (skeletyl-walls.prototype.ts): walls under the outer sides.
+  const walls = skeletylWalls(
+    wasm,
+    cfg,
+    (cfg.chassis as { walls?: string }).walls ?? 'none',
+    () => {
+      const innerRing = inside
+        .toPolygons()
+        .map((p) => p.map((q) => [q[0], q[1]] as [number, number]))
+        .reduce((x, y) => (area2(y) > area2(x) ? y : x));
+      const named = all.map((rib) => {
+        const n =
+          rib.run < columns
+            ? cfg.geometry.columns[rib.run].name
+            : rib.run === columns
+              ? 'thumb'
+              : 'thumb extra';
+        const same = all.filter((r) => r.run === rib.run);
+        return same.length > 1 ? `${n} #${same.indexOf(rib) + 1}` : n;
+      });
+      return all.flatMap((rib, i) =>
+        outer(rib)
+          ? [wallSide(cfg, d, frames, rib, ends[i], outward(rib), named[i], ring, innerRing)]
+          : [],
+      );
+    },
+  );
+  return { frame: wasm.Manifold.union([...solids, ...bands, rail, ...walls]), outline: ring };
 }
