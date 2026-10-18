@@ -1,0 +1,357 @@
+{
+  "schema": 5,
+  "description": "Individual RGB 1U tiles; dimensions marked provisional must be measured before a full print.",
+  "geometry": {
+    "row_pitch_mm": 24.5,
+    "column_pitch_mm": 23,
+    "tent_deg": 10,
+    "mount_lift_mm": 23.558322369159022,
+    "columns": [
+      {
+        "name": "inner",
+        "offset_mm": [0, 0, 0],
+        "heights_mm": [8.0798, 4.232, 8.0798],
+        "roll_deg": -10.4258,
+        "rotation_deg": [0, 0, 0]
+      },
+      {
+        "name": "index",
+        "offset_mm": [0, 0, 0],
+        "heights_mm": [4.9058, 1.058, 4.9058],
+        "roll_deg": -5.2564,
+        "rotation_deg": [0, 0, 0]
+      },
+      {
+        "name": "middle",
+        "offset_mm": [0, 3, 0],
+        "heights_mm": [4.8478, 0.0577, 2.9631],
+        "roll_deg": 0,
+        "rotation_deg": [0, 0, 0]
+      },
+      {
+        "name": "ring",
+        "offset_mm": [0, 0, 0],
+        "heights_mm": [4.9058, 1.058, 4.9058],
+        "roll_deg": 5.2564,
+        "rotation_deg": [0, 0, 0]
+      },
+      {
+        "name": "pinky",
+        "offset_mm": [0, -6, 0],
+        "heights_mm": [6.4259, 4.4628, 10.1951],
+        "roll_deg": 10.4258,
+        "rotation_deg": [0, 0, 0]
+      }
+    ],
+    "key_overrides": {},
+    "thumb": {
+      "position_mm": [-42.56, -60.704, 0],
+      "rotation_deg": [5, -24, 15],
+      "keys": [
+        {
+          "name": "far"
+        },
+        {
+          "name": "home",
+          "rotation_deg": [0, 0, -90]
+        },
+        {
+          "name": "near"
+        }
+      ],
+      "arc": {
+        "radius_mm": 130,
+        "step_deg": 11,
+        "well_deg": 12
+      }
+    },
+    "thumb_extra": {
+      "position_mm": [13.5015, -52, 1.0416],
+      "rotation_deg": [0, -10, 0],
+      "keys": [
+        {
+          "name": "x1",
+          "offset_mm": [-11.5, -0.5, 1.5]
+        },
+        {
+          "name": "x2",
+          "offset_mm": [11.5, 0.5, -1.5]
+        }
+      ],
+      "arc": {
+        "radius_mm": 100,
+        "step_deg": 0,
+        "well_deg": 0
+      }
+    }
+  },
+  "switch": {
+    "cutout_mm": [14, 14],
+    "cutout_clearance_mm": 0.15,
+    "clip_land_thickness_mm": 1.5,
+    "seat_outer_mm": [15.8, 15.8],
+    "clip_width_mm": 5,
+    "clip_relief_depth_mm": 1.2,
+    "body_mm": [14, 14, 5],
+    "body_below_plate_mm": 5,
+    "keycap_mm": [18.5, 18.5, 11],
+    "keycap_top_mm": [14, 14],
+    "keycap_bottom_above_plate_mm": 6,
+    "travel_mm": 3.5,
+    "keycap_overrides_mm": {
+      "thumb_home": [28, 18.5, 11]
+    },
+    "keycap_clearance_mm": 0.3,
+    "keycap_clearance_overrides_mm": {
+      "thumb_home": 2.5
+    }
+  },
+  "tile": {
+    "provisional": true,
+    "size_mm": [19, 19, 1.6],
+    "plate_top_to_pcb_top_mm": 5,
+    "clearance_mm": 0.35,
+    "component_clearance_mm": 0.3,
+    "components": [
+      {
+        "name": "hotswap socket",
+        "size_mm": [16, 6, 2.5],
+        "center_mm": [0, 4, -2.85]
+      },
+      {
+        "name": "RGB LED",
+        "size_mm": [3.5, 3.5, 1.6],
+        "center_mm": [0, -4.5, -2.4]
+      },
+      {
+        "name": "diode",
+        "size_mm": [3.6, 1.8, 1.3],
+        "center_mm": [-5, -4.5, -2.25]
+      }
+    ],
+    "pads": {
+      "provisional": true,
+      "description": "Solder pads on the tile underside, from a photo. Back edge (the socket side, +y): C, G, +, DO. Front edge: R, G, +, DI. The two G pads are joined on the tile, and so are the two + pads.",
+      "size_mm": [1.2, 1.8],
+      "list": [
+        {
+          "name": "C",
+          "at_mm": [-7, 8.6]
+        },
+        {
+          "name": "G",
+          "at_mm": [-2.5, 8.6]
+        },
+        {
+          "name": "+",
+          "at_mm": [2.5, 8.6]
+        },
+        {
+          "name": "DO",
+          "at_mm": [7, 8.6]
+        },
+        {
+          "name": "R",
+          "at_mm": [-7, -8.6]
+        },
+        {
+          "name": "G",
+          "at_mm": [-2.5, -8.6]
+        },
+        {
+          "name": "+",
+          "at_mm": [2.5, -8.6]
+        },
+        {
+          "name": "DI",
+          "at_mm": [7, -8.6]
+        }
+      ]
+    }
+  },
+  "adapter": {
+    "provisional": true,
+    "description": "Generic 24-way 0.5 mm FFC to 2.54 mm breakout, on the bottom plate. Its position is in world coordinates (it is not tented): the board centre in plan, and its turn about the vertical; at 0 the connector faces -x and the holes +x.",
+    "position_mm": [-24, 16],
+    "rotation_deg": 0,
+    "board_mm": [26, 36, 1.6],
+    "standoff_mm": 2.5,
+    "hole_pitch_mm": 2.54,
+    "hole_rows_from_edge_mm": [1.8, 4.34],
+    "connector_mm": [4.5, 16, 2],
+    "connector_inset_mm": 0.5,
+    "latch_room_mm": 4,
+    "mounting_holes_mm": [
+      [-9.5, -14.5],
+      [-9.5, 14.5]
+    ],
+    "mounting_hole_diameter_mm": 3,
+    "boss_diameter_mm": 5.5,
+    "peg_diameter_mm": 2.6,
+    "peg_above_mm": 1.2,
+    "rest_diameter_mm": 3.5,
+    "clearance_mm": 0.5
+  },
+  "ribbon": {
+    "provisional": true,
+    "description": "24-way 0.5 mm FFC from the adapter, through a loop and a tied-down landing, out through the port panel on the finger bin's inner end.",
+    "width_mm": 12.5,
+    "thickness_mm": 0.12,
+    "loop_radius_mm": 4,
+    "landing_mm": [10, 16.5, 8],
+    "tie_slot_mm": [3.2, 1.6],
+    "notch_clearance_mm": 1,
+    "outside_mm": 20
+  },
+  "wiring": {
+    "provisional": true,
+    "description": "Hand wiring from the tile pads to the adapter, as a 4 x 5 matrix: rows RT, RH, RB and RX (the thumbs), columns C0 (pinky) to C4 (inner). Each thumb shares a finger column but has its own wire to that column hole. LED data, +5 V and GND follow led_order; DATA runs DI to DO. pin is the ribbon pin, which is the adapter hole.",
+    "signal_wire_mm": 0.6,
+    "power_wire_mm": 0.9,
+    "loom_height_mm": 10,
+    "port_diameter_mm": 5,
+    "port_length_mm": 20,
+    "service_loop_mm": 40,
+    "end_allowance_mm": 5,
+    "solder_access_mm": [2, 8],
+    "led_order": [
+      "thumb_x2",
+      "thumb_x1",
+      "thumb_near",
+      "thumb_home",
+      "thumb_far",
+      "matrix_inner_bottom",
+      "matrix_inner_home",
+      "matrix_inner_top",
+      "matrix_index_top",
+      "matrix_index_home",
+      "matrix_index_bottom",
+      "matrix_middle_bottom",
+      "matrix_middle_home",
+      "matrix_middle_top",
+      "matrix_ring_top",
+      "matrix_ring_home",
+      "matrix_ring_bottom",
+      "matrix_pinky_bottom",
+      "matrix_pinky_home",
+      "matrix_pinky_top"
+    ],
+    "nets": [
+      {
+        "name": "RT",
+        "pin": 4,
+        "group": "row",
+        "pads": ["R", "R"],
+        "chains": [
+          [
+            "matrix_inner_top",
+            "matrix_index_top",
+            "matrix_middle_top",
+            "matrix_ring_top",
+            "matrix_pinky_top"
+          ]
+        ]
+      },
+      {
+        "name": "RH",
+        "pin": 5,
+        "group": "row",
+        "pads": ["R", "R"],
+        "chains": [
+          [
+            "matrix_inner_home",
+            "matrix_index_home",
+            "matrix_middle_home",
+            "matrix_ring_home",
+            "matrix_pinky_home"
+          ]
+        ]
+      },
+      {
+        "name": "RB",
+        "pin": 6,
+        "group": "row",
+        "pads": ["R", "R"],
+        "chains": [
+          [
+            "matrix_inner_bottom",
+            "matrix_index_bottom",
+            "matrix_middle_bottom",
+            "matrix_ring_bottom",
+            "matrix_pinky_bottom"
+          ]
+        ]
+      },
+      {
+        "name": "RX",
+        "pin": 12,
+        "group": "row",
+        "pads": ["R", "R"],
+        "chains": [["thumb_far", "thumb_home", "thumb_near", "thumb_x1", "thumb_x2"]]
+      },
+      {
+        "name": "C0",
+        "pin": 7,
+        "group": "column",
+        "pads": ["C", "C"],
+        "chains": [["matrix_pinky_top", "matrix_pinky_home", "matrix_pinky_bottom"], ["thumb_x2"]]
+      },
+      {
+        "name": "C1",
+        "pin": 8,
+        "group": "column",
+        "pads": ["C", "C"],
+        "chains": [["matrix_ring_top", "matrix_ring_home", "matrix_ring_bottom"], ["thumb_near"]]
+      },
+      {
+        "name": "C2",
+        "pin": 9,
+        "group": "column",
+        "pads": ["C", "C"],
+        "chains": [
+          ["matrix_middle_top", "matrix_middle_home", "matrix_middle_bottom"],
+          ["thumb_x1"]
+        ]
+      },
+      {
+        "name": "C3",
+        "pin": 10,
+        "group": "column",
+        "pads": ["C", "C"],
+        "chains": [["matrix_index_top", "matrix_index_home", "matrix_index_bottom"], ["thumb_home"]]
+      },
+      {
+        "name": "C4",
+        "pin": 11,
+        "group": "column",
+        "pads": ["C", "C"],
+        "chains": [["matrix_inner_top", "matrix_inner_home", "matrix_inner_bottom"], ["thumb_far"]]
+      },
+      {
+        "name": "DATA",
+        "pin": 2,
+        "group": "data",
+        "pads": ["DI", "DO"],
+        "directed": true
+      },
+      {
+        "name": "+5V",
+        "pin": 21,
+        "group": "power",
+        "pads": ["+", "+"]
+      },
+      {
+        "name": "GND",
+        "pin": 20,
+        "group": "ground",
+        "pads": ["G", "G"]
+      }
+    ]
+  },
+  "chassis": {
+    "style": "skeletyl",
+    "plate_thickness_mm": 3,
+    "plate_margin_mm": 0.9,
+    "skin_mm": 2
+  }
+}

@@ -55,7 +55,8 @@ result. The readout says first whether the layout is valid, or lists what is wro
   the resting hand that is valid), `Yours` (set by hand in the editor from the Dactyl
   fit, then the thumb refitted), `No curl` (Yours with the thumb reaching and pressing
   without curling, the extra keys as last printed) and `Swung in` (No curl with the row
-  turned toward the thumb's base, the home key about halfway to where x1 was).
+  turned toward the thumb's base, the home key about halfway to where x1 was; the
+  editor's default project is Swung in).
   `tests/hand.test.ts` checks that each but Swung in is valid, with the test frame too;
   Swung in's warnings are the model's limits.
 

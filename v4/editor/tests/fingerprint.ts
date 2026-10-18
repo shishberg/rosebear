@@ -42,7 +42,8 @@ const variants: Record<string, (c: Config) => void> = {
     // Both thumb clusters moved and turned together, so they stay clear of each other.
     for (const t of [
       c.geometry.thumb,
-      (c.geometry as { thumb_extra: typeof c.geometry.thumb }).thumb_extra,
+      (c.geometry as { thumb_extra: Pick<typeof c.geometry.thumb, 'position_mm' | 'rotation_deg'> })
+        .thumb_extra,
     ]) {
       t.position_mm[0] += 4;
       t.rotation_deg[2] += 5;

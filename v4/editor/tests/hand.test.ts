@@ -8,6 +8,7 @@ import { clone, componentFrames, defaults, ROWS } from '../src/geometry';
 import { buildFrame } from '../src/hand/frame';
 import { _test as hand } from '../src/hand';
 import { pastJoints } from '../src/hand/model';
+import { preSwung } from './helpers';
 
 const { T } = hand;
 const wasm = await Module();
@@ -930,8 +931,11 @@ test('a frame is built where two joined keys overlap or a bar has no length', ()
       pieces: 1,
     },
   ];
+  // On the layout before Swung in became the default, where these cases were
+  // found: from Swung in the anchor moves by about 1 µm and the keys round
+  // differently by 0.01 mm, which can undo the exact coincidences they need.
   for (const { s, tris, pieces } of cases) {
-    const c = clone(defaults).config,
+    const c = preSwung().config,
       settings = { ...structuredClone(hand.DACTYL), ...base, ...s } as unknown as Settings;
     settings.curl = { ...hand.DACTYL.curl, ...s.curl };
     settings.thumb = { ...hand.DACTYL.thumb, ...s.thumb, reach: s.thumb.reach };

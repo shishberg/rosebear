@@ -1,15 +1,17 @@
-// Each check must fail on a deliberately broken default, so none can become a no-op.
+// Each check must fail on a deliberately broken layout, so none can become a no-op.
+// They start from the layout before Swung in became the default, which passes
+// (Swung in fails some of these checks already).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import Module from 'manifold-3d';
-import { defaults, clone } from '../src/geometry';
 import { buildSolid } from '../src/solid';
+import { preSwung } from './helpers';
 
 const wasm = await Module();
 wasm.setup();
 
 test('a thumb cluster moved 40 mm off the fingers of the C64 fails seats, openings, pieces, hardware and wires', () => {
-  const p = clone(defaults);
+  const p = preSwung();
   p.config.chassis.style = 'c64';
   p.config.geometry.thumb.position_mm[0] += 40;
   const r = buildSolid(wasm, p).report;

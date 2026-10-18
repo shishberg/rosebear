@@ -18,16 +18,17 @@ import { buildChassis } from '../src/chassis';
 import { shell } from '../src/shell';
 import { crossings, holes, nets, wiring } from '../src/wiring';
 import ref from './python-reference.json';
-import { solidOf } from './helpers';
+import { preSwung, solidOf } from './helpers';
 
 const wasm = await Module();
 wasm.setup();
 const pos = (m: { elements: number[] }) => new Vector3(...m.elements.slice(12, 15));
 const normal = (m: { elements: number[] }) => new Vector3(...m.elements.slice(8, 11));
-test('default column heights reproduce the Python reference finger poses', () => {
-  // The default heights and sideways tilts put the finger keys where the Python
-  // generator did (python-reference.json).
-  for (const [key, m] of Object.entries(componentFrames(defaults.config)))
+test('the column heights before Swung in reproduce the Python reference finger poses', () => {
+  // The heights and sideways tilts of the layout before Swung in became the
+  // default put the finger keys where the Python generator did
+  // (python-reference.json). Swung in sets its keys from the hand model instead.
+  for (const [key, m] of Object.entries(componentFrames(preSwung().config)))
     if (key.startsWith('matrix_'))
       m.elements.forEach((x, i) =>
         assert(Math.abs(x - (ref.frames as Record<string, number[]>)[key][i]) < 1e-3, key),
@@ -79,8 +80,11 @@ test('shared per-key helpers', () => {
   );
 });
 test('thumb clusters fan on an arc and tilt into a well', () => {
-  const f = componentFrames(defaults.config),
-    th = defaults.config.geometry.thumb;
+  // On the layout before Swung in, whose thumb row is on an arc with a well
+  // (Swung in places each thumb key itself, with no arc).
+  const p = preSwung(),
+    f = componentFrames(p.config),
+    th = p.config.geometry.thumb;
   const far = pos(f.thumb_far),
     home = pos(f.thumb_home),
     near = pos(f.thumb_near);
@@ -99,13 +103,15 @@ test('thumb clusters fan on an arc and tilt into a well', () => {
   }
   // The extra pair share the cluster's tilt.
   assert(normal(f.thumb_x1).angleTo(normal(f.thumb_x2)) < 1e-6);
-  const none = clone(defaults);
+  const none = preSwung();
   delete (none.config.geometry as { thumb_extra?: unknown }).thumb_extra;
   assert(!componentFrames(none.config).thumb_x1);
 });
-// The C64 shell, the chassis these checks were written for.
+// The C64 shell, the chassis these checks were written for, on the layout
+// before Swung in became the default: Swung in's thumb keys sit under the
+// finger keys, which these chassis checks aren't about.
 const c64 = () => {
-  const p = clone(defaults);
+  const p = preSwung();
   p.config.chassis.style = 'c64';
   return p;
 };
@@ -131,7 +137,7 @@ test('the C64 chassis passes: one piece on one footprint, clear of the tile pock
   assert(r.report.passed);
   const mounted = solidOf(wasm, r.mesh);
   try {
-    for (const [name, m] of Object.entries(componentFrames(defaults.config)))
+    for (const [name, m] of Object.entries(componentFrames(p.config)))
       if (name.startsWith('matrix_') || name.startsWith('thumb_')) {
         const inverse = m.clone().invert();
         // Ray through four lip locations measures both faces of the seat.
@@ -199,6 +205,52 @@ test('a thicker skin builds a C64 case that still passes, the adapter mount reac
     /skin_mm/,
   );
 });
+test("the default (Swung in) Skeletyl builds one piece, failing only Swung in's known checks", () => {
+  // Swung in's thumb x1 sits under the home and near keys and x2 under the
+  // pinky and ring bottom keys: the extra thumbs' keycaps touch the fingers'.
+  // Its failures are pinned, so a change shows up; everything else passes.
+  const r = buildSolid(wasm, clone(defaults)).report,
+    failing = (xs: { name: string; passed: boolean }[]) =>
+      xs.filter((x) => !x.passed).map((x) => x.name);
+  assert.equal(r.pieces.length, 1);
+  assert.equal(r.footprint.length, 1);
+  assert.equal(r.seats.length, 20);
+  assert.deepEqual(failing(r.seats), ['matrix_pinky_bottom', 'thumb_near', 'thumb_x2']);
+  assert.deepEqual(failing(r.keycaps), [
+    'matrix_pinky_home',
+    'matrix_pinky_bottom',
+    'thumb_x1',
+    'thumb_x2',
+  ]);
+  assert.deepEqual(
+    r.roomCuts.map((c) => c.name),
+    ['matrix_pinky_home', 'matrix_pinky_bottom', 'thumb_x1', 'thumb_x2'],
+  );
+  assert(r.openings.length > 0);
+  assert.deepEqual(failing(r.openings), ['thumb_home', 'thumb_near']);
+  assert.deepEqual(
+    r.hardware.map((h) => h.name),
+    [
+      'matrix_middle_bottom',
+      'matrix_ring_bottom',
+      'matrix_pinky_bottom',
+      'thumb_home: hotswap socket',
+      'thumb_near',
+      'thumb_near: hotswap socket',
+    ],
+  );
+  assert.deepEqual(r.wires, []);
+  assert.deepEqual(r.crossings, [
+    'RX: near to home and +5V: home to near',
+    'GND: pinky_home to pinky_bottom and GND: pinky_bottom to ring_bottom',
+    'GND: home to near and GND: near to x1',
+  ]);
+  assert.deepEqual(
+    r.capGaps.filter((g) => !(g.gap > 0)).map((g) => g.between),
+    ['fingers – extra thumbs'],
+  );
+  assert.equal(r.passed, false);
+});
 test('the default bottom section is one piece, the adapter mount on its floor', () => {
   assert.equal(basePieces(defaults.config), 1);
 });
@@ -225,8 +277,9 @@ test('the checker reports keycap collisions', () => {
 });
 test('the checker reports chassis built where a keycap goes', () => {
   // The thumb cluster moved 10 mm toward the fingers: the 1.5u key's room cuts
-  // into the fingers' front swept end.
-  const close = clone(defaults);
+  // into the fingers' front swept end. On the layout before Swung in, which
+  // has no room cuts of its own (Swung in's sit elsewhere).
+  const close = preSwung();
   close.config.geometry.thumb.position_mm[1] += 10;
   const r = buildSolid(wasm, close);
   const home = r.report.roomCuts.find((c) => c.name === 'thumb_home');
@@ -264,14 +317,22 @@ test("the wiring joins each net's pads and adapter hole, for a 4 × 5 matrix", (
     assert.equal(wires.filter((x) => x.feed).length, net.chains?.length ?? 1, net.name);
   }
   assert.equal(w.wires.length, 100);
-  // No wire runs into another.
-  assert.deepEqual(
+  const crossed = (w: ReturnType<typeof wiring>) =>
     crossings(w.wires).map(
       ([a, b]) =>
         `${w.wires[a].net} ${w.wires[a].from}-${w.wires[a].to} × ${w.wires[b].net} ${w.wires[b].from}-${w.wires[b].to}`,
-    ),
-    [],
-  );
+    );
+  // On Swung in (the default) three wires run into others: two between the
+  // thumb home and near keys, one at the pinky bottom key. Pinned, so a change
+  // shows up.
+  assert.deepEqual(crossed(w), [
+    'RX thumb_near-thumb_home × +5V thumb_home-thumb_near',
+    'GND matrix_pinky_home-matrix_pinky_bottom × GND matrix_pinky_bottom-matrix_ring_bottom',
+    'GND thumb_home-thumb_near × GND thumb_near-thumb_x1',
+  ]);
+  // On the layout before Swung in, no wire runs into another.
+  const pre = preSwung().config;
+  assert.deepEqual(crossed(wiring(pre, componentFrames(pre))), []);
   assert.equal(
     w.nets.reduce((s, n) => s + n.joints, 0),
     200,
