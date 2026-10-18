@@ -13,23 +13,43 @@
 // under it, to clear the end key's tile pocket and switch body. Where the next
 // key's plate edge isn't past this one's along either key's axis (the plates
 // overlap in plan, or a web would fold back) the rib parts there, and each
-// part has its own ends.
-// The ends' feet, where their drops would meet the floor, are ringed by the
-// outline: their convex hull, dug in a little. The ends standing on it drop
-// to the floor; the rest stop at the bottom of their rounds. One rail round
-// the outline, on the floor, joins the ribs into one piece. Nothing is cut
-// out: chassis.ts adds the glue pads and the base, and the checks report
-// anything that runs into the tiles or the keycaps.
+// part has its own ends: a round where it clears what the other keys hold
+// (their tiles, switches and keycap rooms), else flush with the plate.
+// The outline is a rounded ring round the free ends' feet (where their drops
+// would meet the floor) and the outer sides of the first and last columns'
+// and the thumb rows' plates and tile pockets: their convex hull, dug in a
+// little, then rounded and carried out by `flare`, so walls down those sides
+// can flare out clear of the tiles. The ends whose feet are near it drop to
+// the floor, each foot carried on along the end in a curve to the outline,
+// where that clears the other keys; the rest stop at the bottom of their
+// rounds. One rail round the outline, on the floor, joins the ribs into one
+// piece, and where neighbouring columns both drop, close, a band fills
+// between their drops up to the lower round.
+// Nothing is cut out: chassis.ts adds the glue pads and the base, and the
+// checks report anything that runs into the tiles or the keycaps.
 //
 // Terms, as in chassis.ts, and:
 //  rib      a run of keys along one key axis, swept as one solid;
 //  station  one cross-section of a rib: its top and underside at both sides;
 //  end      a rib's lip and round past its end key, with a drop to the floor
 //           if it stands on the outline;
-//  foot     where an end's drop meets the floor, on its outer face.
-import type { Manifold, ManifoldToplevel } from 'manifold-3d';
+//  foot     where an end's drop would meet the floor straight down, on its
+//           outer face (before it is carried out to the outline);
+//  band     the wall filling between neighbouring columns' drops.
+import type { CrossSection, Manifold, ManifoldToplevel } from 'manifold-3d';
 import type { Matrix4 } from 'three';
-import { add, cross, dot, ROWS, scale, sub, type Config, type V3 } from './geometry';
+import {
+  add,
+  cross,
+  dot,
+  isKey,
+  keycapEnvelope,
+  ROWS,
+  scale,
+  sub,
+  type Config,
+  type V3,
+} from './geometry';
 import {
   plateHalfWidths,
   PLATES,
@@ -46,17 +66,30 @@ export const SIZES = {
   wall: 2.4,
   /** The ends' rounds have this outer radius, unless chassis.end_radius_mm says. */
   endRadius: 5,
-  /** An end's lip is at least this long, and grows by lipStep until its round and drop clear the end key's tile pocket and switch body by endGap. */
+  /** An end's lip is at least this long, and grows by lipStep until its round and drop clear the end key's tile pocket and switch body by endGap. Rounds, drops and bands keep endGap from what the other keys hold too, or are not built. */
   lip: 1,
   lipStep: 0.1,
   endGap: 0.3,
-  /** Stations inside each web, and round each end's round. */
+  /** Stations inside each web, round each end's round, and along each foot's curve. */
   webSteps: 8,
   roundSteps: 8,
-  /** The outline digs in this far at most (plan). */
+  footSteps: 6,
+  /** The outline digs in this far at most (plan), before it is rounded. */
   digDeepest: 12,
-  /** An end drops to the floor if either of its feet is this close to the outline (plan). */
-  onOutline: 1.5,
+  /** The outline stands this far out (plan) from the feet and the outer sides' plates and tile pockets it is built round: room for walls to flare out. */
+  flare: 5,
+  /** The outline's corners, out and in, are rounded to this radius (plan). */
+  corner: 10,
+  /** Segments per full turn of the outline's rounding. */
+  cornerSegments: 72,
+  /** An end drops to the floor if the outline is at most this far out along the end from the nearer of its feet (plan); its foot carries out that far. */
+  reach: 12,
+  /** A foot carried out starts to curve out this high per mm it carries out (1.5: 45° at its steepest), lower if its round is low. */
+  footRise: 1.5,
+  /** Neighbouring columns' drops at the same end are banded together where their facing feet are at most this far apart (plan); */
+  bandGap: 15,
+  /** the band reaches this far into each drop. */
+  bandInto: 0.5,
   /** The rail round the outline: its height. */
   railHeight: 6,
 } as const;
@@ -71,14 +104,15 @@ interface RibKey {
   /** Which key axis a is (0: x, 1: y). */
   axis: number;
 }
-/** A rib: its keys in order, and whether each end (first, last) is where a run parted. */
+/** A rib: which run it is from, its keys in order, and whether each end (first, last) is where the run parted. */
 interface Rib {
+  run: number;
   keys: RibKey[];
   parted: [boolean, boolean];
 }
-/** How a rib's end finishes: a round and a drop to the floor, a round alone, or flush with the plate's edge. */
-type End = 'drop' | 'hang' | 'flush';
-/** A point on one side of a rib: [top, underside]. */
+/** How a rib's end finishes: flush with the plate's edge, a round alone, or a round and a drop to the floor, its foot carried on along the end this far (plan) to the outline. */
+type End = 'flush' | 'hang' | { out: number };
+/** A point on one side of a rib: [top, underside]; on a drop, [outer face, inner face]. */
 type Pair = [V3, V3];
 /** A station: [left underside, right underside, right top, left top]. */
 type Station = [V3, V3, V3, V3];
@@ -119,6 +153,7 @@ const unitPlan = (v: number[]) => {
   const l = Math.hypot(v[0], v[1]);
   return [v[0] / l, v[1] / l];
 };
+const lerp = (p: V3, q: V3, f: number) => add(p, scale(sub(q, p), f));
 
 /**
  * The runs of keys the ribs are made from, in order: each finger column front
@@ -155,7 +190,7 @@ function runs(cfg: Config, frames: Record<string, Matrix4>) {
  */
 function ribs(d: Dims, frames: Record<string, Matrix4>, keyRuns: string[][]): Rib[] {
   const out: Rib[] = [];
-  for (const run of keyRuns) {
+  keyRuns.forEach((run, r) => {
     const keys = run.map((name, i): RibKey => {
       const e = frames[name].elements;
       const p = frames[run[Math.max(0, i - 1)]].elements;
@@ -180,11 +215,11 @@ function ribs(d: Dims, frames: Record<string, Matrix4>, keyRuns: string[][]): Ri
         part.push(keys[i]);
         continue;
       }
-      out.push({ keys: part, parted: [parted, i < keys.length] });
+      out.push({ run: r, keys: part, parted: [parted, i < keys.length] });
       part = [keys[i]];
       parted = true;
     }
-  }
+  });
   return out;
 }
 
@@ -203,14 +238,15 @@ function webbable(d: Dims, p: RibKey, q: RibKey) {
  * One side (s, -1 or 1 across) of the end of key k that faces u (-1 or 1
  * along), from the plate's corner out. A flush end stops there. Otherwise a
  * lip runs on along the key's axis, then the round turns down, in the upright
- * plane through that axis, until it is vertical, and a dropping end drops
- * from there to the floor. The lip is as short as lets the round's inner face,
- * and the drop's below it, clear the tile pocket and switch body by endGap.
- * Nothing goes below the floor.
+ * plane through that axis, until it is vertical. A dropping end drops from
+ * there, and its foot curves out along the end to the outline (its `out`),
+ * meeting the floor at 45° (or flatter, if the round is low). The lip is as
+ * short as lets the round's inner face, and the drop's below it, clear the
+ * tile pocket and switch body by endGap. Nothing goes below the floor.
  */
-function endSide(d: Dims, k: RibKey, u: number, s: number, kind: End): Pair[] {
+function endSide(d: Dims, k: RibKey, u: number, s: number, end: End): Pair[] {
   const path: Pair[] = [[corner(d, k, u, s, 0), corner(d, k, u, s, -d.plate)]];
-  if (kind === 'flush') return path;
+  if (end === 'flush') return path;
   const R = d.radius;
   const inner = d.radius - d.wall;
   const E = path[0][0];
@@ -246,7 +282,22 @@ function endSide(d: Dims, k: RibKey, u: number, s: number, kind: End): Pair[] {
     const a = start + ((-Math.PI / 2 - start) * j) / SIZES.roundSteps;
     path.push([add(centre, scale(out(a), R)), add(centre, scale(out(a), inner))]);
   }
-  if (kind === 'drop') path.push(path.at(-1)!.map((p) => [p[0], p[1], 0]) as Pair);
+  if (end !== 'hang') {
+    // The drop, and its foot: from `rise` up the outer face curves out by
+    // the end's `out` along h, leaving the drop and meeting the floor upright
+    // (out (3f² - 2f³) out at rise (1 - f) up), the inner face thickening to
+    // stay a wall's thickness in from it, square to the curve.
+    const [top, under] = path.at(-1)!;
+    const rise = Math.max(0, Math.min(SIZES.footRise * Math.abs(end.out), 0.9 * top[2]));
+    const at = (p: V3, z: number): V3 => [p[0], p[1], z];
+    path.push([at(top, rise), at(under, rise)]);
+    for (let j = 1; j <= SIZES.footSteps; j++) {
+      const f = j / SIZES.footSteps;
+      const p = add(at(top, rise * (1 - f)), scale(h, end.out * (3 * f * f - 2 * f ** 3)));
+      const slope = rise > 0 ? (6 * end.out * f * (1 - f)) / rise : 0;
+      path.push([p, add(p, scale(sub(under, top), Math.hypot(1, slope)))]);
+    }
+  }
   return path.map((pair) => pair.map((p) => [p[0], p[1], Math.max(0, p[2])]) as Pair);
 }
 
@@ -279,40 +330,203 @@ function ribSide(d: Dims, rib: Rib, s: number, ends: End[]): Pair[] {
   return path;
 }
 
-/** A rib's solid: its stations, each joined to the next, the first and last closed. */
-function ribSolid(wasm: ManifoldToplevel, cfg: Config, d: Dims, rib: Rib, ends: End[]) {
-  const [left, right] = [-1, 1].map((s) => ribSide(d, rib, s, ends));
-  const stations = left.map((l, i): Station => [l[1], right[i][1], right[i][0], l[0]]);
-  const square: [number, number][] = [
-    [-1, -1],
-    [1, -1],
-    [1, 1],
-    [-1, 1],
-  ];
-  return mesh(
+const square: [number, number][] = [
+  [-1, -1],
+  [1, -1],
+  [1, 1],
+  [-1, 1],
+];
+/** The solid through stations, each joined to the next, the first and last closed. */
+const solid = (wasm: ManifoldToplevel, cfg: Config, stations: Station[]) =>
+  mesh(
     { wasm, cfg, frames: {} },
     stations.map((st) => ({ pts: square, place: (_w: number, _z: number, j: number) => st[j] })),
   );
+
+/** A rib's solid. */
+function ribSolid(wasm: ManifoldToplevel, cfg: Config, d: Dims, rib: Rib, ends: End[]) {
+  const [left, right] = [-1, 1].map((s) => ribSide(d, rib, s, ends));
+  return solid(
+    wasm,
+    cfg,
+    left.map((l, i): Station => [l[1], right[i][1], right[i][0], l[0]]),
+  );
 }
 
-/** The feet of a rib's end (0: first, 1: last), if it dropped: its outer face's foot at each side. */
+/** A rib's end key and which way its end faces along it (end 0: first, 1: last). */
+const endKey = (rib: Rib, end: number): [RibKey, number] =>
+  end ? [rib.keys.at(-1)!, 1] : [rib.keys[0], -1];
+
+/** The feet of a rib's end, if it dropped straight down: its outer face's foot at each side. */
 const feet = (d: Dims, rib: Rib, end: number) =>
-  [-1, 1].map((s) => {
-    const k = end ? rib.keys.at(-1)! : rib.keys[0];
-    return endSide(d, k, end ? 1 : -1, s, 'drop').at(-1)![0];
+  [-1, 1].map((s): V3 => {
+    const p = endSide(d, ...endKey(rib, end), s, 'hang').at(-1)![0];
+    return [p[0], p[1], 0];
   });
 
-/** Plan distance from p to the segment ab. */
-const segmentDistance = (p: number[], a: number[], b: number[]) => {
-  const v = [b[0] - a[0], b[1] - a[1]];
-  const l = v[0] * v[0] + v[1] * v[1];
-  const f = l && Math.max(0, Math.min(1, ((p[0] - a[0]) * v[0] + (p[1] - a[1]) * v[1]) / l));
-  return Math.hypot(p[0] - a[0] - f * v[0], p[1] - a[1] - f * v[1]);
-};
+/**
+ * The outline, counter-clockwise: round the feet's convex hull, dug in at most
+ * digDeepest, and the outer sides' plates' and tile pockets' hulls, rounded to
+ * `corner` out and in and standing flare out from them (at a sharp corner a
+ * little less).
+ */
+function rounded(wasm: ManifoldToplevel, d: Dims, feet: V3[], sides: V3[][]) {
+  const R = SIZES.corner;
+  const plan = (ps: V3[]) => ps.map((p) => [p[0], p[1]] as [number, number]);
+  const round = (c: CrossSection, by: number) => c.offset(by, 'Round', 2, SIZES.cornerSegments);
+  const area = wasm.CrossSection.union([
+    new wasm.CrossSection([plan(outline(feet, d.wall, SIZES.digDeepest))], 'NonZero'),
+    ...sides.map((side) => wasm.CrossSection.hull([plan(side)])),
+  ]);
+  // In by R less flare, out by 2R and back by R: the corners out are rounded
+  // to R about the corners of the area in by R less flare, and the corners in
+  // to R.
+  return round(round(round(area, SIZES.flare - R), 2 * R), -R)
+    .toPolygons()
+    .map((p) => p.map((q) => [q[0], q[1]] as [number, number]))
+    .reduce((x, y) => (area2(y) > area2(x) ? y : x));
+}
+/** How far the ring is from p along plan direction h: the first crossing ahead if p is inside it, else the nearest. */
+function toRing(ring: [number, number][], p: V3, h: V3) {
+  const hits = ring.flatMap((a, i) => {
+    const b = ring[(i + 1) % ring.length];
+    const e = [b[0] - a[0], b[1] - a[1]];
+    const w = [a[0] - p[0], a[1] - p[1]];
+    const den = h[0] * e[1] - h[1] * e[0];
+    const f = (h[1] * w[0] - h[0] * w[1]) / den;
+    return Math.abs(den) > 1e-12 && f >= 0 && f < 1 ? [(w[0] * e[1] - w[1] * e[0]) / den] : [];
+  });
+  const ahead = hits.filter((t) => t > 0);
+  return ahead.length % 2
+    ? Math.min(...ahead)
+    : hits.reduce((x, y) => (Math.abs(y) < Math.abs(x) ? y : x), Infinity);
+}
+/** Twice a plan polygon's signed area. */
+const area2 = (p: number[][]) =>
+  p.reduce((sum, q, i) => {
+    const r = p[(i + 1) % p.length];
+    return sum + q[0] * r[1] - r[0] * q[1];
+  }, 0);
+
+/** Points over the faces of the solid between two sides (from station `from` on): across at quarters, at each station and halfway to the next. */
+const samples = (left: Pair[], right: Pair[], from = 0) =>
+  left.flatMap((l, i) =>
+    i < from
+      ? []
+      : [0, 1].flatMap((j) =>
+          [0, 0.25, 0.5, 0.75, 1].flatMap((f) => {
+            const p = lerp(l[j], right[i][j], f);
+            return i > from ? [p, lerp(p, lerp(left[i - 1][j], right[i - 1][j], f), 0.5)] : [p];
+          }),
+        ),
+  );
 
 /**
- * The frame: the ribs, and the rail round the outline that the ends standing
- * on it drop to. It stands on z = 0.
+ * What key n holds, as boxes in its own coordinates ([centre, half-widths]),
+ * as the hardware check has them: its tile and the tile's components, its
+ * switch body, and its keycap's room, from the plate up, the cap's base wide.
+ */
+function keyBoxes(cfg: Config, n: string): [V3, V3][] {
+  const { switch: sw, tile } = cfg;
+  const pcb = -tile.plate_top_to_pcb_top_mm;
+  const half = (size: number[]) => size.map((x) => x / 2) as V3;
+  const env = keycapEnvelope(cfg, n, { clampFloor: true });
+  const cap = env.z0 + env.height;
+  return [
+    [[0, 0, pcb - tile.size_mm[2] / 2], half(tile.size_mm)],
+    ...tile.components.map((c): [V3, V3] => [
+      [c.center_mm[0], c.center_mm[1], c.center_mm[2] + pcb],
+      half(c.size_mm),
+    ]),
+    [[0, 0, sw.body_mm[2] / 2 - sw.body_below_plate_mm], half(sw.body_mm)],
+    [
+      [0, 0, cap / 2],
+      [env.base[0] / 2, env.base[1] / 2, cap / 2],
+    ],
+  ];
+}
+
+/** Whether points stay endGap clear of what every key but `except` holds. */
+function clearOfKeys(cfg: Config, frames: Record<string, Matrix4>, points: V3[], except?: string) {
+  return Object.keys(frames)
+    .filter((n) => isKey(n) && n !== except)
+    .every((n) => {
+      const e = frames[n].elements;
+      const boxes = keyBoxes(cfg, n);
+      return points.every((p) => {
+        const q = sub(p, [e[12], e[13], e[14]]);
+        const local = [0, 4, 8].map((i) => dot(q, [e[i], e[i + 1], e[i + 2]]));
+        return boxes.every(([c, h]) =>
+          local.some((x, i) => Math.abs(x - c[i]) > h[i] + SIZES.endGap),
+        );
+      });
+    });
+}
+
+/** Whether a rib's end can finish as `kind`: what it adds past the plate's edge is clear of the other keys. */
+function endClear(
+  cfg: Config,
+  d: Dims,
+  frames: Record<string, Matrix4>,
+  rib: Rib,
+  end: number,
+  kind: End,
+) {
+  const [k, u] = endKey(rib, end);
+  const [left, right] = [-1, 1].map((s) => endSide(d, k, u, s, kind));
+  return clearOfKeys(cfg, frames, samples(left, right, 1), k.name);
+}
+
+/** One side of a dropping end, from the bottom of its round to the floor. */
+const dropSide = (d: Dims, rib: Rib, end: number, s: number, kind: End) =>
+  endSide(d, ...endKey(rib, end), s, kind).slice(SIZES.roundSteps + 1);
+/** A point on a drop side at height z, its outer and inner faces. */
+function dropAt(side: Pair[], z: number): Pair {
+  const i = Math.max(0, side.findIndex((p) => p[0][2] <= z) - 1);
+  const [p, q] = [side[i], side[i + 1] ?? side[i]];
+  const f = p[0][2] - q[0][2] > 1e-9 ? (p[0][2] - z) / (p[0][2] - q[0][2]) : 0;
+  return [lerp(p[0], q[0], f), lerp(p[1], q[1], f)];
+}
+
+/**
+ * The band between two neighbouring columns' drops at the same end (each a
+ * rib and its end's kind): their facing sides joined at each height either
+ * has a station at, from the floor up to the lower one's round, each reaching
+ * bandInto into its drop. None if they are far apart, or it would hit a key.
+ */
+function band(
+  wasm: ManifoldToplevel,
+  cfg: Config,
+  d: Dims,
+  frames: Record<string, Matrix4>,
+  end: number,
+  pair: [Rib, End][],
+) {
+  const sides = pair.map(([rib, kind], i) => {
+    const [k, o] = [rib, pair[1 - i][0]].map((r) => endKey(r, end)[0]);
+    const s = Math.sign(dot(k.c, sub(o.o, k.o)));
+    const into = scale([...unitPlan(k.c), 0] as V3, -s * SIZES.bandInto);
+    return dropSide(d, rib, end, s, kind).map((p) => p.map((q) => add(q, into)) as Pair);
+  });
+  const feetApart = Math.hypot(...sub(sides[0].at(-1)![0], sides[1].at(-1)![0]));
+  if (feetApart > SIZES.bandGap) return [];
+  const top = Math.min(...sides.map((side) => side[0][0][2]));
+  const levels = [...new Set(sides.flatMap((side) => side.map((p) => p[0][2])))]
+    .filter((z) => z <= top)
+    .sort((x, y) => x - y)
+    .filter((z, i, all) => !i || z - all[i - 1] > 0.01);
+  const [left, right] = sides.map((side) => levels.map((z) => dropAt(side, z)));
+  if (levels.length < 2 || !clearOfKeys(cfg, frames, samples(left, right))) return [];
+  const stations = levels.map((_, i): Station => {
+    const st: Station = [left[i][0], left[i][1], right[i][1], right[i][0]];
+    return area2(st) > 0 ? st : (st.reverse() as Station);
+  });
+  return [solid(wasm, cfg, stations)];
+}
+
+/**
+ * The frame: the ribs, the bands between their drops, and the rail round the
+ * outline that the ends standing on it drop to. It stands on z = 0.
  */
 export function skeletyl(
   wasm: ManifoldToplevel,
@@ -320,29 +534,58 @@ export function skeletyl(
   frames: Record<string, Matrix4>,
 ): { frame: Manifold; outline: [number, number][] } {
   const d = dims(cfg);
-  const all = ribs(d, frames, runs(cfg, frames));
-  // Where a run parted, the ends face the other part's keys: there is no
-  // room for a round there, so they are flush with the plate's edge.
+  const keyRuns = runs(cfg, frames);
+  const all = ribs(d, frames, keyRuns);
+  const columns = cfg.geometry.columns.length;
+  // The outer sides: each key's plate and tile pocket edges on the side away
+  // from the keys' middle, on the first and last columns and the thumb rows.
+  const keys = all.flatMap((r) => r.keys);
+  const middle = [0, 1].map((i) => keys.reduce((sum, k) => sum + k.o[i], 0) / keys.length);
+  const outerSide = (rib: Rib) => {
+    const s = Math.sign(
+      rib.keys.reduce(
+        (sum, k) => sum + k.c[0] * (k.o[0] - middle[0]) + k.c[1] * (k.o[1] - middle[1]),
+        0,
+      ),
+    );
+    const [pocket, depth] = d.keepClear[0];
+    return rib.keys.flatMap((k) =>
+      [-1, 1].flatMap((u) => [
+        corner(d, k, u, s, 0),
+        corner(d, k, u, s, -d.plate),
+        keyPoint(k, pocket, u, s, -depth),
+      ]),
+    );
+  };
   const free = (rib: Rib) => [0, 1].filter((e) => !rib.parted[e]);
-  const ring = outline(
+  const ring = rounded(
+    wasm,
+    d,
     all.flatMap((rib) => free(rib).flatMap((e) => feet(d, rib, e))),
-    d.wall,
-    SIZES.digDeepest,
-  ).map((p) => [p[0], p[1]] as [number, number]);
-  const onRing = (p: V3) =>
-    ring.some((a, i) => segmentDistance(p, a, ring[(i + 1) % ring.length]) <= SIZES.onOutline);
-  const kind = (rib: Rib, e: number): End =>
-    rib.parted[e] ? 'flush' : feet(d, rib, e).some(onRing) ? 'drop' : 'hang';
-  const solids = all.map((rib) =>
-    ribSolid(
-      wasm,
-      cfg,
-      d,
-      rib,
-      [0, 1].map((e) => kind(rib, e)),
-    ),
+    all.filter((rib) => rib.run === 0 || rib.run >= columns - 1).map(outerSide),
+  );
+  const kind = (rib: Rib, e: number): End => {
+    if (rib.parted[e]) return endClear(cfg, d, frames, rib, e, 'hang') ? 'hang' : 'flush';
+    const [k, u] = endKey(rib, e);
+    const h = [...unitPlan(scale(k.a, u)), 0] as V3;
+    const drop = { out: Math.min(...feet(d, rib, e).map((p) => toRing(ring, p, h))) };
+    return drop.out <= SIZES.reach && endClear(cfg, d, frames, rib, e, drop) ? drop : 'hang';
+  };
+  const ends = all.map((rib) => [0, 1].map((e) => kind(rib, e)));
+  const solids = all.map((rib, i) => ribSolid(wasm, cfg, d, rib, ends[i]));
+  // The bands: neighbouring columns' first ribs at the front, last at the back.
+  const bands = [0, 1].flatMap((e) =>
+    [...Array(columns - 1).keys()].flatMap((c) => {
+      const pair = [c, c + 1].map((run): [Rib, End] => {
+        const i = all.flatMap((r, j) => (r.run === run ? [j] : [])).at(e ? -1 : 0)!;
+        return [all[i], ends[i][e]];
+      });
+      return pair.every(([, kind]) => typeof kind === 'object')
+        ? band(wasm, cfg, d, frames, e, pair)
+        : [];
+    }),
   );
   const area = new wasm.CrossSection([ring], 'NonZero');
-  const rail = area.subtract(area.offset(-d.wall, 'Miter')).extrude(SIZES.railHeight);
-  return { frame: wasm.Manifold.union([...solids, rail]), outline: ring };
+  const rail = area.subtract(area.offset(-d.wall, 'Round')).extrude(SIZES.railHeight);
+  return { frame: wasm.Manifold.union([...solids, ...bands, rail]), outline: ring };
 }

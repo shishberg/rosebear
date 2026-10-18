@@ -13,10 +13,18 @@ The default chassis is the **Skeletyl** (`src/skeletyl.ts`, `chassis.style:
 "skeletyl"`): a rib along each finger column and each thumb row, and one rail
 round the outline on the floor. A rib is one swept solid: the key plates as
 slabs, curved webs between them tangent to the plates, and a lip and round at
-each end, clear of the tile pocket and the switch. An end on the outline drops
-to the floor onto the rail; the others hang. Where two keys are too steep or
-too far round to web, the rib is parted there and both ends stop flush at their
-plates. Nothing is cut out of the frame. The base plate inside
+each end, clear of the tile pocket and the switch. The outline is rounded
+(10 mm corners) and stands 5 mm out from the ends' feet and from the outer
+sides of the first and last columns and the thumb rows (their plates and tile
+pockets), so walls down those sides will have room to flare out; it digs in
+at most 12 mm between the thumb and finger keys. An end near the outline drops
+to the floor, its foot curving out along the end onto the rail; the others
+hang. Where neighbouring columns both drop close together, a band joins their
+drops up to the lower round. Where two keys are too steep or too far round to
+web, the rib is parted there, and each end is rounded if the round clears the
+other keys' tiles, switches and keycaps, else stops flush at its plate. Drops
+and bands are left out where they would hit another key. Nothing is cut out
+of the frame. The base plate inside
 the outline is the bottom section; it carries the adapter mount and the
 ribbon's landing, the ribbon leaving through a notch in the rail. The
 assembly is soldered first and lifted in, so the frame has no wire ways and
