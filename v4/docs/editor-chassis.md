@@ -2,10 +2,11 @@
 
 How the [editor](../editor/README.md) builds the right hand's chassis and wires it. The
 editor guide covers running it, the key layout parameters and the clearance
-checks. The wiring, the tile pads, the FFC adapter and the ribbon dimensions here
-are **provisional**. The pads are read from a photo of the bought tiles, and the
-adapter is a generic 24-way FFC breakout on perfboard. Each is marked `provisional`
-in the configuration. File paths are relative to `v4/editor/`.
+checks. The tile, its parts, holes and pads are measured from the bought tiles
+(see [design status](design-status.md)). The wiring, the FFC adapter and the
+ribbon dimensions here are **provisional**: the adapter is a generic 24-way FFC
+breakout on perfboard. Each is marked `provisional` in the configuration. File
+paths are relative to `v4/editor/`.
 
 ## Construction
 
@@ -55,9 +56,12 @@ tops shows under its size.
   the wall. The landing is 10 mm long from the wall, so the adapter stands far
   enough in for its loop to clear it.
 - **Tile**: the bought 1U key PCB under each switch (see [the v4 README](../README.md)),
-  provisionally 19 × 19 mm. Its **tile pocket** is the space under the plate kept
-  clear for the tile, its parts and the switch body, open below to the hollow so
-  the tiles can be soldered with the bottom section off.
+  17 × 17 × 1.6 mm with notched corners, its top 5 mm below the plate top. Its
+  **tile pocket** is the space under the plate kept clear for the tile, its parts
+  (the hotswap socket, 1.9 mm deep, is the deepest: the pocket reaches 8.8 mm below
+  the plate top) and the switch body, open below to the hollow so the tiles can be
+  soldered with the bottom section off. A part's `center_mm[2]` is measured from
+  the board's top; `src/geometry.ts` has the helpers every use goes through.
 - **Plate**: the square a switch clips into, 3 mm thick. It reaches 0.9 mm
   past the 15.8 mm switch seat on each side, or to the edge of the tile pocket if
   that is further, so the plate always covers the tile.
@@ -73,9 +77,13 @@ tops shows under its size.
   3.6 mm above the parting line, keep clear of the tiles, the soldering iron's
   way to each pad and the wires, and are dropped where a piece would be left
   loose.
-- **Glue pads**: each tile is glued up against four L-shaped pads under its
-  plate's corners, outside the switch's seat. The pads set its height, and the
-  glue holds it when a switch is pressed into its socket.
+- **Glue pads**: each tile is glued up against pads under its plate's corners,
+  outside the switch's seat: an L of two legs along the tile's edges, from 4 mm
+  out from the centre. The pads set its height, and the glue holds it when a
+  switch is pressed into its socket. A leg stops short of the tile's corner notch
+  (so on the bought tile the two legs part), keeps 0.5 mm off the ring of any
+  hole near the edge, and is dropped where less than 1 mm is left. On the 17 mm
+  tile each leg is 0.5 mm wide, between the seat and the tile's edge.
 - Above each plate the chassis is kept clear of the switch housing's rim (the
   seat footprint, up to the keycap's lowest point) and of the keycap's travel.
 - **Wire port**: the thumb wires reach the finger well through a round way
@@ -84,12 +92,13 @@ tops shows under its size.
 
 ## Wiring
 
-`src/wiring/` models the hand wiring from these provisional assumptions:
+`src/wiring/` models the hand wiring from these assumptions:
 
-- **Tile pads**: four on each of the tile's edges parallel to its socket, at
-  x = −7, −2.5, 2.5 and 7 mm, 1.2 × 1.8 mm, on the underside. Back edge: C, G, +,
-  DO. Front edge: R, G, +, DI. The two G pads are joined on the tile, and so are
-  the two + pads.
+- **Tile holes and pads** (`tile.pads`, measured): through holes near the tile's
+  sides, two C, two R, in and out, and V and G nearer the LED; a pad for each of
+  in, out, V and G on both the socket and the LED edges, on the underside; and a
+  spare C and R hole under the socket, which no wire uses. **One wire per hole or
+  pad**: a 22 AWG wire fits a hole, two don't.
 - **Matrix**: each hand is 4 rows × 5 columns. The finger rows are RT, RH and RB
   (ribbon pins 4–6); the five thumbs are row RX (pin 12). Columns C0–C4 (pins
   7–11) run pinky to inner. Each thumb sits on a finger column: x2 on C0, near on
@@ -99,17 +108,21 @@ tops shows under its size.
 - **Ribbon pins**: 1, 3, 13, 20 and 24 GND; 2 LED data; 21–23 +5 V. The adapter
   has 2 × 12 holes at 2.54 mm; pin n is in column ⌊(n − 1) / 2⌋, even pins on the
   row nearest the board edge.
-- **Chains**: each finger column chains its C pads top → home → bottom; each row
-  chains its R pads across the columns; LED data runs DO → DI through
-  `wiring.led_order` (the thumbs, then the columns in alternating directions);
-  +5 V and GND daisy-chain every tile. Each chain has one **feed**, a wire from
-  its nearer end to its adapter hole.
+- **Chains**: each finger column chains its C holes top → home → bottom; each row
+  chains its R holes across the columns. A wire arrives at the tile's C (or R)
+  hole nearer where it comes from, and the next leaves from the other. LED data
+  runs out → in through `wiring.led_order` (the thumbs, then the columns in
+  alternating directions). +5 V and GND daisy-chain every tile, arriving at the V
+  (or G) hole or the LED-edge V (or G) pad, whichever is nearer, and leaving from
+  the other. Each chain has one **feed**, a wire from its nearer end to its
+  adapter hole.
 - **Paths**: wires run close under the tiles. Each end leaves its tile by a
   **leg**, in the key's frame: 0.6 mm down from the pad, an optional shift
   sideways, down to the leg's depth, then straight out to the tile edge facing
-  where the wire goes. A leg over the pad's own edge runs 0.6 mm below the tile;
-  one along the row of pads runs from 2.7 mm down, 0.9 mm deeper for each pad it
-  passes under; one across the tile runs just under its parts. A wire between
+  where the wire goes. A pad's own edge is the tile edge it is nearest. A leg over
+  that edge runs 0.6 mm below the tile; one along it runs from 2.7 mm down, 0.9 mm
+  deeper for each wired pad near the same edge it passes under; one across the
+  tile runs just under its parts. A wire between
   two tiles joins its two legs with a straight run. Where that would run into a
   plate or its reach, it steps back under the higher tile and drops, or turns a
   corner in plan, or runs under both ends.
@@ -119,8 +132,8 @@ tops shows under its size.
   edge facing the port, each offset as its place, so they run to the port side
   by side. Feeds run down to a **loom** 10 mm above the bottom section, then
   across to the adapter.
-- **Routing**: each wire has many candidate routes (depths, shifts, the other
-  pad of the same name for +5 V and GND, port places and loom levels). Routes
+- **Routing**: each wire has many candidate routes (depths, shifts, port places
+  and loom levels). Routes
   that run into a tile, its parts or a plate, or that shift out past the
   tile's pocket, are dropped. The wires then negotiate: each takes its cheapest
   route given the others, and routes that meet another wire cost more each
