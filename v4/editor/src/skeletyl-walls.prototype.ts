@@ -109,7 +109,7 @@ export interface RibKit {
   radius: number;
   /** The rail's top at plan point (x, y): railHeight, or lower where it dips to meet a low drop. */
   railTop: (x: number, y: number) => number;
-  /** The faces standing on the outline that it is cut back to (the drops' and the bands'), each [a, b, outward] as Reach's faces. */
+  /** The faces standing on the outline that it is cut back to (the drops'), each [a, b, outward] as Reach's faces. */
   standing: V3[][];
   /** PROTOTYPE ?ends=tie, flow: where the floor tie meets the rail and is filleted into it (plan polygons, the tie and tieRound and the rail's width round it); none without a tie. */
   tie: [number, number][][];

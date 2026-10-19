@@ -313,7 +313,7 @@ export function buildChassis(
   wired: Wiring = wiring(cfg, frames),
   given?: ReturnType<typeof shell>,
 ): ChassisResult {
-  if (chassisStyle(cfg) === 'skeletyl') return skeletylChassis(wasm, cfg, frames);
+  if (chassisStyle(cfg) === 'skeletyl') return skeletylChassis(wasm, cfg, frames, wired);
   const built = given ?? shell({ wasm, cfg, frames });
   const M = wasm.Manifold;
   const keyNames = Object.keys(frames).filter(isKey);
@@ -378,12 +378,14 @@ export function buildChassis(
  * The Skeletyl: its frame with the glue pads, on a base plate inside its
  * outline (skin_mm thick, the frame's rail standing on the floor in it). The
  * plate carries the adapter's mount and the ribbon's landing, which ends where
- * the ribbon leaves through a notch in the frame.
+ * the ribbon leaves through a notch in the frame. The frame's bridges keep
+ * clear of the wires.
  */
 function skeletylChassis(
   wasm: ManifoldToplevel,
   cfg: Config,
   frames: Record<string, Matrix4>,
+  wired: Wiring,
 ): ChassisResult {
   const M = wasm.Manifold;
   const CS = wasm.CrossSection;
@@ -394,7 +396,7 @@ function skeletylChassis(
       glue.boxes.map((b) => place(M.cube(b.size, true).translate(b.center), frames[n])),
     ),
   );
-  const built = skeletyl(wasm, cfg, frames);
+  const built = skeletyl(wasm, cfg, frames, wired.wires);
   const framed = built.frame.add(pads);
   // The base plate: inside the outline the frame stands on.
   const footprint = new CS([built.outline], 'NonZero');

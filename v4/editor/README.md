@@ -206,7 +206,8 @@ the earlier layout and fails more of them on Swung in; its tests pin those too.
 The seam check (`tests/seams.ts`) finds where the Skeletyl's parts meet badly
 on the mesh as the editor draws it (slivers, ledges, unintended creases, gaps,
 thin skins, swayed shading), with the parts that meet there; `tests/seams.test.ts`
-pins its count per junction class and checks that every drop stands flush on the rail.
+pins its count per junction class (none for the bridges between ribs: they must
+meet the ribs cleanly) and checks that every drop stands flush on the rail.
 
 The editor's cleanup is tracked in [CLEANUP-PLAN.md](CLEANUP-PLAN.md), which lists
 each task's status and the decisions left to the owner.

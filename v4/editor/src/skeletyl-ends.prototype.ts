@@ -18,8 +18,7 @@
 //    the rail square and filleted into it like the outline's corners in. The
 //    hanging ends that can drop onto it clear of the keys become ordinary
 //    drops (bending along the end where the tie is off from straight down,
-//    landing square on it, clear of its bends and junctions), banded to their
-//    neighbours.
+//    landing square on it, clear of its bends and junctions).
 //  - flow: a thumb row's end carried on into a column's front as one rib
 //    (a sweep from the row's end plate edge to the front's, tangent to both:
 //    the front then flush), each row end and front once, nearest first, where

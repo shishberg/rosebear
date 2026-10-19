@@ -23,6 +23,7 @@ import { skeletyl } from '../src/skeletyl';
 import { buildChassis, gluePads } from '../src/chassis';
 import { openingSpan, seatSettings, seatSwitches } from '../src/seats';
 import { plateHalfWidths } from '../src/plates';
+import { wiring } from '../src/wiring';
 
 type V3 = [number, number, number];
 
@@ -449,8 +450,9 @@ export function skeletylSeams(
   raw?: Parameters<typeof seams>[4],
 ) {
   const frames = componentFrames(cfg);
-  const built = skeletyl(wasm, cfg, frames);
-  const chassis = buildChassis(wasm, cfg, frames);
+  const wired = wiring(cfg, frames);
+  const built = skeletyl(wasm, cfg, frames, wired.wires);
+  const chassis = buildChassis(wasm, cfg, frames, wired);
   const M = wasm.Manifold;
   const keys = Object.entries(frames)
     .filter(([n]) => isKey(n))

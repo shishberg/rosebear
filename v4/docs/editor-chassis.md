@@ -15,7 +15,7 @@ The default chassis is the **Skeletyl** (`src/skeletyl.ts`, `chassis.style:
 round the outline on the floor. A rib is one swept solid: the key plates as
 slabs, curved webs between them tangent to the plates, and a lip and round at
 each end, clear of the tile pocket and the switch. The outline is rounded
-(10 mm corners in, cut back square where a drop or band stands on it) and
+(10 mm corners in, cut back square where a drop stands on it) and
 runs round where the ends would drop straight down and round the outer sides
 of the first and last columns and the thumb rows (their plates and tile
 pockets), with no margin past them, so the rail is under their edges, but
@@ -27,11 +27,24 @@ straight down where the rail runs under it, else bending out along the end to
 it, landing square on the rail. Its outer face is flush with the rail's
 over the rail's whole height, and it bends or rounds only above it; under a
 drop whose round ends lower than that, the rail bends down to meet it. The
-others hang. Where neighbouring columns both drop close together, a band joins their
-drops up to the lower round. Where two keys are too steep or too far round to
+others hang. Each drop stands on the rail alone; between neighbouring drops the
+rail runs in round the outline's rounded corner. (On Swung in the index and
+middle columns' back drops stand all but touching, 0.1 mm apart at the foot,
+so they meet in a slit that the band between them used to hide.) PROTOTYPE: small **bridges**
+tie neighbouring ribs together up at the plates. Where two keys of different
+ribs face each other across a gap of 0.5 to 8 mm, along at least 6 mm of both
+plates' edges, a 4 mm wide bridge of the plate's section spans the gap at the
+middle of that stretch: a sweep from one plate's edge to the other's, flush
+with both plates' tops and undersides, its sides square on their edges. It is
+left out where its mean slope out of the plates is over 45°, or where it
+would come near what the keys hold or near a wire (the router doesn't route
+round the frame, so the bridges keep 0.5 mm off the routed wires). On Swung
+in there are six: between the inner and index columns at every row, index
+and middle at the home and bottom rows, and middle and ring at the home row.
+Where two keys are too steep or too far round to
 web, the rib is parted there, and each end is rounded if the round clears the
 other keys' tiles, switches and keycaps, else stops flush at its plate. Drops
-and bands are left out where they would hit another key. Nothing is cut out
+are left out where they would hit another key. Nothing is cut out
 of the frame. The base plate inside
 the outline is the bottom section; it carries the adapter mount and the
 ribbon's landing, the ribbon leaving through a notch in the rail. The

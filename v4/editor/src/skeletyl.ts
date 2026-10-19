@@ -22,16 +22,18 @@
 // columns' and the thumb rows' plates and tile pockets: their convex hull,
 // dug in a little, taking in where any key's switch hole column comes down
 // near the floor (the rail keeps clear of it, as the openings check wants),
-// its corners in rounded but where a drop or a band stands on it. The ends whose feet are near it drop to the floor: the rib carried
+// its corners in rounded but where a drop stands on it. The ends whose feet are near it drop to the floor: the rib carried
 // on from the bottom of its round down to the rail, as one sweep (as between
 // keys), straight down where the outline runs under it, else bending out
 // along the end to it, and landing square on it (across along it), the last
 // of it straight down, flush with the rail, where that clears the other keys;
 // the rest stop at the bottom of their rounds. Each rib, ends and all, is
 // meshed as one surface. One
-// rail round the outline, on the floor, joins the ribs into one piece, and
-// where neighbouring columns both drop, close, a band fills between their
-// drops up to the lower round.
+// rail round the outline, on the floor, joins the ribs into one piece; each
+// drop stands on it alone. PROTOTYPE: small bridges tie neighbouring ribs
+// together up at the plates: where two keys of different ribs face each other
+// across a narrow gap, a short slab of the plate's section spans it between
+// their plates' facing edges, flush with both plates' tops (bridges).
 // Nothing is cut out: chassis.ts adds the glue pads and the base, and the
 // checks report anything that runs into the tiles or the keycaps.
 // PROTOTYPE: chassis.walls (?walls=) adds walls under the outer sides, built
@@ -53,7 +55,8 @@
 //           floor (the rail or the tie), its outer face its top;
 //  foot     where an end's drop would meet the floor straight down, on its
 //           outer face at each side;
-//  band     the wall filling between neighbouring columns' drops;
+//  bridge   PROTOTYPE: a short slab across the gap between two ribs, from one
+//           key's plate edge to a facing key's, flush with their tops;
 //  tie      PROTOTYPE ?ends=: a bar of the rail's section across the floor,
 //           rail to rail, that hanging ends drop onto;
 //  pose     where a rib passes and how it lies there: its top's middle, its
@@ -95,6 +98,7 @@ import {
   type WallSide,
 } from './skeletyl-walls.prototype';
 import { END_SUPPORTS } from './skeletyl-ends.prototype';
+import type { Wire } from './wiring';
 
 /** Construction sizes in mm. */
 export const SIZES = {
@@ -102,17 +106,17 @@ export const SIZES = {
   wall: 2.4,
   /** The ends' rounds have at least this outer radius, unless chassis.end_radius_mm says. */
   endRadius: 5,
-  /** An end's lip is at least this long. Its round (where the end rises off the plate) or else its lip grows by lipStep until the round and the drop clear the end key's tile pocket and switch body by endGap. Rounds, drops and bands keep endGap from what the other keys hold too, or are not built. */
+  /** An end's lip is at least this long. Its round (where the end rises off the plate) or else its lip grows by lipStep until the round and the drop clear the end key's tile pocket and switch body by endGap. Rounds and drops keep endGap from what the other keys hold too, or are not built. */
   lip: 1,
   lipStep: 0.1,
   endGap: 0.3,
-  /** Stations inside each web, round each end's round, and down each drop (for the checks, the bands and the walls; the drop itself is meshed finer, as a joined end is). */
+  /** Stations inside each web, round each end's round, and down each drop (for the checks and the walls; the drop itself is meshed finer, as a joined end is). */
   webSteps: 8,
   roundSteps: 8,
   dropSteps: 8,
   /** The outline digs in this far at most (plan), before it is rounded. */
   digDeepest: 12,
-  /** The outline's corners in are rounded to this radius (plan), but where a drop or a band stands on it; its corners out are left sharp (a drop's corner stands on one). */
+  /** The outline's corners in are rounded to this radius (plan), but where a drop stands on it; its corners out are left sharp (a drop's corner stands on one). */
   corner: 10,
   /** The outline turns exactly at a drop's corner if it turns within this of it (trimmed). */
   cornerSnap: 0.2,
@@ -120,10 +124,6 @@ export const SIZES = {
   cornerSegments: 72,
   /** An end drops to the floor if the outline is at most this far out along the end from where the middle of its drop would meet the floor straight down (plan); its drop bends out that far. */
   reach: 12,
-  /** Neighbouring columns' drops at the same end are banded together where their facing landings (on the floor) are at most this far apart (plan); */
-  bandGap: 15,
-  /** the band reaches this far into each drop. */
-  bandInto: 0.5,
   /** PROTOTYPE ?walls=: a wall side has points this many steps across each plate. */
   plateSteps: 5,
   /** The rail round the outline: its height. */
@@ -139,6 +139,31 @@ export const SIZES = {
   tieRound: 5,
   /** A rib's surface is meshed in triangles about this big (ribSolid). */
   ribMesh: 2,
+  /**
+   * PROTOTYPE bridges: a bridge is bridgeWidth wide along the plates' edges,
+   * the plate's thickness less bridgeSkin at its top and its underside,
+   * reaches bridgeInto into each plate and runs straight on bridgeOut out of
+   * each before it bends (bridges). One spans
+   * the gap between two keys of different ribs whose plates' facing edges
+   * face each other (turned at most bridgeTurn degrees from square on, in
+   * plan, their plates at most that from each other) along at least
+   * bridgeWidth and bridgeInset more at each end, where the gap (edge to edge,
+   * at the bridge's middle) is bridgeLeast to bridgeGap and rises or falls out
+   * of the plates at most bridgeSlope (mm per mm across), and where it keeps
+   * endGap from what the keys hold and wireGap from the wires (tested at
+   * points about bridgeProbe apart through it).
+   */
+  bridgeWidth: 4,
+  bridgeInset: 1,
+  bridgeInto: 0.5,
+  bridgeSkin: 0.001,
+  bridgeOut: 0.3,
+  bridgeTurn: 30,
+  bridgeLeast: 0.5,
+  bridgeGap: 8,
+  bridgeSlope: 1,
+  wireGap: 0.5,
+  bridgeProbe: 0.5,
 } as const;
 
 /** A key in a rib: its plate's centre, the key axis the rib runs along, across it, and its normal (right-handed: a = c × n). */
@@ -650,6 +675,14 @@ const poseSpan = (a: Pose, b: Pose, o: number): Span => {
     steps: stepsOf(Math.max(turnOf(a.t, b.t), turnOf(normalOf(a), normalOf(b)))),
   };
 };
+/** The rib swept from pose a to pose b (as poseSpan), its steps one per 5° its top's middle turns along the way, not just end to end (an S turns and turns back). */
+const bendSpan = (a: Pose, b: Pose): Span => {
+  const at = sweepAt(a, b);
+  const p = [...Array(65).keys()].map((j) => at(j / 64).p);
+  const ways = p.slice(1).map((q, j) => unit(sub(q, p[j])));
+  const turn = ways.slice(1).reduce((sum, w, j) => sum + turnOf(w, ways[j]), 0);
+  return { at: (f) => sidesOf(at(f), 1), steps: stepsOf(turn) };
+};
 /** Straight from sides p to sides q. */
 const lineSpan = (p: [Pair, Pair], q: [Pair, Pair]): Span => ({
   at: (f) => p.map((pair, i) => pair.map((x, j) => lerp(x, q[i][j], f))) as [Pair, Pair],
@@ -865,7 +898,7 @@ const largest = (c: CrossSection) =>
 /**
  * The outline cut back to the faces standing on it, each [a, b, outward]
  * (plan): what rounding its corners in filled in past them, so that the rail
- * runs straight under the drops and bands that stand on it. Its points within
+ * runs straight under the drops that stand on it. Its points within
  * cornerSnap of a face's end are moved onto it, so that where the outline
  * turns at a drop's corner (it is a corner of the feet's hull, rounded out and
  * back) it turns there exactly, rather than running on a few hundredths past
@@ -1015,54 +1048,6 @@ function dropAt(side: Pair[], z: number): Pair {
   return [lerp(p[0], q[0], f), lerp(p[1], q[1], f)];
 }
 
-/**
- * The band between two neighbouring columns' drops at the same end (each a
- * rib and its end's kind): their facing sides joined at each height either
- * has a station at, from the floor up to the lower one's round, each
- * reaching bandInto into its drop, meshed as a rib is (laneSolid). None if
- * they are far apart, or it would hit a key.
- */
-function band(
-  wasm: ManifoldToplevel,
-  cfg: Config,
-  d: Dims,
-  frames: Record<string, Matrix4>,
-  end: number,
-  pair: [Rib, End][],
-) {
-  // Each drop's side facing the other, and its other side.
-  const [sides, others] = [1, -1].map((f) =>
-    pair.map(([rib, kind], i) => {
-      const [k, o] = [rib, pair[1 - i][0]].map((r) => endKey(r, end)[0]);
-      return dropSide(d, rib, end, f * Math.sign(dot(k.c, sub(o.o, k.o))), kind);
-    }),
-  );
-  const apart = Math.hypot(...sub(sides[0].at(-1)![0], sides[1].at(-1)![0]));
-  if (apart > SIZES.bandGap) return [];
-  const top = Math.min(...sides.map((side) => side[0][0][2]));
-  const levels = [...new Set(sides.flatMap((side) => side.map((p) => p[0][2])))]
-    .filter((z) => z <= top)
-    .sort((x, y) => x - y)
-    .filter((z, i, all) => !i || z - all[i - 1] > 0.01);
-  // Each reaching bandInto into its drop along the drop's faces (toward its
-  // other side), so it neither stands proud of them nor, at the foot, of the
-  // rail (trimmed to the band's foot there).
-  const [left, right] = sides.map((side, i) =>
-    levels.map((z) => {
-      const [p, q] = [side, others[i]].map((x) => dropAt(x, z));
-      return p.map((x, j) => add(x, scale(unit(sub(q[j], x)), SIZES.bandInto))) as Pair;
-    }),
-  );
-  if (levels.length < 2 || !clearOfKeys(cfg, frames, samples(left, right))) return [];
-  // Meshed as a rib is, heading up, its outer face its top: side 1 the one
-  // that makes that face out.
-  const [a, b] = [left[0], right[0]];
-  const out = dot(cross([0, 0, 1], sub(b[0], a[0])), sub(a[0], a[1])) > 0;
-  const [l, r] = out ? [left, right] : [right, left];
-  const spans = levels.slice(1).map((_, i) => lineSpan([l[i], r[i]], [l[i + 1], r[i + 1]]));
-  return [laneSolid(wasm, spans, 'band')];
-}
-
 /** How far below the plate top the openings check probes each switch hole's column (solid.ts CHECKS.probeHeight / 2). */
 const OPENING_PROBE_DEPTH = 12;
 
@@ -1109,12 +1094,14 @@ function columnsBelow(cfg: Config, frames: Record<string, Matrix4>, z: number): 
 }
 
 /**
- * PROTOTYPE ?walls= and ?ends=: what every key holds (keyBoxes) and its
+ * PROTOTYPE ?walls=, ?ends= and bridges: what every key holds (keyBoxes) and its
  * switch hole's column (holeColumn), each box in its key's frame and grown by
  * endGap; with whether a point is clear of them all, and how far out along a
- * plan direction from a point everything is.
+ * plan direction from a point everything is. For the keys `pressed` (PROTOTYPE
+ * bridges), the keycap's room starts where its cap comes down to, pressed
+ * (its bottom less the switch's travel), rather than at the plate.
  */
-function keySpace(cfg: Config, frames: Record<string, Matrix4>) {
+function keySpace(cfg: Config, frames: Record<string, Matrix4>, pressed: string[] = []) {
   const column = holeColumn(cfg);
   const boxes = Object.keys(frames)
     .filter(isKey)
@@ -1122,7 +1109,17 @@ function keySpace(cfg: Config, frames: Record<string, Matrix4>) {
       const e = frames[n].elements;
       const o: V3 = [e[12], e[13], e[14]];
       const axes = [0, 4, 8].map((i): V3 => [e[i], e[i + 1], e[i + 2]]);
-      return [...keyBoxes(cfg, n), column].map(([c, h]) => ({
+      const held = keyBoxes(cfg, n);
+      if (pressed.includes(n)) {
+        const [c, h] = held.pop()!;
+        const low = keycapEnvelope(cfg, n, { clampFloor: true }).floor;
+        const top = c[2] + h[2];
+        held.push([
+          [c[0], c[1], (low + top) / 2],
+          [h[0], h[1], (top - low) / 2],
+        ]);
+      }
+      return [...held, column].map(([c, h]) => ({
         o,
         axes,
         c,
@@ -1351,20 +1348,7 @@ function flowTo(
   const front = column.keys[0];
   const end = { join: { key: front.name, land: edgePose(d, front, -1), into: 0 } };
   const [left, right] = [-1, 1].map((s) => endSide(d, k, u, s, end));
-  // Each station wholly ahead of the one before (beyond the plane it lies
-  // in, heading on) and that one wholly behind it: it doesn't fold back.
-  const plane = (m: number): [V3, V3] => {
-    const [l, r] = [left[m], right[m]];
-    return [lerp(l[0], r[1], 0.5), unit(cross(sub(r[0], l[0]), sub(l[0], l[1])))];
-  };
-  const on = left.slice(1).every((_, m) => {
-    const [[o0, n0], [o1, n1]] = [plane(m), plane(m + 1)];
-    return (
-      [left[m + 1], right[m + 1]].flat().every((q) => dot(sub(q, o0), n0) > 0) &&
-      [left[m], right[m]].flat().every((q) => dot(sub(q, o1), n1) < 0)
-    );
-  });
-  if (!on) return undefined;
+  if (!unfolded(left, right)) return undefined;
   // What it runs into, but for what the two plate edges it joins already do.
   const into = (points: V3[]) =>
     Object.keys(frames).filter((n) => isKey(n) && !keySpace(cfg, { [n]: frames[n] }).clear(points));
@@ -1533,22 +1517,162 @@ function floorTie(
   return strip;
 }
 
+/** Whether the stations of a stretch of rib (its sides, [top, underside] at each) run on without folding back: each wholly ahead of the one before (beyond the plane it lies in, heading on), and that one wholly behind it. */
+function unfolded(left: Pair[], right: Pair[]) {
+  const plane = (m: number): [V3, V3] => {
+    const [l, r] = [left[m], right[m]];
+    return [lerp(l[0], r[1], 0.5), unit(cross(sub(r[0], l[0]), sub(l[0], l[1])))];
+  };
+  return left.slice(1).every((_, m) => {
+    const [[o0, n0], [o1, n1]] = [plane(m), plane(m + 1)];
+    return (
+      [left[m + 1], right[m + 1]].flat().every((q) => dot(sub(q, o0), n0) > 0) &&
+      [left[m], right[m]].flat().every((q) => dot(sub(q, o1), n1) < 0)
+    );
+  });
+}
+
+/** How far point p is from the segment a to b. */
+function fromSegment(p: V3, a: V3, b: V3) {
+  const e = sub(b, a);
+  const f = Math.max(0, Math.min(1, dot(sub(p, a), e) / (dot(e, e) || 1)));
+  return Math.hypot(...sub(add(a, scale(e, f)), p));
+}
+
 /**
- * The frame: the ribs, the bands between their drops, and the rail round the
- * outline that the ends standing on it drop to. It stands on z = 0. PROTOTYPE
- * ?walls=: the outline also takes in `reach`, what the walls ask of it, and
- * is cut back to the faces they stand on it with (a design that asks is built
- * twice: first to ask, on the outline without).
+ * PROTOTYPE: the bridges between neighbouring ribs, each with the two keys it
+ * joins. The rule: for each two keys of different runs, P and Q, take each
+ * one's plate's side facing the other. Where those two sides face each other
+ * (bridgeTurn) and run alongside each other far enough to hold a bridge
+ * (bridgeWidth, and bridgeInset more at each end), one bridge goes at the
+ * middle of the stretch they share (along their edges' mean direction), where
+ * the gap between them there is bridgeLeast to bridgeGap and the plates are
+ * no more than bridgeSlope out of line across it. It is a sweep from P's
+ * plate edge to Q's (as a web between keys: leaving and arriving in each
+ * plate's own plane, tangent to its top and its underside), bridgeWidth wide
+ * and the plate's thickness, so its top runs on from each plate's top and its
+ * sides stand square on the plates' edges. Where it meets a plate it is one
+ * with it, not a seam: it runs on into the plate bridgeInto, wholly inside
+ * the plate's slab there (bridgeSkin in from its top and its underside, far
+ * more than the mesh's rounding), and it runs straight on bridgeOut out of
+ * the plate before it bends, so no point of its mesh is on the plate's edge.
+ * The union then only crosses faces cleanly, rather than meeting them along
+ * an edge or a plane, where it would leave slivers. Left out where it would
+ * fold, come within endGap of what the keys hold (P's and Q's keycaps only as
+ * low as they are pressed: the bridge is under their plates' tops beside
+ * them) or wireGap of a wire.
+ */
+function bridges(
+  wasm: ManifoldToplevel,
+  cfg: Config,
+  d: Dims,
+  frames: Record<string, Matrix4>,
+  all: Rib[],
+  wires: Wire[],
+): { keys: [string, string]; solid: Manifold }[] {
+  const keys = all.flatMap((rib) => rib.keys.map((k) => ({ k, run: rib.run })));
+  const half = SIZES.bridgeWidth / 2;
+  const square = Math.cos((SIZES.bridgeTurn * Math.PI) / 180);
+  const plan = (v: V3) => [...unitPlan(v), 0] as V3;
+  const segments = wires.flatMap((w) =>
+    w.points.slice(1).map((q, i) => ({ a: w.points[i], b: q, r: w.diameter / 2 })),
+  );
+  return keys.flatMap(({ k: P, run }, i) =>
+    keys.slice(i + 1).flatMap(({ k: Q, run: other }) => {
+      if (run === other) return [];
+      // Each plate's side facing the other key, out of it.
+      const [sP, sQ] = [Math.sign(dot(P.c, sub(Q.o, P.o))), Math.sign(dot(Q.c, sub(P.o, Q.o)))];
+      if (dot(plan(scale(P.c, sP)), plan(scale(Q.c, sQ))) > -square) return [];
+      if (dot(P.n, Q.n) < square) return [];
+      // The stretch both edges run along, along their mean direction e.
+      const e = unit(add(P.a, scale(Q.a, Math.sign(dot(P.a, Q.a)) || 1)));
+      const span = (k: RibKey, s: number) =>
+        [-1, 1].map((u) => dot(corner(d, k, u, s, 0), e)).sort((x, y) => x - y);
+      const [p, q] = [span(P, sP), span(Q, sQ)];
+      const [lo, hi] = [
+        Math.max(p[0], q[0]) + half + SIZES.bridgeInset,
+        Math.min(p[1], q[1]) - half - SIZES.bridgeInset,
+      ];
+      if (lo > hi) return [];
+      const m = (lo + hi) / 2;
+      // The pose on key k's edge facing s, at m along e, heading out of it
+      // (head 1) or into it (-1); across along k.a, the way that makes its
+      // top face up out of the plate.
+      const at = (k: RibKey, s: number, head: number): Pose => {
+        const edge = keyPoint(k, d.plateHalf, 0, s, -SIZES.bridgeSkin);
+        const t = scale(k.c, s * head);
+        return {
+          p: add(edge, scale(k.a, (m - dot(edge, e)) / dot(k.a, e))),
+          t,
+          c: dot(cross(t, k.a), k.n) > 0 ? k.a : scale(k.a, -1),
+          half,
+          thick: d.plate - 2 * SIZES.bridgeSkin,
+        };
+      };
+      const [a, b] = [at(P, sP, 1), at(Q, sQ, -1)];
+      const gap = Math.hypot(...sub(b.p, a.p));
+      if (dot(a.c, b.c) <= 0 || gap > SIZES.bridgeGap) return [];
+      if (dot(sub(b.p, a.p), a.t) < SIZES.bridgeLeast) return [];
+      if (dot(sub(b.p, a.p), b.t) < SIZES.bridgeLeast) return [];
+      // How far each plate's edge is out of the other's plane, against the
+      // way across: the bridge's mean slope out of the plates.
+      const off = (Math.abs(dot(sub(b.p, a.p), P.n)) + Math.abs(dot(sub(a.p, b.p), Q.n))) / 2;
+      if (off > SIZES.bridgeSlope * Math.sqrt(Math.max(0, gap ** 2 - off ** 2))) return [];
+      // Straight on bridgeOut from each plate's edge, then swept between, its
+      // stations every bridgeProbe or so.
+      const [a1, b1] = [ahead(a, SIZES.bridgeOut), ahead(b, -SIZES.bridgeOut)];
+      const poses = [a, a1, ...sweep(a1, b1, Math.ceil(gap / SIZES.bridgeProbe)), b];
+      const [left, right] = [-1, 1].map((s) => poses.map((x) => poseSide(x, s)));
+      if (!unfolded(left, right)) return [];
+      if (!keySpace(cfg, frames, [P.name, Q.name]).clear(samples(left, right))) return [];
+      // Points through it, about bridgeProbe apart, each wire kept wireGap off.
+      const across = Math.ceil(SIZES.bridgeWidth / SIZES.bridgeProbe);
+      const down = Math.ceil(d.plate / SIZES.bridgeProbe);
+      const inside = left.flatMap((l, j) =>
+        [...Array(across + 1).keys()].flatMap((x) =>
+          [...Array(down + 1).keys()].map((z) =>
+            lerp(
+              lerp(l[0], right[j][0], x / across),
+              lerp(l[1], right[j][1], x / across),
+              z / down,
+            ),
+          ),
+        ),
+      );
+      const reach = Math.max(...inside.map((x) => Math.hypot(...sub(x, a.p))));
+      const near = segments.filter((w) => fromSegment(a.p, w.a, w.b) < reach + w.r + SIZES.wireGap);
+      if (near.some((w) => inside.some((x) => fromSegment(x, w.a, w.b) < w.r + SIZES.wireGap)))
+        return [];
+      const spans = [
+        lineSpan(sidesOf(ahead(a, -SIZES.bridgeInto), 1), sidesOf(a1, 1)),
+        bendSpan(a1, b1),
+        lineSpan(sidesOf(b1, 1), sidesOf(ahead(b, SIZES.bridgeInto), 1)),
+      ];
+      return [
+        { keys: [P.name, Q.name] as [string, string], solid: laneSolid(wasm, spans, 'bridge') },
+      ];
+    }),
+  );
+}
+
+/**
+ * The frame: the ribs, the rail round the outline that the ends standing on
+ * it drop to, and (PROTOTYPE) the bridges between neighbouring ribs, which
+ * keep clear of `wires`. It stands on z = 0. PROTOTYPE ?walls=: the outline
+ * also takes in `reach`, what the walls ask of it, and is cut back to the
+ * faces they stand on it with (a design that asks is built twice: first to
+ * ask, on the outline without).
  */
 export function skeletyl(
   wasm: ManifoldToplevel,
   cfg: Config,
   frames: Record<string, Matrix4>,
+  wires: Wire[],
   reach: Reach = { floors: [], faces: [] },
 ): {
   frame: Manifold;
   outline: [number, number][];
-  /** The solids the frame is the union of, named, for the seam check (tests/seams.ts): each rib (by its run's name), band, the rail, the tie (its strip and fillets) and each wall. Made when called. */
+  /** The solids the frame is the union of, named, for the seam check (tests/seams.ts): each rib (by its run's name), bridge (by the keys it joins), the rail, the tie (its strip and fillets) and each wall. Made when called. */
   parts: () => { name: string; solid: Manifold }[];
   /** Each drop, for the seam test: its rib's name and end (0 front, 1 back), its landing (the outer face's bottom edge: p its middle, c along it, n out of it, half its half-length), where its round's lower side ends (low) and how high its foot, and the rail under it, is (foot, footHeight). */
   drops: {
@@ -1609,46 +1733,13 @@ export function skeletyl(
     return endClear(cfg, d, frames, rib, e, drop) ? drop : 'hang';
   };
   const ends = all.map((rib) => [0, 1].map((e) => kind(rib, e)));
-  // Neighbouring columns' first ribs at the front (end 0), last at the back (1).
-  const neighbours = [0, 1].flatMap((e) =>
-    [...Array(columns - 1).keys()].map((c) => ({
-      e,
-      pair: [c, c + 1].map((run) =>
-        all.flatMap((r, j) => (r.run === run ? [j] : [])).at(e ? -1 : 0)!,
-      ),
-    })),
-  );
-  // The outline cut back to the drops on it and the bands to be between them,
-  // each band from one's outer corner to the other's facing it.
-  const lands = (i: number, e: number) => {
-    const end = ends[i][e];
-    return isDrop(end) ? end.land : undefined;
-  };
-  const faces = [
-    ...all.flatMap((_, i) =>
-      [0, 1].flatMap((e) => {
-        const l = lands(i, e);
-        return l ? [[...[-1, 1].map((s) => poseSide(l, s)[0]), normalOf(l)]] : [];
-      }),
-    ),
-    ...neighbours.flatMap(({ e, pair }) => {
-      const [a, b] = pair.map((i) => lands(i, e));
-      if (!a || !b) return [];
-      const facing = (l: Pose, o: Pose) =>
-        [-1, 1]
-          .map((s) => poseSide(l, s)[0])
-          .reduce((x, y) => (gap([o.p, o.p], y) < gap([o.p, o.p], x) ? y : x));
-      const [p, q] = [facing(a, b), facing(b, a)];
-      if (Math.hypot(...sub(q, p)) > SIZES.bandGap) return [];
-      const o = [...unitPlan([q[1] - p[1], p[0] - q[0]]), 0] as V3;
-      // The band's foot reaches bandInto into each drop along its face (band).
-      const [pi, qi] = [
-        add(p, scale(unit(sub(a.p, p)), SIZES.bandInto)),
-        add(q, scale(unit(sub(b.p, q)), SIZES.bandInto)),
-      ];
-      return [[pi, qi, dot(o, add(normalOf(a), normalOf(b))) < 0 ? scale(o, -1) : o]];
+  // The outline cut back to the drops on it.
+  const faces = all.flatMap((_, i) =>
+    [0, 1].flatMap((e) => {
+      const l = ends[i][e];
+      return isDrop(l) ? [[...[-1, 1].map((s) => poseSide(l.land, s)[0]), normalOf(l.land)]] : [];
     }),
-  ];
+  );
   const ring = trimmed(wasm, rough, [...faces, ...reach.faces]);
   // PROTOTYPE ?ends= (skeletyl-ends.prototype.ts): the columns' hanging fronts
   // joined to the thumbs, and the floor tie that the hanging ends drop onto.
@@ -1749,17 +1840,11 @@ export function skeletyl(
   };
   if (!reach.floors.length) {
     const more = skeletylReach(wasm, cfg, wallsKey, wallSides, ribKit);
-    if (more.floors.length) return skeletyl(wasm, cfg, frames, more);
+    if (more.floors.length) return skeletyl(wasm, cfg, frames, wires, more);
   }
   const solids = all.map((rib, i) => ribSolid(wasm, d, rib, ends[i]));
-  // The bands between neighbouring columns' drops.
-  const bands = neighbours.flatMap(({ e, pair }) => {
-    const sides = pair.map((i): [Rib, End] => [all[i], ends[i][e]]);
-    const solids = sides.every(([, kind]) => isDrop(kind))
-      ? band(wasm, cfg, d, frames, e, sides)
-      : [];
-    return solids.map((solid) => ({ pair, e, solid }));
-  });
+  // PROTOTYPE: the bridges between neighbouring ribs' keys.
+  const bridged = bridges(wasm, cfg, d, frames, all, wires);
   const loop = area.subtract(inside);
   // PROTOTYPE ?ends=tie: the tie is part of the rail, filleted into it where
   // they meet (and round its bends) as the outline's corners in are rounded.
@@ -1810,14 +1895,11 @@ export function skeletyl(
   // PROTOTYPE ?walls= (skeletyl-walls.prototype.ts): walls under the outer sides.
   const walls = skeletylWalls(wasm, cfg, wallsKey, wallSides, ribKit);
   return {
-    frame: wasm.Manifold.union([...solids, ...bands.map((b) => b.solid), rail, ...walls]),
+    frame: wasm.Manifold.union([...solids, ...bridged.map((b) => b.solid), rail, ...walls]),
     outline: ring,
     parts: () => [
       ...solids.map((solid, i) => ({ name: named[i], solid })),
-      ...bands.map((b) => ({
-        name: `band ${b.pair.map((i) => named[i]).join('–')} ${b.e ? 'back' : 'front'}`,
-        solid: b.solid,
-      })),
+      ...bridged.map((b) => ({ name: `bridge ${b.keys.join('–')}`, solid: b.solid })),
       { name: 'rail', solid: dipped(loop) },
       ...(tie ? [{ name: 'tie', solid: dipped(railPlan.subtract(loop)) }] : []),
       ...walls.map((solid, i) => ({ name: `wall ${i + 1}`, solid })),

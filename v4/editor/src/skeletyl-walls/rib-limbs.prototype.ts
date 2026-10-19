@@ -29,7 +29,7 @@
 // (tiles, switch bodies, keycap rooms and switch holes' columns: side.clear).
 // Limbs are placed for every side at once, each clear of those before it, of
 // the sides' ends (lips, rounds, drops and webs carried on), of the faces
-// standing on the outline (drops and bands), of the tie and of the rail where
+// standing on the outline (drops), of the tie and of the rail where
 // it dips to a low drop. Where the outline doesn't reach out to a limb (it
 // runs close under the plates' edges), the limb asks for it to (REACHES in
 // skeletyl-walls.prototype.ts): the floor under its feet, out to their outer
@@ -177,7 +177,7 @@ function place(kit: WallKit, forked: boolean, rings: [number, number][][], span:
       [p.top, p.under].map((q): [number, number] => [q[0], q[1]]),
     ),
   );
-  // And its floor keeps clear of the faces standing on the outline (drops and bands).
+  // And its floor keeps clear of the faces standing on the outline (drops).
   const standing = kit.rib.standing.map(([a, b]) =>
     [a, b].map((p): [number, number] => [p[0], p[1]]),
   );
