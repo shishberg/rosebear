@@ -621,6 +621,9 @@ are listed but not done.
     - Either validate (reject a seat wider than `tile − 2·glueSeatGap`), or
       leave out legs that have no room.
     - Found during T11. It already fails at HEAD.
+    - Addressed when the glue pads became glue posts (`gluePosts`): a shelf
+      with no room between the seat and the plate's edge is left out, and the
+      default project builds with 19 mm and 25 mm seats.
 13. **The `?hand` solver doesn't say when a loop fails to converge.** This was
     T13 item 5.
     - The loops are `keyAt`, the `thumbRow` home-key settle and the extra

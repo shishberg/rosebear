@@ -155,6 +155,29 @@ export function freeAfter<T>(wasm: ManifoldToplevel, f: () => T): T {
   }
 }
 
+/**
+ * Runs `f`, then frees every Manifold and CrossSection made while it ran but
+ * those in `keep(result)`, which pass on to the enclosing scope (freeAfter)
+ * if there is one. For a step that makes many in-between solids.
+ */
+export function freeAllBut<T>(wasm: ManifoldToplevel, f: () => T, keep: (r: T) => object[]): T {
+  watch(wasm);
+  const outer = made;
+  const mine = new Set<Handle>();
+  made = mine;
+  let kept = new Set<object>();
+  try {
+    const r = f();
+    kept = new Set(keep(r));
+    return r;
+  } finally {
+    made = outer;
+    for (const m of mine)
+      if (kept.has(m)) outer?.add(m);
+      else if (!m.isDeleted()) m.delete();
+  }
+}
+
 /** `freeAfter` for an async `f`; only one scope may be open across an await. */
 export async function freeAfterAsync<T>(wasm: ManifoldToplevel, f: () => Promise<T>): Promise<T> {
   watch(wasm);

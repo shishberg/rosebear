@@ -378,6 +378,16 @@ function checkHardware(
       let shape = part.cylinder
         ? p.M.cylinder(part.size[2], part.cylinder, part.cylinder, 64, true).translate(part.center)
         : box(p.M, part.size, part.center);
+      if (part.notch)
+        for (const x of [-1, 1])
+          for (const y of [-1, 1])
+            shape = shape.subtract(
+              p.M.cylinder(part.size[2] + 2, part.notch, part.notch, 32, true).translate([
+                part.center[0] + (x * part.size[0]) / 2,
+                part.center[1] + (y * part.size[1]) / 2,
+                part.center[2],
+              ]),
+            );
       for (const h of part.holes ?? [])
         shape = shape.subtract(
           p.M.cylinder(part.size[2] + 2, h.diameter / 2, h.diameter / 2, 32, true).translate([

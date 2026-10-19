@@ -120,6 +120,26 @@ const taperedBox = (size: number[], top: number[]) => {
   g.computeVertexNormals();
   return g;
 };
+// A box (size, centred) with a round notch of radius r centred on each corner
+// of its z faces.
+const notchedBox = (size: number[], r: number) => {
+  const [hx, hy] = [size[0] / 2, size[1] / 2];
+  const s = new T.Shape();
+  s.moveTo(-hx + r, -hy);
+  s.lineTo(hx - r, -hy);
+  s.absarc(hx, -hy, r, Math.PI, Math.PI / 2, true);
+  s.lineTo(hx, hy - r);
+  s.absarc(hx, hy, r, -Math.PI / 2, -Math.PI, true);
+  s.lineTo(-hx + r, hy);
+  s.absarc(-hx, hy, r, 0, -Math.PI / 2, true);
+  s.lineTo(-hx, -hy + r);
+  s.absarc(-hx, -hy, r, Math.PI / 2, 0, true);
+  return new T.ExtrudeGeometry(s, {
+    depth: size[2],
+    bevelEnabled: false,
+    curveSegments: 8,
+  }).translate(0, 0, -size[2] / 2);
+};
 export function updateHardware() {
   disposeChildren(parts);
   for (const p of hardware(S.project, undefined, panel)) {
@@ -127,7 +147,9 @@ export function updateHardware() {
         ? new T.CylinderGeometry(p.cylinder, p.cylinder, p.size[2], 48).rotateX(Math.PI / 2)
         : p.top
           ? taperedBox(p.size, p.top)
-          : new T.BoxGeometry(...p.size),
+          : p.notch
+            ? notchedBox(p.size, p.notch)
+            : new T.BoxGeometry(...p.size),
       o = new T.Mesh(g, new T.MeshStandardMaterial({ color: colors[p.group], roughness: 0.8 }));
     g.translate(...p.center);
     o.applyMatrix4(new T.Matrix4().fromArray(p.matrix));

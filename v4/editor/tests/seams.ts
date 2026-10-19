@@ -20,7 +20,7 @@
 import type { Manifold, ManifoldToplevel } from 'manifold-3d';
 import { componentFrames, isKey, type Config } from '../src/geometry';
 import { skeletyl } from '../src/skeletyl';
-import { buildChassis, gluePads } from '../src/chassis';
+import { buildChassis, gluePosts, postAxes, type PostFit } from '../src/chassis';
 import { openingSpan, seatSettings, seatSwitches } from '../src/seats';
 import { plateHalfWidths } from '../src/plates';
 import { wiring } from '../src/wiring';
@@ -50,6 +50,13 @@ export const SEAMS = {
   shadeArea: 0.05,
   /** Findings of a kind within this of each other are one spot. */
   spot: 3,
+  /**
+   * A glue post's leg goes up into the frame over it (the web, the rib's
+   * end); the union splits the frame's faces along where they meet, and the
+   * slivers, narrow strips and wedges that leaves within this of the leg are
+   * the join's, meant as the leg is.
+   */
+  postMeet: 0.5,
 };
 
 export type SeamKind = 'sliver' | 'ledge' | 'crease' | 'gap' | 'thin' | 'shading';
@@ -454,15 +461,16 @@ export function skeletylSeams(
   const built = skeletyl(wasm, cfg, frames, wired.wires);
   const chassis = buildChassis(wasm, cfg, frames, wired);
   const M = wasm.Manifold;
-  const keys = Object.entries(frames)
-    .filter(([n]) => isKey(n))
-    .map(([, m]) => m);
+  const named = Object.entries(frames).filter(([n]) => isKey(n));
+  const keys = named.map(([, m]) => m);
   const seated = seatSwitches(M, cfg, chassis.body, keys);
   const drawn = seated.body.subtract(M.union([...seated.reliefs, ...seated.openings]));
   const parts = built.parts().map((p) => ({ name: p.name, mesh: meshOf(p.solid) }));
   // What is meant, in each key's own coordinates: its plate (its edges, the
   // seat's step under it), the seat's trims above and below it and the switch
-  // hole's opening (each in the seat's outer footprint), and the glue pads.
+  // hole's opening (each in the seat's outer footprint), and the glue posts
+  // (as their rib runs: their legs, shelves and corner posts' squares; round
+  // a leg that goes up into the frame, postMeet).
   const plate = cfg.chassis.plate_thickness_mm;
   const half = plateHalfWidths(cfg);
   const outer = seatSettings(cfg).outer.map((x) => x / 2);
@@ -477,20 +485,38 @@ export function skeletylSeams(
       [-outer[0] - g, -outer[1] - g, Math.min(bottom, -7) - g],
       [outer[0] + g, outer[1] + g, Math.max(top, 7) + g],
     ],
-    ...gluePads(cfg).boxes.map((b): [V3, V3] => [
-      b.center.map((c, i) => c - b.size[i] / 2 - g) as V3,
-      b.center.map((c, i) => c + b.size[i] / 2 + g) as V3,
-    ]),
   ];
-  const local = Object.values(keys).map((m) => {
+  const postZones = (axis: number, fit: PostFit) => {
+    const posts = gluePosts(cfg, axis, fit);
+    return [
+      ...posts.boxes.map((b): [V3, V3] => [
+        b.center.map((c, i) => c - b.size[i] / 2 - g) as V3,
+        b.center.map((c, i) => c + b.size[i] / 2 + g) as V3,
+      ]),
+      ...posts.legs.flat().map((b): [V3, V3] => {
+        const m = fit.over ? SEAMS.postMeet : g;
+        return [
+          b.center.map((c, i) => c - b.size[i] / 2 - m) as V3,
+          b.center.map((c, i) => c + b.size[i] / 2 + m) as V3,
+        ];
+      }),
+      ...posts.corners.map(([x, y]): [V3, V3] => [
+        [x - posts.radius - g, y - posts.radius - g, posts.bottom - g],
+        [x + posts.radius + g, y + posts.radius + g, posts.top + g],
+      ]),
+    ];
+  };
+  const axes = postAxes(cfg, frames);
+  const local = named.map(([n, m]) => {
     const e = m.elements;
-    return (p: V3) => {
+    const to = (p: V3) => {
       const q = [p[0] - e[12], p[1] - e[13], p[2] - e[14]];
       return [0, 4, 8].map((i) => q[0] * e[i] + q[1] * e[i + 1] + q[2] * e[i + 2]);
     };
+    return { to, zones: [...zones, ...postZones(axes[n], chassis.postFits[n])] };
   });
   const meant = (p: V3) =>
-    local.some((to) => {
+    local.some(({ to, zones }) => {
       const q = to(p);
       return zones.some(([lo, hi]) => q.every((x, i) => x >= lo[i] && x <= hi[i]));
     });

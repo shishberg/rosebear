@@ -1,5 +1,5 @@
 import { Matrix4 } from 'three';
-import { gluePads } from './chassis';
+import { gluePosts, postAxes } from './chassis';
 import { adapterParts, padParts } from './wiring';
 import {
   capSize,
@@ -24,6 +24,8 @@ export interface Part {
   top?: [number, number];
   /** Round holes through a box along its z axis: centres in its x and y. */
   holes?: { at: number[]; diameter: number }[];
+  /** A box's corners (along its z axis) are notched: a round of this radius centred on each is cut out. */
+  notch?: number;
 }
 export function hardware(
   project: Project,
@@ -37,8 +39,8 @@ export function hardware(
   const sw = cfg.switch;
   // The tile's top, below the plate top.
   const tileTop = tileTopOf(cfg);
-  const glue = gluePads(cfg);
-  const glueLayer = glue.bottom - tileTop;
+  const axes = postAxes(cfg, nodes);
+  const glue = [0, 1].map((axis) => gluePosts(cfg, axis).glue);
   const add = (
     name: string,
     group: string,
@@ -60,6 +62,7 @@ export function hardware(
   for (const [name, m] of Object.entries(nodes))
     if (isKey(name)) {
       add(name, 'pcb', tile.size_mm, [0, 0, tileTop - tile.size_mm[2] / 2], m);
+      parts[parts.length - 1].notch = tile.corner_notch_radius_mm;
       for (const c of tile.components)
         add(name + ': ' + c.name, 'components', c.size_mm, tilePartCentre(cfg, c), m);
       add(name, 'switch', sw.body_mm, [0, 0, sw.body_mm[2] / 2 - sw.body_below_plate_mm], m);
@@ -73,15 +76,9 @@ export function hardware(
         undefined,
         capTop(cfg, name),
       );
-      // The glue between the tile's top and the pads under the plate's corners.
-      for (const b of glue.boxes)
-        add(
-          name + ': glue',
-          'glue',
-          [b.size[0], b.size[1], glueLayer],
-          [b.center[0], b.center[1], glue.bottom - glueLayer / 2],
-          m,
-        );
+      // The glue between the tile and its glue posts: under their shelves and
+      // between its edges and their legs.
+      for (const b of glue[axes[name]]) add(name + ': glue', 'glue', b.size, b.center, m);
     }
   parts.push(...adapterParts(cfg, nodes, panel), ...padParts(cfg, nodes));
   return parts;

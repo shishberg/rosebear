@@ -112,7 +112,8 @@ runs against a fraction of the mesh:
   Seats are checked for a complete plate ring, material outside their planes and
   clip obstructions.
 - Each opening is probed at nine points.
-- Tiles, tile components, the FFC adapter with its connector and
+- Tiles (with their corner notches, where the glue posts stand), tile
+  components, the FFC adapter with its connector and
   latch room, and the main ribbon must not overlap the chassis or the bottom
   section. The adapter and the ribbon must not overlap the port insert either.
 - **Wires**: each wire, as a tube of its diameter, must miss the chassis, the
@@ -219,6 +220,9 @@ thin skins, swayed shading), with the parts that meet there; `tests/seams.test.t
 pins its count per junction class (none for the bridges between ribs: they must
 meet the ribs cleanly) on every walls by ends, checks that fused drops leave no
 gap or slit between them, and checks that every drop stands flush on the rail.
+The glue posts under each plate are meant geometry (as the plates and seats
+are), so their own faces are not counted, nor what the frame's faces are
+split into within 0.5 mm (`postMeet`) of a leg that goes up into them.
 
 The editor's cleanup is tracked in [CLEANUP-PLAN.md](CLEANUP-PLAN.md), which lists
 each task's status and the decisions left to the owner.

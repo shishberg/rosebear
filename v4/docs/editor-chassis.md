@@ -144,13 +144,44 @@ tops shows under its size.
   3.6 mm above the parting line, keep clear of the tiles, the soldering iron's
   way to each pad and the wires, and are dropped where a piece would be left
   loose.
-- **Glue pads**: each tile is glued up against pads under its plate's corners,
-  outside the switch's seat: an L of two legs along the tile's edges, from 4 mm
-  out from the centre. The pads set its height, and the glue holds it when a
-  switch is pressed into its socket. A leg stops short of the tile's corner notch
-  (so on the bought tile the two legs part), keeps 0.5 mm off the ring of any
-  hole near the edge, and is dropped where less than 1 mm is left. On the 17 mm
-  tile each leg is 0.5 mm wide, between the seat and the tile's edge.
+- **Glue posts**: each tile is held under its plate by posts, on the Skeletyl
+  and the C64 alike, and glued to them. The glue holds it when a switch is
+  pressed into its socket.
+  - In each corner a round post (1.35 mm radius) stands in the tile's corner
+    notch, 0.15 mm clear of it.
+  - Along the two edges that face along the key's rib (north and south on a
+    finger key; every key's north and south on the C64), a leg stands 0.15 mm
+    outside the tile. A leg is 1.6 mm thick (`postMin`: four 0.4 mm lines, two
+    perimeters a side). It runs down from the plate to the tile's underside
+    at each end of the edge, from the plate's side in to 6.25 mm from the
+    centre, which keeps it clear of the edge pads and their wires. Between
+    those ends it stops at the tile's top. There are no posts on the east and
+    west edges, which would widen the ribs.
+  - On each leg a shelf reaches in over the tile's top edge to the switch
+    seat. It sets the tile's height: 0.15 mm of glue over the tile's top. The
+    shelf keeps 0.5 mm off the ring of any hole near the edge, and is dropped
+    where less than 1 mm is left.
+  - The legs stand 1.4 mm out past the plate's edge. On the Skeletyl they go
+    up into what is over them there, the web to the next key or the round of
+    the rib's end, 0.3 mm (`glueInto`, as the shelves and corner posts go
+    into the plate), so they join it on a surface rather than at a slit or a
+    near-coincident face. Their tops follow its underside, sampled from the
+    frame's mesh about every 0.25 mm (`postStep`) across the leg's
+    footprint. A face steeper than 60° from the horizontal (`postUnder`) is
+    a side of the frame, not an underside: where the frame is narrower than
+    the plate, or its side leans over the leg on a tilted key, the leg's top
+    stays at the underside's level instead of climbing it. Each sample
+    takes the highest of its own and its neighbours', so where the underside
+    steps down beside a leg's end (a wall or bone coming down) the leg runs
+    up to the higher level over the step rather than closing a hollow under
+    it. Up in the frame
+    the legs stop 0.15 mm (`postEdgeIn`) inside the plate's sides. A leg
+    within 1.5 mm of the frame or another key's post beside it is grown out
+    into it, not leaving a slit too narrow to print (by default only on the
+    thumbs), but not into the tie it stands on. In the C64's case the legs go
+    up into the sheet.
+  - Everything clears the switch's clip reliefs, and the posts stay inside the
+    plate's sides.
 - Above each plate the chassis is kept clear of the switch housing's rim (the
   seat footprint, up to the keycap's lowest point) and of the keycap's travel.
 - **Wire port**: the thumb wires reach the finger well through a round way

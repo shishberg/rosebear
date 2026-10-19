@@ -46,7 +46,7 @@
 // together up at the plates: where two keys of different ribs face each other
 // across a narrow gap, a short slab of the plate's section spans it between
 // their plates' facing edges, flush with both plates' tops (bridges).
-// Nothing is cut out: chassis.ts adds the glue pads and the base, and the
+// Nothing is cut out: chassis.ts adds the glue posts and the base, and the
 // checks report anything that runs into the tiles or the keycaps.
 // PROTOTYPE: chassis.walls (?walls=) adds walls under the outer sides, built
 // by skeletyl-walls.prototype.ts from a WallSide per side; "none" adds none.
@@ -415,6 +415,37 @@ function runs(cfg: Config, frames: Record<string, Matrix4>) {
   return [...columns, ...thumbs];
 }
 
+/** Key i of a run, along the key axis (either way) that best follows the run there. */
+function ribKey(frames: Record<string, Matrix4>, run: string[], i: number): RibKey {
+  const name = run[i];
+  const e = frames[name].elements;
+  const p = frames[run[Math.max(0, i - 1)]].elements;
+  const q = frames[run[Math.min(run.length - 1, i + 1)]].elements;
+  // A lone key runs along its own x.
+  const dir = run.length > 1 ? [q[12] - p[12], q[13] - p[13]] : [e[0], e[1]];
+  const best = [0, 1]
+    .flatMap((axis) => [1, -1].map((sign) => ({ axis, sign })))
+    .reduce((x, y) => {
+      const score = (c: { axis: number; sign: number }) =>
+        c.sign * (e[c.axis * 4] * dir[0] + e[c.axis * 4 + 1] * dir[1]);
+      return score(y) > score(x) ? y : x;
+    });
+  const a = [0, 1, 2].map((j) => best.sign * e[best.axis * 4 + j]) as V3;
+  const n: V3 = [e[8], e[9], e[10]];
+  return { name, o: [e[12], e[13], e[14]], a, c: cross(n, a), n, axis: best.axis };
+}
+
+/**
+ * Which key axis (0: x, 1: y) each key's rib runs along: y on every finger
+ * key, and on a thumb key whichever its thumb row follows there.
+ */
+export function ribAxes(cfg: Config, frames: Record<string, Matrix4>) {
+  const out: Record<string, number> = {};
+  for (const run of runs(cfg, frames))
+    run.forEach((name, i) => (out[name] = ribKey(frames, run, i).axis));
+  return out;
+}
+
 /**
  * The ribs: each run's keys, each along the key axis that best follows the run
  * there, parted between neighbours that can't be webbed.
@@ -422,23 +453,7 @@ function runs(cfg: Config, frames: Record<string, Matrix4>) {
 function ribs(d: Dims, frames: Record<string, Matrix4>, keyRuns: string[][]): Rib[] {
   const out: Rib[] = [];
   keyRuns.forEach((run, r) => {
-    const keys = run.map((name, i): RibKey => {
-      const e = frames[name].elements;
-      const p = frames[run[Math.max(0, i - 1)]].elements;
-      const q = frames[run[Math.min(run.length - 1, i + 1)]].elements;
-      // A lone key runs along its own x.
-      const dir = run.length > 1 ? [q[12] - p[12], q[13] - p[13]] : [e[0], e[1]];
-      const best = [0, 1]
-        .flatMap((axis) => [1, -1].map((sign) => ({ axis, sign })))
-        .reduce((x, y) => {
-          const score = (c: { axis: number; sign: number }) =>
-            c.sign * (e[c.axis * 4] * dir[0] + e[c.axis * 4 + 1] * dir[1]);
-          return score(y) > score(x) ? y : x;
-        });
-      const a = [0, 1, 2].map((j) => best.sign * e[best.axis * 4 + j]) as V3;
-      const n: V3 = [e[8], e[9], e[10]];
-      return { name, o: [e[12], e[13], e[14]], a, c: cross(n, a), n, axis: best.axis };
-    });
+    const keys = run.map((_, i) => ribKey(frames, run, i));
     let part = [keys[0]];
     let parted = false;
     for (let i = 1; i <= keys.length; i++) {
