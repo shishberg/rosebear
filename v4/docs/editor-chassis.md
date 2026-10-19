@@ -24,7 +24,10 @@ rail keeps clear of it; it digs in at most 12 mm between the thumb and finger
 keys. An end near the outline
 drops to the floor: the rib carried on down from its round as one sweep,
 straight down where the rail runs under it, else bending out along the end to
-it, landing square on the rail. The others hang. Where neighbouring columns both drop close together, a band joins their
+it, landing square on the rail. Its outer face is flush with the rail's
+over the rail's whole height, and it bends or rounds only above it; under a
+drop whose round ends lower than that, the rail bends down to meet it. The
+others hang. Where neighbouring columns both drop close together, a band joins their
 drops up to the lower round. Where two keys are too steep or too far round to
 web, the rib is parted there, and each end is rounded if the round clears the
 other keys' tiles, switches and keycaps, else stops flush at its plate. Drops

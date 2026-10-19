@@ -107,6 +107,8 @@ export const SIZES = {
   digDeepest: 12,
   /** The outline's corners in are rounded to this radius (plan), but where a drop or a band stands on it; its corners out are left sharp (a drop's corner stands on one). */
   corner: 10,
+  /** The outline turns exactly at a drop's corner if it turns within this of it (trimmed). */
+  cornerSnap: 0.2,
   /** Segments per full turn of the outline's rounding. */
   cornerSegments: 72,
   /** An end drops to the floor if the outline is at most this far out along the end from where the middle of its drop would meet the floor straight down (plan); its drop bends out that far. */
@@ -119,6 +121,11 @@ export const SIZES = {
   plateSteps: 5,
   /** The rail round the outline: its height. */
   railHeight: 6,
+  /** A drop's foot runs at least this far below where its round ends (footHeight); where the rail dips to meet it, it rises again over dipRun times the dip (railDip). */
+  dropBend: 1,
+  dipRun: 2.5,
+  /** The rail is meshed this fine (mm) where it dips. */
+  dipMesh: 0.5,
   /** PROTOTYPE ?ends=: a column's front joins a thumb key's plate edge at most this far off (plan, middle to middle), its web reaching joinInto into the plate; the tie's bends and its fillets into the rail are rounded to tieRound (plan), and a drop on the tie stands at least tieRound (along it) from where it bends or from the rail's inner edge. */
   joinReach: 20,
   joinInto: 0.5,
@@ -519,16 +526,68 @@ function landing(top: Pose, q: V3, along: number[]): Pose {
 /** Where a drop from `top` would land straight down. */
 const straightDown = (top: Pose) => landing(top, top.p, top.c);
 /**
+ * How high the foot of the drop under the end of key k that faces u runs
+ * straight down onto the floor, and so how high the rail (or the tie) is
+ * under it: railHeight, or, where the round's lower side ends less than
+ * dropBend above that, dropBend below where it ends. So whatever its height
+ * the drop's outer face is flush with the rail's over the rail's whole height
+ * there, one face, and it bends (or its round turns) only above the rail; the
+ * rail dips to meet a low one (railDip).
+ */
+function footHeight(d: Dims, k: RibKey, u: number) {
+  return Math.min(SIZES.railHeight, roundLow(d, k, u) - SIZES.dropBend);
+}
+/** How high the lower side of the round at the end of key k that faces u ends. */
+function roundLow(d: Dims, k: RibKey, u: number) {
+  const round = endRound(d, k, u);
+  return Math.min(...[-1, 1].map((s) => round(s).at(-1)![0][2]));
+}
+/**
  * The drop under the end of key k that faces u, landing as `land`: its top
- * (dropTop) and the top of its foot. The foot is its last railHeight (half
- * its height, if lower) straight down onto the floor, so where it stands on
- * the rail (or the tie) its outer face runs on flush with the rail's, one
- * face, rather than meeting the rail's top a little in from its edge; the
- * drop bends above it.
+ * (dropTop) and the top of its foot (footHeight up), where its outer face
+ * stands flush on the rail's (or the tie's) rather than meeting the rail's
+ * top a little in from its edge; the drop bends above it.
  */
 function dropPoses(d: Dims, k: RibKey, u: number, land: Pose): [Pose, Pose] {
-  const top = dropTop(d, k, u);
-  return [top, ahead(land, -Math.min(SIZES.railHeight, top.p[2] / 2))];
+  return [dropTop(d, k, u), ahead(land, -footHeight(d, k, u))];
+}
+/** Where the rail dips to meet a low drop: its top at a plan point, and whether the point is near enough to be on the dip (or just past it). */
+interface Dip {
+  top: (x: number, y: number) => number;
+  near: (x: number, y: number) => boolean;
+}
+/**
+ * The rail's (and the tie's) top where a drop landing as `land` stands on it
+ * lower than railHeight, at `height` (footHeight): level at that height under
+ * the drop's foot and a mm round it (so the rail stands square to the
+ * drop's faces where they meet), rising on a
+ * smooth step (half a cosine wave) to railHeight dipRun times the dip out,
+ * the same every way out from the foot (by plan distance from it), so it
+ * follows the rail round a corner, and leaves and meets the level tangent.
+ * The rail is bent to it (dipped), not cut, so its top stays one smooth
+ * surface: a cut would cross the rail's top at a slant, a crease, or graze it,
+ * which the union leaves slivers along.
+ */
+function railDip(land: Pose, height: number): Dip {
+  const H = SIZES.railHeight;
+  const run = SIZES.dipRun * (H - height);
+  // The foot's level, as its mesh has it (laneSolid's are single precision).
+  const level = Math.fround(height);
+  const n = normalOf(land);
+  const [c0, c1, n0, n1] = [-land.half - 1, land.half + 1, -land.thick - 1, 1];
+  // How far (plan) a point is out from the foot.
+  const out = (x: number, y: number) => {
+    const v = [x - land.p[0], y - land.p[1]];
+    const [c, m] = [v[0] * land.c[0] + v[1] * land.c[1], v[0] * n[0] + v[1] * n[1]];
+    return Math.hypot(Math.max(c0 - c, 0, c - c1), Math.max(n0 - m, 0, m - n1));
+  };
+  return {
+    top: (x, y) => {
+      const o = out(x, y);
+      return o >= run ? H : level + ((H - level) * (1 - Math.cos((Math.PI * o) / run))) / 2;
+    },
+    near: (x, y) => out(x, y) < run + SIZES.dipMesh,
+  };
 }
 /** A pair kept above the floor. */
 const aboveFloor = (pair: Pair) => pair.map((p) => [p[0], p[1], Math.max(0, p[2])]) as Pair;
@@ -600,7 +659,11 @@ const plateSides = (d: Dims, k: RibKey, u: number) =>
  * plate's corners out, as endSide has its sides: a joined end's web and on
  * into the plate it joins (at least joinInto, inside that plate's slab, so it
  * overlaps it rather than only meeting it face to face); else the lip, the
- * round and a drop's bend and foot, kept above the floor.
+ * round and a drop's bend, down to the top of its foot (dropPoses), kept
+ * above the floor. The drop stands there on the rail (or the tie), whose top
+ * is level at that height under it (footHeight), its own faces carrying on
+ * the drop's: the two meet only on that level, rather than overlapping down
+ * to the floor, two near-coplanar faces the union leaves slivers between.
  */
 function endSpans(d: Dims, k: RibKey, u: number, end: End): Span[] {
   if (end === 'flush') return [];
@@ -618,7 +681,7 @@ function endSpans(d: Dims, k: RibKey, u: number, end: End): Span[] {
   ];
   if (isDrop(end)) {
     const [top, foot] = dropPoses(d, k, u, end.land);
-    spans.push(poseSpan(top, foot, u), lineSpan(sidesOf(foot, u), sidesOf(end.land, u)));
+    spans.push(poseSpan(top, foot, u));
   }
   return spans.map((span) => ({ ...span, at: (f) => span.at(f).map(aboveFloor) as [Pair, Pair] }));
 }
@@ -628,9 +691,10 @@ function endSpans(d: Dims, k: RibKey, u: number, end: End): Span[] {
  * landing (or round, or plate edge) over each plate and web to its last's,
  * so that where a round turns into its drop, or a web into a plate, it runs
  * on as one mesh with no seam (each drop or joined end had been a solid of
- * its own, overlapping the round it hung from). Where it ends on another
- * solid (the rail, the tie, a joined plate) it overlaps that and the union
- * takes it. Meshed in lanes (laneSolid).
+ * its own, overlapping the round it hung from). A joined end overlaps the
+ * plate it joins and the union takes it; a drop stands on the rail (or the
+ * tie), meeting it on the level top of its foot (endSpans). Meshed in lanes
+ * (laneSolid).
  */
 function ribSolid(wasm: ManifoldToplevel, d: Dims, rib: Rib, ends: End[]): Manifold {
   const keys = rib.keys;
@@ -785,7 +849,11 @@ const largest = (c: CrossSection) =>
 /**
  * The outline cut back to the faces standing on it, each [a, b, outward]
  * (plan): what rounding its corners in filled in past them, so that the rail
- * runs straight under the drops and bands that stand on it.
+ * runs straight under the drops and bands that stand on it. Its points within
+ * cornerSnap of a face's end are moved onto it, so that where the outline
+ * turns at a drop's corner (it is a corner of the feet's hull, rounded out and
+ * back) it turns there exactly, rather than running on a few hundredths past
+ * it, a ledge at the drop's foot.
  */
 function trimmed(wasm: ManifoldToplevel, ring: [number, number][], faces: V3[][]) {
   if (!faces.length) return ring;
@@ -801,7 +869,16 @@ function trimmed(wasm: ManifoldToplevel, ring: [number, number][], faces: V3[][]
         'NonZero',
       ),
   );
-  return largest(new wasm.CrossSection([ring], 'NonZero').subtract(wasm.CrossSection.union(cut)));
+  const ends = faces.flatMap(([a, b]) => [a, b]);
+  return largest(new wasm.CrossSection([ring], 'NonZero').subtract(wasm.CrossSection.union(cut)))
+    .map((q): [number, number] => {
+      const e = ends.find((p) => Math.hypot(p[0] - q[0], p[1] - q[1]) < SIZES.cornerSnap);
+      return e ? [e[0], e[1]] : q;
+    })
+    .filter((q, i, all) => {
+      const r = all[(i + 1) % all.length];
+      return q[0] !== r[0] || q[1] !== r[1];
+    });
 }
 /** The outline's edge nearest p: along it and outward (plan, unit; it runs counter-clockwise). */
 function ringAt(ring: number[][], p: V3): [V3, V3] {
@@ -1448,7 +1525,23 @@ export function skeletyl(
   wasm: ManifoldToplevel,
   cfg: Config,
   frames: Record<string, Matrix4>,
-): { frame: Manifold; outline: [number, number][] } {
+): {
+  frame: Manifold;
+  outline: [number, number][];
+  /** The solids the frame is the union of, named, for the seam check (tests/seams.ts): each rib (by its run's name), band, the rail, the tie (its strip and fillets) and each wall. Made when called. */
+  parts: () => { name: string; solid: Manifold }[];
+  /** Each drop, for the seam test: its rib's name and end (0 front, 1 back), its landing (the outer face's bottom edge: p its middle, c along it, n out of it, half its half-length), where its round's lower side ends (low) and how high its foot, and the rail under it, is (foot, footHeight). */
+  drops: {
+    name: string;
+    e: number;
+    p: V3;
+    c: V3;
+    n: V3;
+    half: number;
+    low: number;
+    foot: number;
+  }[];
+} {
   const d = dims(cfg);
   const keyRuns = runs(cfg, frames);
   const all = ribs(d, frames, keyRuns);
@@ -1586,7 +1679,10 @@ export function skeletyl(
   // The bands between neighbouring columns' drops.
   const bands = neighbours.flatMap(({ e, pair }) => {
     const sides = pair.map((i): [Rib, End] => [all[i], ends[i][e]]);
-    return sides.every(([, kind]) => isDrop(kind)) ? band(wasm, cfg, d, frames, e, sides) : [];
+    const solids = sides.every(([, kind]) => isDrop(kind))
+      ? band(wasm, cfg, d, frames, e, sides)
+      : [];
+    return solids.map((solid) => ({ pair, e, solid }));
   });
   const area = new wasm.CrossSection([ring], 'NonZero');
   const inside = area.offset(-d.wall, 'Round');
@@ -1603,7 +1699,49 @@ export function skeletyl(
           .intersect(tie.offset(R + d.wall)),
       )
     : loop;
-  const rail = railPlan.extrude(SIZES.railHeight);
+  // Where a drop stands lower than railHeight, the rail dips to meet it.
+  const dips = all.flatMap((rib, i) =>
+    [0, 1].flatMap((e) => {
+      const end = ends[i][e];
+      if (!isDrop(end)) return [];
+      const h = footHeight(d, ...endKey(rib, e));
+      return h < SIZES.railHeight ? [railDip(end.land, h)] : [];
+    }),
+  );
+  // The rail (or a part of it, `plan`) stood up railHeight and bent down to
+  // them: its outline given points every dipMesh round each, so that its top
+  // has the room to follow the dip, and its top's points lowered to it, the
+  // points down its sides in proportion (its bottom stays). Bent rather than
+  // cut, its top stays one surface, with no seam to slip in a sliver.
+  const dipped = (plan: CrossSection) => {
+    const H = SIZES.railHeight;
+    if (!dips.length) return plan.extrude(H);
+    const top = (x: number, y: number) => Math.min(...dips.map((dip) => dip.top(x, y)));
+    const near = (x: number, y: number) => dips.some((dip) => dip.near(x, y));
+    // (Simplified first: the outline's offsets leave points a few nm apart,
+    // which extrude alone merges but a warped mesh keeps, as slivers.)
+    const fine = plan
+      .simplify()
+      .toPolygons()
+      .map((poly) =>
+        poly.flatMap((a, i) => {
+          const b = poly[(i + 1) % poly.length];
+          const n = Math.max(1, Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) / SIZES.dipMesh));
+          return [...Array(n).keys()].flatMap((j): [number, number][] => {
+            const q: [number, number] = [
+              a[0] + ((b[0] - a[0]) * j) / n,
+              a[1] + ((b[1] - a[1]) * j) / n,
+            ];
+            return !j || near(...q) ? [q] : [];
+          });
+        }),
+      );
+    return new wasm.CrossSection(fine, 'NonZero').extrude(H).warp((v) => {
+      const t = top(v[0], v[1]);
+      v[2] = v[2] >= H ? t : (v[2] * t) / H;
+    });
+  };
+  const rail = dipped(railPlan);
   // The ribs' names (as the wall variants have them), and the rail's inner edge.
   const named = all.map((rib) => {
     const n =
@@ -1629,7 +1767,37 @@ export function skeletyl(
     ),
   );
   return {
-    frame: wasm.Manifold.union([...solids, ...bands, rail, ...walls]),
+    frame: wasm.Manifold.union([...solids, ...bands.map((b) => b.solid), rail, ...walls]),
     outline: ring,
+    parts: () => [
+      ...solids.map((solid, i) => ({ name: named[i], solid })),
+      ...bands.map((b) => ({
+        name: `band ${b.pair.map((i) => named[i]).join('–')} ${b.e ? 'back' : 'front'}`,
+        solid: b.solid,
+      })),
+      { name: 'rail', solid: dipped(loop) },
+      ...(tie ? [{ name: 'tie', solid: dipped(railPlan.subtract(loop)) }] : []),
+      ...walls.map((solid, i) => ({ name: `wall ${i + 1}`, solid })),
+    ],
+    drops: all.flatMap((rib, i) =>
+      [0, 1].flatMap((e) => {
+        const end = ends[i][e];
+        if (!isDrop(end)) return [];
+        const [k, u] = endKey(rib, e);
+        const l = end.land;
+        return [
+          {
+            name: named[i],
+            e,
+            p: l.p,
+            c: l.c,
+            n: normalOf(l),
+            half: l.half,
+            low: roundLow(d, k, u),
+            foot: footHeight(d, k, u),
+          },
+        ];
+      }),
+    ),
   };
 }
