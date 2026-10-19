@@ -15,7 +15,7 @@
 //  - none: the ends left hanging (the frame as without this switch).
 //  - tie: a floor tie, a bar of the rail's own section across the floor
 //    under the hanging ends, rail to rail, each leg turning (rounded) to meet
-//    the rail square and filleted into it like the outline's corners in. The
+//    the rail square and filleted into it. The
 //    hanging ends that can drop onto it clear of the keys become ordinary
 //    drops (bending along the end where the tie is off from straight down,
 //    landing square on it, clear of its bends and junctions).

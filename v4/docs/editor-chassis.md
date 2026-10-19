@@ -14,21 +14,29 @@ The default chassis is the **Skeletyl** (`src/skeletyl.ts`, `chassis.style:
 "skeletyl"`): a rib along each finger column and each thumb row, and one rail
 round the outline on the floor. A rib is one swept solid: the key plates as
 slabs, curved webs between them tangent to the plates, and a lip and round at
-each end, clear of the tile pocket and the switch. The outline is rounded
-(10 mm corners in, cut back square where a drop stands on it) and
-runs round where the ends would drop straight down and round the outer sides
-of the first and last columns and the thumb rows (their plates and tile
-pockets), with no margin past them, so the rail is under their edges, but
-out round any switch hole's column that comes down near the floor, so the
-rail keeps clear of it; it digs in at most 12 mm between the thumb and finger
-keys. An end near the outline
+each end, clear of the tile pocket and the switch. PROTOTYPE: the outline
+runs straight from foot to foot: it is the hull of where the ends would drop
+straight down and of the outer sides of the first and last columns and the
+thumb rows (their plates and tile pockets), with no margin past them, so the
+rail is under their edges, taken out round any switch hole's column or tile
+that comes down near the floor, so the rail keeps clear of it. Its corners out stay
+sharp, cut back square where a drop stands on it. It turns in only over open
+floor: where the hull bridges a pocket more than 30 mm across its mouth and
+more than 2 mm deep that no drop or wall stands in, it turns in once, with one
+crisp corner where the lines from the mouth's two ends, tangent to what lies
+under, meet. On Swung in that is only between the thumbs and the finger
+columns' fronts. A drop under a straight run bends out along its end to it,
+as any drop does. An end of the rib that comes down low (whose round would end
+less than 1 mm above the rail) has its round drawn as tight as still clears the tile pocket,
+the switch and the keys, down to a radius of the wall plus 0.5 mm. An end near the outline
 drops to the floor: the rib carried on down from its round as one sweep,
 straight down where the rail runs under it, else bending out along the end to
 it, landing square on the rail. Its outer face is flush with the rail's
 over the rail's whole height, and it bends or rounds only above it; under a
-drop whose round ends lower than that, the rail bends down to meet it. The
-others hang. Each drop stands on the rail alone; between neighbouring drops the
-rail runs in round the outline's rounded corner. PROTOTYPE: two drops of
+drop whose round still ends lower than that, the rail bends down to meet it
+(on Swung in, the fronts of the thumb row's far key and the second extra
+key, their rounds at 2.9 mm instead of 5 mm, their feet 1.5 and 1.7 mm higher). The others hang. Each drop stands on the rail alone; between
+neighbouring drops the rail runs straight on. PROTOTYPE: two drops of
 different ribs whose facing sides stand within 1.5 mm of each other (too
 narrow a slit to print cleanly) are **fused**: each is widened on that side
 (its section, and its round's, made wider) by half the widest gap plus

@@ -121,12 +121,12 @@ export type WallVariant = (kit: WallKit, side: WallSide) => Manifold[];
 /**
  * What a design asks of the outline: plan polygons (either winding) it must
  * take in as they are, the rail included, for its walls to stand on
- * (floors); and the faces its walls stand on the outline with, each [a, b,
- * outward] (a and b plan, outward a plan unit vector), that the outline is
- * cut back to as it is to the drops' faces, so that rounding its corners in
- * doesn't fill in past them. Asked on the outline without them; the design is
- * then called on the outline with them, so it must ask only for floor it will
- * then stand on.
+ * (floors), unioned onto the outline after it is straightened, so they step
+ * out of it crisply; and the faces its walls stand on the outline with, each
+ * [a, b, outward] (a and b plan, outward a plan unit vector), no longer used
+ * now the outline doesn't round its corners in. Asked on the outline without
+ * them; the design is then called on the outline with them, so it must ask
+ * only for floor it will then stand on.
  */
 export interface Reach {
   floors: [number, number][][];

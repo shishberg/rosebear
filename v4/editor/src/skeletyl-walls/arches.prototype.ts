@@ -121,10 +121,11 @@ export function arches(kit: WallKit, side: WallSide): Manifold[] {
     side.ends[1] === 'flush' ? [last - PIER / 2, last] : [last, s[b]],
   ];
   // A solid stretch of wall down to the rail from l to r, a section a millimetre.
-  const solid = (l: number, r: number) => {
+  const spaced = (l: number, r: number) => {
     const n = Math.max(2, Math.ceil(r - l) + 1);
-    return Array.from({ length: n }, (_, j) => section(l + ((r - l) * j) / (n - 1)));
+    return Array.from({ length: n }, (_, j) => l + ((r - l) * j) / (n - 1));
   };
+  const solid = (l: number, r: number) => spaced(l, r).map((d) => section(d));
   const pieces = piers.map(([l, r]) => solid(l, r));
   // An arch over each key, from the pier before it to the pier after; where
   // the key is too low for one, a solid wall.
@@ -133,7 +134,15 @@ export function arches(kit: WallKit, side: WallSide): Manifold[] {
     const half = (r - l) / 2;
     const crown = (d: number) => at(d).base[2] + INTO - BAND;
     const h = Math.min(half, Math.min(crown(l), crown(r)) - side.railHeight - JAMB);
-    if (h < 1) return pieces.push(solid(l - INTO * 2, r + INTO * 2));
+    if (h < 1) {
+      // It runs on into each pier by the pier's own last (first) step, so the
+      // two sweeps share those faces exactly. Run on by any other length,
+      // they would cross each other at a graze (chords of one skirt taken at
+      // different places), which the union leaves specks of no volume along.
+      const [a, b] = [piers[n], piers[n + 1]];
+      const ds = [spaced(...a).at(-2)!, ...spaced(l, r), spaced(...b)[1]];
+      return pieces.push(ds.map((d) => section(d)));
+    }
     // A segment of a circle of radius R, rise h over span 2·half, sheared to
     // follow the crown; past the springings, the springing's height.
     const R = (half * half + h * h) / (2 * h);
