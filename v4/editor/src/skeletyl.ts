@@ -40,10 +40,9 @@
 // own parts (skeletyl-ends.prototype.ts lists the variants): "tie" adds a floor
 // tie to the rail, across under them, and drops the ends that can onto it
 // (landing square on it, clear of its bends and of where it meets the rail);
-// "join" carries a finger front on in a web to a thumb key's plate; "both"
-// joins where it can and ties the rest; "flow" first carries a thumb row's end
-// on into a column's front as one rib, then joins and ties as "both"; "none"
-// leaves them hanging.
+// "flow" first carries a thumb row's end on into a column's front as one rib,
+// then carries each column front still hanging on in a web to a thumb key's
+// plate where it can, and ties the rest as "tie"; "none" leaves them hanging.
 //
 // Terms, as in chassis.ts, and:
 //  rib      a run of keys along one key axis, swept as one solid;
@@ -59,9 +58,9 @@
 //           rail to rail, that hanging ends drop onto;
 //  pose     where a rib passes and how it lies there: its top's middle, its
 //           heading and across, its width and thickness (Pose);
-//  join     PROTOTYPE ?ends=: a finger front carried on in a web to a thumb
-//           key's plate edge instead of a round; a thumb row's end carried
-//           on into a column's front (flow) is one too.
+//  join     PROTOTYPE ?ends=flow: a finger front carried on in a web to a
+//           thumb key's plate edge instead of a round; a thumb row's end
+//           carried on into a column's front is one too.
 import type { CrossSection, Manifold, ManifoldToplevel } from 'manifold-3d';
 import type { Matrix4 } from 'three';
 import {
@@ -120,7 +119,7 @@ export const SIZES = {
   plateSteps: 5,
   /** The rail round the outline: its height. */
   railHeight: 6,
-  /** PROTOTYPE ?ends=: a column's front joins a thumb key's plate edge at most this far off (plan, middle to middle), its web reaching joinInto into the plate (and a drop joinInto up into its round); the tie's bends and its fillets into the rail are rounded to tieRound (plan), and a drop on the tie stands at least tieRound (along it) from where it bends or from the rail's inner edge. */
+  /** PROTOTYPE ?ends=: a column's front joins a thumb key's plate edge at most this far off (plan, middle to middle), its web reaching joinInto into the plate; the tie's bends and its fillets into the rail are rounded to tieRound (plan), and a drop on the tie stands at least tieRound (along it) from where it bends or from the rail's inner edge. */
   joinReach: 20,
   joinInto: 0.5,
   tieRound: 5,
@@ -455,7 +454,7 @@ function endRound(d: Dims, k: RibKey, u: number) {
 /**
  * One side (s, -1 or 1 across) of the end of key k that faces u (-1 or 1
  * along), from the plate's corner out. A flush end stops there. A joined end
- * (PROTOTYPE ?ends=join) runs on as a cubic web to its landing on a thumb
+ * (PROTOTYPE ?ends=flow) runs on as a cubic web to its landing on a thumb
  * plate's edge, then a little into that plate. Otherwise its lip and round
  * (endRound) turn it over and down until it is vertical. A dropping end runs
  * on from there down to its landing, swept as between keys: straight down,
@@ -1164,7 +1163,7 @@ function dropClear(
 }
 
 /**
- * PROTOTYPE ?ends=join: a column's front (rib's first end) joined to a thumb
+ * PROTOTYPE ?ends=flow: a column's front (rib's first end) joined to a thumb
  * key's plate: a web from the front's plate edge to the nearest thumb plate
  * edge it can reach without folding back (each edge past the other, as
  * between keys) or running into the other keys, landing the rib's width
@@ -1557,7 +1556,8 @@ export function skeletyl(
         ends[x.j][0] = 'flush';
       }
   }
-  if (support === 'join' || support === 'both' || support === 'flow') {
+  if (support === 'flow') {
+    // Then each column front still hanging joined to a thumb plate.
     const thumbs = all.filter((rib) => rib.run >= columns).flatMap((rib) => rib.keys);
     all.forEach((rib, i) => {
       const front = rib.run < columns && all.findIndex((r) => r.run === rib.run) === i;
@@ -1566,7 +1566,7 @@ export function skeletyl(
     });
   }
   const tie =
-    support === 'tie' || support === 'both' || support === 'flow'
+    support === 'tie' || support === 'flow'
       ? floorTie(wasm, cfg, d, frames, all, ends, ring)
       : undefined;
   const solids = all.map((rib, i) => ribSolid(wasm, d, rib, ends[i]));
@@ -1617,7 +1617,7 @@ export function skeletyl(
               d,
               frames,
               rib,
-              // PROTOTYPE ?ends=join: the walls take a joined end as flush.
+              // PROTOTYPE ?ends=flow: the walls take a joined end as flush.
               ends[i].map((e) => (isJoin(e) ? 'flush' : e)),
               outward(rib),
               named[i],

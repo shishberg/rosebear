@@ -20,20 +20,21 @@
 //    drops (bending along the end where the tie is off from straight down,
 //    landing square on it, clear of its bends and junctions), banded to their
 //    neighbours.
-//  - join: a hanging finger front near a thumb key's plate carries on as a web
-//    (like a web between keys in a rib) to that plate's facing edge, so the
-//    finger rib and the thumb rib are one; no round there.
-//  - both: join where it can, the tie for the rest.
 //  - flow: a thumb row's end carried on into a column's front as one rib
 //    (a sweep from the row's end plate edge to the front's, tangent to both:
 //    the front then flush), each row end and front once, nearest first, where
-//    it clears the other keys and doesn't fold back; then as both.
+//    it clears the other keys and doesn't fold back. Then each finger front
+//    still hanging near a thumb key's plate carries on as a web (like a web
+//    between keys in a rib) to that plate's facing edge, so the finger rib and
+//    the thumb rib are one, with no round there. The tie takes the rest.
+//
+// Two more variants, "join" (only the finger fronts' webs to the thumbs) and
+// "both" (join, then the tie), were dropped: flow does what they did and
+// more. They are in git history, last at commit 0acbf48.
 
 /** The end supports, in the switcher's order: the ?ends= key and a short name. */
 export const END_SUPPORTS = [
   { key: 'none', name: 'hanging ends' },
   { key: 'tie', name: 'floor tie' },
-  { key: 'join', name: 'joined to the thumbs' },
-  { key: 'both', name: 'join, then tie' },
   { key: 'flow', name: 'thumbs flow into columns, then join, then tie' },
 ] as const;
