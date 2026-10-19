@@ -44,30 +44,32 @@ function classOf(s: Seam) {
  *    19.5 mm, the index's above, where the faces pass through flush), one
  *    spot for the whole line; one sliver of no area near its top, where the
  *    index's widened side meets the middle's round as it turns away (a spot
- *    of FUSED_SLIVERS).
+ *    of FUSED_SLIVERS). On tie, one more: the inner's and index's front drops
+ *    stand side by side on the tie, about 1.6 mm apart.
  *  - rib: a rib's own seams where it is cut (the joined ends, the switch
  *    seats' trims meeting a rounded end) and its sweep's own slivers, the
- *    thumb row's and the extra keys' among them. On flow, 4 or 5 more on the
- *    thumb row came with the fused drops, though that rib is unchanged
- *    triangle for triangle and far from them: the union's output is
- *    triangulated differently there.
+ *    thumb row's and the extra keys' among them. The union triangulates a rib
+ *    differently with every change near it, though the rib is unchanged
+ *    triangle for triangle: on flow, the thumb row's low front foot shows 3
+ *    creases and ledges of the rail's unsubdivided dip under it (footKey).
  *  - rail: the rail's own corners where its outline turns tighter than the
- *    mesh (now also turning in round the corners between the back drops,
- *    where the bands stood), and the tie's strip and fillets meeting it
- *    (flow, at the thumbs).
+ *    mesh (also turning in round the corners between the back drops), and
+ *    the tie's strip and fillets meeting it. The rail is not subdivided under
+ *    a drop's foot (dipEdge), which moves where its corners are cut.
  *  - rail+rib: where a column front hangs joined into a thumb plate (flow),
  *    the rail's inner edge passing under a rib's sweep near its foot, the
  *    foot of the index and middle back drops' junction (where it passes
  *    through flush, at the bottom of the same line) and of the index's
  *    beside the inner's. The rail's inner edge also bends round the
  *    junction's step (rail). The extra keys' front drop and the pinky's
- *    (which stands on the rail now that x2 is not under it) meet the rail
- *    where it dips to them. On tie, the inner's front drop stands only
- *    partly on the tie (ledges; see the flush test below) and the extra
- *    keys' back drop meets the tie in a thin skin.
+ *    meet the rail where it dips to them. Every drop's foot is keyed into the
+ *    rail or tie (footKey), so no foot meets it edge to edge; on tie the
+ *    drops stand wholly on the tie, clear of its bends and fillets by tieGap.
  *  - rail+wall, rib+wall, wall (flare): the flare walls reach 0.2 mm into the
  *    rib and the rail (the WallSide contract), so they meet them near tangent,
- *    and stand at railHeight even where the rail dips to a low drop.
+ *    and stand at railHeight even where the rail dips to a low drop. At a
+ *    hanging end the skirt stops short of the round's last point, so it never
+ *    lies on the round's face.
  *  - arches, truss and bones: their walls' classes (rail+wall, rib+wall,
  *    wall, and rail+rib+wall) are pinned as they stand, from when they joined
  *    this test and again when the extra keys went into the default (their
@@ -85,55 +87,55 @@ function classOf(s: Seam) {
  */
 const PINS: Record<string, Record<string, number>> = {
   'none/none': {
-    rail: 11,
-    'rail+rib': 14,
+    rail: 12,
+    'rail+rib': 13,
     rib: 33,
     'rib+rib': 6,
   },
   'none/tie': {
     rail: 12,
-    'rail+rib': 18,
-    rib: 36,
-    'rib+rib': 6,
+    'rail+rib': 13,
+    rib: 35,
+    'rib+rib': 7,
   },
   'none/flow': {
-    rail: 14,
-    'rail+rib': 15,
-    rib: 31,
+    rail: 13,
+    'rail+rib': 13,
+    rib: 34,
     'rib+rib': 4,
   },
   'flare/none': {
-    rail: 13,
+    rail: 14,
     'rail+rib': 11,
-    'rail+rib+wall': 4,
+    'rail+rib+wall': 5,
     'rail+wall': 32,
     rib: 30,
     'rib+rib': 6,
-    'rib+wall': 53,
-    wall: 44,
+    'rib+wall': 52,
+    wall: 29,
   },
   'flare/tie': {
-    rail: 16,
-    'rail+rib': 15,
-    'rail+rib+wall': 5,
-    'rail+wall': 31,
-    rib: 34,
-    'rib+rib': 6,
-    'rib+wall': 57,
-    wall: 48,
+    rail: 15,
+    'rail+rib': 11,
+    'rail+rib+wall': 6,
+    'rail+wall': 34,
+    rib: 32,
+    'rib+rib': 7,
+    'rib+wall': 51,
+    wall: 29,
   },
   'flare/flow': {
-    rail: 16,
-    'rail+rib': 14,
-    'rail+rib+wall': 4,
+    rail: 15,
+    'rail+rib': 11,
+    'rail+rib+wall': 6,
     'rail+wall': 30,
-    rib: 27,
+    rib: 32,
     'rib+rib': 4,
-    'rib+wall': 44,
+    'rib+wall': 42,
     wall: 26,
   },
   'arches/none': {
-    rail: 13,
+    rail: 14,
     'rail+rib': 12,
     'rail+rib+wall': 5,
     'rail+wall': 11,
@@ -144,57 +146,57 @@ const PINS: Record<string, Record<string, number>> = {
   },
   'arches/tie': {
     rail: 14,
-    'rail+rib': 16,
-    'rail+rib+wall': 5,
-    'rail+wall': 11,
-    rib: 36,
-    'rib+rib': 6,
-    'rib+wall': 22,
+    'rail+rib': 12,
+    'rail+rib+wall': 6,
+    'rail+wall': 12,
+    rib: 35,
+    'rib+rib': 7,
+    'rib+wall': 21,
     wall: 11,
   },
   'arches/flow': {
     rail: 16,
-    'rail+rib': 15,
+    'rail+rib': 13,
     'rail+rib+wall': 5,
     'rail+wall': 8,
-    rib: 32,
+    rib: 35,
     'rib+rib': 4,
     'rib+wall': 16,
     wall: 13,
   },
   'truss/none': {
-    rail: 14,
+    rail: 15,
     'rail+rib': 11,
-    'rail+rib+wall': 7,
-    'rail+wall': 33,
+    'rail+rib+wall': 6,
+    'rail+wall': 34,
     rib: 29,
     'rib+rib': 6,
     'rib+wall': 40,
     wall: 81,
   },
   'truss/tie': {
-    rail: 14,
-    'rail+rib': 14,
-    'rail+rib+wall': 9,
-    'rail+wall': 39,
-    rib: 32,
-    'rib+rib': 6,
-    'rib+wall': 41,
-    wall: 102,
+    rail: 17,
+    'rail+rib': 11,
+    'rail+rib+wall': 6,
+    'rail+wall': 42,
+    rib: 30,
+    'rib+rib': 7,
+    'rib+wall': 40,
+    wall: 92,
   },
   'truss/flow': {
-    rail: 19,
-    'rail+rib': 11,
-    'rail+rib+wall': 7,
+    rail: 16,
+    'rail+rib': 12,
+    'rail+rib+wall': 8,
     'rail+wall': 41,
-    rib: 27,
+    rib: 30,
     'rib+rib': 4,
-    'rib+wall': 41,
+    'rib+wall': 42,
     wall: 85,
   },
   'bones/none': {
     rail: 13,
-    'rail+rib': 14,
+    'rail+rib': 13,
     'rail+wall': 44,
     rib: 33,
     'rib+rib': 6,
@@ -203,59 +205,59 @@ const PINS: Record<string, Record<string, number>> = {
   },
   'bones/tie': {
     rail: 14,
-    'rail+rib': 18,
-    'rail+wall': 41,
-    rib: 36,
-    'rib+rib': 6,
+    'rail+rib': 13,
+    'rail+wall': 44,
+    rib: 35,
+    'rib+rib': 7,
     'rib+wall': 17,
-    wall: 18,
+    wall: 22,
   },
   'bones/flow': {
-    rail: 16,
-    'rail+rib': 12,
+    rail: 15,
+    'rail+rib': 11,
     'rail+rib+wall': 1,
     'rail+wall': 35,
-    rib: 31,
+    rib: 34,
     'rib+rib': 4,
     'rib+wall': 27,
     wall: 15,
   },
   'pillars/none': {
-    rail: 12,
-    'rail+rib': 14,
+    rail: 13,
+    'rail+rib': 13,
     rib: 32,
     'rib+rib': 6,
   },
   'pillars/tie': {
-    rail: 13,
-    'rail+rib': 18,
-    rib: 36,
-    'rib+rib': 6,
+    rail: 15,
+    'rail+rib': 13,
+    rib: 34,
+    'rib+rib': 7,
   },
   'pillars/flow': {
-    rail: 13,
+    rail: 16,
     'rail+rib': 14,
-    rib: 29,
+    rib: 30,
     'rib+rib': 4,
   },
   'wishbone/none': {
-    rail: 12,
-    'rail+rib': 14,
+    rail: 13,
+    'rail+rib': 13,
     rib: 32,
     'rib+rib': 6,
     wall: 1,
   },
   'wishbone/tie': {
-    rail: 13,
-    'rail+rib': 18,
-    rib: 36,
-    'rib+rib': 6,
+    rail: 15,
+    'rail+rib': 13,
+    rib: 34,
+    'rib+rib': 7,
     wall: 1,
   },
   'wishbone/flow': {
-    rail: 13,
+    rail: 16,
     'rail+rib': 14,
-    rib: 29,
+    rib: 30,
     'rib+rib': 4,
     wall: 1,
   },

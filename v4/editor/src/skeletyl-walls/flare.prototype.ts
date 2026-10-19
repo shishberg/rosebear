@@ -14,7 +14,10 @@
 // way to the rail as it goes down (t from 0 at the plate to 1 on the rail), and
 // further where a key needs the room. The skirt runs on over the ends' lips
 // and rounds as far as they carry on along the side, so at a drop it ends
-// flush with the drop's outer face. Sections too low to stand over the rail,
+// flush with the drop's outer face (one flat face); at a hanging end it stops
+// short of the round's last point, where the round stands tangent to a
+// section's plane, so that it cuts the round at an angle rather than lying
+// on its face. Sections too low to stand over the rail,
 // or that would hit a key, are left out, the skirt parting there.
 import type { Manifold } from 'manifold-3d';
 import { add, dot, scale, sub, type V3 } from '../geometry';
@@ -37,6 +40,14 @@ export function flare(kit: WallKit, side: WallSide): Manifold[] {
   let [a, b] = [keys[0].from, keys.at(-1)!.to];
   while (a > 0 && onward(a - 1)) a--;
   while (b < points.length - 1 && onward(b)) b++;
+  // A hanging end's round turns down to stand upright at its last point, so
+  // a section there would stand tangent to it, on its face: the skirt stops
+  // where its end cuts the round, at least INTO back from that point.
+  const back = (i: number, end: number) =>
+    sense * (end ? 1 : -1) * dot(sub(points[end].top, points[i].top), along(points[i].out));
+  if (side.ends[0] === 'hang') while (a < b && back(a, 0) < INTO) a++;
+  const last = points.length - 1;
+  if (side.ends[1] === 'hang') while (b > a && back(b, last) < INTO) b--;
   // Each section stands in the upright plane through its top point, across
   // the side: its base is under there (under's offset along the side dropped).
   const bases = points.map((p) =>
