@@ -44,9 +44,8 @@ function classOf(s: Seam) {
  *    19.5 mm, the index's above, where the faces pass through flush), one
  *    spot for the whole line; one sliver of no area near its top, where the
  *    index's widened side meets the middle's round as it turns away (a spot
- *    of FUSED_SLIVERS), and since the outline runs straight under the back
- *    drops, the index's bends 0.5 mm out to it and its widened side leaves a
- *    second sliver lower down the same line (the other). On tie, one more: the inner's and index's front drops
+ *    of FUSED_SLIVERS). Both stand straight down: the outline steps in 0.5 mm
+ *    from the index's face to the middle's at the junction (rail). On tie, one more: the inner's and index's front drops
  *    stand side by side on the tie, about 1.6 mm apart.
  *  - rib: a rib's own seams where it is cut (the joined ends, the switch
  *    seats' trims meeting a rounded end) and its sweep's own slivers, the
@@ -57,8 +56,14 @@ function classOf(s: Seam) {
  *  - rail: the rail's own corners where its outline turns tighter than the
  *    mesh (the straight outline's corners, and its one turn in, at the front),
  *    and
- *    the tie's strip and fillets meeting it. The rail is not subdivided under
- *    a drop's foot (dipEdge), which moves where its corners are cut.
+ *    the tie's strip and fillets meeting it. The outline turns in at each
+ *    drop's corners and runs straight on to the next (trimmed), so it has
+ *    a corner at each side of a drop standing in from the hull (the ring's
+ *    and pinky's backs, the pinky's front), each a spot or two where the
+ *    rail's top and bottom are triangulated, and a 0.5 mm step between the
+ *    index's and middle's back drops (a ledge and a gap). The rail is level
+ *    round a low drop's foot as a piece of its own (Dip.patch), which leaves
+ *    a sliver or a shading where its sides meet the rest.
  *  - rail+rib: where a column front hangs joined into a thumb plate (flow),
  *    the rail's inner edge passing under a rib's sweep near its foot, the
  *    foot of the index and middle back drops' junction (where it passes
@@ -85,12 +90,17 @@ function classOf(s: Seam) {
  *    this test, again when the extra keys went into the default (their
  *    row an outer side with walls of its own), and again when the outline
  *    went straight (the walls at the back corners and the pinky's front
- *    corner, standing on its rail, reshaped with it): their prototypes' own
- *    joints (piers and crowns, struts, limbs' fillets), not the frame's.
+ *    corner, standing on its rail, reshaped with it), and again when the
+ *    drops stopped twisting (the outline stepping in at the drops and
+ *    running straight from their corners, so the walls along the pinky and
+ *    the back stand differently; on arches the piers and the solid walls
+ *    between them became one sweep, which removes most of their spots):
+ *    their prototypes' own joints (piers and crowns, struts, limbs'
+ *    fillets), not the frame's.
  *  - pillars and wishbone: the outline's hull takes in the limbs' feet, so
  *    its inner side runs straight along them, 5 to 6 mm further out than
- *    without them, and the inner column's front drops bend further out to
- *    it: the rail's corners and its meeting with those drops and the thumbs'
+ *    without them, and turns in to the inner column's front drops where
+ *    they stand: the rail's corners and its meeting with those drops and the thumbs'
  *    (rail, rail+rib) are cut differently there. rib+wall: each limb's root
  *    stands on its web's own outer edge, its sides upright; where the web
  *    slopes (the pinky's, 28°, and the inner home and top keys', 24°) the
@@ -107,186 +117,183 @@ function classOf(s: Seam) {
  */
 const PINS: Record<string, Record<string, number>> = {
   'none/none': {
-    rail: 12,
-    'rail+rib': 9,
-    rib: 31,
-    'rib+rib': 7,
+    rail: 15,
+    'rail+rib': 8,
+    rib: 30,
+    'rib+rib': 6,
   },
   'none/tie': {
-    rail: 11,
-    'rail+rib': 9,
-    rib: 34,
-    'rib+rib': 8,
+    rail: 15,
+    'rail+rib': 8,
+    rib: 32,
+    'rib+rib': 7,
   },
   'none/flow': {
-    rail: 10,
-    'rail+rib': 10,
-    rib: 32,
-    'rib+rib': 5,
+    rail: 14,
+    'rail+rib': 8,
+    rib: 28,
+    'rib+rib': 4,
   },
   'flare/none': {
-    rail: 14,
-    'rail+rib': 6,
+    rail: 16,
+    'rail+rib': 5,
     'rail+rib+wall': 9,
-    'rail+wall': 42,
-    rib: 28,
-    'rib+rib': 7,
-    'rib+wall': 55,
-    wall: 36,
+    'rail+wall': 29,
+    rib: 27,
+    'rib+rib': 6,
+    'rib+wall': 48,
+    wall: 28,
   },
   'flare/tie': {
-    rail: 16,
-    'rail+rib': 6,
+    rail: 17,
+    'rail+rib': 5,
     'rail+rib+wall': 10,
-    'rail+wall': 43,
-    rib: 31,
-    'rib+rib': 8,
-    'rib+wall': 53,
-    wall: 36,
+    'rail+wall': 30,
+    rib: 29,
+    'rib+rib': 7,
+    'rib+wall': 48,
+    wall: 28,
   },
   'flare/flow': {
-    rail: 12,
-    'rail+rib': 8,
-    'rail+rib+wall': 7,
-    'rail+wall': 37,
-    rib: 28,
-    'rib+rib': 5,
-    'rib+wall': 47,
-    wall: 32,
+    rail: 16,
+    'rail+rib': 5,
+    'rail+rib+wall': 9,
+    'rail+wall': 29,
+    rib: 25,
+    'rib+rib': 4,
+    'rib+wall': 40,
+    wall: 26,
   },
   'arches/none': {
-    rail: 17,
-    'rail+rib': 7,
-    'rail+rib+wall': 5,
-    'rail+wall': 15,
+    rail: 15,
+    'rail+rib': 8,
+    'rail+wall': 2,
     rib: 30,
-    'rib+rib': 7,
-    'rib+wall': 35,
-    wall: 12,
+    'rib+rib': 6,
+    'rib+wall': 14,
+    wall: 2,
   },
   'arches/tie': {
     rail: 15,
-    'rail+rib': 7,
-    'rail+rib+wall': 7,
-    'rail+wall': 16,
-    rib: 33,
-    'rib+rib': 8,
-    'rib+wall': 33,
-    wall: 11,
+    'rail+rib': 8,
+    'rail+wall': 2,
+    rib: 32,
+    'rib+rib': 7,
+    'rib+wall': 14,
+    wall: 2,
   },
   'arches/flow': {
-    rail: 12,
+    rail: 14,
     'rail+rib': 8,
-    'rail+rib+wall': 3,
-    'rail+wall': 12,
-    rib: 33,
-    'rib+rib': 5,
-    'rib+wall': 24,
-    wall: 12,
+    'rail+wall': 1,
+    rib: 29,
+    'rib+rib': 4,
+    'rib+wall': 8,
+    wall: 4,
   },
   'truss/none': {
-    rail: 16,
-    'rail+rib': 8,
-    'rail+rib+wall': 8,
-    'rail+wall': 47,
-    rib: 30,
-    'rib+rib': 7,
-    'rib+wall': 50,
-    wall: 98,
+    rail: 18,
+    'rail+rib': 6,
+    'rail+rib+wall': 7,
+    'rail+wall': 32,
+    rib: 26,
+    'rib+rib': 6,
+    'rib+wall': 36,
+    wall: 79,
   },
   'truss/tie': {
-    rail: 16,
-    'rail+rib': 8,
-    'rail+rib+wall': 8,
-    'rail+wall': 50,
-    rib: 32,
-    'rib+rib': 8,
-    'rib+wall': 50,
-    wall: 115,
+    rail: 19,
+    'rail+rib': 6,
+    'rail+rib+wall': 7,
+    'rail+wall': 36,
+    rib: 27,
+    'rib+rib': 7,
+    'rib+wall': 36,
+    wall: 94,
   },
   'truss/flow': {
-    rail: 13,
-    'rail+rib': 8,
-    'rail+rib+wall': 10,
-    'rail+wall': 47,
-    rib: 33,
-    'rib+rib': 5,
-    'rib+wall': 49,
-    wall: 111,
+    rail: 17,
+    'rail+rib': 6,
+    'rail+rib+wall': 7,
+    'rail+wall': 39,
+    rib: 25,
+    'rib+rib': 4,
+    'rib+wall': 37,
+    wall: 80,
   },
   'bones/none': {
-    rail: 12,
-    'rail+rib': 9,
-    'rail+wall': 44,
-    rib: 31,
-    'rib+rib': 7,
-    'rib+wall': 17,
-    wall: 26,
+    rail: 19,
+    'rail+rib': 8,
+    'rail+wall': 40,
+    rib: 30,
+    'rib+rib': 6,
+    'rib+wall': 16,
+    wall: 21,
   },
   'bones/tie': {
-    rail: 13,
-    'rail+rib': 9,
-    'rail+wall': 44,
-    rib: 33,
-    'rib+rib': 8,
-    'rib+wall': 17,
-    wall: 26,
+    rail: 20,
+    'rail+rib': 8,
+    'rail+wall': 40,
+    rib: 32,
+    'rib+rib': 7,
+    'rib+wall': 16,
+    wall: 21,
   },
   'bones/flow': {
-    rail: 11,
-    'rail+rib': 11,
-    'rail+wall': 35,
-    rib: 32,
-    'rib+rib': 5,
-    'rib+wall': 17,
-    wall: 14,
+    rail: 17,
+    'rail+rib': 8,
+    'rail+wall': 37,
+    rib: 28,
+    'rib+rib': 4,
+    'rib+wall': 21,
+    wall: 15,
   },
   'pillars/none': {
-    rail: 12,
-    'rail+rib': 13,
-    'rail+wall': 2,
-    rib: 30,
-    'rib+rib': 7,
-    'rib+wall': 9,
+    rail: 18,
+    'rail+rib': 9,
+    'rail+wall': 1,
+    rib: 29,
+    'rib+rib': 6,
+    'rib+wall': 7,
     wall: 1,
   },
   'pillars/tie': {
-    rail: 15,
-    'rail+rib': 15,
+    rail: 22,
+    'rail+rib': 9,
     'rail+wall': 1,
-    rib: 34,
-    'rib+rib': 8,
-    'rib+wall': 9,
+    rib: 31,
+    'rib+rib': 7,
+    'rib+wall': 7,
     wall: 1,
   },
   'pillars/flow': {
-    rail: 12,
-    'rail+rib': 13,
+    rail: 17,
+    'rail+rib': 9,
     'rail+wall': 1,
-    rib: 29,
-    'rib+rib': 5,
+    rib: 27,
+    'rib+rib': 4,
     'rib+wall': 8,
     wall: 1,
   },
   'wishbone/none': {
-    rail: 11,
-    'rail+rib': 13,
-    rib: 30,
-    'rib+rib': 7,
+    rail: 18,
+    'rail+rib': 9,
+    rib: 29,
+    'rib+rib': 6,
     'rib+wall': 7,
   },
   'wishbone/tie': {
-    rail: 10,
-    'rail+rib': 18,
-    rib: 33,
-    'rib+rib': 8,
+    rail: 21,
+    'rail+rib': 9,
+    rib: 31,
+    'rib+rib': 7,
     'rib+wall': 7,
   },
   'wishbone/flow': {
-    rail: 9,
-    'rail+rib': 14,
-    rib: 29,
-    'rib+rib': 5,
+    rail: 16,
+    'rail+rib': 9,
+    rib: 27,
+    'rib+rib': 4,
     'rib+wall': 8,
   },
 };
@@ -310,7 +317,7 @@ const inside = (cs: CrossSection, x: number, y: number) =>
     .area() > 1e-5;
 
 /** Slivers allowed between two fused drops' ribs (see rib+rib above). */
-const FUSED_SLIVERS = 2;
+const FUSED_SLIVERS = 1;
 
 for (const walls of ['none', 'flare', 'arches', 'truss', 'bones', 'pillars', 'wishbone'])
   for (const ends of ['none', 'tie', 'flow']) {

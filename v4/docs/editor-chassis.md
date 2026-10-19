@@ -20,18 +20,22 @@ straight down and of the outer sides of the first and last columns and the
 thumb rows (their plates and tile pockets), with no margin past them, so the
 rail is under their edges, taken out round any switch hole's column or tile
 that comes down near the floor, so the rail keeps clear of it. Its corners out stay
-sharp, cut back square where a drop stands on it. It turns in only over open
+sharp. Where a drop stands on it, it turns in to the drop's outer face and
+runs straight on from the face's corners to the next thing it must take in.
+Otherwise it turns in only over open
 floor: where the hull bridges a pocket more than 30 mm across its mouth and
 more than 2 mm deep that no drop or wall stands in, it turns in once, with one
 crisp corner where the lines from the mouth's two ends, tangent to what lies
 under, meet. On Swung in that is only between the thumbs and the finger
-columns' fronts. A drop under a straight run bends out along its end to it,
-as any drop does. An end of the rib that comes down low (whose round would end
+columns' fronts. An end of the rib that comes down low (whose round would end
 less than 1 mm above the rail) has its round drawn as tight as still clears the tile pocket,
 the switch and the keys, down to a radius of the wall plus 0.5 mm. An end near the outline
 drops to the floor: the rib carried on down from its round as one sweep,
-straight down where the rail runs under it, else bending out along the end to
-it, landing square on the rail. Its outer face is flush with the rail's
+keeping the across and the width it has at the bottom of the round all the
+way down to a square foot, so it never twists or splays. It stands straight down, or bends out in the end's own plane, along its
+heading, until the nearer corner of its outer face meets the outline (on Swung
+in only the ring column's back, 0.5 mm); an end whose outline is more than
+12 mm out hangs. Its outer face is flush with the rail's
 over the rail's whole height, and it bends or rounds only above it; under a
 drop whose round still ends lower than that, the rail bends down to meet it
 (on Swung in, the fronts of the thumb row's far key and the second extra

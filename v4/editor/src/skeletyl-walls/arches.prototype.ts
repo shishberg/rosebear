@@ -125,24 +125,31 @@ export function arches(kit: WallKit, side: WallSide): Manifold[] {
     const n = Math.max(2, Math.ceil(r - l) + 1);
     return Array.from({ length: n }, (_, j) => l + ((r - l) * j) / (n - 1));
   };
-  const solid = (l: number, r: number) => spaced(l, r).map((d) => section(d));
-  const pieces = piers.map(([l, r]) => solid(l, r));
   // An arch over each key, from the pier before it to the pier after; where
-  // the key is too low for one, a solid wall.
+  // the key is too low for one, a solid wall. The solid walls and the piers
+  // they join are one sweep, through each one's own sections in turn, so no
+  // two sweeps meet there: two that shared sections would overlap face to
+  // face, and two that ran into each other would cross at a graze (chords of
+  // one skirt taken at different places), either of which the union can
+  // leave specks of no volume along.
+  const crown = (d: number) => at(d).base[2] + INTO - BAND;
+  const rises = piers.slice(1).map(([r], n) => {
+    const l = piers[n][1];
+    return Math.min((r - l) / 2, Math.min(crown(l), crown(r)) - side.railHeight - JAMB);
+  });
+  const pieces: (V3[][] | undefined)[][] = [];
+  piers.forEach(([l, r], n) => {
+    const ds = spaced(l, r);
+    if (n && rises[n - 1] < 1) {
+      const run = pieces.at(-1)!;
+      run.push(...[...spaced(piers[n - 1][1], l).slice(1), ...ds.slice(1)].map((d) => section(d)));
+    } else pieces.push(ds.map((d) => section(d)));
+  });
   piers.slice(1).forEach(([r], n) => {
     const l = piers[n][1];
     const half = (r - l) / 2;
-    const crown = (d: number) => at(d).base[2] + INTO - BAND;
-    const h = Math.min(half, Math.min(crown(l), crown(r)) - side.railHeight - JAMB);
-    if (h < 1) {
-      // It runs on into each pier by the pier's own last (first) step, so the
-      // two sweeps share those faces exactly. Run on by any other length,
-      // they would cross each other at a graze (chords of one skirt taken at
-      // different places), which the union leaves specks of no volume along.
-      const [a, b] = [piers[n], piers[n + 1]];
-      const ds = [spaced(...a).at(-2)!, ...spaced(l, r), spaced(...b)[1]];
-      return pieces.push(ds.map((d) => section(d)));
-    }
+    const h = rises[n];
+    if (h < 1) return;
     // A segment of a circle of radius R, rise h over span 2·half, sheared to
     // follow the crown; past the springings, the springing's height.
     const R = (half * half + h * h) / (2 * h);
@@ -153,9 +160,10 @@ export function arches(kit: WallKit, side: WallSide): Manifold[] {
     pieces.push(ds.map((d) => section(d, crown(d) - h + rise(d))));
   });
 
-  // Each pier and arch is built whole or not at all: only if every section,
-  // and the faces between them, clear the keys (tested at points over them),
-  // each chamfered as high up the plate's edge as clears.
+  // Each pier (or run of piers and solid walls) and arch is built whole or
+  // not at all: only if every section, and the faces between them, clear the
+  // keys (tested at points over them), each chamfered as high up the plate's
+  // edge as clears.
   const over = (p: V3[], q: V3[]) =>
     p.flatMap((v, j) => {
       const k = (j + 1) % p.length;

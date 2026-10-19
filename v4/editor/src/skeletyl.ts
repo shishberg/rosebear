@@ -29,9 +29,13 @@
 // foot stands as high as it can; where it still stands below the rail's
 // top, the rail dips to it. The ends whose feet are near the outline drop to
 // the floor: the rib carried on from the bottom of its round down to the
-// rail, as one sweep (as between keys), straight down where the outline runs under it, else bending out
-// along the end to it, and landing square on it (across along it), the last
-// of it straight down, flush with the rail, where that clears the other keys;
+// rail, as one sweep (as between keys), its across and its width as at the
+// bottom of its round all the way down, its foot square: it never twists or
+// splays. It stands straight down, or bends out in the end's own plane
+// (along the end's heading) as far as the nearer corner of its outer face is
+// from the outline, where that is at most reach; the outline then also turns
+// in to its outer face and runs straight on from its corners (trimmed), so
+// the drop stands flush on the rail, where that clears the other keys;
 // the rest stop at the bottom of their rounds. Each rib, ends and all, is
 // meshed as one surface. One
 // rail round the outline, on the floor, joins the ribs into one piece; each
@@ -139,13 +143,17 @@ export const SIZES = {
   pocketMouth: 30,
   pocketDepth: 2,
   pocketFoot: 0.5,
-  /** The outline is cut back this far (plan) out from each drop's face, so no run of it stands proud of one (trimmed). */
-  trimDepth: 10,
   /** The outline turns exactly at a drop's corner if it turns within this of it, or runs within this of it (trimmed). */
   cornerSnap: 0.2,
+  /**
+   * Where the outline is cut back to a drop's face, it runs straight from
+   * each of the face's corners on to what it must take in, each foot taken
+   * as a square speck this far (plan) to each side of it (trimmed).
+   */
+  footSpeck: 0.01,
   /** Segments per full turn of a rounded offset (round what the outline keeps clear of, and the tie's). */
   cornerSegments: 72,
-  /** An end drops to the floor if the outline is at most this far out along the end from where the middle of its drop would meet the floor straight down (plan); its drop bends out that far. */
+  /** An end drops to the floor if the outline is at most this far out along the end (plan) from where its drop's outer face would meet the floor straight down, at that face's nearer corner; its drop bends out that far, in the end's own plane, so that corner meets the outline (kind in skeletyl). */
   reach: 12,
   /** PROTOTYPE ?walls=: a wall side has points this many steps across each plate. */
   plateSteps: 5,
@@ -154,9 +162,8 @@ export const SIZES = {
   /** A drop's foot runs at least this far below where its round ends (footHeight); where the rail dips to meet it, it rises again over dipRun times the dip (railDip). */
   dropBend: 1,
   dipRun: 2.5,
-  /** The rail is meshed this fine (mm) where it dips, but under a drop's foot and on its edges (within dipEdge), where it is level and the foot's own edges lie: points of its own there, a hair off the foot's edge, the union leaves specks of no volume at (railDip). */
+  /** The rail is meshed this fine (mm) where it dips, but not where it is level round a drop's foot, where the foot's own edges lie: points of its own there, a hair off the foot's edge, the union leaves specks of no volume at (railDip). */
   dipMesh: 0.5,
-  dipEdge: 0.01,
   /** A drop's foot is keyed this far into the rail (or the tie) under it, and as far up into the drop, inside both (footKey), so the two overlap rather than only meet face to face. */
   footInto: 0.5,
   /** PROTOTYPE ?ends=: a column's front joins a thumb key's plate edge at most this far off (plan, middle to middle), its web reaching joinInto into the plate; the tie's bends and its fillets into the rail are rounded to tieRound (plan), and a drop on the tie stands at least tieRound and tieGap (along it) from where it bends or from the rail's inner edge, clear of where the bend's or the fillet's round starts rather than on it. */
@@ -555,7 +562,8 @@ function endRound(d: Dims, k: RibKey, u: number) {
  * plate's edge, then a little into that plate. Otherwise its lip and round
  * (endRound) turn it over and down until it is vertical. A dropping end runs
  * on from there down to its landing, swept as between keys: straight down,
- * or bending out to the rail or along the tie and turning to lie along it.
+ * or bending out in its own plane to the rail, or along the tie and turning
+ * to lie along it.
  * Nothing goes below the floor.
  */
 function endSide(d: Dims, k: RibKey, u: number, s: number, end: End): Pair[] {
@@ -689,10 +697,11 @@ function footKey(wasm: ManifoldToplevel, d: Dims, k: RibKey, u: number, land: Po
   const ends = [at(lo), ahead(foot, into)].map(narrowed);
   return [wasm.Manifold.hull(ends.flatMap((q) => [-1, 1].flatMap((s) => poseSide(q, s))))];
 }
-/** Where the rail dips to meet a low drop: its top at a plan point, and whether the point is near enough to be on the dip (or just past it). */
+/** Where the rail dips to meet a low drop: its top at a plan point, whether the point is near enough to be on the dip (or just past it) but not where it is level, and (plan) the level ground under the foot (patch). */
 interface Dip {
   top: (x: number, y: number) => number;
   near: (x: number, y: number) => boolean;
+  patch: [number, number][];
 }
 /**
  * The rail's (and the tie's) top where a drop landing as `land` stands on it
@@ -711,7 +720,7 @@ function railDip(land: Pose, height: number): Dip {
   const run = SIZES.dipRun * (H - height);
   // The foot's level, as its mesh has it (laneSolid's are single precision).
   const level = Math.fround(height);
-  const n = normalOf(land);
+  const [c, n] = [land.c, normalOf(land)];
   const [c0, c1, n0, n1] = [-land.half - 1, land.half + 1, -land.thick - 1, 1];
   // Where a point is (plan): along the foot and out of its outer face.
   const at = (x: number, y: number) => {
@@ -723,18 +732,22 @@ function railDip(land: Pose, height: number): Dip {
     const [c, m] = at(x, y);
     return Math.hypot(Math.max(c0 - c, 0, c - c1), Math.max(n0 - m, 0, m - n1));
   };
-  // Whether a point is under the foot (or on its edge, within dipEdge).
-  const under = (x: number, y: number) => {
-    const [c, m] = at(x, y);
-    const e = SIZES.dipEdge;
-    return Math.abs(c) <= land.half + e && m <= e && m >= -land.thick - e;
-  };
   return {
     top: (x, y) => {
       const o = out(x, y);
       return o >= run ? H : level + ((H - level) * (1 - Math.cos((Math.PI * o) / run))) / 2;
     },
-    near: (x, y) => out(x, y) < run + SIZES.dipMesh && !under(x, y),
+    near: (x, y) => {
+      const o = out(x, y);
+      return o > 0 && o < run + SIZES.dipMesh;
+    },
+    // Halfway out into the level mm round the foot, where the top is level.
+    patch: [
+      [c0 / 2 - land.half / 2, n0 / 2 - land.thick / 2],
+      [c1 / 2 + land.half / 2, n0 / 2 - land.thick / 2],
+      [c1 / 2 + land.half / 2, n1 / 2],
+      [c0 / 2 - land.half / 2, n1 / 2],
+    ].map(([u, m]) => [land.p[0] + c[0] * u + n[0] * m, land.p[1] + c[1] * u + n[1] * m]),
   };
 }
 /** A pair kept above the floor. */
@@ -1053,6 +1066,9 @@ const feet = (d: Dims, rib: Rib, end: number) =>
  * `keep` (plan points) and the rail's width round it, so the rail stays out
  * of them; and (PROTOTYPE ?walls=) each of `walls` (plan polygons): a wall's
  * foot, which the hull takes in, so that a straight run passes along it.
+ * With what it must still take in where it is trimmed (firm): the outer
+ * sides, `keep`, `walls` and each of the feet (a speck), but not the floor
+ * between the feet.
  */
 function outlined(
   wasm: ManifoldToplevel,
@@ -1064,18 +1080,31 @@ function outlined(
 ) {
   const plan = (ps: V3[]) => ps.map((p) => [p[0], p[1]] as [number, number]);
   const round = (c: CrossSection, by: number) => c.offset(by, 'Round', 2, SIZES.cornerSegments);
-  const area = wasm.CrossSection.union([
-    new wasm.CrossSection([plan(outline(feet, d.wall, SIZES.digDeepest))], 'NonZero'),
+  const firm = [
     ...sides.map((side) => wasm.CrossSection.hull([plan(side)])),
     ...keep.map((ps) => round(wasm.CrossSection.hull([plan(ps)]), d.wall)),
+  ];
+  const area = wasm.CrossSection.union([
+    new wasm.CrossSection([plan(outline(feet, d.wall, SIZES.digDeepest))], 'NonZero'),
+    ...firm,
   ]);
   const stand = walls.map((poly) => new wasm.CrossSection([poly], 'NonZero'));
-  return straightened(
-    wasm,
-    stand.length ? area.add(wasm.CrossSection.union(stand)) : area,
-    feet,
-    stand,
+  // Each foot, as a speck.
+  const specks = feet.map((p) =>
+    wasm.CrossSection.square([2 * SIZES.footSpeck, 2 * SIZES.footSpeck], true).translate([
+      p[0],
+      p[1],
+    ]),
   );
+  return {
+    ring: straightened(
+      wasm,
+      stand.length ? area.add(wasm.CrossSection.union(stand)) : area,
+      feet,
+      stand,
+    ),
+    firm: wasm.CrossSection.union([...firm, ...stand, ...specks]),
+  };
 }
 /**
  * The area's convex hull, but where the hull spans a pocket (a stretch where
@@ -1165,44 +1194,91 @@ const largest = (c: CrossSection) =>
     .reduce((x, y) => (area2(y) > area2(x) ? y : x));
 /**
  * The outline cut back to the faces standing on it, each [a, b, outward]
- * (plan), wherever it runs out past one (trimDepth out at most), so that the
- * rail runs straight under the drops that stand on it. Its points within
- * cornerSnap of a face's end are moved onto it, and a face's end within
- * cornerSnap of a run is put into it, so that where the outline turns at (or
- * runs past) a drop's corner it does so exactly there, rather than a few
- * hundredths past it, a ledge at the drop's foot. PROTOTYPE: it takes in
- * each of `keep` (plan polygons) after it is cut: where two fused drops
- * overlap, the foot of the junction, so that it runs on round the one in
- * front there.
+ * (plan), wherever it runs out past one, so that each drop stands on it as it
+ * lands, square to its own end, and the outline turns to meet it: the floor
+ * in front of the face (between the lines out from its ends) is cut away, and
+ * from each of the face's ends the outline runs straight on to what it must
+ * still take in (`firm`), turning only there: the shortest way round `firm`
+ * that keeps out of what is cut away (its convex hull, relative to that).
+ * Its points within cornerSnap of a face's end are moved onto it, and a
+ * face's end within cornerSnap of a run is put into it, so that where the
+ * outline turns at (or runs past) a drop's corner it does so exactly there,
+ * rather than a few hundredths past it, a ledge at the drop's foot.
+ * PROTOTYPE: it takes in each of `keep` (plan polygons) after it is cut:
+ * where two fused drops overlap, the foot of the junction, so that it runs on
+ * round the one in front there.
  */
 function trimmed(
   wasm: ManifoldToplevel,
   ring: [number, number][],
+  firm: CrossSection,
   faces: V3[][],
   keep: [number, number][][] = [],
 ) {
   if (!faces.length) return ring;
-  const D = SIZES.trimDepth;
-  const cut = faces.map(
-    ([a, b, o]) =>
-      new wasm.CrossSection(
-        [
-          [a, b, add(b, scale(o, D)), add(a, scale(o, D))].map(
-            (p) => [p[0], p[1]] as [number, number],
-          ),
-        ],
-        'NonZero',
-      ),
-  );
+  const section = (p: number[][]) =>
+    new wasm.CrossSection([p.map((q) => [q[0], q[1]] as [number, number])], 'NonZero');
+  const whole = section(ring);
+  // In front of each face, out to where the outline runs: the strip out from
+  // it, as far as the part of it inside the outline that touches the face
+  // runs out and a mm on (so that the cut runs out through the outline,
+  // rather than along it, which would leave a hair of it).
+  const strip = ([a, b, o]: V3[], out: number) =>
+    section([a, b, add(b, scale(o, out)), add(a, scale(o, out))]);
+  const fronts = faces.flatMap((face) => {
+    const [a, , o] = face;
+    const skin = strip(face, 0.01);
+    return whole
+      .intersect(strip(face, 1e3))
+      .decompose()
+      .filter((piece) => piece.intersect(skin).area() > 1e-6)
+      .map((piece) => {
+        const out = piece
+          .toPolygons()
+          .flat()
+          .map((p) => (p[0] - a[0]) * o[0] + (p[1] - a[1]) * o[1]);
+        return strip(face, Math.max(...out) + 1);
+      });
+  });
   const ends = faces.flatMap(([a, b]) => [a, b]);
-  const left = new wasm.CrossSection([ring], 'NonZero').subtract(wasm.CrossSection.union(cut));
+  const near = (p: number[], q: number[], by: number) => Math.hypot(p[0] - q[0], p[1] - q[1]) < by;
+  let cut = whole;
+  if (fronts.length) {
+    const ccw = largest(whole.subtract(wasm.CrossSection.union(fronts)));
+    // Pulled taut from the points the cut made: each point that turns out
+    // and isn't a face's end goes, the outline running straight past it, or
+    // round only what is firm in the corner it would cut (its ear: the convex
+    // hull of that and its neighbours), and its neighbours are looked at
+    // again. A point whose ear another point of the outline comes into
+    // stays.
+    const turn = (o: number[], p: number[], q: number[]) =>
+      (p[0] - o[0]) * (q[1] - o[1]) - (p[1] - o[1]) * (q[0] - o[0]);
+    const work = ccw.filter((q) => !ring.some((r) => near(q, r, 1e-6)));
+    for (let guard = 0; work.length && guard < 1e4; guard++) {
+      const v = work.pop()!;
+      const i = ccw.indexOf(v);
+      if (i < 0 || ends.some((e) => near(v, e, SIZES.cornerSnap))) continue;
+      const [u, w] = [ccw[(i + ccw.length - 1) % ccw.length], ccw[(i + 1) % ccw.length]];
+      if (turn(u, v, w) < 0) continue;
+      const into = (p: number[]) =>
+        p !== u &&
+        p !== v &&
+        p !== w &&
+        [turn(u, v, p), turn(v, w, p), turn(w, u, p)].every((x) => x > -1e-9);
+      if (ccw.some(into)) continue;
+      const held = section([u, v, w]).intersect(firm);
+      const round = held.area() < 1e-9 ? [] : hullBetween(wasm, held, u, w);
+      if (!round || (round.length === 1 && near(round[0], v, 1e-6))) continue;
+      ccw.splice(i, 1, ...round);
+      work.push(u, w);
+    }
+    cut = section(ccw);
+  }
   const snapped = largest(
-    keep.length
-      ? wasm.CrossSection.union([left, ...keep.map((p) => new wasm.CrossSection([p], 'NonZero'))])
-      : left,
+    keep.length ? wasm.CrossSection.union([cut, ...keep.map((p) => section(p))]) : cut,
   )
     .map((q): [number, number] => {
-      const e = ends.find((p) => Math.hypot(p[0] - q[0], p[1] - q[1]) < SIZES.cornerSnap);
+      const e = ends.find((p) => near(p, q, SIZES.cornerSnap));
       return e ? [e[0], e[1]] : q;
     })
     .filter((q, i, all) => {
@@ -1213,6 +1289,23 @@ function trimmed(
   // drop's corner a hair in or out) becomes a point of it, so the run meets
   // the foot's corner exactly.
   return through(snapped, ends, SIZES.cornerSnap);
+}
+/** The convex hull of `held` and points u and w, from u round to w (counter-clockwise, neither included); undefined if either isn't on it. */
+function hullBetween(
+  wasm: ManifoldToplevel,
+  held: CrossSection,
+  u: [number, number],
+  w: [number, number],
+) {
+  const hull = largest(wasm.CrossSection.hull([...held.toPolygons(), [u, w]]));
+  const ccw = area2(hull) < 0 ? hull.reverse() : hull;
+  const at = (p: number[]) => ccw.findIndex((q) => Math.hypot(q[0] - p[0], q[1] - p[1]) < 1e-6);
+  const [i, j] = [at(u), at(w)];
+  if (i < 0 || j < 0) return undefined;
+  return [...ccw.slice(i + 1), ...ccw.slice(0, i + 1)].slice(
+    0,
+    (j - i - 1 + ccw.length) % ccw.length,
+  );
 }
 /** Polygon `poly` with each of `pts` within `tol` of one of its edges (and not already a point of it) put in as a point of that edge. */
 function through(poly: [number, number][], pts: number[][], tol: number) {
@@ -2069,7 +2162,7 @@ function fusions(d: Dims, all: Rib[], ends: End[][]): Fusion[] {
         const path = endSide(d, k, u, u * sides[j], { land: [a, b][j] });
         return [path.map((p) => p[0]), path.map((p) => p[1])];
       });
-      const out = planDir(normalOf(a));
+      const out = normalOf(a);
       const across = scale(planDir(a.c), sides[0]);
       const gapAt = (z: number) => {
         const cuts = lines.map((ls) => ls.map((l) => crossing(l, z)));
@@ -2161,7 +2254,7 @@ export function skeletyl(
     );
   };
   const free = (rib: Rib) => [0, 1].filter((e) => !rib.parted[e]);
-  const rough = outlined(
+  const { ring: rough, firm } = outlined(
     wasm,
     d,
     all.flatMap((rib) => free(rib).flatMap((e) => feet(d, rib, e))),
@@ -2171,12 +2264,17 @@ export function skeletyl(
   );
   const kind = (rib: Rib, e: number): End => {
     if (rib.parted[e]) return endClear(cfg, d, frames, rib, e, 'hang') ? 'hang' : 'flush';
-    // Straight down onto the outline, or bending out along the end to it.
+    // Straight down, or bent out along the end (in its own plane) until the
+    // nearer corner of its outer face meets the outline; the outline then
+    // turns in to the rest of it (trimmed).
     const top = dropTop(d, ...endKey(rib, e));
-    const out = toRing(rough, top.p, top.n!);
-    if (!(Math.abs(out) <= SIZES.reach)) return 'hang';
-    const q = add(top.p, scale(top.n!, out));
-    const drop = { land: landing(top, q, ringAt(rough, q)[0]) };
+    const down = straightDown(top);
+    const out = Math.max(
+      0,
+      Math.min(...[-1, 1].map((s) => toRing(rough, poseSide(down, s)[0], top.n!))),
+    );
+    if (!(out <= SIZES.reach)) return 'hang';
+    const drop = { land: landing(top, add(top.p, scale(top.n!, out)), top.c) };
     return endClear(cfg, d, frames, rib, e, drop) ? drop : 'hang';
   };
   const ends = all.map((rib) => [0, 1].map((e) => kind(rib, e)));
@@ -2188,25 +2286,42 @@ export function skeletyl(
       const at = (z: number) => f.w * Math.max(0, Math.min(1, 1 - (z - f.top) / SIZES.fuseRamp));
       ends[i][e] = { ...end, widen: [...(end.widen ?? []), { side: f.sides[j], at }] };
     });
-  // Each drop's outer face at its foot (as widened), and (PROTOTYPE) across
-  // each fused junction, the foot of its widening and as far back again.
+  // Each drop's outer face at its foot (as widened), out square to it, and
+  // (PROTOTYPE) across each fused junction, the foot of its widening and as
+  // far back again.
   const drops = all.flatMap((_, i) => [0, 1].map((e) => ends[i][e]).filter(isDrop));
   const faces = drops.map((l) => [
     ...[-1, 1].map((s) => add(poseSide(l.land, s)[0], scale(l.land.c, s * widthAt(l, s, 0)))),
     normalOf(l.land),
   ]);
+  const plan = (ps: V3[]) => ps.map((p) => [p[0], p[1]] as [number, number]);
+  // A foot back from its outer face (as widened, from a to b).
+  const footOf = (l: { land: Pose }, a: V3, b: V3) => {
+    const n = scale(normalOf(l.land), l.land.thick);
+    return plan([a, b, sub(b, n), sub(a, n)]);
+  };
   const joins = drops.flatMap((l) =>
     (l.widen ?? []).map(({ side }) => {
-      const [o, w, n] = [poseSide(l.land, side)[0], widthAt(l, side, 0), normalOf(l.land)];
+      const [o, w] = [poseSide(l.land, side)[0], widthAt(l, side, 0)];
       const [a, b] = [-w, w].map((x) => add(o, scale(l.land.c, side * x)));
-      return [a, b, sub(b, scale(n, l.land.thick)), sub(a, scale(n, l.land.thick))].map(
-        (p) => [p[0], p[1]] as [number, number],
-      );
+      return footOf(l, a, b);
     }),
   );
-  // The outline cut back to the drops on it, and taking in the fused
-  // junctions' feet, so that it runs on round the one in front there.
-  const ring = trimmed(wasm, rough, faces, joins);
+  // The outline cut back to the drops on it, turning in to them, round their
+  // feet and what else it takes in, and taking in the fused junctions' feet,
+  // so that it runs on round the one in front there.
+  const ring = trimmed(
+    wasm,
+    rough,
+    wasm.CrossSection.union([
+      firm,
+      ...drops.map(
+        (l, i) => new wasm.CrossSection([footOf(l, faces[i][0], faces[i][1])], 'NonZero'),
+      ),
+    ]),
+    faces,
+    joins,
+  );
   // PROTOTYPE ?ends= (skeletyl-ends.prototype.ts): the columns' hanging fronts
   // joined to the thumbs, and the floor tie that the hanging ends drop onto.
   const support = (cfg.chassis as { ends?: string }).ends ?? 'none';
@@ -2331,14 +2446,28 @@ export function skeletyl(
       )
     : loop;
   // The rail (or a part of it, `plan`) stood up railHeight and bent down to
-  // them: its outline given points every dipMesh round each (but under the
-  // foot itself, which is level), so that its top has the room to follow the
-  // dip, and its top's points lowered to it, the
-  // points down its sides in proportion (its bottom stays). Bent rather than
-  // cut, its top stays one surface, with no seam to slip in a sliver.
+  // them: its outline given points every dipMesh round each (but where it is
+  // level round the foot), so that its top has the room to follow the dip,
+  // and its top's points lowered to it, the points down its sides in
+  // proportion (its bottom stays). Bent rather than cut, its top stays one
+  // surface, with no seam to slip in a sliver. The level ground under each
+  // foot (Dip.patch) is stood up on its own and the two unioned, so that its
+  // top is drawn from its own points alone, all level: drawn with the rest,
+  // a triangle could run from a corner of the foot over it to a point out on
+  // the dip, tilting the top under the foot, which the union leaves specks
+  // along.
   const dipped = (plan: CrossSection) => {
     const H = SIZES.railHeight;
     if (!dips.length) return plan.extrude(H);
+    const patches = wasm.CrossSection.union(
+      dips.map((dip) => new wasm.CrossSection([dip.patch], 'NonZero')),
+    );
+    return wasm.Manifold.union(
+      [plan.subtract(patches), plan.intersect(patches)].filter((p) => !p.isEmpty()).map(bent),
+    );
+  };
+  const bent = (plan: CrossSection) => {
+    const H = SIZES.railHeight;
     const top = (x: number, y: number) => Math.min(...dips.map((dip) => dip.top(x, y)));
     const near = (x: number, y: number) => dips.some((dip) => dip.near(x, y));
     const corners = faces.flatMap(([a, b]) => [a, b]);
