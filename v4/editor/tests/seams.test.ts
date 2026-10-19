@@ -101,19 +101,21 @@ function classOf(s: Seam) {
  *    its inner side runs straight along them, 5 to 6 mm further out than
  *    without them, and turns in to the inner column's front drops where
  *    they stand: the rail's corners and its meeting with those drops and the thumbs'
- *    (rail, rail+rib) are cut differently there. rib+wall: each limb's root
- *    stands on its web's own outer edge, its sides upright; where the web
- *    slopes (the pinky's, 28°, and the inner home and top keys', 24°) the
- *    sides meet its sloping face square, which the check counts as creases
- *    (it lets only square creases onto level or upright faces pass), with a
- *    sliver or a shading where a side crosses the face between the mesh's
- *    points. rail+wall (pillars): the inner bottom and home keys' pillar,
+ *    (rail, rail+rib) are cut differently there; and where the run passes
+ *    the pinky's pillar's foot and the inner home and top keys' fork's back
+ *    leg's, the rail's inner edge has two points 0.01 mm and a few nm apart,
+ *    a sliver each (rail). rib+wall: each limb's root stands on its web's own
+ *    outer edge, its sides upright; where the web slopes (the pinky's, 28°,
+ *    and the inner home and top keys', 24°) the sides meet its sloping face
+ *    square, which the check counts as creases (it lets only square creases
+ *    onto level or upright faces pass). (The root's corners, on the edge
+ *    between its points, are rounded to the floats just inside the rib:
+ *    rounded out past it, each left a sliver of no area and a shading.)
+ *    rail+wall (pillars/none): the inner bottom and home keys' pillar,
  *    turned 0.8° to stand along the run, its inner face and the rail's inner
- *    side a few microns apart. wall (pillars): one sliver of no area on a
- *    straight edge of the inner home and top keys' fork, where the rib's
- *    straight end (LAP) lies in the fork's shape, its corner on the shape's
- *    edge (on wishbone that fork is turned to the run, and its rib twists
- *    to it first, which leaves none).
+ *    side a few microns apart. wall (wishbone): one sliver of no area at the
+ *    foot of the inner home and top keys' fork's front leg, where its inner
+ *    face's bottom corner lies on the rail's inner top edge.
  *  - glue posts: each leg goes 0.3 mm up into the web or the rib's end over
  *    it, its top following that underside, so the union splits the frame's
  *    faces along where they meet; what that leaves within postMeet of a leg
@@ -261,52 +263,50 @@ const PINS: Record<string, Record<string, number>> = {
     wall: 16,
   },
   'pillars/none': {
-    rail: 18,
+    rail: 19,
     'rail+rib': 9,
     'rail+wall': 1,
     rib: 25,
     'rib+rib': 5,
-    'rib+wall': 7,
-    wall: 1,
+    'rib+wall': 4,
   },
   'pillars/tie': {
-    rail: 22,
+    rail: 23,
     'rail+rib': 9,
-    'rail+wall': 1,
     rib: 27,
     'rib+rib': 6,
-    'rib+wall': 7,
-    wall: 1,
+    'rib+wall': 4,
   },
   'pillars/flow': {
-    rail: 17,
-    'rail+rib': 9,
-    'rail+wall': 1,
-    rib: 25,
-    'rib+rib': 4,
-    'rib+wall': 8,
-    wall: 1,
-  },
-  'wishbone/none': {
     rail: 18,
     'rail+rib': 9,
     rib: 25,
+    'rib+rib': 4,
+    'rib+wall': 4,
+  },
+  'wishbone/none': {
+    rail: 19,
+    'rail+rib': 9,
+    rib: 25,
     'rib+rib': 5,
-    'rib+wall': 7,
+    'rib+wall': 4,
+    wall: 1,
   },
   'wishbone/tie': {
-    rail: 21,
+    rail: 22,
     'rail+rib': 9,
     rib: 27,
     'rib+rib': 6,
-    'rib+wall': 7,
+    'rib+wall': 4,
+    wall: 1,
   },
   'wishbone/flow': {
-    rail: 16,
+    rail: 17,
     'rail+rib': 9,
     rib: 25,
     'rib+rib': 4,
-    'rib+wall': 8,
+    'rib+wall': 4,
+    wall: 1,
   },
 };
 

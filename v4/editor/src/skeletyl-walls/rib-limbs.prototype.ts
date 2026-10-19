@@ -18,19 +18,28 @@
 // across its width, so it shares the rib's edges rather than cutting across
 // its triangles. Its sides there are upright (square to the edge in plan),
 // so they stand square on the web's face, and each stands SNAP clear of the
-// face's points. It starts S.into back inside the rib, and blends into the
+// face's points; its corners, on the edge between two of its points, are
+// rounded to the nearest floats inside the rib, so the union leaves no
+// sliver there. It starts S.into back inside the rib, and blends into the
 // lip over BLEND steps, leaving the edge along its sides.
 //
-// Leaving at a web, between two keys' plates, a limb keeps out of the tiles
-// and switches and leaves the plates' outer edges open. So it is no wider than
-// the web: its sides stay S.edge in from the plates' corners. A pillar is 6 mm
-// wide and a wishbone's trunk 8 mm, or as wide as the web leaves room for; a
-// web too short for a limb 4 mm wide (a leg's width) gets none, and a side
-// with no such web has none: its ends already stand on the rail or hang, as
-// without walls. On Swung in the inner and pinky columns each have two webs
-// with room (5.7 to 7 mm long), the thumb rows none.
+// Every limb, and every part of one (a pillar, a wishbone's trunk and its
+// legs), is one width, S.width (3.4 mm), from its root to its feet: it never
+// necks in or flares. Leaving at a web, between two keys' plates, a limb
+// keeps out of the tiles and switches and leaves the plates' outer edges
+// open. So its root's sides are settled first (settle): S.width apart, each
+// at least S.edge in from the plates' corners and SNAP clear of the edge
+// face's points, its middle as near the web's as that allows; a web with no
+// such place gets none, and a side with no such web has none: its ends
+// already stand on the rail or hang, as without walls. The whole limb is
+// then built about that middle. On Swung in the inner and pinky columns each
+// have two webs 5.7 to 7 mm long, the thumb rows none; the face's points
+// leave the inner front web room for a limb 2.6 to 3.5 mm wide, the inner
+// back one 2.8 to 3.7 and the pinky back one 3.2 to 4.4, so S.width is the
+// most all three take with a little to spare, each centred on its web. The
+// pinky front web has room but no limb clears there.
 //
-// A wishbone's trunk, partway down, forks into two legs 4 mm wide, each
+// A wishbone's trunk, partway down, forks into two legs, each
 // leaving the trunk at one slant, SLANT (45°) off upright, turning back to
 // upright in one round and standing on the rail. Each foot is SPREAD (9 mm)
 // out from the trunk's middle, no further than halfway to the next web, or
@@ -44,7 +53,7 @@
 // up the wall thick: the fork is a crisp crotch and a crisp kink each side.
 //
 // A limb in the main ribbon's way (WallKit.ribbon: it crosses the side
-// within S.widest of the web's middle, or within a pillar's width for
+// within S.widest of the web's middle, or within half a pillar's width for
 // pillars) forks over it, on pillars too: its opening centred on the ribbon,
 // its legs' inner faces RIBBON_GAP clear of it each side, and each leg
 // standing upright to RIBBON_GAP over its top before it slants. Those are
@@ -75,10 +84,12 @@ import type { Pose, Span } from '../skeletyl';
 import type { Reach, WallKit, WallSide } from '../skeletyl-walls.prototype';
 
 /**
- * Sizes in mm: half the width (along the side) of a pillar, a wishbone's
- * trunk and each of its legs, at most (a pillar or trunk is narrower where
- * the web is short); how far a limb starts inside the rib; the least it
- * stays in from the plates' corners at the web's ends, along the edge; the
+ * Sizes in mm: the width (along the side) of every limb and every part of
+ * one (a pillar, a wishbone's trunk and each of its legs: 3.4 mm, the most
+ * the webs on Swung in all have room for, and over the wall's 2.4 mm thick,
+ * so that a leg is a sturdy post, seven or so lines of a 0.4 mm nozzle
+ * across); how far a limb starts inside the rib; the least its root's sides
+ * stay in from the plates' corners at the web's ends, along the edge; the
  * least lip past the web's edge; the least a wishbone's leg stands upright
  * over the rail before it slants; how
  * far past its feet (along the side: more than the rail is wide) and in from
@@ -87,9 +98,7 @@ import type { Reach, WallKit, WallSide } from '../skeletyl-walls.prototype';
  * furthest a wishbone's foot is out from its trunk's middle (over the ribbon).
  */
 const S = {
-  pillar: 3,
-  trunk: 4,
-  leg: 2,
+  width: 3.4,
   into: 0.5,
   edge: 0.5,
   lip: 1,
@@ -99,6 +108,8 @@ const S = {
   gap: 2,
   widest: 14,
 };
+/** Half a limb's width. */
+const HALF = S.width / 2;
 /** How much further out (mm) than the least a limb may come down, tried in turn, to clear the keys. */
 const FURTHER = [0, 1, 2, 3, 4, 6, 8];
 /**
@@ -109,12 +120,13 @@ const FURTHER = [0, 1, 2, 3, 4, 6, 8];
 const SLANT = 45;
 /**
  * A wishbone's legs' spread (mm, each foot's middle from the trunk's) where
- * there is room: half the 24 mm between the inner column's two webs, less
- * half the gap and a leg, so that two wishbones there each take their half.
+ * there is room. Toward a neighbouring web it is no more than halfway there,
+ * less half the gap and half a leg (spreadsAt), so that two wishbones there
+ * each take their half.
  */
 const SPREAD = 9;
-/** The least spread: a leg's width and half the gap past the trunk's middle. */
-const LEAST = 3;
+/** The least spread: half a leg and half the gap past the trunk's middle. */
+const LEAST = HALF + S.gap / 2;
 /** How finely (mm) the ribbon's crossing of a limb's feet is found. */
 const RIBBON_STEP = 0.05;
 /**
@@ -132,6 +144,8 @@ const BLEND = 8;
 /** The steepest web edge (radians) a limb's root's sides stand upright on. */
 const UPRIGHT = (5 * Math.PI) / 180;
 const MESH = 2;
+/** How finely (mm) a root's corner is stepped into the rib, to the nearest floats inside it (rootOf). */
+const INSIDE = 1e-7;
 /** The gap side.clear keeps (mm), and a hair more. */
 const GAP = 0.31;
 /** The most a limb leans along the side under a sloping edge (radians), and the least it is turned upright for. */
@@ -251,11 +265,11 @@ function place(kit: WallKit, forked: boolean, rings: [number, number][][], span:
     standing.every((f) => apart(limb.floor, f, S.gap)) &&
     !(tie && tie.intersect(new CrossSection([limb.floor], 'NonZero').offset(S.gap)).area() > 1e-6);
   // A limb in the ribbon's way (within a wishbone's widest spread of its
-  // web's middle, or a pillar's width) forks over it. Those are placed first,
+  // web's middle, or half a pillar's width) forks over it. Those are placed first,
   // since where their feet go is the ribbon's to say; then the rest, each web
   // in order, clear of them: a wishbone forks where it can, and is a pillar
   // where it can't.
-  const within = forked ? S.widest : S.pillar;
+  const within = forked ? S.widest : HALF;
   const webs = kit.sides.flatMap((side) =>
     side.keys.slice(1).map((k, i) => ({
       side,
@@ -321,25 +335,29 @@ function limbAt(
     return lerp(points[j][k], points[j + 1][k], f - j);
   };
   const m = (web.from + web.to) / 2;
-  const o = along_(m, 'top');
+  const mid = along_(m, 'top');
   const u0 = along_(m, 'under');
-  const thick = len(sub(o, u0));
+  const thick = len(sub(mid, u0));
   // The rib at the web's middle: its normal, outward across its edge in its
   // plane, and along its edge (so that C × c = N).
-  const N = unit(sub(o, u0));
+  const N = unit(sub(mid, u0));
   const e = sub(along_(Math.min(m + 1, web.to), 'top'), along_(Math.max(m - 1, web.from), 'top'));
   let C = unit(cross(unit(e), N));
   if (dot(C, points[Math.round(m)].out) < 0) C = scale(C, -1);
   const c = cross(N, C);
-  // As wide as it may be, S.edge in from the plates' corners along the edge.
-  // (Measured level, as its root's upright sides are: rootOf.)
+  // Its root's sides, settled first (measured level, as they are upright:
+  // rootOf), and its middle o between them, on the edge in the rib's plane
+  // there: the whole limb is built about o, S.width wide.
   const level = sidesOf(c);
-  const room =
-    Math.min(...[web.from, web.to].map((j) => Math.abs(dot(sub(points[j].top, o), level)))) -
-    S.edge;
-  const half = Math.min(forked ? S.trunk : S.pillar, room);
-  if (half < S.leg) return undefined;
-  const start = rootOf(web.edge, o, C, c, half);
+  const shift = settle(
+    web.edge,
+    [web.from, web.to].map((j) => points[j].top),
+    mid,
+    level,
+  );
+  if (shift === undefined) return undefined;
+  const o = add(mid, scale(c, shift / dot(c, level)));
+  const start = rootOf(web.edge, o, C, c);
   // The limb's outer face, once it has turned down, is upright through the
   // edge: w out of it (level), along it level (a), and d down it square to
   // the edge. The round turns it from C to d about the edge, so it doesn't
@@ -357,7 +375,7 @@ function limbAt(
   // second, in the face, from d to straight down: the ends' radius on its inner side.
   const R = kit.rib.radius;
   const T = R * Math.tan(Math.acos(Math.max(-1, Math.min(1, dot(C, d)))) / 2);
-  const Tb = lean > STRAIGHT ? (R + half) * Math.tan(lean / 2) : 0;
+  const Tb = lean > STRAIGHT ? (R + HALF) * Math.tan(lean / 2) : 0;
   // Along the side from where the outer face's top is over to the trunk's foot's middle.
   const uf = (T + Tb) * du;
   // Along the side (from the edge's middle) to where the outer face's top is, X out.
@@ -366,7 +384,7 @@ function limbAt(
   const under = (X: number) => add([o[0], o[1], 0], add(scale(w, X), scale(a, along(X) + uf)));
   // Along the side from there, how far its feet reach each way (legs' spreads, or 0 for a pillar).
   const reachOf = ([sl, sr]: [number, number]) =>
-    forked ? [-(sl + S.leg), sr + S.leg] : [-half, half];
+    forked ? [-(sl + HALF), sr + HALF] : [-HALF, HALF];
   // How far out (plan, along w from the web's edge's middle) it comes
   // down: the least the lip and round need, or as far out as the outline
   // runs across its feet (measure), if further.
@@ -418,14 +436,14 @@ function limbAt(
   // Whether a foot (a leg's, at u) is clear: in plan, and of the ribbon.
   const clearAt = (g: V3, u: number, k = 0) => {
     const corners = [
-      [u - S.leg, 0],
-      [u + S.leg, 0],
-      [u + S.leg, wall],
-      [u - S.leg, wall],
+      [u - HALF, 0],
+      [u + HALF, 0],
+      [u + HALF, wall],
+      [u - HALF, wall],
     ];
-    const n = Math.ceil(2 * S.leg);
+    const n = Math.ceil(2 * HALF);
     const edge = Array.from({ length: n + 1 }, (_, j) =>
-      [0, wall].map((v) => feet(g, u - S.leg + (2 * S.leg * j) / n, v, k)),
+      [0, wall].map((v) => feet(g, u - HALF + (2 * HALF * j) / n, v, k)),
     ).flat();
     return (
       avoid.free(
@@ -458,14 +476,14 @@ function limbAt(
     const r = ribbonAt(g, k);
     if (!r) return undefined;
     const [rc, hw] = [(r.lo + r.hi) / 2, (r.hi - r.lo) / 2];
-    const H = Math.max(hw, LEAST - S.leg + Math.abs(rc));
-    const legs: [number, number] = [H + S.leg - rc, H + S.leg + rc];
+    const H = Math.max(hw, LEAST - HALF + Math.abs(rc));
+    const legs: [number, number] = [H + HALF - rc, H + HALF + rc];
     return legs.every((x) => x <= S.widest) && clearAt(g, -legs[0], k) && clearAt(g, legs[1], k)
       ? { legs, stand: Math.max(S.upright, r.top + 0.05 - rail) }
       : undefined;
   };
   // A fork's legs: each SPREAD out, or no further than halfway to the next
-  // web along the side (less half the gap between limbs, and the leg), and
+  // web along the side (less half the gap between limbs, and half a leg), and
   // in from there as far as its foot needs to be clear; then each pair
   // narrower in turn, both legs at most `s` out, so that the fork comes lower.
   const spreadsAt = (g: V3): [number, number][] => {
@@ -476,7 +494,7 @@ function limbAt(
       .map((f) => dot(sub(along_(f, 'top'), o), a));
     const [sl, sr] = [-1, 1].map((sg) => {
       const next = Math.min(...webs.filter((x) => sg * x > 0).map((x) => sg * x));
-      const most = Math.min(SPREAD, next / 2 - S.gap / 2 - S.leg);
+      const most = Math.min(SPREAD, next / 2 - S.gap / 2 - HALF);
       for (let x = most; x >= LEAST; x -= 0.5) if (clearAt(g, sg * x)) return x;
       return undefined;
     });
@@ -559,10 +577,10 @@ function limbAt(
         thick: wall,
       };
     };
-    const P0: Pose = { p: sub(o, scale(C, S.into)), t: C, c, n: N, half, thick };
+    const P0: Pose = { p: sub(o, scale(C, S.into)), t: C, c, n: N, half: HALF, thick };
     const P1: Pose = { ...P0, p: add(o, scale(C, L - T)) };
-    const P2 = upright(T * du - uf, corner[2] + T * dv, du, dv, half, [a, w]);
-    const P3 = Tb ? upright(0, P2.p[2] + Tb * dv - Tb, 0, -1, half, [a, w]) : P2;
+    const P2 = upright(T * du - uf, corner[2] + T * dv, du, dv, HALF, [a, w]);
+    const P3 = Tb ? upright(0, P2.p[2] + Tb * dv - Tb, 0, -1, HALF, [a, w]) : P2;
     const top = P3.p[2];
     if (top < rail + (forked ? S.upright : SHORT)) return undefined;
     const { lineSpan, poseSpan, sidesOf } = kit.rib;
@@ -575,21 +593,21 @@ function limbAt(
     let forkAt: number | undefined;
     let make: (kit: WallKit) => Manifold;
     if (!forked) {
-      pieces = [[...head, twist(P3, upright(0, rail, 0, -1, half))]];
+      pieces = [[...head, twist(P3, upright(0, rail, 0, -1, HALF))]];
       make = (kit) => limbSolid(kit, start, pieces[0].slice(1));
     } else {
       // Turned to the run (if it is turned) TWIST down; then the rib comes
       // on down LAP straight, and what stands under it starts half way along
       // that, so that they are one, meeting level (where it is exact), in
       // one plane, rather than touching.
-      const Pt = k ? upright(0, top - TWIST, 0, -1, half) : P3;
+      const Pt = k ? upright(0, top - TWIST, 0, -1, HALF) : P3;
       const trunk = [...head, ...(k ? [twist(P3, Pt)] : [])];
-      const P4 = upright(0, Pt.p[2] - LAP, 0, -1, half);
+      const P4 = upright(0, Pt.p[2] - LAP, 0, -1, HALF);
       const legs = fork(P4.p[2], stand);
       if (!legs) return undefined;
       forkAt = legs.zf;
       const rib = [...trunk, line(Pt, P4)];
-      pieces = [[...trunk, line(Pt, upright(0, legs.bottom, 0, -1, half))], ...legs.spans];
+      pieces = [[...trunk, line(Pt, upright(0, legs.bottom, 0, -1, HALF))], ...legs.spans];
       // Under that, all of it is in the outer face's plane: so it is that
       // shape (the trunk on down to where the legs leave it, and the legs) in
       // the plane, drawn and joined there and stood up the wall thick, the
@@ -601,15 +619,15 @@ function limbAt(
         const shape = CrossSection.union(
           [
             [
-              [-half, legs.bottom - z4],
-              [half, legs.bottom - z4],
-              [half, 0],
-              [-half, 0],
+              [-HALF, legs.bottom - z4],
+              [HALF, legs.bottom - z4],
+              [HALF, 0],
+              [-HALF, 0],
             ] as [number, number][],
             ...legs.paths.map((path) =>
               band(
                 path.map(({ p, t }): Station => ({ p: [p[0], p[1] - z4], t })),
-                S.leg,
+                HALF,
               ),
             ),
           ].map((ring) => new CrossSection([ring], 'NonZero')),
@@ -654,7 +672,7 @@ function limbAt(
     const [fm, E] = [(lo + hi) / 2, (hi - lo) / 2 + S.margin];
     const floor = [at(fm + E, 0), at(fm - E, 0), at(fm - E, X + S.back), at(fm + E, X + S.back)];
     const root = (s: number): [number, number] => {
-      const p = add(sub(o, scale(C, S.into)), scale(c, s * half));
+      const p = add(sub(o, scale(C, S.into)), scale(c, s * HALF));
       return [p[0], p[1]];
     };
     const planOf = [
@@ -710,7 +728,7 @@ function limbAt(
      * outer face's plane; none if they don't fit under `top`.
      */
     function fork(top: number, stand: number) {
-      const [H, h] = [half, S.leg];
+      const [H, h] = [HALF, HALF];
       const slant = (SLANT * Math.PI) / 180;
       const [ca, sa] = [Math.cos(slant), Math.sin(slant)];
       // Along each leg's inner side from the crotch to the corner over its foot, and the round's reach.
@@ -757,13 +775,35 @@ function limbAt(
 }
 
 /**
+ * How far (mm, along h from the web's middle o) a limb's middle is from the
+ * web's: its root's sides S.width apart, each at least S.edge in from the
+ * plates' corners (`corners`) and SNAP clear of the edge face's points (so
+ * that where it crosses the face it cuts no sliver off a triangle there), as
+ * near the web's middle as that allows; none if nowhere does.
+ */
+function settle(edge: Web['edge'], corners: V3[], o: V3, h: V3) {
+  const xs = corners.map((p) => dot(sub(p, o), h));
+  const [lo, hi] = [Math.min(...xs) + S.edge + HALF, Math.max(...xs) - S.edge - HALF];
+  const marks = edge.face.flat().map((p) => dot(sub(p, o), h));
+  const clear = (x: number) => marks.every((q) => Math.abs(q - x) >= SNAP - 1e-9);
+  const ok = (s: number) => s >= lo && s <= hi && clear(s - HALF) && clear(s + HALF);
+  // The nearest is the middle, an end of its room, or a side just SNAP off a point.
+  const tries = [
+    0,
+    lo,
+    hi,
+    ...marks.flatMap((q) => [-SNAP, SNAP].flatMap((d) => [q + d - HALF, q + d + HALF])),
+  ];
+  return tries.filter(ok).sort((p, q) => Math.abs(p) - Math.abs(q))[0];
+}
+
+/**
  * Where a limb starts: its web's outer edge's own points (as the rib's mesh
  * has them) across the limb's width, its top's and its underside's, each from
  * its side -1 to its side 1, and its sides' ends there. Its sides there are
  * upright (each in an upright plane square to the edge in plan), so that they
- * stand square on the web's edge face as on a flat one; each is at most
- * `half` out from the web's middle, and in from there as far as keeps it
- * SNAP clear of the edge's points. The same points again S.into back inside
+ * stand square on the web's edge face as on a flat one, HALF each side of its
+ * middle o (where settle put it). The same points again S.into back inside
  * the rib, SINK inside its top and underside (where it starts), and RISE out
  * past the edge (its sides still upright, its top and underside still the
  * web's carried on), from where it turns to the lip's section.
@@ -776,13 +816,7 @@ interface Root {
   out: V3;
   ahead: V3;
 }
-function rootOf(
-  edge: { top: V3[]; under: V3[]; face: V3[][] },
-  o: V3,
-  C: V3,
-  c: V3,
-  half: number,
-): Root {
+function rootOf(edge: { top: V3[]; under: V3[]; face: V3[][] }, o: V3, C: V3, c: V3): Root {
   // Level along the edge, out square to that, and up square to both.
   const h = sidesOf(c);
   const out = unit(sub(C, scale(h, dot(C, h))));
@@ -790,20 +824,27 @@ function rootOf(
   const lines = [edge.top, edge.under].map((line) =>
     line.map((p) => ({ p, x: dot(sub(p, o), h) })).sort((a, b) => a.x - b.x),
   );
-  // Each side as far out as it may be, SNAP clear of the face's points (so
-  // that where it crosses the face it cuts no sliver off a triangle there).
-  const marks = edge.face.flat().map((p) => dot(sub(p, o), h));
-  const sideAt = (sg: number) => {
-    for (let x = half; x > 0; x -= 0.05)
-      if (marks.every((q) => Math.abs(q - sg * x) >= SNAP)) return sg * x;
-    return sg * half;
-  };
-  const [lo, hi] = [sideAt(-1), sideAt(1)];
-  const [top, under] = lines.map((pts) => {
+  const [lo, hi] = [-HALF, HALF];
+  const [top, under] = lines.map((pts, i) => {
+    // Its corner on the edge, between two of the edge's points: rounded to
+    // the mesh's floats it is a hair off the edge, and where that hair is
+    // over the top (or under the underside) or out past the face, the union
+    // leaves a sliver a few millionths of a mm high there; so it is rounded
+    // to the nearest floats just inside the rib (`k` out of its top or
+    // underside, `out` out of its face).
+    const k = scale(up, i ? -1 : 1);
     const at = (x: number): V3 => {
       const j = pts.findIndex((q) => q.x > x);
-      const [a, b] = [pts[j - 1], pts[j]];
-      return lerp(a.p, b.p, (x - a.x) / (b.x - a.x));
+      const [a, b] = [pts[j - 1], pts[j]].map((q) => f32(q.p));
+      const p = lerp(a, b, (x - pts[j - 1].x) / (pts[j].x - pts[j - 1].x));
+      const ab = sub(b, a);
+      const off = (q: V3) => sub(q, add(a, scale(ab, dot(sub(q, a), ab) / dot(ab, ab))));
+      const toward = add(k, out);
+      for (let n = 0; n < 200; n++) {
+        const q = f32(sub(p, scale(toward, n * INSIDE)));
+        if (dot(off(q), k) < 0 && dot(off(q), out) < 0) return q;
+      }
+      return p;
     };
     return [at(lo), ...pts.filter((q) => q.x > lo && q.x < hi).map((q) => q.p), at(hi)];
   });
@@ -978,5 +1019,7 @@ function toRings(rings: [number, number][][], p: V3, h: V3) {
 }
 
 const len = (v: V3) => Math.hypot(...v);
+/** As the mesh stores it (Float32Array). */
+const f32 = (v: V3) => v.map(Math.fround) as V3;
 const unit = (v: V3) => scale(v, 1 / len(v));
 const lerp = (p: V3, q: V3, f: number) => add(p, scale(sub(q, p), f));
