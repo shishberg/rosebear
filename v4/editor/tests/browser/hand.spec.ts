@@ -8,13 +8,9 @@ test('the hand readout checks every reach against the keycaps and the frame', as
   await page.evaluate(() => localStorage.clear());
   await page.reload();
   const note = page.locator('#hand-note');
-  // The Dactyl fit, once the frame is built and checked too.
+  // Swung in, once the frame is built and checked too.
   await expect(note).toContainText('Valid.', { timeout: 30000 });
   await expect(note).toContainText(/Between rows the MCP bends -0\.10° per PIP degree/);
-  // Natural, valid too.
-  await page.getByRole('button', { name: 'Natural' }).click();
-  await expect(note).toContainText(/Between rows the MCP bends 0\.40° per PIP degree/);
-  await expect(note).toContainText('Valid.', { timeout: 30000 });
   // The wrist height sets the reach between rows, and says when no reach gives it.
   const wrist = page.locator('label', { hasText: 'wrist height (mm' });
   await wrist.locator('input').focus();
@@ -39,9 +35,13 @@ test('the hand readout checks every reach against the keycaps and the frame', as
     download = page.waitForEvent('download');
   await page.locator('#export').click();
   const file = await download;
-  await page.getByRole('button', { name: 'Natural' }).click();
+  const lowest = async () => {
+    await wrist.locator('input').focus();
+    await page.keyboard.press('Home');
+  };
+  await lowest();
   await page.getByRole('radio', { name: 'top', exact: true }).check();
-  await expect(wrist.locator('output')).toHaveText('112.7');
+  await expect(wrist.locator('output')).toHaveText('-30');
   await page.locator('#file').setInputFiles((await file.path())!);
   await expect(page.locator('#load-error')).toHaveText('');
   await expect(wrist.locator('output')).toHaveText('129.5');
@@ -61,7 +61,7 @@ test('the hand readout checks every reach against the keycaps and the frame', as
   for (let i = 0; i < 2; i++) await page.locator('#undo').click();
   expect(await project()).toEqual(saved);
   await page.locator('#undo').click();
-  await expect(wrist.locator('output')).toHaveText('112.7');
+  await expect(wrist.locator('output')).toHaveText('-30');
   await expect(page.getByRole('radio', { name: 'top', exact: true })).toBeChecked();
   await page.locator('#redo').click();
   await expect(wrist.locator('output')).toHaveText('129.5');
@@ -71,7 +71,7 @@ test('the hand readout checks every reach against the keycaps and the frame', as
     moved = JSON.parse(await fs.readFile((await file.path())!, 'utf8'));
   moved.config.geometry.thumb.position_mm[0] += 15;
   await fs.writeFile('test-results/moved-keys.json', JSON.stringify(moved));
-  await page.getByRole('button', { name: 'Natural' }).click();
+  await lowest();
   await page.locator('#file').setInputFiles('test-results/moved-keys.json');
   await expect(wrist.locator('output')).toHaveText('129.5');
   expect(await project()).toEqual(saved);
@@ -93,7 +93,7 @@ test('the hand readout checks every reach against the keycaps and the frame', as
   await page.getByRole('radio', { name: 'home', exact: true }).first().check();
   // Each thumb key's place round the arc, how the thumb bends and rolls there.
   await expect(note).toContainText(
-    /Thumb keys round the arc: far \d+°, home 112°, near \d+°.*Bent at the MCP \/ IP: .*On its side by -?\d+°, -?\d+°, -?\d+°/,
+    /Thumb keys round the arc: far \d+°, home 106°, near \d+°.*Bent at the MCP \/ IP: .*On its side by -?\d+°, -?\d+°, -?\d+°/,
   );
   // The frame shown is the one checked.
   await page.getByText('Test frame (print this way up, with supports)').click();
@@ -123,7 +123,6 @@ test('the column and cluster handles and fields are off in ?hand', async ({ page
 
 const PANEL = [
   '-- basic',
-  'buttons Dactyl fit, Natural, Yours, No curl, Swung in',
   'buttons Copy settings, Paste settings',
   'radios Fingers on top=top, home=home, bottom=bottom',
   'radios Thumb on rest=rest, far=far, home=home, near=near, x1=x1, x2=x2',
@@ -267,15 +266,9 @@ test('the hand panel keeps its controls, labels and ranges, and each type edits 
   expect(await off()).not.toContain('1u row gap (mm, + toward the palm)');
   await page.getByLabel(/Extra thumb keys x1, x2/).check();
   expect((await off()).filter((x) => x.startsWith('extra thumb keys'))).toEqual([]);
-  // A preset sets the extra keys' place too, leaving them on.
   const along = page.locator('label', { hasText: /^extra thumb keys: slide/ }).locator('input');
   await along.fill('5');
   expect((await hand()).extra.along).toBe(5);
-  await page.getByRole('button', { name: 'No curl' }).click();
-  await expect(along).toHaveValue('8.5');
-  expect((await hand()).extra).toEqual({ on: true, south: 37, tilt: 32, lower: 10, along: 8.5 });
-  await page.getByRole('button', { name: 'Yours' }).click();
-  await expect(along).toHaveValue('0');
   expect(await off()).toContain('press mix: PIP+DIP° per MCP°');
   await page.getByRole('radio', { name: 'press mix' }).check();
   expect(await off()).not.toContain('press mix: PIP+DIP° per MCP°');

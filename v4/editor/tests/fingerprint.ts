@@ -1,6 +1,6 @@
 // Prints a fingerprint of the chassis for several configs (body, base, solid,
 // trim, wiring, hardware placements, digests of every report check value and the
-// failure lists) and of the ?hand presets (key frames, check problems, a digest
+// failure lists) and of Swung in's ?hand settings (key frames, check problems, a digest
 // of the check's numbers, test frame). A refactor that should
 // not change the geometry must leave every line unchanged. Usage: npm run
 // fingerprint > before.txt, change the code, npm run fingerprint > after.txt,
@@ -167,14 +167,15 @@ for (const [name, change] of Object.entries(variants)) {
   });
 }
 
-// The ?hand presets and two layouts that run other code paths, each laid out,
-// checked with the printed test frame, and the frame built.
-const handCases: [string, typeof hand.DACTYL][] = [
-  ['Dactyl', hand.DACTYL],
-  ['Natural', hand.NATURAL],
-  ['Yours', hand.YOURS],
-  ['1.5u', { ...structuredClone(hand.DACTYL), cluster: '1.5u + 2×1u' }],
-  ['press', { ...structuredClone(hand.DACTYL), from: 'press' }],
+// Swung in's ?hand settings and three variants that run other code paths
+// (the extra keys, the 1.5u + 2×1u cluster, rows from the press mix), each
+// laid out, checked with the printed test frame, and the frame built.
+const S = hand.SWUNG_IN;
+const handCases: [string, typeof S][] = [
+  ['Swung in', S],
+  ['extra', { ...structuredClone(S), extra: { ...S.extra!, on: true } }],
+  ['1.5u', { ...structuredClone(S), cluster: '1.5u + 2×1u' }],
+  ['press', { ...structuredClone(S), from: 'press' }],
 ];
 for (const [name, s] of handCases)
   freeAfter(wasm, () => {
@@ -182,7 +183,7 @@ for (const [name, s] of handCases)
       anchor = hand.anchorOf(c);
     hand.applyHand(c, s, anchor);
     const frames = componentFrames(c),
-      frame = buildFrame(wasm, c),
+      frame = buildFrame(wasm, c, !!s.extra?.on),
       toHand = hand.worldOf(c, anchor, s).invert(),
       r = hand.check(c, s, undefined, { mesh: frame.mesh, toHand }),
       problems = hand.problems(r),

@@ -1,30 +1,42 @@
 // Each check must fail on a deliberately broken layout, so none can become a no-op.
-// They start from the layout before Swung in became the default, which passes
-// (Swung in fails some of these checks already).
+// They start from Swung in (the default), which fails some checks of its own
+// (pinned in geometry.test.ts); the break here fails them at other keys.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import Module from 'manifold-3d';
+import { clone, defaults } from '../src/geometry';
 import { buildSolid } from '../src/solid';
-import { preSwung } from './helpers';
 
 const wasm = await Module();
 wasm.setup();
 
-test('a thumb cluster moved 40 mm off the fingers of the C64 fails seats, openings, pieces, hardware and wires', () => {
-  const p = preSwung();
-  p.config.chassis.style = 'c64';
-  p.config.geometry.thumb.position_mm[0] += 40;
+test('the middle column pushed 8 mm into the ring column fails seats, openings, pieces and hardware there', () => {
+  // (Moving the thumb cluster off the fingers, as this test did before Swung
+  // in, now fails the wire router instead: no route keeps the thumbs' wires
+  // above the base.) The wire check's failures are pinned on the C64 case in
+  // geometry.test.ts: the Skeletyl's router keeps the wires clear of it.
+  const p = clone(defaults);
+  p.config.geometry.columns[2].offset_mm[0] += 8;
   const r = buildSolid(wasm, p).report;
   assert.equal(r.passed, false);
   const failing = (xs: { name: string; passed: boolean }[]) =>
-    xs.filter((x) => !x.passed).map((x) => x.name);
-  for (const names of [failing(r.seats), failing(r.openings)]) {
-    assert(names.includes('thumb_home'));
-    assert(names.every((n) => n.startsWith('thumb_')));
-  }
-  assert(r.pieces.length > 1, 'the thumbs split off as loose pieces');
-  assert(r.hardware.length > 0 && r.hardware.some((h) => h.name === 'thumb_home'));
-  assert(r.hardware.every((h) => h.group === 'pcb'));
-  assert(r.wires.length > 0);
-  assert(r.wires.every((w) => w.volume > 0));
+      xs.filter((x) => !x.passed).map((x) => x.name),
+    pushed = (n: string) => /^matrix_(middle|ring)_/.test(n);
+  const seats = failing(r.seats);
+  for (const c of ['middle', 'ring'])
+    for (const row of ['top', 'home', 'bottom'])
+      assert(seats.includes(`matrix_${c}_${row}`), `matrix_${c}_${row}`);
+  const openings = failing(r.openings);
+  for (const n of [
+    'matrix_middle_top',
+    'matrix_middle_bottom',
+    'matrix_ring_top',
+    'matrix_ring_bottom',
+  ])
+    assert(openings.includes(n), n);
+  assert(r.pieces.length > 1, 'a loose piece where the columns meet');
+  // Beyond Swung in's own (the pinky bottom key's tile), only the pushed keys.
+  const hw = r.hardware.filter((h) => h.name !== 'matrix_pinky_bottom');
+  assert(hw.some((h) => h.name === 'matrix_ring_top' && h.group === 'pcb'));
+  assert(hw.every((h) => pushed(h.name)));
 });

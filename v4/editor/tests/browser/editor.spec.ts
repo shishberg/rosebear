@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { project, rebuilt, usePreSwung } from './helpers';
+import { project, rebuilt } from './helpers';
 async function dragHandle(page: Page, id: string, dx: number, dy: number) {
   const h = await page.evaluate((id) => (window as any).rosebearEditor.handleScreen(id), id);
   await page.mouse.move(h.x, h.y);
@@ -26,9 +26,6 @@ test('key handles set height and stagger, with undo, persistence and file roundt
   await expect(list).toContainText('17/20 flat switch seats pass');
   await expect(list).toContainText('3 keycap rooms had to cut into the chassis.');
   await expect(list).toContainText('1 pairs of wires run into each other.');
-  // The edits start from the layout before Swung in, which passes.
-  await usePreSwung(page);
-  await expect(page.locator('#fit-badge')).toHaveText('Clearance checks PASS');
   const before = (await project(page)).config.geometry.columns[2];
   // Front view: dragging up raises the key. Sideways movement is ignored.
   await page.locator('[data-view="Front"]').click();
@@ -73,7 +70,6 @@ test('key handles set height and stagger, with undo, persistence and file roundt
   expect(errors).toEqual([]);
 });
 test('thumb clusters move and turn, and fields edit the same values', async ({ page }) => {
-  await usePreSwung(page);
   const before = (await project(page)).config.geometry.thumb;
   await page.locator('[data-view="Top"]').click();
   await dragHandle(page, 'cluster:thumb', -12, 0);
@@ -83,7 +79,9 @@ test('thumb clusters move and turn, and fields edit the same values', async ({ p
   expect(th.rotation_deg).toEqual(before.rotation_deg);
   expect(th.position_mm[2]).toBe(before.position_mm[2]);
   await expect(page.locator('#selection')).toContainText('thumb cluster');
-  await dragHandle(page, 'turn:thumb', 25, 0);
+  // Swung in's cluster is turned, so a sideways drag is partly along the
+  // handle's arm (25 px turned it only 3.8°).
+  await dragHandle(page, 'turn:thumb', 45, 0);
   await rebuilt(page);
   th = (await project(page)).config.geometry.thumb;
   expect(Math.abs(th.rotation_deg[2] - before.rotation_deg[2])).toBeGreaterThan(5);
@@ -97,7 +95,6 @@ test('thumb clusters move and turn, and fields edit the same values', async ({ p
 test('a newer edit supersedes an in-flight build; invalid imports leave the project intact', async ({
   page,
 }) => {
-  await usePreSwung(page);
   await page.locator('[data-view="Front"]').click();
   await dragHandle(page, 'key:matrix_ring_home', 0, -5);
   const field = page

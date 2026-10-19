@@ -8,12 +8,6 @@ import { ADVANCED, BASIC, render, type Ctl } from './controls';
 import { drawHand } from './draw';
 import { buildFrame, frameStl, type FrameResult } from './frame';
 import {
-  DACTYL,
-  EXTRA,
-  NATURAL,
-  NO_CURL,
-  SWUNG_IN,
-  YOURS,
   anchorOf,
   applyHand,
   layoutOf,
@@ -235,45 +229,7 @@ export function setupHand(host: Host) {
     ctl: Ctl = { s, edit, hold: (on) => (touched = on), shows };
 
   // ---- basic
-  const presets = document.createElement('div');
-  presets.style.margin = '6px 0';
-  presets.innerHTML = 'Start from: ';
-  for (const [name, p, title] of [
-    [
-      'Dactyl fit',
-      DACTYL,
-      "Near the Dactyl Manuform, at a reach seen on it (the wrist 49.2 mm up): the finger curl, pitch, thumb keys' place on the arc and gaps whose keys come closest to its keys.",
-    ],
-    [
-      'Natural',
-      NATURAL,
-      'The least change from your resting hand (fitted under an earlier check).',
-    ],
-    ['Yours', YOURS, 'Set by hand in the editor from the Dactyl fit (16 Oct).'],
-    [
-      'No curl',
-      NO_CURL,
-      'Yours with the thumb keys nearly where they were, the thumb reaching and pressing them without curling (pressing each with the pad).',
-    ],
-    ['Swung in', SWUNG_IN, 'No curl, the thumb row turned in.'],
-  ] as const) {
-    const b = document.createElement('button');
-    b.textContent = name;
-    b.title = title;
-    // Every layout setting, the extra keys' place too, keeping how rows are
-    // reached, the cluster and whether the extra keys are on.
-    b.addEventListener('click', () =>
-      edit((s) =>
-        Object.assign(s, structuredClone(p), {
-          from: s.from,
-          cluster: s.cluster,
-          extra: { ...structuredClone(p.extra ?? EXTRA), on: s.extra.on },
-        }),
-      ),
-    );
-    presets.append(b);
-  }
-  // To share a layout (paste it into a chat) or bring one back.
+  // To share the settings (paste them into a chat) or bring them back.
   const share = document.createElement('div');
   share.style.margin = '6px 0';
   const copy = document.createElement('button'),
@@ -314,7 +270,7 @@ export function setupHand(host: Host) {
       }),
     );
   host.scene.add(frameView);
-  render(basic, BASIC, { presets, share, frame: frameBox }, ctl);
+  render(basic, BASIC, { share, frame: frameBox }, ctl);
   let shownFrame: FrameResult | undefined;
   function showFrame(r = shownFrame) {
     shownFrame = r;

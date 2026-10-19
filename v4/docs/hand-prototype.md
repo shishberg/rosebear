@@ -1,7 +1,10 @@
 # The `?hand` prototype
 
 A throwaway tool in the [editor](../editor/README.md) for laying out the finger and
-thumb keys from how a hand reaches them, instead of by eye. It is in dev builds only
+thumb keys from how a hand reaches them, instead of by eye. The keyboard's layout,
+Swung in, was laid out with it; it opens on Swung in's settings, shows the hand on
+the keys, and checks the reach, the board's height and the printed test frame as
+they are tuned. It is in dev builds only
 (`make v4-editor`, then open `http://127.0.0.1:5177/?hand`). The code is in
 `v4/editor/src/hand/`; file paths below are relative to `v4/editor/`.
 
@@ -48,17 +51,15 @@ result. The readout says first whether the layout is valid, or lists what is wro
   normal, and last the pair slides together along the row. They are placed by those
   settings alone, not by the thumb; the thumb's pose on each follows from the key, for
   the checks and readout only. They are pressed with the thumb's side or base, which the
-  model doesn't have, so the back-of-thumb check skips them. Where each preset puts them
-  is part of the preset (`EXTRA` unless it has its own).
-- **Presets** (`src/hand/layout.ts`, the "Start from" buttons): `Dactyl fit` (near the Dactyl Manuform, fitted by a test
-  to the valid layout whose keys are closest to it), `Natural` (the least change from
-  the resting hand that is valid), `Yours` (set by hand in the editor from the Dactyl
-  fit, then the thumb refitted), `No curl` (Yours with the thumb reaching and pressing
-  without curling, the extra keys as last printed) and `Swung in` (No curl with the row
-  turned toward the thumb's base, the home key about halfway to where x1 was; the
-  editor's default project is Swung in).
-  `tests/hand.test.ts` checks that each but Swung in is valid, with the test frame too;
-  Swung in's warnings are the model's limits.
+  model doesn't have, so the back-of-thumb check skips them. Swung in has them off:
+  the editor's `thumb_extra` cluster is not placed by the hand.
+- **Swung in** (`SWUNG_IN` in `src/hand/layout.ts`): the thumb reaching and pressing
+  its keys without curling, the row turned toward the thumb's base until the home key
+  is about halfway to where x1 was. `tests/hand.test.ts` checks that it is valid, with
+  the test frame too, and pins what the test frame gets wrong on it (two pairs of
+  floor rails cross, and the thumb row's ends have no truss). The earlier presets it
+  grew from (Dactyl fit, Natural, Yours, No curl) were removed on 19 Oct 2026; they
+  are in git history (509dbd1 is the last commit with them).
 
 ## The checks
 
@@ -94,7 +95,7 @@ full rules.
 
 `src/hand/panel.ts` builds the panel from a table of control specs in
 `src/hand/controls.ts`: a Basic section and an Advanced one that shares its ranges, with
-the preset buttons, Copy and Paste settings (the layout as JSON), choices of where the hand
+Copy and Paste settings (the layout as JSON), choices of where the hand
 and thumb are drawn, a pressing animation and a rotation handle that turns the hand. **Build
 the case** builds the chassis from the layout, and often fails; until it's ticked, the
 line under the view shows the board's height against the tray (the panel always does).

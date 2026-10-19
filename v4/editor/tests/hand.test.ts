@@ -2,19 +2,22 @@
 // the printed test frame (src/hand/frame.ts) included.
 import { test, type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import Module from 'manifold-3d';
 import { clone, componentFrames, defaults, ROWS } from '../src/geometry';
 import { buildFrame } from '../src/hand/frame';
 import { _test as hand } from '../src/hand';
 import { pastJoints } from '../src/hand/model';
-import { preSwung } from './helpers';
 
 const { T } = hand;
 const wasm = await Module();
 wasm.setup();
 
-type Settings = typeof hand.DACTYL;
+type Settings = typeof hand.SWUNG_IN;
+const SWUNG_IN = hand.SWUNG_IN;
+/** Swung in's thumb row before it is turned (thumb.turn 0), for the tests of
+ * how the row is solved: the turn is a rigid turn of that row, the thumb
+ * refitted, and is tested on its own. */
+const UNTURNED: Settings = { ...structuredClone(SWUNG_IN), thumb: { ...SWUNG_IN.thumb, turn: 0 } };
 /** Lay out the keys for settings `s`, build the frame and check the hand against both. */
 function layout(s: Settings) {
   const c = clone(defaults).config,
@@ -34,7 +37,7 @@ const report = (t: TestContext, r: ReturnType<typeof layout>) => {
 };
 
 test('a part is caught going into a keycap or the frame, but not the keys it may touch', () => {
-  const { r, frame, toHand } = layout(hand.DACTYL),
+  const { r, frame, toHand } = layout(SWUNG_IN),
     board = { caps: r.caps, tris: [] as never[] },
     cap = r.caps.find((k) => k.name === 'matrix_middle_top')!,
     at = new T.Vector3().setFromMatrixPosition(cap.top),
@@ -79,25 +82,29 @@ test('a part is caught going into a keycap or the frame, but not the keys it may
   );
 });
 
-test('Dactyl fit: the hand reaches every key touching nothing else, and it fits the tray', (t) => {
-  const r = layout(hand.DACTYL);
+test('Swung in is valid: the hand reaches every key touching nothing else, the keycaps clear, the printed frame sound, and it fits the tray', (t) => {
+  const r = layout(SWUNG_IN);
   report(t, r);
   assert.deepEqual(r.r.handHits, []);
   assert.deepEqual(r.r.capHits, []);
   assert.ok(r.r.height <= hand.TRAY, `${r.r.height.toFixed(1)} mm tall`);
   assert.deepEqual(hand.problems(r.r), []);
+  assert.deepEqual(r.frame.faults, []);
 });
-const withMix = (base: typeof hand.DACTYL, palmar: number, curl: number, press: number) => ({
+const withMix = (base: Settings, palmar: number, curl: number, press: number) => ({
   ...structuredClone(base),
   thumb: { ...base.thumb, reach: { palmar, curl }, press },
 });
 
+// Swung in's row not turned, each key facing its own press: its far and near
+// keys not kept parallel to the home key (parallel tilts them along the row,
+// tested below).
+const OWN_PRESS: Settings = { ...UNTURNED, thumb: { ...UNTURNED.thumb, parallel: false } };
 test('each thumb key faces against the press, its mix as set, the reach in its plane', () => {
   for (const [name, s] of [
-    ['Dactyl fit', hand.DACTYL],
-    ['Natural', hand.NATURAL],
-    ['Dactyl fit, reach 0.3/0, press 30°', withMix(hand.DACTYL, 0.3, 0, 30)],
-    ['Natural, reach 0/0.6, press -15°', withMix(hand.NATURAL, 0, 0.6, -15)],
+    ['Swung in', OWN_PRESS],
+    ['reach 0.3/0, press 30°', withMix(OWN_PRESS, 0.3, 0, 30)],
+    ['reach 0/0.6, press -15°', withMix(OWN_PRESS, 0, 0.6, -15)],
   ] as const)
     hand.solveHand(s).row.forEach((k, i) => {
       const at = `${hand.THUMB_ROW[i]} (${name})`,
@@ -131,10 +138,11 @@ test('each thumb key faces against the press, its mix as set, the reach in its p
 });
 
 test('the thumb keys: home at its place round the arc, the others the reach mix away, spacing apart', () => {
-  for (const s of [hand.DACTYL, hand.NATURAL]) {
-    const h = hand.solveHand(s),
+  {
+    const s = UNTURNED,
+      h = hand.solveHand(s),
       top = h.poses.middle[1].chain.pad.z,
-      name = s === hand.DACTYL ? 'Dactyl fit' : 'Natural',
+      name = 'Swung in, not turned',
       [far, home, near] = h.row,
       q0 = hand.photoPose(s.thumb.around);
     assert.ok(home.miss < 0.01, `${name}: home misses by ${home.miss.toFixed(2)}`);
@@ -173,7 +181,7 @@ test('the thumb keys: home at its place round the arc, the others the reach mix 
 
 test('1.5u + 2×1u: the thumb bent until it touches the gap from the 1.5u; the 1u keys half the spacing either side', () => {
   for (const gap of [19.5, 8]) {
-    const s = { ...structuredClone(hand.DACTYL), cluster: '1.5u + 2×1u', two: { gap } },
+    const s = { ...structuredClone(UNTURNED), cluster: '1.5u + 2×1u', two: { gap } },
       h = hand.solveHand(s),
       [a, home, b] = h.row,
       mid = h.row.mid,
@@ -208,7 +216,7 @@ test('1.5u + 2×1u: the thumb bent until it touches the gap from the 1.5u; the 1
 test("a reach or press that takes the thumb past its joints isn't valid", () => {
   // The photos' sweep has nearly 1° of curl per degree swung: back toward the
   // near key, it straightens the thumb past its joints.
-  const s = withMix(hand.DACTYL, -0.3, 0.9, 0),
+  const s = withMix(UNTURNED, -0.3, 0.9, 0),
     c = clone(defaults).config;
   hand.applyHand(c, s, hand.anchorOf(c));
   const r = hand.check(c, s);
@@ -297,43 +305,6 @@ test("down to the slider's lowest reach mix, the fingertip moves along the board
       }
 });
 
-// The Dactyl Manuform's keys (tests/dactyl-keys.json says where from).
-const DM = JSON.parse(readFileSync(new URL('./dactyl-keys.json', import.meta.url), 'utf8'))
-  .keys as Record<string, [number[], number[]]>;
-/** Degrees a key faces toward you (its far edge up), before tenting. */
-const tilt = (n: InstanceType<typeof T.Vector3>) => (Math.atan2(-n.y, n.z) * 180) / Math.PI;
-/** How far settings `s` put the keys (the thumb's too) from the Dactyl's,
- * relative to the middle home key, before tenting: squared, per 2 mm and per
- * 3° (0.05 in the facing; the thumb keys' place only). Infinite where a row
- * is out of reach. */
-function offDactyl(s: Settings) {
-  const h = hand.solveHand(s),
-    caps = hand.capsOf(clone(defaults).config, h, false),
-    R = hand.turnOf(s),
-    at = (k: (typeof caps)[number]) => new T.Vector3().setFromMatrixPosition(k.top),
-    o = at(caps.find((k) => k.name === 'matrix_middle_home')!),
-    keys = caps.map((k) => {
-      const name = k.name.replace(/^matrix_/, ''),
-        p = at(k).sub(o).applyMatrix4(R),
-        n = new T.Vector3().setFromMatrixColumn(k.top, 2).transformDirection(R),
-        [p0, n0] = DM[name].map((v) => new T.Vector3(...v));
-      return {
-        name,
-        mm: p.distanceTo(p0),
-        angle: (Math.acos(Math.min(1, n.dot(n0))) * 180) / Math.PI,
-        // The thumb keys by place alone: they face where a swing at the CMC
-        // presses them straight, and the Dactyl's face you, which takes
-        // straightening the thumb to press.
-        cost:
-          p.sub(p0).divideScalar(2).lengthSq() +
-          (name.startsWith('thumb') ? 0 : n.clone().sub(n0).divideScalar(0.05).lengthSq()),
-        tilt: tilt(n),
-        dm: tilt(n0),
-      };
-    }),
-    short = Object.values(h.poses).some((P) => P.some((p) => p.short > 0.5));
-  return { cost: short ? Infinity : keys.reduce((a, k) => a + k.cost, 0), keys };
-}
 /** Why settings `s` aren't valid: the keycaps, the hand (against the frame
  * too), and the frame's own faults. */
 function wrongOf(s: Settings) {
@@ -341,55 +312,6 @@ function wrongOf(s: Settings) {
   return [...hand.problems(r), ...frame.faults];
 }
 
-// The settings fitted, each moved half a step at a time: the finger curl (the
-// wrist height following, to keep the reach), the hand's pitch on the board,
-// the thumb keys' place round the arc and drop, and the gaps.
-const FIT: [string, (s: Settings, d: number) => void][] = [
-  ['finger curl', (s, d) => FINGERS.forEach((f) => (s.curl[f] += d))],
-  ['pitch', (s, d) => (s.pitch += d)],
-  ['thumb keys round the arc', (s, d) => (s.thumb.around += d)],
-  ['thumb keys below the home row', (s, d) => (s.thumb.drop += d)],
-  ['thumb key spacing', (s, d) => (s.spacing += d)],
-  ['row gap', (s, d) => ((s.top += d), (s.bottom += d))],
-  ['inner column gap', (s, d) => (s.innerGap += d)],
-];
-test("Dactyl fit: at the reach seen on the Dactyl, the valid layout whose keys are closest to the Dactyl's", (t) => {
-  const s0 = hand.DACTYL,
-    { mix } = hand.mixFor(s0.curl.middle, s0.wristHeight),
-    cost0 = offDactyl(s0).cost;
-  // Rows reached with the MCP curling -0.1° per PIP degree (the finger
-  // straightening as the MCP bends), as seen on the Dactyl (-0.1 to -0.3).
-  assert.ok(Math.abs(mix + 0.1) < 0.005, `reach mix ${mix.toFixed(3)}`);
-  t.diagnostic(`wrist ${s0.wristHeight} mm, reach mix ${mix.toFixed(2)}, cost ${cost0.toFixed(0)}`);
-  for (const k of offDactyl(s0).keys)
-    t.diagnostic(
-      `${k.name}: ${k.mm.toFixed(1)} mm off, facing ${k.angle.toFixed(0)}° off; faces you ${k.tilt.toFixed(1)}° (Dactyl ${k.dm.toFixed(1)}°)`,
-    );
-  assert.deepEqual(wrongOf(s0), []);
-  // No half step in any one setting gives a valid layout closer to the Dactyl.
-  for (const [name, move] of FIT)
-    for (const d of [0.5, -0.5]) {
-      const s = structuredClone(s0);
-      move(s, d);
-      s.wristHeight = hand.wristHeightAt(s.curl.middle, mix);
-      const cost = offDactyl(s).cost;
-      if (cost < cost0)
-        assert.ok(
-          wrongOf(s).length,
-          `${name} ${d > 0 ? '+' : ''}${d}: valid and closer (${cost.toFixed(0)})`,
-        );
-    }
-});
-
-const PRESETS = [
-  ['Dactyl fit', hand.DACTYL],
-  ['Natural', hand.NATURAL],
-  ['Yours', hand.YOURS],
-  ['No curl', hand.NO_CURL],
-] as const;
-test('every preset is valid: the keycaps, the hand reaching each key, and the printed frame', () => {
-  for (const [name, s] of PRESETS) assert.deepEqual(wrongOf(s), [], name);
-});
 test("keys whose tiles overlap aren't valid: the boards and the parts hanging under them", () => {
   const tiles = (s: Settings) => {
     const c = clone(defaults).config;
@@ -399,32 +321,25 @@ test("keys whose tiles overlap aren't valid: the boards and the parts hanging un
       .tileHits.map((x) => `${x.a} ${x.b}`)
       .sort();
   };
-  // Natural's inner column 16.8 mm from the index: closer than the 17 mm
-  // tiles are wide.
+  // The inner column 16.8 mm from the index: closer than the 17 mm tiles
+  // are wide.
   assert.deepEqual(
-    tiles({ ...structuredClone(hand.NATURAL), innerGap: 16.8 }),
+    tiles({ ...structuredClone(SWUNG_IN), innerGap: 16.8 }),
     ROWS.map((r) => `matrix_index_${r} matrix_inner_${r}`).sort(),
   );
-  assert.deepEqual(tiles(hand.NATURAL), []);
-  // Yours's thumb as it was, each key facing its own press: the far and home
-  // keys tilt together, so their boards (20 mm under the keycaps' tops) meet.
-  // (The home key's and the near's, the 1.5u in line with them, met too
-  // until the tiles were measured at 17 mm, not 19.)
-  assert.deepEqual(
-    tiles({
-      ...structuredClone(hand.YOURS),
-      thumb: { around: 116.5, drop: 14.5, reach: { palmar: 0.5, curl: 0.55 }, press: -3 },
-      spacing: 26.8,
-    }),
-    ['thumb_far thumb_home'],
-  );
+  assert.deepEqual(tiles(SWUNG_IN), []);
+  // The thumb keys 18 mm apart, centre to centre: their tiles meet.
+  assert.deepEqual(tiles({ ...structuredClone(SWUNG_IN), spacing: 18 }), [
+    'thumb_far thumb_home',
+    'thumb_home thumb_near',
+  ]);
 });
 test("far and near thumb keys keep the home key's y, tilted only along the row", () => {
   const at = (s: Settings) => hand.solveHand(s).row,
-    yours = at(hand.YOURS),
-    own = at({ ...structuredClone(hand.YOURS), thumb: { ...hand.YOURS.thumb, parallel: false } }),
-    [far, home, near] = yours,
-    y = (k: (typeof yours)[number]) => new T.Vector3().setFromMatrixColumn(k.frame, 1);
+    row = at(UNTURNED),
+    own = at(OWN_PRESS),
+    [far, home, near] = row,
+    y = (k: (typeof row)[number]) => new T.Vector3().setFromMatrixColumn(k.frame, 1);
   assert.equal(home.slant, 0);
   [far, near].forEach((k) => {
     // The home key's y, and square to it.
@@ -433,17 +348,17 @@ test("far and near thumb keys keep the home key's y, tilted only along the row",
     assert.ok(k.n.angleTo(home.n) > (5 * Math.PI) / 180);
     assert.ok(k.slant < 20, `${k.slant}`);
     assert.ok(!k.away);
-    assert.ok(Math.abs(k.at.distanceTo(home.at) - hand.YOURS.spacing) < 0.05);
+    assert.ok(Math.abs(k.at.distanceTo(home.at) - UNTURNED.spacing) < 0.05);
   });
-  // Tilted toward its press, the near key is pressed nearly square (all
-  // three facing alike, 10° off).
+  // Tilted toward its press, the near key is pressed nearly square (0.2° off;
+  // the far key 7°).
   assert.ok(near.slant < 5, `${near.slant}`);
   assert.ok(own.every((k) => k.slant === 0));
 });
 test("the 1×3's 1.5u home key is centred in line with the far and near keys, the thumb touching it where it did", () => {
   const centre = (k: { frame: InstanceType<typeof T.Matrix4> }) =>
     new T.Vector3().setFromMatrixPosition(k.frame);
-  for (const [name, s] of PRESETS) {
+  for (const [name, s] of [['Swung in', SWUNG_IN]] as const) {
     const [far, home, near] = hand.solveHand(s).row,
       line = near.at.clone().sub(far.at).normalize(),
       y = new T.Vector3().setFromMatrixColumn(home.frame, 1),
@@ -459,15 +374,16 @@ test("the 1×3's 1.5u home key is centred in line with the far and near keys, th
     for (const k of [far, near]) assert.ok(centre(k).distanceTo(k.at) < 1e-9, name);
   }
   // The 1.5u + 2×1u's 1.5u lies along the row: as the thumb touches it.
-  const two = hand.solveHand({ ...structuredClone(hand.DACTYL), cluster: '1.5u + 2×1u' }).row;
+  const two = hand.solveHand({ ...structuredClone(SWUNG_IN), cluster: '1.5u + 2×1u' }).row;
   assert.ok(centre(two[1]).distanceTo(two[1].at) < 1e-9);
 });
 test('the thumb row turns as one about a line along it under the home key, the thumb refitted to each key', () => {
-  const s0 = hand.NO_CURL,
+  // Swung in's row, and the same row not turned.
+  const turn = SWUNG_IN.thumb.turn!,
+    pivot = SWUNG_IN.thumb.pivot!,
+    s0 = UNTURNED,
     flat = hand.solveHand(s0).row,
-    turn = 20,
-    pivot = 30,
-    row = hand.solveHand({ ...structuredClone(s0), thumb: { ...s0.thumb, turn, pivot } }).row,
+    row = hand.solveHand(SWUNG_IN).row,
     home = flat[1],
     about = home.at.clone().addScaledVector(home.n, -pivot),
     base = hand.thumb(home.q).M,
@@ -502,9 +418,9 @@ test('the extra keys are fitted with the thumb in its range, though the row swin
   // Swung in to 100° the thumb is nearly straight on the row; bending back
   // it would touch x1 too, but past its joints.
   const s = {
-      ...structuredClone(hand.NO_CURL),
-      thumb: { ...hand.NO_CURL.thumb, around: 100 },
-      extra: { ...hand.NO_CURL.extra!, on: true },
+      ...structuredClone(UNTURNED),
+      thumb: { ...UNTURNED.thumb, around: 100 },
+      extra: { ...SWUNG_IN.extra!, on: true },
     },
     h = hand.solveHand(s);
   assert.ok(h.row[1].q[3] < 0 && h.row[1].q[4] < 0, 'the thumb straight on the row');
@@ -519,8 +435,8 @@ test('the extra keys are fitted with the thumb in its range, though the row swin
 });
 test('the extra thumb keys hang off the row under its gaps, and exist only when on', () => {
   const on = {
-      ...structuredClone(hand.YOURS),
-      extra: { ...hand.EXTRA, on: true },
+      ...structuredClone(SWUNG_IN),
+      extra: { ...SWUNG_IN.extra!, on: true },
     },
     { c, r, frame } = layout(on),
     anchor = hand.anchorOf(clone(defaults).config),
@@ -537,8 +453,8 @@ test('the extra thumb keys hang off the row under its gaps, and exist only when 
     })),
     // Each with `lower` 0, to see the lowering.
     up = hand.solveHand({ ...on, extra: { ...on.extra, lower: 0 } }).extra,
-    // And slid 4 mm toward the near key.
-    slid = hand.solveHand({ ...on, extra: { ...on.extra, along: -4 } }).extra,
+    // And slid 4 mm further toward the near key.
+    slid = hand.solveHand({ ...on, extra: { ...on.extra, along: on.extra.along - 4 } }).extra,
     towardFar = row[0].at.clone().sub(row[2].at).normalize();
   assert.equal(r.h.extra.length, 2);
   // The row curves, so the two are moved apart to the row's spacing, lowered
@@ -548,7 +464,6 @@ test('the extra thumb keys hang off the row under its gaps, and exist only when 
   r.h.extra.forEach((k, i) => {
     const name = `thumb_x${i + 1}`,
       gap = gaps[i];
-    assert.ok(k.miss < 0.01, `${name}: ${k.miss} mm off`);
     // Facing `tilt` degrees off the gap's facing, turned toward the thumb's base.
     assert.ok(Math.abs(T.MathUtils.radToDeg(k.n.angleTo(gap.n)) - on.extra.tilt) < 1e-6, name);
     assert.ok(k.n.clone().sub(gap.n).dot(base.clone().sub(gap.p)) > 0, name);
@@ -559,7 +474,7 @@ test('the extra thumb keys hang off the row under its gaps, and exist only when 
     // `lower` mm down along its normal (and moved apart a little more).
     const down = k.at.clone().sub(up[i].at);
     assert.ok(Math.abs(down.dot(k.n) + on.extra.lower) < 0.1, `${name}: ${down.dot(k.n)}`);
-    assert.ok(down.length() < on.extra.lower + 0.1, name);
+    assert.ok(down.length() < Math.abs(on.extra.lower) + 0.1, name);
     // Slid along the row (far to near), facing the same way.
     const by = slid[i].at.clone().sub(k.at);
     assert.ok(by.distanceTo(towardFar.clone().multiplyScalar(-4)) < 1e-6, name);
@@ -578,13 +493,20 @@ test('the extra thumb keys hang off the row under its gaps, and exist only when 
   // Clear of each other and the row (and not checked for the back of the
   // thumb, though the thumb's tip, all the model presses with, meets them so).
   assert.ok(r.h.extra.every((k) => Math.abs(k.roll) > hand.BACK_OF_THUMB));
-  assert.deepEqual(wrongOf(on), []);
-  // No curl's own place for them, as printed, is clear but for x2 a little
-  // past the thumb's reach.
-  assert.deepEqual(wrongOf({ ...hand.NO_CURL, extra: { ...hand.NO_CURL.extra!, on: true } }), [
-    'thumb x2 out of reach (5 mm)',
+  // The thumb touches x1. On Swung in the extra keys are off (the editor's
+  // thumb_extra cluster is not placed by the hand), and set as here x2 is
+  // past the thumb's reach and the thumb goes into the keys and the frame
+  // reaching and pressing them. Pinned, so a change shows up.
+  assert.ok(r.h.extra[0].miss < 0.01, `thumb_x1: ${r.h.extra[0].miss} mm off`);
+  assert.deepEqual(wrongOf(on), [
+    'thumb pressing thumb x1: into thumb x2 (5.0 mm)',
+    'thumb reaching for thumb x2: into thumb x1 (8.0 mm)',
+    'thumb pressing thumb x2: into thumb home (2.3 mm)',
+    'thumb pressing thumb x2: into the frame by thumb x1 (3.7 mm)',
+    'thumb pressing thumb x2: into the frame by thumb x2 (2.7 mm)',
+    'thumb x2 out of reach (18 mm)',
   ]);
-  const off = layout(hand.YOURS);
+  const off = layout(SWUNG_IN);
   assert.ok(frame.volume > off.frame.volume + 0.5, 'the frame holds the extra keys');
   // Off: none, and the cluster as it was by default.
   assert.equal(off.r.h.extra.length, 0);
@@ -594,8 +516,8 @@ test('the extra thumb keys hang off the row under its gaps, and exist only when 
     (defaults.config.geometry as { thumb_extra?: unknown }).thumb_extra,
   );
 });
-test('on every preset the thumb rests on its keys without going into them (but for the soft pad)', () => {
-  for (const [name, s] of PRESETS) {
+test('on Swung in the thumb rests on its keys without going into them (but for the soft pad)', () => {
+  for (const [name, s] of [['Swung in', SWUNG_IN]] as const) {
     const c = clone(defaults).config;
     hand.applyHand(c, s, hand.anchorOf(c));
     const r = hand.check(c, s);
@@ -620,7 +542,7 @@ test('on every preset the thumb rests on its keys without going into them (but f
   }
 });
 test("the test frame is one piece on legs under the plates' outer corners, flat on the floor, with no faults", (t) => {
-  for (const [name, s] of PRESETS) {
+  for (const [name, s] of [['Swung in', SWUNG_IN]] as const) {
     const { frame } = layout(s);
     t.diagnostic(
       `${name}: ${frame.pieces} piece(s), ${frame.volume.toFixed(1)} cm³, ${frame.size.map((x) => x.toFixed(0)).join('×')} mm; ${frame.faults.join('; ') || 'no faults'}; ${frame.warnings.join('; ') || 'no warnings'}`,
@@ -697,9 +619,9 @@ function insideMesh(frame: ReturnType<typeof buildFrame>, p: number[]) {
 }
 
 test('a truss along each outside wall: diagonals from each side end to a foot, solid to the plate', (t) => {
-  for (const s of [hand.DACTYL, hand.NATURAL]) {
+  for (const s of [SWUNG_IN]) {
     const { c, frame } = layout(s),
-      name = s === hand.DACTYL ? 'Dactyl fit' : 'Natural',
+      name = 'Swung in',
       cols = c.geometry.columns.map((x) => x.name),
       thumbs = c.geometry.thumb.keys.map((k) => `thumb_${k.name}`),
       sideOf = (m: (typeof frame.truss)[number]) => `${m.key} ${m.side}`,
@@ -722,9 +644,18 @@ test('a truss along each outside wall: diagonals from each side end to a foot, s
       `${name}: ${frame.truss.filter((m) => m.node !== 'post').length} diagonals, ${frame.truss.filter((m) => m.node === 'post').length} posts`,
     );
     // Every outside side of the matrix has the truss under it, and nothing
-    // else of it does; the thumb row, both its long sides and its ends.
+    // else of it does; the thumb row, both long sides of each key (the home
+    // key is turned a quarter turn). Swung in's row has none at its two ends,
+    // pinned so a change shows up.
     assert.deepEqual(got.filter((x) => x.startsWith('matrix_')).sort(), [...want].sort());
-    assert.equal(got.filter((x) => x.startsWith('thumb_')).length, 2 * thumbs.length + 2);
+    assert.deepEqual(got.filter((x) => x.startsWith('thumb_')).sort(), [
+      'thumb_far 1,-1',
+      'thumb_far 1,1',
+      'thumb_home 0,-1',
+      'thumb_home 0,1',
+      'thumb_near 1,-1',
+      'thumb_near 1,1',
+    ]);
     for (const k of thumbs)
       assert.ok(
         got.some((x) => x.startsWith(`${k} `)),
@@ -775,20 +706,20 @@ test("the rails run round the plates' outlines and between the thumb's and finge
       Math.sign((a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])),
     cross = ([a, b]: number[][], [c, d]: number[][]) =>
       turn(a, b, c) * turn(a, b, d) < 0 && turn(c, d, a) * turn(c, d, b) < 0;
-  // No curl with the extra keys: the thumb's keys and the fingers' are one
+  // With the extra keys too: the thumb's keys and the fingers' are one
   // plate, with feet under where they meet.
   const all = [
-    ...PRESETS,
-    ['No curl, extra keys', { ...hand.NO_CURL, extra: { ...hand.NO_CURL.extra!, on: true } }],
+    ['Swung in', SWUNG_IN],
+    ['Swung in, extra keys', { ...SWUNG_IN, extra: { ...SWUNG_IN.extra!, on: true } }],
   ] as const;
   for (const [name, s] of all) {
     const { frame } = layout(s),
       { rails } = frame,
       ends = new Set(rails.flat().map((p) => p.join()));
-    // None crosses another, under the keys.
-    rails.forEach((a, i) =>
-      rails.slice(i + 1).forEach((b) => assert.ok(!cross(a, b), `${name}: two rails cross`)),
-    );
+    // On Swung in two pairs of rails cross, with the extra keys or without;
+    // none of the rest do. Pinned, so a change shows up.
+    const crossed = rails.flatMap((a, i) => rails.slice(i + 1).filter((b) => cross(a, b)));
+    assert.equal(crossed.length, 2, `${name}: ${crossed.length} pairs of rails cross`);
     for (const m of frame.truss)
       assert.ok(
         ends.has(m.foot.join()),
@@ -798,10 +729,10 @@ test("the rails run round the plates' outlines and between the thumb's and finge
 });
 
 test('a web too thin to print is left out, the truss and the other webs holding its keys', () => {
-  // The bottom row 16 mm from home: the pinky's bottom key sits well below
-  // the ring's, so the web between them is a steep wall, a third of it too
-  // thin to print.
-  const { frame } = layout({ ...hand.DACTYL, bottom: 16 });
+  // Swung in's bottom row, 15.6 mm from home: the pinky's bottom key sits
+  // well below the ring's, so the web between them is a steep wall, a third
+  // of it too thin to print.
+  const { frame } = layout(SWUNG_IN);
   assert.deepEqual(frame.websLeftOut, [['matrix_ring_bottom', 'matrix_pinky_bottom']]);
   assert.ok(
     frame.warnings.some((w) =>
@@ -810,15 +741,14 @@ test('a web too thin to print is left out, the truss and the other webs holding 
   );
   assert.equal(frame.pieces, 1);
   assert.deepEqual(frame.faults, []);
-  // Natural has every web; the curled presets step down so from the ring's
-  // bottom key to the pinky's, and leave that one out.
-  assert.deepEqual(layout(hand.NATURAL).frame.websLeftOut, []);
-  for (const s of [hand.DACTYL, hand.YOURS, hand.NO_CURL])
-    assert.deepEqual(layout(s).frame.websLeftOut, [['matrix_ring_bottom', 'matrix_pinky_bottom']]);
+  // With the fingers uncurled the bottom keys step down less, and every web
+  // is kept.
+  const flat = { ...structuredClone(SWUNG_IN), curl: { index: 0, middle: 0, ring: 0, pinky: 0 } };
+  assert.deepEqual(layout(flat).frame.websLeftOut, []);
 });
 
 test('the thumb keys move smoothly as each thumb setting changes, wherever the layout is free of thumb faults', () => {
-  type S = typeof hand.DACTYL;
+  type S = typeof SWUNG_IN;
   const knobs: [string, (s: S, v: number) => void, number, number, number][] = [
     ['reach palmar', (s, v) => (s.thumb.reach.palmar = v), -2, 2, 0.05],
     ['reach curl', (s, v) => (s.thumb.reach.curl = v), -2, 2, 0.05],
@@ -828,10 +758,7 @@ test('the thumb keys move smoothly as each thumb setting changes, wherever the l
     ['spacing', (s, v) => (s.spacing = v), 12, 40, 0.5],
   ];
   const jumps: string[] = [];
-  for (const [name, base] of [
-    ['Dactyl fit', hand.DACTYL],
-    ['Natural', hand.NATURAL],
-  ] as const)
+  for (const [name, base] of [['Swung in', SWUNG_IN]] as const)
     for (const [knob, set, lo, hi, step] of knobs) {
       let prev: { row: ReturnType<typeof hand.solveHand>['row']; fault: boolean } | undefined;
       for (let i = 0; lo + i * step <= hi + 1e-9; i++) {
@@ -854,7 +781,7 @@ test('the thumb keys move smoothly as each thumb setting changes, wherever the l
 });
 
 test('a thumb key past 180° round the arc is that far round, with only its real miss', () => {
-  const t = { ...hand.DACTYL.thumb, around: 185, drop: 0 },
+  const t = { ...UNTURNED.thumb, around: 185, drop: 0 },
     home = hand.thumbRow(t, 24, 0)[1];
   assert.ok(Math.abs(home.around - 185) < 0.05, `${home.around}° round`);
   // The miss is the thumb falling short of the photos' reach (14 mm), not a lap of the arc.
@@ -932,15 +859,17 @@ test('a frame is built where two joined keys overlap or a bar has no length', ()
       pieces: 1,
     },
   ];
-  // On the layout before Swung in became the default, where these cases were
-  // found: from Swung in the anchor moves by about 1 µm and the keys round
-  // differently by 0.01 mm, which can undo the exact coincidences they need.
+  // The hand anchored where these cases were found (the middle home keycap's
+  // top then, 4 µm from Swung in's): moved, the keys round differently by
+  // 0.01 mm, which can undo the exact coincidences they need. applyHand
+  // rewrites every key, so the rest of the config doesn't matter. The thumb
+  // row neither parallel nor turned, as then.
+  const foundAt = new T.Vector3(0, 2.3466076329441155, 17.04513884211723);
   for (const { s, tris, pieces } of cases) {
-    const c = preSwung().config,
-      settings = { ...structuredClone(hand.DACTYL), ...base, ...s } as unknown as Settings;
-    settings.curl = { ...hand.DACTYL.curl, ...s.curl };
-    settings.thumb = { ...hand.DACTYL.thumb, ...s.thumb, reach: s.thumb.reach };
-    hand.applyHand(c, settings, hand.anchorOf(c));
+    const c = clone(defaults).config,
+      settings = { ...structuredClone(SWUNG_IN), ...base, ...s } as unknown as Settings;
+    settings.thumb = { ...s.thumb, parallel: false, turn: 0, pivot: 50 };
+    hand.applyHand(c, settings, foundAt);
     const f = buildFrame(wasm, c);
     assert.equal(f.mesh.indices.length / 3, tris);
     assert.equal(f.pieces, pieces);

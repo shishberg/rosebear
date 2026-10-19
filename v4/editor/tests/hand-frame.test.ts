@@ -63,8 +63,8 @@ for (const mirror of [false, true])
 test('keycaps that overlap are reported, with how far; ones apart are not', () => {
   const c = clone(defaults).config,
     anchor = hand.anchorOf(c);
-  hand.applyHand(c, hand.DACTYL, anchor);
-  const caps = hand.check(c, hand.DACTYL, undefined).caps,
+  hand.applyHand(c, hand.SWUNG_IN, anchor);
+  const caps = hand.check(c, hand.SWUNG_IN, undefined).caps,
     cap = caps[0],
     twin = { ...cap, name: 'twin' },
     far = { ...cap, name: 'far', top: cap.top.clone().setPosition(1000, 1000, 1000) };

@@ -10,16 +10,18 @@ The pointing device is open. The trackball in this pipeline is a placeholder; a 
 
 ## Browser chassis editor
 
+The keyboard's key layout is **Swung in**, the layout the printed frame uses and the editor's default. It is the only layout kept: the earlier ones were removed on 19 Oct 2026 and stay in git history (509dbd1 is the last commit with them).
+
 Run `make v4-editor` and open **http://127.0.0.1:5177**. The editor builds the Skeletyl-style frame for the right hand from the key layout (the C64-styled case with `?chassis=c64`), with the tiles glued under the key plates and the ribbon leaving through a notch in the frame's rail. The [editor guide](editor/README.md) covers the layout parameters and handles, autosave, project files and the clearance checks, and [editor chassis and wiring](docs/editor-chassis.md) how the case is built and wired. The FFC adapter's size is provisional (see design status).
 
-KiCad/PCB generation stays offline. The Python chassis generator is retained as a numerical reference; editing no longer requires export/rebuild handoffs.
+KiCad/PCB generation stays offline. The Python chassis generator is retained as a numerical reference; editing no longer requires export/rebuild handoffs. It and its `chassis.json` describe the layout before Swung in.
 
 `output_v4/chassis/` retains the previous patched-shell outputs as frozen references.
 The [old parameter guide](docs/parametric-chassis.md) describes that earlier implementation.
 
 ## Hand model
 
-[`hand/`](hand/README.md) holds a measured model of the hand, in the editor's layout axes: fingertip rest positions, thumb landing points, segment lengths and the resting pose. It narrows down key placement; the layout itself is still chosen by preference. The editor's dev-only `?hand` mode lays keys out from it: see the [hand prototype](docs/hand-prototype.md).
+[`hand/`](hand/README.md) holds a measured model of the hand, in the editor's layout axes: fingertip rest positions, thumb landing points, segment lengths and the resting pose. Swung in was laid out from it in the editor's dev-only `?hand` mode, which shows the hand on the keys and checks its reach and the board's height: see the [hand prototype](docs/hand-prototype.md).
 
 ## Paused: seeded flex and flat-thumb boards
 

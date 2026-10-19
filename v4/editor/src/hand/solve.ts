@@ -1,5 +1,5 @@
 /** Root finding for the hand model. The iteration counts are part of each
- * caller's numerics (the presets are fitted to them), so each call passes its own. */
+ * caller's numerics (Swung in was fitted to them), so each call passes its own. */
 
 /** Halve [lo, hi] `n` times, keeping the side `below(mid)` says the root is above. */
 export function halve(below: (x: number) => boolean, lo: number, hi: number, n: number) {

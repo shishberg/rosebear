@@ -1,4 +1,4 @@
-// The ?hand layout: Settings and the presets, solving the hand's poses from them,
+// The ?hand layout: Settings and Swung in's, solving the hand's poses from them,
 // and writing the keys they give into a config.
 import * as T from 'three';
 import {
@@ -213,75 +213,16 @@ export const capFrame = (pos: T.Vector3, normal: T.Vector3, up: T.Vector3) => {
     y = up.clone().addScaledVector(z, -up.dot(z)).normalize();
   return new T.Matrix4().makeBasis(new T.Vector3().crossVectors(y, z), y, z).setPosition(pos);
 };
-// ---------------------------------------------------------------- presets
-/** The extra thumb keys as set by eye on Yours (where nothing hits), for a
- * preset that doesn't set its own. */
-export const EXTRA: Extra = { on: false, south: 37, tilt: 32, lower: 3, along: 0 };
-/** Near the Dactyl Manuform (DM_right), reaching as seen on it. Fitted by a
- * test (tests/hand.test.ts): of the valid layouts, the one whose keys are
- * closest to the Dactyl's. Valid with the 1×3 cluster, the frame too. */
-export const DACTYL: Settings = {
-  tent: 15,
-  roll: 0,
-  pitch: 3,
-  bend: 0,
-  curl: { index: 12.5, middle: 12.5, ring: 12.5, pinky: 12.5 },
-  innerGap: 19,
-  innerAngle: 0,
-  top: 14.7,
-  bottom: 14.7,
-  from: 'reach',
-  wristHeight: 49.2,
-  pressMix: 1.4,
-  thumb: {
-    around: 126.5,
-    drop: 13,
-    reach: { palmar: -0.3, curl: 0.3 },
-    press: -45,
-    parallel: false,
-    turn: 0,
-    pivot: 50,
-  },
-  spacing: 25,
-  cluster: '1×3',
-  // The 1u row a key's depth inside the 1.5u, the thumb curled in under the
-  // hand.
-  two: { gap: 19.5 },
-};
-/** The least change from the resting hand that makes a valid layout: nearly
- * at rest, the board tented 1° (the steep top rows of an uncurled hand use up
- * the tray). The thumb as at rest in the photos, its keys as close as the
- * keycaps allow. */
-export const NATURAL: Settings = {
-  tent: 1,
-  roll: 0,
-  pitch: 0,
-  bend: 0,
-  curl: { index: 0, middle: 0, ring: 0, pinky: 0 },
-  innerGap: 19.3,
-  innerAngle: 0,
-  top: 19.1,
-  bottom: 19.1,
-  from: 'reach',
-  wristHeight: 112.7,
-  pressMix: 1.4,
-  thumb: {
-    around: 112,
-    drop: 0,
-    reach: { palmar: -0.3, curl: 0.3 },
-    press: -45,
-    turn: 0,
-    pivot: 50,
-  },
-  spacing: 23,
-  cluster: '1×3',
-  two: { gap: 19.5 },
-};
-/** Set by hand in the editor from the Dactyl fit, the thumb then refitted so
- * its keys touch the thumb where it reaches them first, and so the tiles
- * clear. The far and near keys keep the home key's y, tilted toward their
- * press (parallel). */
-export const YOURS: Settings = {
+// ---------------------------------------------------------------- Swung in
+/** Swung in, the keyboard's layout (the one printed). The thumb keeps its
+ * resting bend on every key (no curl), each key pressed with the pad, and the
+ * row is turned toward the thumb's base, as round a dome, until the home key
+ * is about halfway to where x1 was, in place and in facing (fitted by a probe
+ * to 22°, then set by hand); the extra keys 1 mm above the row's face (the
+ * board 62.9 mm tall). The fingers as set by hand in the editor. The earlier
+ * layouts it grew from were removed; they are in git history (last in
+ * 509dbd1, src/hand/layout.ts). */
+export const SWUNG_IN: Settings = {
   tent: 15,
   roll: 0,
   pitch: 5,
@@ -295,43 +236,18 @@ export const YOURS: Settings = {
   wristHeight: 56,
   pressMix: 1.4,
   thumb: {
-    around: 116.5,
-    drop: 17,
-    reach: { palmar: 0.5, curl: 0.55 },
-    press: -3,
-    parallel: true,
-    turn: 0,
-    pivot: 50,
-  },
-  spacing: 26.5,
-  cluster: '1×3',
-  two: { gap: 19.5 },
-};
-/** Yours with the thumb keeping its resting bend on every key (no curl), each
- * key pressed with the pad. The extra keys as last printed: 10 mm lower,
- * slid 8.5 mm toward the far key. */
-export const NO_CURL: Settings = {
-  ...structuredClone(YOURS),
-  thumb: {
-    around: 116,
-    drop: 16,
+    around: 110,
+    drop: 18.5,
     reach: { palmar: 1.1, curl: 0 },
     press: -20,
     parallel: true,
-    turn: 0,
-    pivot: 50,
+    turn: 23.5,
+    pivot: 30,
   },
   spacing: 25,
-  extra: { ...EXTRA, lower: 10, along: 8.5 },
-};
-/** No curl with the thumb row turned toward the thumb's base, as round a
- * dome, until the home key is about halfway to where x1 was, in place and
- * in facing (fitted by a probe to 22°, then set by hand), the extra keys 1 mm
- * above the row's face (the board 62.9 mm tall). The start. */
-export const SWUNG_IN: Settings = {
-  ...structuredClone(NO_CURL),
-  thumb: { ...NO_CURL.thumb, around: 110, drop: 18.5, turn: 23.5, pivot: 30 },
-  extra: { ...NO_CURL.extra!, lower: -1 },
+  cluster: '1×3',
+  extra: { on: false, south: 37, tilt: 32, lower: -1, along: 8.5 },
+  two: { gap: 19.5 },
 };
 /** Everything the panel sets: the layout's settings, what the hand is shown
  * doing and which parts of the panel are open. One state, kept in the project

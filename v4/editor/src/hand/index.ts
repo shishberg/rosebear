@@ -22,14 +22,10 @@ import * as T from 'three';
 import hand from '../../../hand/left-hand.json';
 import { capsOf, check, partHits, problems, thumbPart, trisOf, TRAY } from './check';
 import {
-  DACTYL,
-  EXTRA,
   MIX_MIN,
-  NATURAL,
-  NO_CURL,
   START,
+  SWUNG_IN,
   THUMB_ROW,
-  YOURS,
   anchorOf,
   applyHand,
   mixFor,
@@ -88,15 +84,11 @@ export const _test = {
   rowPose,
   wayOf,
   turnOf,
-  NATURAL,
-  DACTYL,
-  YOURS,
-  NO_CURL,
+  SWUNG_IN,
   MIX_MIN,
   wristHeightAt,
   mixFor,
   problems,
   stateOf,
   START,
-  EXTRA,
 };

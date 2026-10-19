@@ -16,6 +16,11 @@ practical, and reports its effect on the fingerprint.
 Line numbers are from `5824e3f` and drift as tasks land. Find code by its
 function name.
 
+The `?hand` presets this plan names (Dactyl fit, Natural, Yours, No curl) were
+removed on 19 Oct 2026, when Swung in became the only layout; they are in git
+history (509dbd1 is the last commit with them). Read "the presets" below as
+Swung in.
+
 ## Ground rules for every task
 
 - **Safety net:**

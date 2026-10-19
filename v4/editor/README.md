@@ -4,7 +4,13 @@ The right-hand chassis editing loop runs entirely in the browser, in TypeScript 
 Three.js and Manifold WebAssembly. KiCad/PCB generation stays in the offline v4
 pipeline.
 
-The editor edits the **key layout**; the chassis is generated from it. The
+The keyboard's key layout is **Swung in**: the layout the printed frame uses, and
+the default project's (`src/default-config.json`). It is the only layout here. The
+earlier ones (the layout before it, which some tests built, and the `?hand`
+prototype's other presets) were removed on 19 Oct 2026 and stay in git history:
+509dbd1 is the last commit that has them.
+
+The editor edits the key layout; the chassis is generated from it. The
 construction is the Skeletyl-style frame; the C64-styled case chosen earlier from
 the shape prototypes (see [design status](../docs/design-status.md)) is kept as
 `?chassis=c64`.
@@ -147,8 +153,7 @@ build frees every geometry object it made, including those made with `new`, so t
 geometry engine's heap stays flat from one build to the next (`tests/geometry.test.ts` pins that
 objects made with `new` are freed); a fresh worker still takes over every eight builds as a safety net. A
 build of the default project takes about 2 s in node on a laptop, more than half
-of it the wire router failing to part one pair of Swung in's wires (the layout
-before Swung in, `tests/pre-swung-config.json`, takes under 1 s; the browser
+of it the wire router failing to part one pair of Swung in's wires (the browser
 routes the wires in a worker of their own while the shell is lofted). The checks cut
 each probe against the case near its key, not the whole case.
 
@@ -161,8 +166,9 @@ the fitted key surface (the well's wall reaching down as much further).
 
 The dev server (`make v4-editor`) has two things the built site (`dist/`) does not:
 
-- **`?hand`**: a measured hand laid out over the keys, to set the finger and thumb
-  keys from how the hand reaches them. Design in [hand prototype](../docs/hand-prototype.md);
+- **`?hand`**: a measured hand laid out over the keys. Swung in was laid out from
+  it; here its settings can be tuned, and the hand's reach, the board's height
+  against the tray and the printed test frame checked. Design in [hand prototype](../docs/hand-prototype.md);
   its browser test is `npm run test:hand`.
 - **Marks**: press **M** to paint on the model where something looks wrong (hold Alt
   to orbit), add a note and save. Each mark is a JSON file and a screenshot in
@@ -191,15 +197,12 @@ sheet's in `src/plates.ts`, the seats' in `src/seats.ts`, the wiring's in `WIRIN
 are in `CHECKS` in `src/solid.ts`.
 
 `test:fit` optionally takes a saved project file and exits nonzero whenever a
-check fails. `tests/python-reference.json` is a frozen fixture from the previous
-Python implementation; the tests use its finger key poses.
+check fails.
 
-The default project's layout is the `?hand` prototype's Swung in preset, which
-fails some checks (its thumb keys sit under finger keys); the tests pin those
-failures. `tests/pre-swung-config.json` is the layout before Swung in became the
-default. Tests about something else (the C64 case, the wire router, the negative
-checks) and tests of that layout itself (the Python reference poses, the thumb
-arc and well) build it instead.
+The default project's layout, Swung in, fails some checks (its thumb keys sit under
+finger keys); the tests pin those failures, so a change shows up. Every test builds
+Swung in, or a deliberate change of it. The C64 case (`?chassis=c64`) was built for
+the earlier layout and fails more of them on Swung in; its tests pin those too.
 
 The editor's cleanup is tracked in [CLEANUP-PLAN.md](CLEANUP-PLAN.md), which lists
 each task's status and the decisions left to the owner.

@@ -68,7 +68,6 @@ const curls = FINGERS.map((f) => `curl.${f}` as const);
 const extraOn = (s: HandState) => s.extra.on;
 
 export const BASIC: Spec[] = [
-  slot('presets'),
   slot('share'),
   radios('row', 'Fingers on', CHOICES.row),
   radios('thumbOn', 'Thumb on', CHOICES.thumbOn),

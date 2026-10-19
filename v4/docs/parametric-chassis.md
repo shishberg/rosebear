@@ -2,6 +2,8 @@
 
 **Frozen legacy implementation.** Active work has moved to the [shared-surface foundation](chassis-foundation.md), with inner trackball / FFC underneath as primary. The patched-shell revisions below are historical.
 
+Its key layout (`v4/chassis.json`, `config.json`) is the one before Swung in, the keyboard's layout; see the [editor guide](../editor/README.md).
+
 This is the current chassis **starting point** for 18 individual RGB hotswap key boards per hand, an external MCU pod, an FFC adapter per half, and a small trackball module beside the right thumbs (originally an ICSH044A, which is no longer planned; the pointing device is open, see [design status](design-status.md)). It generates actual solid geometry directly from parameters; there is no manually edited CAD master or dependency on the neighbouring Dactyl project.
 
 Style reference: [BastardKB Skeletyl](https://github.com/Bastardkb/Skeletyl): a compact sculpted key well, close perimeter and separate bottom cover. This generator is new code and does not reuse its mesh, CAD geometry or key layout. Revision 02 has a configurable 5 mm rounded plan perimeter, a curved 1.2 mm upper rim, and rounded switch-frame corners. Inter-column decks remain solid. Revision 04 replaces those faceted key-to-key lofts with the continuous analytic surface described below.
