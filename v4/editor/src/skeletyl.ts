@@ -25,8 +25,10 @@
 // its corners in rounded but where a drop or a band stands on it. The ends whose feet are near it drop to the floor: the rib carried
 // on from the bottom of its round down to the rail, as one sweep (as between
 // keys), straight down where the outline runs under it, else bending out
-// along the end to it, and landing square on it (across along it), where that
-// clears the other keys; the rest stop at the bottom of their rounds. One
+// along the end to it, and landing square on it (across along it), the last
+// of it straight down, flush with the rail, where that clears the other keys;
+// the rest stop at the bottom of their rounds. Each rib, ends and all, is
+// meshed as one surface. One
 // rail round the outline, on the floor, joins the ribs into one piece, and
 // where neighbouring columns both drop, close, a band fills between their
 // drops up to the lower round.
@@ -83,7 +85,6 @@ import {
   tilePocketHalf,
   type HalfWidths,
 } from './plates';
-import { mesh } from './shell/loft';
 import { switchHole } from './seats';
 import { outline } from './hand/frame';
 import { skeletylWalls, type WallPoint, type WallSide } from './skeletyl-walls.prototype';
@@ -123,8 +124,8 @@ export const SIZES = {
   joinReach: 20,
   joinInto: 0.5,
   tieRound: 5,
-  /** A drop's and (PROTOTYPE ?ends=) a joined end's surfaces are meshed in triangles about this big (sweepSolid). */
-  joinMesh: 1,
+  /** A rib's surface is meshed in triangles about this big (ribSolid). */
+  ribMesh: 2,
 } as const;
 
 /** A key in a rib: its plate's centre, the key axis the rib runs along, across it, and its normal (right-handed: a = c × n). */
@@ -155,8 +156,6 @@ const isDrop = (e: End): e is { land: Pose } => typeof e === 'object' && 'land' 
 const isJoin = (e: End): e is { join: Join } => typeof e === 'object' && 'join' in e;
 /** A point on one side of a rib: [top, underside]; on a drop, [outer face, inner face]. */
 type Pair = [V3, V3];
-/** A station: [left underside, right underside, right top, left top]. */
-type Station = [V3, V3, V3, V3];
 
 /** The sizes the ribs are built from, in mm. */
 function dims(cfg: Config) {
@@ -401,7 +400,8 @@ const fromLine = (line: number[][], [x, z]: number[]) =>
  * key's tile pocket and switch body by endGap. Where the end rises off the
  * plate the round grows for that (from the end radius), so it rolls over in a
  * wider arc rather than running on up the plate's slope; where it is level or
- * falls, the lip grows.
+ * falls, the lip grows. Its `at` is side s at f along the round (0 at its
+ * top, where the lip ends, 1 at its bottom), and `turn` how far it turns.
  */
 function endRound(d: Dims, k: RibKey, u: number) {
   const edge = u > 0 ? edgePose(d, k, u) : flip(edgePose(d, k, u));
@@ -413,14 +413,17 @@ function endRound(d: Dims, k: RibKey, u: number) {
   const start = Math.atan2(sin, cos);
   // Each side's path: from its corner, a lip L long, then a round of radius R
   // about a centre under the lip's end.
-  const build = (L: number, R: number) => (s: number) => {
-    const corner = poseSide(edge, s);
-    const centre = sub(add(corner[0], scale(t, L)), scale(out(start), R));
-    const round = [...Array(SIZES.roundSteps + 1).keys()].map((j): Pair => {
-      const a = start + ((-Math.PI / 2 - start) * j) / SIZES.roundSteps;
+  const build = (L: number, R: number) => {
+    const at = (s: number, f: number): Pair => {
+      const centre = sub(add(poseSide(edge, s)[0], scale(t, L)), scale(out(start), R));
+      const a = start + (-Math.PI / 2 - start) * f;
       return [add(centre, scale(out(a), R)), add(centre, scale(out(a), R - d.wall))];
-    });
-    return [corner, ...round];
+    };
+    const path = (s: number): Pair[] => [
+      poseSide(edge, s),
+      ...[...Array(SIZES.roundSteps + 1).keys()].map((j) => at(s, j / SIZES.roundSteps)),
+    ];
+    return Object.assign(path, { at, turn: Math.PI / 2 + start });
   };
   // In the plate's own plane (along t and n from its edge's middle, seen
   // along c): the room under each side is under the plate (its underside
@@ -476,9 +479,11 @@ function endSide(d: Dims, k: RibKey, u: number, s: number, end: End): Pair[] {
     return path;
   }
   path.push(...endRound(d, k, u)(u * s).slice(1));
-  if (isDrop(end))
-    path.push(...sweep(dropTop(d, k, u), end.land, SIZES.dropSteps).map((q) => poseSide(q, u * s)));
-  return path.map((pair) => pair.map((p) => [p[0], p[1], Math.max(0, p[2])]) as Pair);
+  if (isDrop(end)) {
+    const [top, foot] = dropPoses(d, k, u, end.land);
+    path.push(...[...sweep(top, foot, SIZES.dropSteps), end.land].map((q) => poseSide(q, u * s)));
+  }
+  return path.map(aboveFloor);
 }
 
 /**
@@ -514,6 +519,20 @@ function landing(top: Pose, q: V3, along: number[]): Pose {
 }
 /** Where a drop from `top` would land straight down. */
 const straightDown = (top: Pose) => landing(top, top.p, top.c);
+/**
+ * The drop under the end of key k that faces u, landing as `land`: its top
+ * (dropTop) and the top of its foot. The foot is its last railHeight (half
+ * its height, if lower) straight down onto the floor, so where it stands on
+ * the rail (or the tie) its outer face runs on flush with the rail's, one
+ * face, rather than meeting the rail's top a little in from its edge; the
+ * drop bends above it.
+ */
+function dropPoses(d: Dims, k: RibKey, u: number, land: Pose): [Pose, Pose] {
+  const top = dropTop(d, k, u);
+  return [top, ahead(land, -Math.min(SIZES.railHeight, top.p[2] / 2))];
+}
+/** A pair kept above the floor. */
+const aboveFloor = (pair: Pair) => pair.map((p) => [p[0], p[1], Math.max(0, p[2])]) as Pair;
 
 /**
  * One side of a rib, from where its first end's drop lands (or its round, or
@@ -543,100 +562,139 @@ function ribSide(d: Dims, rib: Rib, s: number, ends: End[], over?: (string | und
   return path;
 }
 
-const square: [number, number][] = [
-  [-1, -1],
-  [1, -1],
-  [1, 1],
-  [-1, 1],
-];
-/** The solid through stations, each joined to the next, the first and last closed. */
-const solid = (wasm: ManifoldToplevel, cfg: Config, stations: Station[]) =>
-  mesh(
-    { wasm, cfg, frames: {} },
-    stations.map((st) => ({ pts: square, place: (_w: number, _z: number, j: number) => st[j] })),
-  );
+/**
+ * A stretch of a rib's path: both its sides ([side -1, side 1], each [top,
+ * underside]) at f along it (0 to 1), whether each line along it is straight
+ * (over a plate, along a lip, down a drop's foot) and how many steps it takes
+ * at least (one per 5° its heading or normal turns).
+ */
+interface Span {
+  at: (f: number) => [Pair, Pair];
+  straight?: boolean;
+  steps: number;
+}
+const turnOf = (p: V3, q: V3) => Math.acos(Math.max(-1, Math.min(1, dot(p, q))));
+const stepsOf = (turn: number) => Math.ceil(turn / (Math.PI / 36));
+/** Both sides of pose q, the rib's side s its side o·s. */
+const sidesOf = (q: Pose, o: number): [Pair, Pair] => [poseSide(q, -o), poseSide(q, o)];
+/** The rib swept from pose a to pose b (sweepAt), the rib's side s its poses' side o·s. */
+const poseSpan = (a: Pose, b: Pose, o: number): Span => {
+  const at = sweepAt(a, b);
+  return {
+    at: (f) => sidesOf(at(f), o),
+    steps: stepsOf(Math.max(turnOf(a.t, b.t), turnOf(normalOf(a), normalOf(b)))),
+  };
+};
+/** Straight from sides p to sides q. */
+const lineSpan = (p: [Pair, Pair], q: [Pair, Pair]): Span => ({
+  at: (f) => p.map((pair, i) => pair.map((x, j) => lerp(x, q[i][j], f))) as [Pair, Pair],
+  straight: true,
+  steps: 1,
+});
+const reversed = (span: Span): Span => ({ ...span, at: (f) => span.at(1 - f) });
+/** Both sides of key k's plate at its edge u (-1 or 1 along). */
+const plateSides = (d: Dims, k: RibKey, u: number) =>
+  [-1, 1].map((s): Pair => [corner(d, k, u, s, 0), corner(d, k, u, s, -d.plate)]) as [Pair, Pair];
 
-/** A rib's solid. A drop, and (PROTOTYPE ?ends=) a joined end, is a solid of its own (sweepSolid), the rib stopping at the bottom of the round or flush at its plate edge. */
-function ribSolid(wasm: ManifoldToplevel, cfg: Config, d: Dims, rib: Rib, ends: End[]) {
-  const short = ends.map((e) => (isJoin(e) ? 'flush' : isDrop(e) ? 'hang' : e));
-  const [left, right] = [-1, 1].map((s) => ribSide(d, rib, s, short));
-  const body = solid(
-    wasm,
-    cfg,
-    left.map((l, i): Station => [l[1], right[i][1], right[i][0], l[0]]),
-  );
-  const swept = ends.flatMap((e, i) => {
-    const [k, u] = endKey(rib, i);
-    // A joined end runs on into the plates it joins (at least joinInto,
-    // inside the plate's slab) and a drop up into its round, so that each
-    // overlaps what it joins rather than only meeting it face to face.
-    if (isJoin(e)) {
-      const from = u > 0 ? edgePose(d, k, u) : flip(edgePose(d, k, u));
-      const { land, into } = e.join;
-      return [sweepSolid(wasm, from, land, SIZES.joinInto, Math.max(into, SIZES.joinInto))];
-    }
-    return isDrop(e) ? [sweepSolid(wasm, dropTop(d, k, u), e.land, SIZES.joinInto, 0)] : [];
-  });
-  return swept.length ? wasm.Manifold.union([body, ...swept]) : body;
+/**
+ * The spans of the end of key k that faces u (-1 or 1 along), from its
+ * plate's corners out, as endSide has its sides: a joined end's web and on
+ * into the plate it joins (at least joinInto, inside that plate's slab, so it
+ * overlaps it rather than only meeting it face to face); else the lip, the
+ * round and a drop's bend and foot, kept above the floor.
+ */
+function endSpans(d: Dims, k: RibKey, u: number, end: End): Span[] {
+  if (end === 'flush') return [];
+  if (isJoin(end)) {
+    const from = u > 0 ? edgePose(d, k, u) : flip(edgePose(d, k, u));
+    const { land, into } = end.join;
+    const on = ahead(land, Math.max(into, SIZES.joinInto));
+    return [poseSpan(from, land, u), lineSpan(sidesOf(land, u), sidesOf(on, u))];
+  }
+  const round = endRound(d, k, u);
+  const arc = (f: number) => [-1, 1].map((s) => round.at(u * s, f)) as [Pair, Pair];
+  const spans: Span[] = [
+    lineSpan(plateSides(d, k, u), arc(0)),
+    { at: arc, steps: stepsOf(round.turn) },
+  ];
+  if (isDrop(end)) {
+    const [top, foot] = dropPoses(d, k, u, end.land);
+    spans.push(poseSpan(top, foot, u), lineSpan(sidesOf(foot, u), sidesOf(end.land, u)));
+  }
+  return spans.map((span) => ({ ...span, at: (f) => span.at(f).map(aboveFloor) as [Pair, Pair] }));
 }
 
 /**
- * The solid of the sweep from pose a to pose b (sweepAt), carried straight on
- * `back` before a and `on` past b, meshed evenly. A rib's stations each run
+ * A rib's solid: one surface along its whole path, from its first end's
+ * landing (or round, or plate edge) over each plate and web to its last's,
+ * so that where a round turns into its drop, or a web into a plate, it runs
+ * on as one mesh with no seam (each drop or joined end had been a solid of
+ * its own, overlapping the round it hung from). Where it ends on another
+ * solid (the rail, the tie, a joined plate) it overlaps that and the union
+ * takes it. Meshed in lanes (laneSolid).
+ */
+function ribSolid(wasm: ManifoldToplevel, d: Dims, rib: Rib, ends: End[]): Manifold {
+  const keys = rib.keys;
+  const spans: Span[] = [
+    ...endSpans(d, keys[0], -1, ends[0]).reverse().map(reversed),
+    ...keys.flatMap((k, i) => [
+      ...(i ? [poseSpan(edgePose(d, keys[i - 1], 1), edgePose(d, k, -1), 1)] : []),
+      lineSpan(plateSides(d, k, -1), plateSides(d, k, 1)),
+    ]),
+    ...endSpans(d, keys.at(-1)!, 1, ends[1]),
+  ];
+  return laneSolid(wasm, spans, 'ribSolid');
+}
+
+/**
+ * The solid along spans, end to end, meshed evenly. A rib's stations each run
  * straight across its whole width, and round a tight turn its outer side runs
  * several times as far as its inner, or as it twists its sides run across, so
  * the quads between stations would be long slivers, or fold, and shade as
  * streaks. Instead the cross-section's outline is cut into lanes about
- * joinMesh apart (across the top and the underside, down the sides), each lane
- * runs along the rib with points about joinMesh apart along its own length,
- * and neighbouring lanes are stitched with triangles, each advancing
- * whichever lane is behind (along the rib). Each point lies on its station's
- * straight line across, so it is the same surface as the stations', sampled
- * finer.
+ * ribMesh apart (across the top and the underside, down the sides), each lane
+ * runs along the spans with points about ribMesh apart along its own length
+ * (and at least each span's steps; a straight span needs none between its
+ * ends), and neighbouring lanes are stitched with triangles, each advancing
+ * whichever lane is behind. Each point lies on its station's straight line
+ * across, so it is the same surface as the stations', sampled finer. The
+ * spans head along t with side 1 along c from side -1 and the top along
+ * n = t × c from the underside, so that it faces out.
  */
-function sweepSolid(wasm: ManifoldToplevel, a: Pose, b: Pose, back: number, on: number): Manifold {
-  const at = sweepAt(a, b);
-  // The pose g along: the sweep from 0 to 1, and before and after it straight on.
-  const pose = (g: number) =>
-    g < 0 ? ahead(a, back * g) : g <= 1 ? at(g) : ahead(b, on * (g - 1));
-  const spans = [...(back > 0 ? [-1] : []), 0, 1, ...(on > 0 ? [2] : [])];
-  const h = SIZES.joinMesh;
+function laneSolid(wasm: ManifoldToplevel, spans: Span[], what: string): Manifold {
+  const h = SIZES.ribMesh;
   // The lanes, round the cross-section: the top from side -1 to 1, down side
   // 1, the underside back, up side -1.
-  const m = Math.ceil((2 * Math.max(a.half, b.half)) / h);
-  const v = Math.ceil(Math.max(a.thick, b.thick) / h);
-  const lanes: ((q: Pose) => V3)[] = [];
+  const stations = spans.flatMap((span) => [span.at(0), span.at(1)]);
+  const m = Math.ceil(Math.max(...stations.map(([l, r]) => Math.hypot(...sub(r[0], l[0])))) / h);
+  const v = Math.ceil(Math.max(...stations.map(([l]) => Math.hypot(...sub(l[0], l[1])))) / h);
   // Across (0 at side -1, 1 at side 1) and down (0 top, 1 underside).
-  const lane = (across: number, down: number) => (q: Pose) => {
-    const [[lt, lu], [rt, ru]] = [-1, 1].map((s) => poseSide(q, s));
-    return lerp(lerp(lt, rt, across), lerp(lu, ru, across), down);
-  };
-  for (let j = 0; j <= m; j++) lanes.push(lane(j / m, 0));
-  for (let j = 1; j < v; j++) lanes.push(lane(1, j / v));
-  for (let j = m; j >= 0; j--) lanes.push(lane(j / m, 1));
-  for (let j = v - 1; j > 0; j--) lanes.push(lane(0, j / v));
-  // Each lane's points, about h apart along it, and along the sweep at least
-  // one every 5° its heading or normal turns, as the stations are (the inner
-  // lanes run little way while the rib twists round them): [g, point].
-  const turn = (p: V3, q: V3) => Math.acos(Math.max(-1, Math.min(1, dot(p, q))));
-  const steps = Math.ceil(
-    Math.max(turn(a.t, b.t), turn(normalOf(a), normalOf(b))) / (Math.PI / 36),
-  );
+  const lane =
+    (across: number, down: number) =>
+    ([l, r]: [Pair, Pair]) =>
+      lerp(lerp(l[0], r[0], across), lerp(l[1], r[1], across), down);
+  const lanes = [
+    ...[...Array(m + 1).keys()].map((j) => lane(j / m, 0)),
+    ...[...Array(v - 1).keys()].map((j) => lane(1, (j + 1) / v)),
+    ...[...Array(m + 1).keys()].map((j) => lane(1 - j / m, 1)),
+    ...[...Array(v - 1).keys()].map((j) => lane(0, 1 - (j + 1) / v)),
+  ];
+  // Each lane's points: [g, point], g its span's index and how far along it.
   const fine = 128;
   const points = lanes.map((path) =>
-    spans.slice(1).flatMap((g1, i) => {
-      const g0 = spans[i];
-      const dense = [...Array(fine + 1).keys()].map((j) => path(pose(g0 + ((g1 - g0) * j) / fine)));
+    spans.flatMap((span, i) => {
+      const at = (f: number): [number, V3] => [i + f, path(span.at(f))];
+      if (span.straight) return i ? [at(1)] : [at(0), at(1)];
+      const dense = [...Array(fine + 1).keys()].map((j) => path(span.at(j / fine)));
       const run = [0];
       dense.slice(1).forEach((p, j) => run.push(run[j] + Math.hypot(...sub(p, dense[j]))));
-      const n = Math.max(1, Math.ceil(run[fine] / h), g0 === 0 ? steps : 0);
-      return [...Array(n + 1).keys()].slice(i ? 1 : 0).map((j): [number, V3] => {
+      const n = Math.max(1, Math.ceil(run[fine] / h), span.steps);
+      return [...Array(n + 1).keys()].slice(i ? 1 : 0).map((j) => {
         const want = (run[fine] * j) / n;
         let after = 1;
         while (after < fine && run[after] < want) after++;
         const f = (want - run[after - 1]) / (run[after] - run[after - 1] || 1);
-        const g = g0 + ((g1 - g0) * (after - 1 + Math.min(1, Math.max(0, f)))) / fine;
-        return [g, path(pose(g))];
+        return at((after - 1 + Math.min(1, Math.max(0, f))) / fine);
       });
     }),
   );
@@ -660,18 +718,21 @@ function sweepSolid(wasm: ManifoldToplevel, a: Pose, b: Pose, back: number, on: 
       }
     }
   });
-  // The two ends closed, facing back along the rib and on along it.
+  // The two ends closed, facing back along the rib and on along it: seen
+  // along the rib, across (c) and up (n) wind counter-clockwise, as c × n = t.
   [0, 1].forEach((last) => {
-    const q = pose(last ? spans.at(-1)! : spans[0]);
+    const [l, r] = last ? spans.at(-1)!.at(1) : spans[0].at(0);
+    const c = unit(sub(r[0], l[0]));
+    const up = sub(l[0], l[1]);
+    const n = unit(sub(up, scale(c, dot(up, c))));
     const ring = ids.map((lane) => (last ? lane.at(-1)! : lane[0]));
     const plan = ring.map((id): [number, number] => {
-      const p = sub(verts.slice(id * 3, id * 3 + 3) as V3, q.p);
-      return [dot(p, q.c), dot(p, normalOf(q))];
+      const p = sub(verts.slice(id * 3, id * 3 + 3) as V3, l[0]);
+      return [dot(p, c), dot(p, n)];
     });
     const ccw = area2(plan) > 0;
     const order = ring.map((_, i) => (ccw ? i : ring.length - 1 - i));
     for (const [x, y, z] of wasm.triangulate([order.map((i) => plan[i])])) {
-      // Seen from along +t the plan is wound counter-clockwise, so it faces on.
       const tri = [x, y, z].map((i) => ring[order[i]]);
       tris.push(...(last ? tri : [tri[0], tri[2], tri[1]]));
     }
@@ -683,7 +744,7 @@ function sweepSolid(wasm: ManifoldToplevel, a: Pose, b: Pose, back: number, on: 
       triVerts: new Uint32Array(tris),
     }),
   );
-  if (solid.status() !== 'NoError') throw new Error(`sweepSolid: ${solid.status()}`);
+  if (solid.status() !== 'NoError') throw new Error(`${what}: ${solid.status()}`);
   return solid;
 }
 
@@ -865,8 +926,9 @@ function dropAt(side: Pair[], z: number): Pair {
 /**
  * The band between two neighbouring columns' drops at the same end (each a
  * rib and its end's kind): their facing sides joined at each height either
- * has a station at, from the floor up to the lower one's round, each reaching
- * bandInto into its drop. None if they are far apart, or it would hit a key.
+ * has a station at, from the floor up to the lower one's round, each
+ * reaching bandInto into its drop, meshed as a rib is (laneSolid). None if
+ * they are far apart, or it would hit a key.
  */
 function band(
   wasm: ManifoldToplevel,
@@ -876,12 +938,13 @@ function band(
   end: number,
   pair: [Rib, End][],
 ) {
-  const sides = pair.map(([rib, kind], i) => {
-    const [k, o] = [rib, pair[1 - i][0]].map((r) => endKey(r, end)[0]);
-    const s = Math.sign(dot(k.c, sub(o.o, k.o)));
-    const into = scale([...unitPlan(k.c), 0] as V3, -s * SIZES.bandInto);
-    return dropSide(d, rib, end, s, kind).map((p) => p.map((q) => add(q, into)) as Pair);
-  });
+  // Each drop's side facing the other, and its other side.
+  const [sides, others] = [1, -1].map((f) =>
+    pair.map(([rib, kind], i) => {
+      const [k, o] = [rib, pair[1 - i][0]].map((r) => endKey(r, end)[0]);
+      return dropSide(d, rib, end, f * Math.sign(dot(k.c, sub(o.o, k.o))), kind);
+    }),
+  );
   const apart = Math.hypot(...sub(sides[0].at(-1)![0], sides[1].at(-1)![0]));
   if (apart > SIZES.bandGap) return [];
   const top = Math.min(...sides.map((side) => side[0][0][2]));
@@ -889,13 +952,23 @@ function band(
     .filter((z) => z <= top)
     .sort((x, y) => x - y)
     .filter((z, i, all) => !i || z - all[i - 1] > 0.01);
-  const [left, right] = sides.map((side) => levels.map((z) => dropAt(side, z)));
+  // Each reaching bandInto into its drop along the drop's faces (toward its
+  // other side), so it neither stands proud of them nor, at the foot, of the
+  // rail (trimmed to the band's foot there).
+  const [left, right] = sides.map((side, i) =>
+    levels.map((z) => {
+      const [p, q] = [side, others[i]].map((x) => dropAt(x, z));
+      return p.map((x, j) => add(x, scale(unit(sub(q[j], x)), SIZES.bandInto))) as Pair;
+    }),
+  );
   if (levels.length < 2 || !clearOfKeys(cfg, frames, samples(left, right))) return [];
-  const stations = levels.map((_, i): Station => {
-    const st: Station = [left[i][0], left[i][1], right[i][1], right[i][0]];
-    return area2(st) > 0 ? st : (st.reverse() as Station);
-  });
-  return [solid(wasm, cfg, stations)];
+  // Meshed as a rib is, heading up, its outer face its top: side 1 the one
+  // that makes that face out.
+  const [a, b] = [left[0], right[0]];
+  const out = dot(cross([0, 0, 1], sub(b[0], a[0])), sub(a[0], a[1])) > 0;
+  const [l, r] = out ? [left, right] : [right, left];
+  const spans = levels.slice(1).map((_, i) => lineSpan([l[i], r[i]], [l[i + 1], r[i + 1]]));
+  return [laneSolid(wasm, spans, 'band')];
 }
 
 /** How far below the plate top the openings check probes each switch hole's column (solid.ts CHECKS.probeHeight / 2). */
@@ -1442,7 +1515,12 @@ export function skeletyl(
       const [p, q] = [facing(a, b), facing(b, a)];
       if (Math.hypot(...sub(q, p)) > SIZES.bandGap) return [];
       const o = [...unitPlan([q[1] - p[1], p[0] - q[0]]), 0] as V3;
-      return [[p, q, dot(o, add(normalOf(a), normalOf(b))) < 0 ? scale(o, -1) : o]];
+      // The band's foot reaches bandInto into each drop along its face (band).
+      const [pi, qi] = [
+        add(p, scale(unit(sub(a.p, p)), SIZES.bandInto)),
+        add(q, scale(unit(sub(b.p, q)), SIZES.bandInto)),
+      ];
+      return [[pi, qi, dot(o, add(normalOf(a), normalOf(b))) < 0 ? scale(o, -1) : o]];
     }),
   ];
   const ring = trimmed(wasm, rough, faces);
@@ -1491,7 +1569,7 @@ export function skeletyl(
     support === 'tie' || support === 'both' || support === 'flow'
       ? floorTie(wasm, cfg, d, frames, all, ends, ring)
       : undefined;
-  const solids = all.map((rib, i) => ribSolid(wasm, cfg, d, rib, ends[i]));
+  const solids = all.map((rib, i) => ribSolid(wasm, d, rib, ends[i]));
   // The bands between neighbouring columns' drops.
   const bands = neighbours.flatMap(({ e, pair }) => {
     const sides = pair.map((i): [Rib, End] => [all[i], ends[i][e]]);
