@@ -1,5 +1,5 @@
-// The seam check (tests/seams.ts) on Swung in, ?walls= none and flare by
-// ?ends= none, tie and flow: the frame builds as one piece on one footprint,
+// The seam check (tests/seams.ts) on Swung in, ?walls= none, flare, pillars
+// and wishbone by ?ends= none, tie and flow: the frame builds as one piece on one footprint,
 // every drop stands flush on the rail, and the seams found between each class
 // of parts (rib, band, rail or tie, wall) are no more than they were when
 // pinned. A class's count can only fall: if it falls, lower its pin.
@@ -46,6 +46,15 @@ function classOf(s: Seam) {
  *  - rail+wall, rib+wall, wall (flare): the flare walls reach 0.2 mm into the
  *    rib and the rail (the WallSide contract), so they meet them near tangent,
  *    and stand at railHeight even where the rail dips to a low drop.
+ *  - pillars and wishbone: no wall class but one. The rail's own corners are
+ *    more (rail, rail+rib): the outline runs out under each limb's feet and
+ *    turns back in past them, and that changes where it is resampled near the
+ *    thumbs' low drops. wall (wishbone): one sliver of no area on a straight
+ *    edge of the inner home key's trunk, where the rib's straight end (LAP)
+ *    lies in the trunk's shape, its corner on the shape's edge: the corner
+ *    and the edge differ by a rounding, and every way of meeting them tried
+ *    (touching, inset by a hair, matched point for point) leaves as much or
+ *    more elsewhere.
  */
 const PINS: Record<string, Record<string, number>> = {
   'none/none': {
@@ -114,6 +123,63 @@ const PINS: Record<string, Record<string, number>> = {
     'rib+wall': 45,
     wall: 25,
   },
+  'pillars/none': {
+    'band+rail': 2,
+    'band+rail+rib': 6,
+    'band+rib': 33,
+    rail: 9,
+    'rail+rib': 5,
+    rib: 27,
+    'rib+rib': 9,
+  },
+  'pillars/tie': {
+    'band+rail': 2,
+    'band+rail+rib': 6,
+    'band+rib': 44,
+    rail: 13,
+    'rail+rib': 6,
+    rib: 31,
+    'rib+rib': 9,
+  },
+  'pillars/flow': {
+    'band+rail': 2,
+    'band+rail+rib': 6,
+    'band+rib': 33,
+    rail: 12,
+    'rail+rib': 6,
+    rib: 27,
+    'rib+rib': 7,
+  },
+  'wishbone/none': {
+    'band+rail': 2,
+    'band+rail+rib': 6,
+    'band+rib': 33,
+    rail: 8,
+    'rail+rib': 5,
+    rib: 27,
+    'rib+rib': 9,
+    wall: 1,
+  },
+  'wishbone/tie': {
+    'band+rail': 2,
+    'band+rail+rib': 6,
+    'band+rib': 44,
+    rail: 12,
+    'rail+rib': 6,
+    rib: 31,
+    'rib+rib': 9,
+    wall: 1,
+  },
+  'wishbone/flow': {
+    'band+rail': 2,
+    'band+rail+rib': 6,
+    'band+rib': 33,
+    rail: 12,
+    'rail+rib': 6,
+    rib: 27,
+    'rib+rib': 7,
+    wall: 1,
+  },
 };
 
 /** Each drop's outer face is checked this far in from its ends, and this far in or out of it. */
@@ -136,7 +202,7 @@ const inside = (cs: CrossSection, x: number, y: number) =>
     )
     .area() > 1e-5;
 
-for (const walls of ['none', 'flare'])
+for (const walls of ['none', 'flare', 'pillars', 'wishbone'])
   for (const ends of ['none', 'tie', 'flow']) {
     const key = `${walls}/${ends}`;
     const p = clone(defaults);

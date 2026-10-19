@@ -86,7 +86,14 @@ import {
 } from './plates';
 import { switchHole } from './seats';
 import { outline } from './hand/frame';
-import { skeletylWalls, type WallPoint, type WallSide } from './skeletyl-walls.prototype';
+import {
+  skeletylReach,
+  skeletylWalls,
+  type Reach,
+  type RibKit,
+  type WallPoint,
+  type WallSide,
+} from './skeletyl-walls.prototype';
 import { END_SUPPORTS } from './skeletyl-ends.prototype';
 
 /** Construction sizes in mm. */
@@ -212,7 +219,7 @@ const unit = (v: V3) => scale(v, 1 / Math.hypot(...v));
  * where the end's round has turned the rib over to head straight down but
  * across it is still the plate's across, tilted (dropTop).
  */
-interface Pose {
+export interface Pose {
   p: V3;
   t: V3;
   c: V3;
@@ -626,7 +633,7 @@ function ribSide(d: Dims, rib: Rib, s: number, ends: End[], over?: (string | und
  * (over a plate, along a lip, down a drop's foot) and how many steps it takes
  * at least (one per 5° its heading or normal turns).
  */
-interface Span {
+export interface Span {
   at: (f: number) => [Pair, Pair];
   straight?: boolean;
   steps: number;
@@ -827,15 +834,24 @@ const feet = (d: Dims, rib: Rib, end: number) =>
  * digDeepest, and the outer sides' plates' and tile pockets' hulls, its
  * corners in rounded to `corner` (trimmed back where drops stand on it). It
  * also takes in each of `keep` (plan points) and the rail's width round it, so
- * the rail stays out of them.
+ * the rail stays out of them, and (PROTOTYPE ?walls=) each of `reach` (plan
+ * polygons) as it is, the rail included: the floor a wall stands on.
  */
-function rounded(wasm: ManifoldToplevel, d: Dims, feet: V3[], sides: V3[][], keep: V3[][]) {
+function rounded(
+  wasm: ManifoldToplevel,
+  d: Dims,
+  feet: V3[],
+  sides: V3[][],
+  keep: V3[][],
+  reach: [number, number][][] = [],
+) {
   const plan = (ps: V3[]) => ps.map((p) => [p[0], p[1]] as [number, number]);
   const round = (c: CrossSection, by: number) => c.offset(by, 'Round', 2, SIZES.cornerSegments);
   const area = wasm.CrossSection.union([
     new wasm.CrossSection([plan(outline(feet, d.wall, SIZES.digDeepest))], 'NonZero'),
     ...sides.map((side) => wasm.CrossSection.hull([plan(side)])),
     ...keep.map((ps) => round(wasm.CrossSection.hull([plan(ps)]), d.wall)),
+    ...reach.map((poly) => new wasm.CrossSection([poly], 'NonZero')),
   ]);
   // Out by R and back: the corners in rounded to R, the corners out kept.
   return largest(round(round(area, SIZES.corner), -SIZES.corner));
@@ -1519,12 +1535,16 @@ function floorTie(
 
 /**
  * The frame: the ribs, the bands between their drops, and the rail round the
- * outline that the ends standing on it drop to. It stands on z = 0.
+ * outline that the ends standing on it drop to. It stands on z = 0. PROTOTYPE
+ * ?walls=: the outline also takes in `reach`, what the walls ask of it, and
+ * is cut back to the faces they stand on it with (a design that asks is built
+ * twice: first to ask, on the outline without).
  */
 export function skeletyl(
   wasm: ManifoldToplevel,
   cfg: Config,
   frames: Record<string, Matrix4>,
+  reach: Reach = { floors: [], faces: [] },
 ): {
   frame: Manifold;
   outline: [number, number][];
@@ -1576,6 +1596,7 @@ export function skeletyl(
     all.flatMap((rib) => free(rib).flatMap((e) => feet(d, rib, e))),
     all.filter(outer).map(outerSide),
     columnsBelow(cfg, frames, SIZES.railHeight),
+    reach.floors,
   );
   const kind = (rib: Rib, e: number): End => {
     if (rib.parted[e]) return endClear(cfg, d, frames, rib, e, 'hang') ? 'hang' : 'flush';
@@ -1628,7 +1649,7 @@ export function skeletyl(
       return [[pi, qi, dot(o, add(normalOf(a), normalOf(b))) < 0 ? scale(o, -1) : o]];
     }),
   ];
-  const ring = trimmed(wasm, rough, faces);
+  const ring = trimmed(wasm, rough, [...faces, ...reach.faces]);
   // PROTOTYPE ?ends= (skeletyl-ends.prototype.ts): the columns' hanging fronts
   // joined to the thumbs, and the floor tie that the hanging ends drop onto.
   const support = (cfg.chassis as { ends?: string }).ends ?? 'none';
@@ -1675,6 +1696,61 @@ export function skeletyl(
     support === 'tie' || support === 'flow'
       ? floorTie(wasm, cfg, d, frames, all, ends, ring)
       : undefined;
+  const area = new wasm.CrossSection([ring], 'NonZero');
+  const inside = area.offset(-d.wall, 'Round');
+  // The ribs' names (as the wall variants have them), and the rail's inner edge.
+  const named = all.map((rib) => {
+    const n =
+      rib.run < columns
+        ? cfg.geometry.columns[rib.run].name
+        : rib.run === columns
+          ? 'thumb'
+          : 'thumb extra';
+    const same = all.filter((r) => r.run === rib.run);
+    return same.length > 1 ? `${n} #${same.indexOf(rib) + 1}` : n;
+  });
+  const innerRing = () =>
+    inside
+      .toPolygons()
+      .map((p) => p.map((q) => [q[0], q[1]] as [number, number]))
+      .reduce((x, y) => (area2(y) > area2(x) ? y : x));
+  // PROTOTYPE ?walls= (skeletyl-walls.prototype.ts): the outer sides, and
+  // the frame again taking in what the walls ask of the outline, if they do.
+  const wallsKey = (cfg.chassis as { walls?: string }).walls ?? 'none';
+  const wallSides = () =>
+    all.flatMap((rib, i) =>
+      outer(rib)
+        ? [wallSide(cfg, d, frames, rib, ends[i], outward(rib), named[i], ring, innerRing())]
+        : [],
+    );
+  // Where a drop stands lower than railHeight, the rail dips to meet it.
+  const dips = all.flatMap((rib, i) =>
+    [0, 1].flatMap((e) => {
+      const end = ends[i][e];
+      if (!isDrop(end)) return [];
+      const h = footHeight(d, ...endKey(rib, e));
+      return h < SIZES.railHeight ? [railDip(end.land, h)] : [];
+    }),
+  );
+  const ribKit: RibKit = {
+    solid: (spans) => laneSolid(wasm, spans, 'wall'),
+    poseSpan,
+    lineSpan,
+    sidesOf,
+    radius: d.radius,
+    railTop: (x, y) => Math.min(SIZES.railHeight, ...dips.map((dip) => dip.top(x, y))),
+    standing: faces,
+    tie: tie
+      ? tie
+          .offset(SIZES.tieRound + d.wall, 'Round', 2, SIZES.cornerSegments)
+          .toPolygons()
+          .map((p) => p.map((q) => [q[0], q[1]] as [number, number]))
+      : [],
+  };
+  if (!reach.floors.length) {
+    const more = skeletylReach(wasm, cfg, wallsKey, wallSides, ribKit);
+    if (more.floors.length) return skeletyl(wasm, cfg, frames, more);
+  }
   const solids = all.map((rib, i) => ribSolid(wasm, d, rib, ends[i]));
   // The bands between neighbouring columns' drops.
   const bands = neighbours.flatMap(({ e, pair }) => {
@@ -1684,8 +1760,6 @@ export function skeletyl(
       : [];
     return solids.map((solid) => ({ pair, e, solid }));
   });
-  const area = new wasm.CrossSection([ring], 'NonZero');
-  const inside = area.offset(-d.wall, 'Round');
   const loop = area.subtract(inside);
   // PROTOTYPE ?ends=tie: the tie is part of the rail, filleted into it where
   // they meet (and round its bends) as the outline's corners in are rounded.
@@ -1699,15 +1773,6 @@ export function skeletyl(
           .intersect(tie.offset(R + d.wall)),
       )
     : loop;
-  // Where a drop stands lower than railHeight, the rail dips to meet it.
-  const dips = all.flatMap((rib, i) =>
-    [0, 1].flatMap((e) => {
-      const end = ends[i][e];
-      if (!isDrop(end)) return [];
-      const h = footHeight(d, ...endKey(rib, e));
-      return h < SIZES.railHeight ? [railDip(end.land, h)] : [];
-    }),
-  );
   // The rail (or a part of it, `plan`) stood up railHeight and bent down to
   // them: its outline given points every dipMesh round each, so that its top
   // has the room to follow the dip, and its top's points lowered to it, the
@@ -1742,30 +1807,8 @@ export function skeletyl(
     });
   };
   const rail = dipped(railPlan);
-  // The ribs' names (as the wall variants have them), and the rail's inner edge.
-  const named = all.map((rib) => {
-    const n =
-      rib.run < columns
-        ? cfg.geometry.columns[rib.run].name
-        : rib.run === columns
-          ? 'thumb'
-          : 'thumb extra';
-    const same = all.filter((r) => r.run === rib.run);
-    return same.length > 1 ? `${n} #${same.indexOf(rib) + 1}` : n;
-  });
-  const innerRing = () =>
-    inside
-      .toPolygons()
-      .map((p) => p.map((q) => [q[0], q[1]] as [number, number]))
-      .reduce((x, y) => (area2(y) > area2(x) ? y : x));
   // PROTOTYPE ?walls= (skeletyl-walls.prototype.ts): walls under the outer sides.
-  const walls = skeletylWalls(wasm, cfg, (cfg.chassis as { walls?: string }).walls ?? 'none', () =>
-    all.flatMap((rib, i) =>
-      outer(rib)
-        ? [wallSide(cfg, d, frames, rib, ends[i], outward(rib), named[i], ring, innerRing())]
-        : [],
-    ),
-  );
+  const walls = skeletylWalls(wasm, cfg, wallsKey, wallSides, ribKit);
   return {
     frame: wasm.Manifold.union([...solids, ...bands.map((b) => b.solid), rail, ...walls]),
     outline: ring,

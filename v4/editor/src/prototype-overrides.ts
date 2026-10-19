@@ -5,7 +5,7 @@ import { clone, type Project } from './geometry';
  * without editing the project: `?plates=narrow[&slope=deg]|facets` (plates.ts)
  * and `?recess=mm`, the finger and thumb decks this far above the key surface
  * (Bin.lift in shell/common.ts), `?chassis=c64|skeletyl`, and
- * `?walls=none|flare|arches|truss|bones`, the Skeletyl's wall design
+ * `?walls=none|flare|arches|truss|bones|wishbone|pillars`, the Skeletyl's wall design
  * (chassis.walls; skeletyl-walls.prototype.ts, cycled by the dev editor's
  * switcher bar; absent is none, the open frame), and
  * `?ends=none|tie|flow`, how the Skeletyl supports its hanging rib

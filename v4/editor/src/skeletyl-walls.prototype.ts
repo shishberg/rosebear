@@ -8,15 +8,19 @@
 // for it into the frame. A variant is one function in its own file under
 // skeletyl-walls/, `(kit, side) => Manifold[]`, called once per side; it reads
 // nothing else of skeletyl.ts. "none" (the default) builds no walls: the frame
-// exactly as without this hook.
+// exactly as without this hook. A variant may also ask for the outline to take
+// in more floor for its walls to stand on (REACHES): the frame is then built
+// again with the outline taking it in, and the variant called on that.
 import type { Manifold, ManifoldToplevel } from 'manifold-3d';
 import type { Config, V3 } from './geometry';
+import type { Pose, Span } from './skeletyl';
 import { add, cross, dot, scale, sub } from './geometry';
 import { mesh } from './shell/loft';
 import { flare } from './skeletyl-walls/flare.prototype';
 import { arches } from './skeletyl-walls/arches.prototype';
 import { truss } from './skeletyl-walls/truss.prototype';
 import { bones } from './skeletyl-walls/bones.prototype';
+import { pillars, ribLimbsReach, wishbone } from './skeletyl-walls/rib-limbs.prototype';
 
 /** The wall designs, in the switcher's order: the ?walls= key and a short name. */
 export const WALL_DESIGNS = [
@@ -25,6 +29,8 @@ export const WALL_DESIGNS = [
   { key: 'arches', name: 'viaduct' },
   { key: 'truss', name: 'triangulated' },
   { key: 'bones', name: 'organic struts' },
+  { key: 'wishbone', name: 'forked rib legs' },
+  { key: 'pillars', name: 'rib pillars' },
 ] as const;
 
 /**
@@ -83,13 +89,74 @@ export interface WallKit {
    * is triangulated in its own plane for the caps). Either winding works.
    */
   sweep: (sections: V3[][]) => Manifold;
+  /** The ribs' own construction (skeletyl.ts), for walls built as ribs are. */
+  rib: RibKit;
+  /** Every side the design is called on in this build, in order (so walls on one can keep clear of another's). */
+  sides: WallSide[];
+}
+
+/**
+ * The ribs' construction, as skeletyl.ts has it: a rib's solid along spans
+ * (laneSolid), each a stretch of it swept between two poses (poseSpan; its
+ * sides the poses' sides o·s) or straight between two stations (lineSpan; a
+ * pose's stations are sidesOf it), and the ends' round's radius.
+ */
+export interface RibKit {
+  solid: (spans: Span[]) => Manifold;
+  poseSpan: (a: Pose, b: Pose, o: number) => Span;
+  lineSpan: (p: [[V3, V3], [V3, V3]], q: [[V3, V3], [V3, V3]]) => Span;
+  sidesOf: (q: Pose, o: number) => [[V3, V3], [V3, V3]];
+  radius: number;
+  /** The rail's top at plan point (x, y): railHeight, or lower where it dips to meet a low drop. */
+  railTop: (x: number, y: number) => number;
+  /** The faces standing on the outline that it is cut back to (the drops' and the bands'), each [a, b, outward] as Reach's faces. */
+  standing: V3[][];
+  /** PROTOTYPE ?ends=tie, flow: where the floor tie meets the rail and is filleted into it (plan polygons, the tie and tieRound and the rail's width round it); none without a tie. */
+  tie: [number, number][][];
 }
 
 /** A wall design: the walls for one side. Each solid should reach a little (0.2 mm or so) into the rib and the rail so the union joins them. */
 export type WallVariant = (kit: WallKit, side: WallSide) => Manifold[];
 
+/**
+ * What a design asks of the outline: plan polygons (either winding) it must
+ * take in as they are, the rail included, for its walls to stand on
+ * (floors); and the faces its walls stand on the outline with, each [a, b,
+ * outward] (a and b plan, outward a plan unit vector), that the outline is
+ * cut back to as it is to the drops' faces, so that rounding its corners in
+ * doesn't fill in past them. Asked on the outline without them; the design is
+ * then called on the outline with them, so it must ask only for floor it will
+ * then stand on.
+ */
+export interface Reach {
+  floors: [number, number][][];
+  faces: V3[][];
+}
+/** What a design asks of the outline for one side. */
+export type WallReach = (kit: WallKit, side: WallSide) => Reach;
+
 /** The variants by key (exported so a probe can add its own). */
-export const VARIANTS: Record<string, WallVariant> = { flare, arches, truss, bones };
+export const VARIANTS: Record<string, WallVariant> = {
+  flare,
+  arches,
+  truss,
+  bones,
+  wishbone,
+  pillars,
+};
+/** The variants that ask the outline for more floor. */
+export const REACHES: Record<string, WallReach> = {
+  wishbone: (kit, side) => ribLimbsReach(kit, side, true),
+  pillars: (kit, side) => ribLimbsReach(kit, side, false),
+};
+
+const wallKit = (wasm: ManifoldToplevel, cfg: Config, rib: RibKit, sides: WallSide[]): WallKit => ({
+  wasm,
+  cfg,
+  sweep: (sections) => sweep(wasm, cfg, sections),
+  rib,
+  sides,
+});
 
 /** The walls of design `key` for every side (none for "none"). */
 export function skeletylWalls(
@@ -97,12 +164,28 @@ export function skeletylWalls(
   cfg: Config,
   key: string,
   sides: () => WallSide[],
+  rib: RibKit,
 ): Manifold[] {
   if (key === 'none') return [];
   const variant = VARIANTS[key];
   if (!variant) throw Error(`Unknown walls "${key}": one of ${WALL_DESIGNS.map((w) => w.key)}`);
-  const kit: WallKit = { wasm, cfg, sweep: (sections) => sweep(wasm, cfg, sections) };
-  return sides().flatMap((side) => variant(kit, side));
+  const kit = wallKit(wasm, cfg, rib, sides());
+  return kit.sides.flatMap((side) => variant(kit, side));
+}
+
+/** What design `key` asks of the outline for every side (REACHES), if anything. */
+export function skeletylReach(
+  wasm: ManifoldToplevel,
+  cfg: Config,
+  key: string,
+  sides: () => WallSide[],
+  rib: RibKit,
+): Reach {
+  const reach = REACHES[key];
+  if (!reach) return { floors: [], faces: [] };
+  const kit = wallKit(wasm, cfg, rib, sides());
+  const each = kit.sides.map((side) => reach(kit, side));
+  return { floors: each.flatMap((r) => r.floors), faces: each.flatMap((r) => r.faces) };
 }
 
 /** A section's normal by Newell's method: the polygon winds counter-clockwise round it. */
