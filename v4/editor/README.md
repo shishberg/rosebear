@@ -203,6 +203,10 @@ The default project's layout, Swung in, fails some checks (its thumb keys sit un
 finger keys); the tests pin those failures, so a change shows up. Every test builds
 Swung in, or a deliberate change of it. The C64 case (`?chassis=c64`) was built for
 the earlier layout and fails more of them on Swung in; its tests pin those too.
+The seam check (`tests/seams.ts`) finds where the Skeletyl's parts meet badly
+on the mesh as the editor draws it (slivers, ledges, unintended creases, gaps,
+thin skins, swayed shading), with the parts that meet there; `tests/seams.test.ts`
+pins its count per junction class and checks that every drop stands flush on the rail.
 
 The editor's cleanup is tracked in [CLEANUP-PLAN.md](CLEANUP-PLAN.md), which lists
 each task's status and the decisions left to the owner.
