@@ -132,16 +132,18 @@
       }
     },
     "thumb_extra": {
-      "position_mm": [13.5015, -52, 1.0416],
-      "rotation_deg": [0, -10, 0],
+      "position_mm": [-0.06, -75.76, 3.7],
+      "rotation_deg": [7.07, -34.52, 54.02],
       "keys": [
         {
           "name": "x1",
-          "offset_mm": [-11.5, -0.5, 1.5]
+          "offset_mm": [0, 0, 0],
+          "rotation_deg": [0, 0, 0]
         },
         {
           "name": "x2",
-          "offset_mm": [11.5, 0.5, -1.5]
+          "offset_mm": [-22.02, -1.33, -1.74],
+          "rotation_deg": [-0.52, -9.66, 6.11]
         }
       ],
       "arc": {

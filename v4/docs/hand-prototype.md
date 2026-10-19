@@ -51,13 +51,21 @@ result. The readout says first whether the layout is valid, or lists what is wro
   normal, and last the pair slides together along the row. They are placed by those
   settings alone, not by the thumb; the thumb's pose on each follows from the key, for
   the checks and readout only. They are pressed with the thumb's side or base, which the
-  model doesn't have, so the back-of-thumb check skips them. Swung in has them off:
-  the editor's `thumb_extra` cluster is not placed by the hand.
+  model doesn't have, so the back-of-thumb check skips them. Swung in has them on, 1 mm
+  above the row's face (`lower` -1), so the hand places the editor's `thumb_extra`
+  cluster; with them off, `applyHand` leaves the cluster where the default has it.
+  The hand check finds x2 18 mm past the thumb's reach, and the thumb going into x1, x2,
+  the home key and the frame reaching for and pressing them; `tests/hand.test.ts` pins
+  those problems (`EXTRA_PROBLEMS`) and checks Swung in is otherwise valid.
 - **Swung in** (`SWUNG_IN` in `src/hand/layout.ts`): the thumb reaching and pressing
   its keys without curling, the row turned toward the thumb's base until the home key
-  is about halfway to where x1 was. `tests/hand.test.ts` checks that it is valid, with
-  the test frame too, and pins what the test frame gets wrong on it (two pairs of
-  floor rails cross, and the thumb row's ends have no truss). The earlier presets it
+  is about halfway to where x1 was, the extra keys beside it toward the thumb's base.
+  The default project (`src/default-config.json`) is Swung in laid out by `applyHand`
+  on the defaults before it (`npm run default-config` regenerates it).
+  `tests/hand.test.ts` checks that it is valid but for the extra keys' reach, with the
+  test frame too, and pins what the test frame gets wrong on it (two pairs of floor
+  rails cross, and the thumb keys' sides between the row and the extra keys have no
+  truss). The earlier presets it
   grew from (Dactyl fit, Natural, Yours, No curl) were removed on 19 Oct 2026; they
   are in git history (509dbd1 is the last commit with them).
 

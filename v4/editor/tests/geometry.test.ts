@@ -130,13 +130,18 @@ test('shared per-key helpers', () => {
 });
 test('thumb clusters fan on an arc and tilt into a well', () => {
   // Swung in places each thumb key itself, with no arc; here its row is put
-  // back on an arc of 11° steps with a 12° well, each key at its place on it.
+  // back on an arc of 11° steps with a 12° well, each key at its place on it,
+  // and the extra keys at theirs on their own cluster's arc.
   const p = clone(defaults),
     th = p.config.geometry.thumb;
   th.arc = { ...th.arc, step_deg: 11, well_deg: 12 };
   for (const k of th.keys) {
     k.offset_mm = [0, 0, 0];
     k.rotation_deg = k.name === 'home' ? [0, 0, -90] : [0, 0, 0];
+  }
+  for (const k of (p.config.geometry as { thumb_extra: typeof th }).thumb_extra.keys) {
+    k.offset_mm = [0, 0, 0];
+    k.rotation_deg = [0, 0, 0];
   }
   const f = componentFrames(p.config);
   const far = pos(f.thumb_far),
@@ -169,9 +174,9 @@ const c64 = () => {
 };
 test("the C64 chassis on Swung in: flat seats where they pass, failing Swung in's known checks", () => {
   // The C64 case was built for the layout before Swung in and doesn't fit it:
-  // Swung in's thumb keys sit under the finger keys and low, so seats,
+  // Swung in's thumb keys sit low and close to the finger keys, so seats,
   // keycap rooms, hardware and wires fail, and the case is two pieces on
-  // eight footprints. Pinned, so a change shows up; the seats that pass are
+  // nine footprints. Pinned, so a change shows up; the seats that pass are
   // still flat, and the seating still leaves the plates' edges alone.
   const p = c64(),
     r = buildSolid(wasm, p),
@@ -185,9 +190,9 @@ test("the C64 chassis on Swung in: flat seats where they pass, failing Swung in'
   );
   assert.equal(r.report.seats.length, 20);
   const badSeats = failing(r.report.seats);
-  assert.deepEqual(badSeats, ['matrix_pinky_bottom', 'thumb_far', 'thumb_near', 'thumb_x2']);
+  assert.deepEqual(badSeats, ['thumb_far', 'thumb_x2']);
   assert.equal(r.report.pieces.length, 2);
-  assert.equal(r.report.footprint.length, 8);
+  assert.equal(r.report.footprint.length, 9);
   assert.deepEqual(
     r.report.roomCuts.map((c) => c.name),
     [
@@ -199,18 +204,17 @@ test("the C64 chassis on Swung in: flat seats where they pass, failing Swung in'
       'matrix_pinky_home',
       'matrix_pinky_bottom',
       'thumb_x1',
-      'thumb_x2',
     ],
   );
   assert.deepEqual(
     r.report.hardware.map((h) => h.name),
-    ['matrix_pinky_bottom', 'Ribbon 7', 'Ribbon 8', 'Ribbon 9', 'Ribbon 10'],
+    ['Ribbon 7', 'Ribbon 8', 'Ribbon 9', 'Ribbon 10'],
   );
-  assert.equal(r.report.wires.length, 9);
-  assert.deepEqual(failing(r.report.keycaps), ['thumb_x1']);
+  assert.equal(r.report.wires.length, 3);
+  assert.deepEqual(failing(r.report.keycaps), []);
   assert.deepEqual(
     r.report.capGaps.filter((g) => !(g.gap > 0)).map((g) => g.between),
-    ['fingers – extra thumbs'],
+    [],
   );
   assert(r.report.openings.length > 0 && r.report.openings.every((o) => o.passed));
   assert.equal(r.report.passed, false);
@@ -296,34 +300,28 @@ test('a thicker skin builds the case in one piece, the adapter mount reaching th
   );
 });
 test("the default (Swung in) Skeletyl builds one piece, failing only Swung in's known checks", () => {
-  // Swung in's thumb x1 sits under the home and near keys and x2 under the
-  // pinky and ring bottom keys: the extra thumbs' keycaps touch the fingers'.
-  // Its failures are pinned, so a change shows up; everything else passes.
+  // The pinky bottom key's keycap room has the frame in it. Its failures are
+  // pinned, so a change shows up; everything else passes.
   const r = buildSolid(wasm, clone(defaults)).report,
     failing = (xs: { name: string; passed: boolean }[]) =>
       xs.filter((x) => !x.passed).map((x) => x.name);
   assert.equal(r.pieces.length, 1);
   assert.equal(r.footprint.length, 1);
   assert.equal(r.seats.length, 20);
-  assert.deepEqual(failing(r.seats), ['matrix_pinky_bottom', 'thumb_near', 'thumb_x2']);
-  assert.deepEqual(failing(r.keycaps), ['matrix_pinky_bottom', 'thumb_x1', 'thumb_x2']);
+  assert.deepEqual(failing(r.seats), []);
+  assert.deepEqual(failing(r.keycaps), ['matrix_pinky_bottom']);
   assert.deepEqual(
     r.roomCuts.map((c) => c.name),
-    ['matrix_pinky_bottom', 'thumb_x1', 'thumb_x2'],
-  );
-  assert(r.openings.length > 0);
-  assert.deepEqual(failing(r.openings), ['thumb_home', 'thumb_near']);
-  assert.deepEqual(
-    r.hardware.map((h) => h.name),
     ['matrix_pinky_bottom'],
   );
+  assert(r.openings.length > 0);
+  assert.deepEqual(failing(r.openings), []);
+  assert.deepEqual(r.hardware, []);
   assert.deepEqual(r.wires, []);
-  assert.deepEqual(r.crossings, [
-    'RB: ring_bottom to pinky_bottom and +5V: pinky_bottom to ring_bottom',
-  ]);
+  assert.deepEqual(r.crossings, []);
   assert.deepEqual(
     r.capGaps.filter((g) => !(g.gap > 0)).map((g) => g.between),
-    ['fingers – extra thumbs'],
+    [],
   );
   assert.equal(r.passed, false);
 });
@@ -353,8 +351,8 @@ test('the checker reports keycap collisions', () => {
 });
 test('the checker reports chassis built where a keycap goes', () => {
   // The thumb cluster moved 5 mm toward the fingers: the middle bottom key's
-  // room cuts into the chassis (Swung in's own room cuts are at the pinky
-  // bottom key and the extra thumbs).
+  // room cuts into the chassis (Swung in's own room cut is at the pinky
+  // bottom key).
   const close = clone(defaults);
   close.config.geometry.thumb.position_mm[1] += 5;
   const r = buildSolid(wasm, close);
@@ -404,11 +402,8 @@ test("the wiring joins each net's pads and adapter hole, for a 4 × 5 matrix", (
       ([a, b]) =>
         `${w.wires[a].net} ${w.wires[a].from}-${w.wires[a].to} × ${w.wires[b].net} ${w.wires[b].from}-${w.wires[b].to}`,
     );
-  // On Swung in (the default) one wire runs into another, between the pinky
-  // and ring bottom keys. Pinned, so a change shows up.
-  assert.deepEqual(crossed(w), [
-    'RB matrix_ring_bottom-matrix_pinky_bottom × +5V matrix_pinky_bottom-matrix_ring_bottom',
-  ]);
+  // On Swung in (the default) no wire runs into another.
+  assert.deepEqual(crossed(w), []);
   // Every wire's underside stays the floor's skin above the base: its
   // centreline at least skin_mm plus its radius above z = 0.
   for (const x of w.wires)
@@ -505,8 +500,7 @@ test('keycapEnvelope: the measured cap grown by its clearance, down to where it 
   assert.equal(keycapEnvelope(deep, 'matrix_index_home', { clampFloor: true }).floor, 0);
 });
 test('a wide keycap clearance fails the C64 swept check by the taper, not the at-rest one', () => {
-  // The index bottom key, which passes at the usual clearance (on Swung in
-  // the C64's thumb x1 fails at rest already).
+  // The index bottom key, which passes at the usual clearance.
   const p = c64();
   p.config.switch.keycap_clearance_mm = 6;
   const r = buildSolid(wasm, p),

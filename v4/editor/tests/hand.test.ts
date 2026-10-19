@@ -82,14 +82,30 @@ test('a part is caught going into a keycap or the frame, but not the keys it may
   );
 });
 
-test('Swung in is valid: the hand reaches every key touching nothing else, the keycaps clear, the printed frame sound, and it fits the tray', (t) => {
+/** The hand's known problems on Swung in, all with its extra keys: x2 is
+ * past the thumb's reach, and the thumb goes into the keys and the frame
+ * reaching and pressing them. Pinned, so a change shows up. */
+const EXTRA_PROBLEMS = [
+  'thumb pressing thumb x1: into thumb x2 (5.0 mm)',
+  'thumb reaching for thumb x2: into thumb x1 (8.0 mm)',
+  'thumb pressing thumb x2: into thumb home (2.3 mm)',
+  'thumb pressing thumb x2: into the frame by thumb x1 (3.7 mm)',
+  'thumb pressing thumb x2: into the frame by thumb x2 (2.7 mm)',
+  'thumb x2 out of reach (18 mm)',
+];
+test('Swung in is valid but for its extra keys: the hand reaches every other key touching nothing else, the keycaps clear, the printed frame sound, and it fits the tray', (t) => {
   const r = layout(SWUNG_IN);
   report(t, r);
-  assert.deepEqual(r.r.handHits, []);
+  assert.ok(r.r.handHits.every((x) => /thumb x[12]/.test(`${x.b} ${x.during}`)));
   assert.deepEqual(r.r.capHits, []);
   assert.ok(r.r.height <= hand.TRAY, `${r.r.height.toFixed(1)} mm tall`);
-  assert.deepEqual(hand.problems(r.r), []);
+  assert.deepEqual(hand.problems(r.r), EXTRA_PROBLEMS);
+  assert.deepEqual(r.r.h.extra.length, 2);
   assert.deepEqual(r.frame.faults, []);
+  // Without them, valid.
+  const off = layout({ ...structuredClone(SWUNG_IN), extra: { ...SWUNG_IN.extra!, on: false } });
+  assert.deepEqual(off.r.handHits, []);
+  assert.deepEqual(hand.problems(off.r), []);
 });
 const withMix = (base: Settings, palmar: number, curl: number, press: number) => ({
   ...structuredClone(base),
@@ -222,7 +238,7 @@ test("a reach or press that takes the thumb past its joints isn't valid", () => 
   const r = hand.check(c, s);
   assert.deepEqual(
     r.pastJoints.map((x) => x.key),
-    ['thumb near'],
+    ['thumb near', 'thumb x2'],
   );
   assert.ok(hand.problems(r).some((p) => p.startsWith('thumb near: the thumb')));
 });
@@ -328,10 +344,12 @@ test("keys whose tiles overlap aren't valid: the boards and the parts hanging un
     ROWS.map((r) => `matrix_index_${r} matrix_inner_${r}`).sort(),
   );
   assert.deepEqual(tiles(SWUNG_IN), []);
-  // The thumb keys 18 mm apart, centre to centre: their tiles meet.
+  // The thumb keys 18 mm apart, centre to centre: their tiles meet, the
+  // extra keys' too (they are moved apart to the row's spacing).
   assert.deepEqual(tiles({ ...structuredClone(SWUNG_IN), spacing: 18 }), [
     'thumb_far thumb_home',
     'thumb_home thumb_near',
+    'thumb_x1 thumb_x2',
   ]);
 });
 test("far and near thumb keys keep the home key's y, tilted only along the row", () => {
@@ -493,22 +511,12 @@ test('the extra thumb keys hang off the row under its gaps, and exist only when 
   // Clear of each other and the row (and not checked for the back of the
   // thumb, though the thumb's tip, all the model presses with, meets them so).
   assert.ok(r.h.extra.every((k) => Math.abs(k.roll) > hand.BACK_OF_THUMB));
-  // The thumb touches x1. On Swung in the extra keys are off (the editor's
-  // thumb_extra cluster is not placed by the hand), and set as here x2 is
-  // past the thumb's reach and the thumb goes into the keys and the frame
-  // reaching and pressing them. Pinned, so a change shows up.
+  // The thumb touches x1; x2 is past its reach (EXTRA_PROBLEMS).
   assert.ok(r.h.extra[0].miss < 0.01, `thumb_x1: ${r.h.extra[0].miss} mm off`);
-  assert.deepEqual(wrongOf(on), [
-    'thumb pressing thumb x1: into thumb x2 (5.0 mm)',
-    'thumb reaching for thumb x2: into thumb x1 (8.0 mm)',
-    'thumb pressing thumb x2: into thumb home (2.3 mm)',
-    'thumb pressing thumb x2: into the frame by thumb x1 (3.7 mm)',
-    'thumb pressing thumb x2: into the frame by thumb x2 (2.7 mm)',
-    'thumb x2 out of reach (18 mm)',
-  ]);
-  const off = layout(SWUNG_IN);
+  assert.deepEqual(wrongOf(on), EXTRA_PROBLEMS);
+  const off = layout({ ...structuredClone(SWUNG_IN), extra: { ...SWUNG_IN.extra!, on: false } });
   assert.ok(frame.volume > off.frame.volume + 0.5, 'the frame holds the extra keys');
-  // Off: none, and the cluster as it was by default.
+  // Off: none, and the cluster as it is by default.
   assert.equal(off.r.h.extra.length, 0);
   assert.ok(!off.r.caps.some((x) => x.name.startsWith('thumb_x')));
   assert.deepEqual(
@@ -644,17 +652,19 @@ test('a truss along each outside wall: diagonals from each side end to a foot, s
       `${name}: ${frame.truss.filter((m) => m.node !== 'post').length} diagonals, ${frame.truss.filter((m) => m.node === 'post').length} posts`,
     );
     // Every outside side of the matrix has the truss under it, and nothing
-    // else of it does; the thumb row, both long sides of each key (the home
-    // key is turned a quarter turn). Swung in's row has none at its two ends,
-    // pinned so a change shows up.
+    // else of it does. The thumb's keys: the sides of the row and the extra
+    // keys round the outside of the two (the home key is turned a quarter
+    // turn), none between them. Pinned so a change shows up.
     assert.deepEqual(got.filter((x) => x.startsWith('matrix_')).sort(), [...want].sort());
     assert.deepEqual(got.filter((x) => x.startsWith('thumb_')).sort(), [
-      'thumb_far 1,-1',
+      'thumb_far 0,-1',
       'thumb_far 1,1',
       'thumb_home 0,-1',
-      'thumb_home 0,1',
-      'thumb_near 1,-1',
       'thumb_near 1,1',
+      'thumb_x1 0,1',
+      'thumb_x1 1,-1',
+      'thumb_x2 0,-1',
+      'thumb_x2 1,-1',
     ]);
     for (const k of thumbs)
       assert.ok(
@@ -706,11 +716,11 @@ test("the rails run round the plates' outlines and between the thumb's and finge
       Math.sign((a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])),
     cross = ([a, b]: number[][], [c, d]: number[][]) =>
       turn(a, b, c) * turn(a, b, d) < 0 && turn(c, d, a) * turn(c, d, b) < 0;
-  // With the extra keys too: the thumb's keys and the fingers' are one
+  // With the extra keys (as on Swung in) the thumb's keys and the fingers' are one
   // plate, with feet under where they meet.
   const all = [
     ['Swung in', SWUNG_IN],
-    ['Swung in, extra keys', { ...SWUNG_IN, extra: { ...SWUNG_IN.extra!, on: true } }],
+    ['Swung in, no extra keys', { ...SWUNG_IN, extra: { ...SWUNG_IN.extra!, on: false } }],
   ] as const;
   for (const [name, s] of all) {
     const { frame } = layout(s),

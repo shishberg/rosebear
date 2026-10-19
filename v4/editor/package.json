@@ -10,7 +10,8 @@
     "test:hand": "playwright test -c playwright.hand.config.ts",
     "test:fit": "node --import tsx tests/fit-check.ts",
     "format": "npx --yes prettier@3 --write \"src/**/*.ts\" \"src/**/*.json\" \"tests/**/*.ts\" \"src/**/*.css\" index.html \"*.ts\"",
-    "fingerprint": "node --import tsx tests/fingerprint.ts"
+    "fingerprint": "node --import tsx tests/fingerprint.ts",
+    "default-config": "node --import tsx tests/default-config.ts && npx --yes prettier@3 --write src/default-config.json"
   },
   "dependencies": {
     "manifold-3d": "^3.2.1",

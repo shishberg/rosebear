@@ -168,12 +168,12 @@ for (const [name, change] of Object.entries(variants)) {
 }
 
 // Swung in's ?hand settings and three variants that run other code paths
-// (the extra keys, the 1.5u + 2×1u cluster, rows from the press mix), each
+// (no extra keys, the 1.5u + 2×1u cluster, rows from the press mix), each
 // laid out, checked with the printed test frame, and the frame built.
 const S = hand.SWUNG_IN;
 const handCases: [string, typeof S][] = [
   ['Swung in', S],
-  ['extra', { ...structuredClone(S), extra: { ...S.extra!, on: true } }],
+  ['no extra', { ...structuredClone(S), extra: { ...S.extra!, on: false } }],
   ['1.5u', { ...structuredClone(S), cluster: '1.5u + 2×1u' }],
   ['press', { ...structuredClone(S), from: 'press' }],
 ];

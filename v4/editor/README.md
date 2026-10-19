@@ -153,8 +153,8 @@ build frees every geometry object it made, including those made with `new`, so t
 geometry engine's heap stays flat from one build to the next (`tests/geometry.test.ts` pins that
 objects made with `new` are freed); a fresh worker still takes over every eight builds as a safety net. A
 build of the default project takes about 2 s in node on a laptop, more than half
-of it the wire router failing to part one pair of Swung in's wires (the browser
-routes the wires in a worker of their own while the shell is lofted). The checks cut
+of it the wire router (the browser routes the wires in a worker of their own while
+the shell is lofted). The checks cut
 each probe against the case near its key, not the whole case.
 
 ## Prototype flags and dev-only tools
@@ -183,6 +183,7 @@ npm --prefix v4/editor test               # layout, chassis and checker tests
 npm --prefix v4/editor run test:browser   # real Chrome workflow
 npm --prefix v4/editor run test:fit       # mechanical acceptance of the default or a saved project
 npm --prefix v4/editor run fingerprint    # geometry fingerprints, for refactors
+npm --prefix v4/editor run default-config # regenerate the default project from Swung in
 npm --prefix v4/editor run format         # Prettier
 ```
 
@@ -199,9 +200,11 @@ are in `CHECKS` in `src/solid.ts`.
 `test:fit` optionally takes a saved project file and exits nonzero whenever a
 check fails.
 
-The default project's layout, Swung in, fails some checks (its thumb keys sit under
-finger keys); the tests pin those failures, so a change shows up. Every test builds
-Swung in, or a deliberate change of it. The C64 case (`?chassis=c64`) was built for
+The default project is Swung in, extra thumb keys included, laid out by the hand
+model on the defaults before it; `npm run default-config` regenerates
+`src/default-config.json` (`tests/default-config.ts`). On the Skeletyl it fails one
+check, the pinky bottom key's keycap room (the frame in it); the tests pin that, so
+a change shows up. Every test builds Swung in, or a deliberate change of it. The C64 case (`?chassis=c64`) was built for
 the earlier layout and fails more of them on Swung in; its tests pin those too.
 The seam check (`tests/seams.ts`) finds where the Skeletyl's parts meet badly
 on the mesh as the editor draws it (slivers, ledges, unintended creases, gaps,

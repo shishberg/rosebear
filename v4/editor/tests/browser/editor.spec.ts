@@ -23,9 +23,9 @@ test('key handles set height and stagger, with undo, persistence and file roundt
   await expect(page.locator('#fit-badge')).toHaveText('Clearance checks FAIL');
   const list = page.locator('#fit-list');
   await expect(list).toContainText('one piece');
-  await expect(list).toContainText('17/20 flat switch seats pass');
-  await expect(list).toContainText('3 keycap rooms had to cut into the chassis.');
-  await expect(list).toContainText('1 pairs of wires run into each other.');
+  await expect(list).toContainText('20/20 flat switch seats pass');
+  await expect(list).toContainText('1 keycap rooms had to cut into the chassis.');
+  await expect(list).toContainText('No wire runs into another.');
   const before = (await project(page)).config.geometry.columns[2];
   // Front view: dragging up raises the key. Sideways movement is ignored.
   await page.locator('[data-view="Front"]').click();
@@ -173,11 +173,11 @@ test('clearance overlays isolate collisions, toggle, and clear on edit', async (
   await bottom.press('Tab');
   expect(await highlights()).toEqual([]);
   await rebuilt(page);
-  // Only Swung in's own keycap failures are left (the default; pinned in
-  // tests/geometry.test.ts): matrix pinky bottom, thumb x1 and x2.
+  // Only Swung in's own keycap failure is left (the default; pinned in
+  // tests/geometry.test.ts): matrix pinky bottom.
   await expect(page.locator('#fit-badge')).toHaveText('Clearance checks FAIL');
   const capLines = page.locator('#fit-list button').filter({ hasText: / at rest; / });
-  await expect(capLines).toHaveText([/^matrix pinky bottom: /, /^thumb x1: /, /^thumb x2: /]);
+  await expect(capLines).toHaveText([/^matrix pinky bottom: /]);
   expect(errors).toEqual([]);
 });
 test('the wiring panel lists the matrix and cut list, and the wiring follows the keys', async ({

@@ -1,6 +1,10 @@
 // PROTOTYPE ?hand: the readout checks the hand against the keycaps and the test frame.
 import { test, expect } from '@playwright/test';
 
+/** Swung in's readout once the frame is built and checked too: not valid only
+ * for its extra keys (x2 out of the thumb's reach; pinned in tests/hand.test.ts). */
+const CHECKED = 'into the frame by thumb x2 (2.7 mm)';
+
 test('the hand readout checks every reach against the keycaps and the frame', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(String(e)));
@@ -9,7 +13,10 @@ test('the hand readout checks every reach against the keycaps and the frame', as
   await page.reload();
   const note = page.locator('#hand-note');
   // Swung in, once the frame is built and checked too.
-  await expect(note).toContainText('Valid.', { timeout: 30000 });
+  await expect(note).toContainText(CHECKED, { timeout: 30000 });
+  await expect(note).toContainText(
+    'Not valid:thumb pressing thumb x1: into thumb x2 (5.0 mm)thumb reaching for thumb x2: into thumb x1 (8.0 mm)thumb pressing thumb x2: into thumb home (2.3 mm)thumb pressing thumb x2: into the frame by thumb x1 (3.7 mm)thumb pressing thumb x2: into the frame by thumb x2 (2.7 mm)thumb x2 out of reach (18 mm)Thumb keys',
+  );
   await expect(note).toContainText(/Between rows the MCP bends -0\.10° per PIP degree/);
   // The wrist height sets the reach between rows, and says when no reach gives it.
   const wrist = page.locator('label', { hasText: 'wrist height (mm' });
@@ -109,7 +116,7 @@ test('the column and cluster handles and fields are off in ?hand', async ({ page
   await page.goto('/?hand');
   await page.evaluate(() => localStorage.clear());
   await page.reload();
-  await expect(page.locator('#hand-note')).toContainText('Valid.', { timeout: 30000 });
+  await expect(page.locator('#hand-note')).toContainText(CHECKED, { timeout: 30000 });
   const h = await page.evaluate(() =>
     (window as any).rosebearEditor.handleScreen('key:matrix_middle_top'),
   );
@@ -142,10 +149,10 @@ const PANEL = [
   "check Far and near thumb keys' edges parallel to the home key's (tilted only along the row)",
   'radios Thumb keys 1×3=1×3, 1.5u + 2×1u=1.5u + 2×1u',
   "check Extra thumb keys x1, x2: a second row under the gaps, toward the thumb's base",
-  "slider extra thumb keys: mm from the row toward the thumb's base (centre to centre, across the faces) [15, 60, 0.5] off",
-  "slider extra thumb keys: tilt from the row (° about it, + facing the thumb's base and palm) [-30, 90, 1] off",
-  'slider extra thumb keys: lower (mm, along the keycap normal) [-5, 10, 0.5] off',
-  'slider extra thumb keys: slide along the row (mm, + toward the far key) [-20, 20, 0.5] off',
+  "slider extra thumb keys: mm from the row toward the thumb's base (centre to centre, across the faces) [15, 60, 0.5]",
+  "slider extra thumb keys: tilt from the row (° about it, + facing the thumb's base and palm) [-30, 90, 1]",
+  'slider extra thumb keys: lower (mm, along the keycap normal) [-5, 10, 0.5]',
+  'slider extra thumb keys: slide along the row (mm, + toward the far key) [-20, 20, 0.5]',
   'check Advanced settings',
   'check Build the case (often fails)',
   'check Test frame (print this way up, with supports)',
@@ -213,7 +220,7 @@ test('the hand panel keeps its controls, labels and ranges, and each type edits 
   await page.evaluate(() => localStorage.clear());
   await page.reload();
   const note = page.locator('#hand-note');
-  await expect(note).toContainText('Valid.', { timeout: 30000 });
+  await expect(note).toContainText(CHECKED, { timeout: 30000 });
   expect(await page.evaluate(PANEL_SCRIPT)).toEqual(PANEL);
   const hand = () =>
     page.evaluate(
@@ -264,8 +271,14 @@ test('the hand panel keeps its controls, labels and ranges, and each type edits 
       .filter((x) => x.startsWith('slider ') && x.endsWith(' off'))
       .map((x) => x.slice(7).split(' [')[0]);
   expect(await off()).not.toContain('1u row gap (mm, + toward the palm)');
+  // Swung in has the extra keys on; off, their sliders are too.
+  const extraOff = async () => (await off()).filter((x) => x.startsWith('extra thumb keys'));
+  expect(await extraOff()).toEqual([]);
+  await page.getByLabel(/Extra thumb keys x1, x2/).uncheck();
+  expect((await hand()).extra.on).toBe(false);
+  expect(await extraOff()).toHaveLength(4);
   await page.getByLabel(/Extra thumb keys x1, x2/).check();
-  expect((await off()).filter((x) => x.startsWith('extra thumb keys'))).toEqual([]);
+  expect(await extraOff()).toEqual([]);
   const along = page.locator('label', { hasText: /^extra thumb keys: slide/ }).locator('input');
   await along.fill('5');
   expect((await hand()).extra.along).toBe(5);
@@ -278,7 +291,7 @@ test('marks can be painted on the test frame', async ({ page }) => {
   await page.goto('/?hand');
   await page.evaluate(() => localStorage.clear());
   await page.reload();
-  await expect(page.locator('#hand-note')).toContainText('Valid.', { timeout: 30000 });
+  await expect(page.locator('#hand-note')).toContainText(CHECKED, { timeout: 30000 });
   await page.getByText('Test frame (print this way up, with supports)').click();
   await expect(page.getByText(/cm³/)).toBeVisible();
   // Saving is caught here, so no mark is written.

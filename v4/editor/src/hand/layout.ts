@@ -218,8 +218,8 @@ export const capFrame = (pos: T.Vector3, normal: T.Vector3, up: T.Vector3) => {
  * resting bend on every key (no curl), each key pressed with the pad, and the
  * row is turned toward the thumb's base, as round a dome, until the home key
  * is about halfway to where x1 was, in place and in facing (fitted by a probe
- * to 22°, then set by hand); the extra keys 1 mm above the row's face (the
- * board 62.9 mm tall). The fingers as set by hand in the editor. The earlier
+ * to 22°, then set by hand); the extra keys on, beside the row toward the
+ * thumb's base, 1 mm above the row's face (the board 62.9 mm tall). The fingers as set by hand in the editor. The earlier
  * layouts it grew from were removed; they are in git history (last in
  * 509dbd1, src/hand/layout.ts). */
 export const SWUNG_IN: Settings = {
@@ -246,7 +246,7 @@ export const SWUNG_IN: Settings = {
   },
   spacing: 25,
   cluster: '1×3',
-  extra: { on: false, south: 37, tilt: 32, lower: -1, along: 8.5 },
+  extra: { on: true, south: 37, tilt: 32, lower: -1, along: 8.5 },
   two: { gap: 19.5 },
 };
 /** Everything the panel sets: the layout's settings, what the hand is shown
