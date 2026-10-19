@@ -1065,7 +1065,8 @@ function keySpace(cfg: Config, frames: Record<string, Matrix4>) {
  * PROTOTYPE ?walls=: rib's outer side (s) as a WallSide for the wall
  * variants (skeletyl-walls.prototype.ts documents each field). Its points are
  * the rib's side as built (ribSide), outward is across the rib at each, and the
- * rail is found straight out along it.
+ * rail is found straight out along it. A joined end (PROTOTYPE ?ends=flow) is
+ * flush to the walls, its web's side handed over apart (carried).
  */
 function wallSide(
   cfg: Config,
@@ -1095,7 +1096,7 @@ function wallSide(
     on.push(...Array(l && l === labels[i + 1] ? SIZES.plateSteps : 1).fill(l)),
   );
   const flat = (p: number[]): V3 => [p[0], p[1], 0];
-  const points = side.map(([top, under], i): WallPoint => {
+  const all = side.map(([top, under], i): WallPoint => {
     const out = flat(unitPlan(sub(under, other[i][1])));
     const at = (r: [number, number][]) => flat(add(under, scale(out, toRing(r, under, out))));
     const [inner, outerEdge] = [at(innerRing), at(ring)];
@@ -1109,10 +1110,21 @@ function wallSide(
       rail: { inner, centre: lerp(inner, outerEdge, 0.5), outer: outerEdge },
     };
   });
+  // A joined end's web, from the plate's corner on, apart from the points.
+  const [n0, n1] = [0, 1].map((e) =>
+    isJoin(ends[e])
+      ? endSide(d, e ? rib.keys.at(-1)! : rib.keys[0], e ? 1 : -1, s, ends[e]).length - 1
+      : 0,
+  );
+  const points = all.slice(n0, all.length - n1);
+  const carried: [WallPoint[], WallPoint[]] = [
+    n0 ? all.slice(0, n0 + 1).reverse() : [],
+    n1 ? all.slice(all.length - 1 - n1) : [],
+  ];
   const keys = rib.keys.map((k) => ({
     name: k.name,
-    from: on.indexOf(k.name),
-    to: on.lastIndexOf(k.name),
+    from: on.indexOf(k.name) - n0,
+    to: on.lastIndexOf(k.name) - n0,
   }));
   const space = keySpace(cfg, frames);
   const room = (from: V3, out: V3) => space.room(from, out, toRing(ring, from, out));
@@ -1122,6 +1134,7 @@ function wallSide(
     points,
     keys,
     ends: [finish(ends[0]), finish(ends[1])],
+    carried,
     wall: d.wall,
     railHeight: SIZES.railHeight,
     outline: ring,
@@ -1611,20 +1624,7 @@ export function skeletyl(
   const walls = skeletylWalls(wasm, cfg, (cfg.chassis as { walls?: string }).walls ?? 'none', () =>
     all.flatMap((rib, i) =>
       outer(rib)
-        ? [
-            wallSide(
-              cfg,
-              d,
-              frames,
-              rib,
-              // PROTOTYPE ?ends=flow: the walls take a joined end as flush.
-              ends[i].map((e) => (isJoin(e) ? 'flush' : e)),
-              outward(rib),
-              named[i],
-              ring,
-              innerRing(),
-            ),
-          ]
+        ? [wallSide(cfg, d, frames, rib, ends[i], outward(rib), named[i], ring, innerRing())]
         : [],
     ),
   );

@@ -58,6 +58,8 @@ export interface WallSide {
   keys: { name: string; from: number; to: number }[];
   /** How each end (first, last) finishes: "drop" (the end drops to the floor: the rib carried on down onto the rail, straight down or bending out along the end, landing square on it), "hang" (a round, stopping above the floor, at its last point), or "flush" (the run parted there: the side stops at the plate's corner). A drop's points go down, near one above another, so a wall swept along the side can't follow them: it can stop at the bottom of the round, flush with the drop's outer face, as flare does. */
   ends: ['drop' | 'hang' | 'flush', 'drop' | 'hang' | 'flush'];
+  /** PROTOTYPE ?ends=flow: an end (first, last) that carries on into another rib as a web is "flush" in `ends`, and `points` stop at its plate's corner; this is that web's side, as points are, from the corner (`points`' first or last, again) on to the plate edge it lands on. Empty for the other ends. */
+  carried: [WallPoint[], WallPoint[]];
   /** The wall thickness the frame is built to (its ends and rail), mm. */
   wall: number;
   /** The rail's height, mm (it is `wall` wide, inside the outline). */
