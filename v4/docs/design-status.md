@@ -46,6 +46,7 @@ Paused, kept as reference: the flex finger boards, flat thumb PCBs, LED-free pod
 | Adapter size | The editor models the adapter from provisional sizes: 26 × 36 mm with 2 × 12 holes and a 16 mm connector. Measure the bought adapter and update the editor's config; its checks then show whether the mount, landing and wires still fit. (The tiles are measured; see above. The custom breakout is 36 × 33 mm with a connector about 31 mm wide and 2.5 mm tall.) |
 | Pod and firmware matrix | Ribbon pin 12 is now a row (RX), not a column. The pod pin map and firmware matrix need updating to scan 4 rows × 5 columns per hand, `row2col`. |
 | FFC cable length and contact type | Length depends on pod placement. With the same adapter at both ends, choose same-side or opposite-side contacts so pin 1 meets pin 1. |
+| Skeletyl corners | A final pass, once the chassis settles: round or chamfer the frame's hard corners by rule. Before 5d1f602 and 8994376 the rail rounded where it turned in at the drops. The user liked that slight rounding but not its direction (concave). They want convex rounds or chamfers: the rail's corners at the drops and its steps at the back, the limb feet, the bridges, the glue posts and the plate and web edges. Keep the crisp, rib-like look, with no blobby fairing. |
 
 ## Bring-up
 
