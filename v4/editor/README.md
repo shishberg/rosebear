@@ -163,6 +163,13 @@ each probe against the case near its key, not the whole case.
 the project (`src/prototype-overrides.ts`): `?plates=narrow|facets` (narrow also takes
 `&slope=<deg>`) and `?recess=<mm>`, which sets the finger and thumb decks' height above
 the fitted key surface (the well's wall reaching down as much further).
+On the Skeletyl, `?walls=` tries a wall design and `?ends=none|tie|flow` a way of
+holding up the rib ends (`src/skeletyl-walls.prototype.ts`, `src/skeletyl-ends.prototype.ts`).
+`?walls=pillars|wishbone` carry the rib on down from the web between two keys on
+an outer side to the rail (a pillar, or a trunk forking into two legs at 45°). Webs
+too narrow or too low for one get none. A limb in the main ribbon's way forks over
+it, 2 mm clear. The outline runs straight along the limbs' feet
+(see [chassis](../docs/editor-chassis.md)).
 
 The dev server (`make v4-editor`) has two things the built site (`dist/`) does not:
 

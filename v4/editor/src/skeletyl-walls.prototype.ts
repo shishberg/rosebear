@@ -9,12 +9,15 @@
 // skeletyl-walls/, `(kit, side) => Manifold[]`, called once per side; it reads
 // nothing else of skeletyl.ts. "none" (the default) builds no walls: the frame
 // exactly as without this hook. A variant may also ask for the outline to take
-// in more floor for its walls to stand on (REACHES): the frame is then built
-// again with the outline taking it in, and the variant called on that.
+// in its walls' feet (REACHES): the frame is then built again with the
+// outline's hull taking them in, and the variant called on that.
+// The kit also says where the main ribbon runs out of the frame (WallKit.ribbon),
+// for a variant to keep its walls clear of.
 import type { Manifold, ManifoldToplevel } from 'manifold-3d';
 import type { Config, V3 } from './geometry';
 import type { Pose, Span } from './skeletyl';
-import { add, cross, dot, scale, sub } from './geometry';
+import { add, componentFrames, cross, dot, scale, sub } from './geometry';
+import { adapterParts, landingBox } from './wiring/adapter';
 import { mesh } from './shell/loft';
 import { flare } from './skeletyl-walls/flare.prototype';
 import { arches } from './skeletyl-walls/arches.prototype';
@@ -64,6 +67,8 @@ export interface WallSide {
   keys: { name: string; from: number; to: number }[];
   /** How each end (first, last) finishes: "drop" (the end drops to the floor: the rib carried on down onto the rail, straight down or bending out along the end, landing square on it), "hang" (a round, stopping above the floor, at its last point), or "flush" (the run parted there: the side stops at the plate's corner). A drop's points go down, near one above another, so a wall swept along the side can't follow them: it can stop at the bottom of the round, flush with the drop's outer face, as flare does. */
   ends: ['drop' | 'hang' | 'flush', 'drop' | 'hang' | 'flush'];
+  /** Each web's outer edge (web i between keys[i] and keys[i + 1]): the rib mesh's own points along its top and along its underside, from keys[i]'s plate corner to keys[i + 1]'s, exactly as the mesh has them, so that a wall can start from them and share the rib's edges there; and every lane's down the outer face (`face`, the first `top` and the last `under`), so that a wall's sides can keep clear of the face's points. */
+  webs: { top: V3[]; under: V3[]; face: V3[][] }[];
   /** PROTOTYPE ?ends=flow: an end (first, last) that carries on into another rib as a web is "flush" in `ends`, and `points` stop at its plate's corner; this is that web's side, as points are, from the corner (`points`' first or last, again) on to the plate edge it lands on. Empty for the other ends. */
   carried: [WallPoint[], WallPoint[]];
   /** The wall thickness the frame is built to (its ends and rail), mm. */
@@ -93,6 +98,16 @@ export interface WallKit {
   rib: RibKit;
   /** Every side the design is called on in this build, in order (so walls on one can keep clear of another's). */
   sides: WallSide[];
+  /**
+   * Whether points stay clear of the main ribbon: at least RIBBON_GAP from it
+   * (its width and thickness grown by that, along its whole path as the
+   * editor draws it: off the adapter, over the landing and out past the
+   * outline), and not under it, since a wall standing under the ribbon on the
+   * rail must pass through it.
+   */
+  ribbon: (points: V3[]) => boolean;
+  /** The top of that grown ribbon straight over p (world z), or -Infinity where it isn't over p: so a wall can stand either side of it and span it above that. */
+  ribbonTop: (p: V3) => number;
 }
 
 /**
@@ -106,10 +121,14 @@ export interface RibKit {
   poseSpan: (a: Pose, b: Pose, o: number) => Span;
   lineSpan: (p: [[V3, V3], [V3, V3]], q: [[V3, V3], [V3, V3]]) => Span;
   sidesOf: (q: Pose, o: number) => [[V3, V3], [V3, V3]];
+  /** A lane's points along a stretch, path(f) for f 0 to 1, as `solid` samples each lane: [f, point]. */
+  along: (path: (f: number) => V3, straight: boolean | undefined, steps: number) => [number, V3][];
+  /** `solid`'s mesh of its lanes ([g, point] each, round the cross-section: the top from side -1 to 1, down side 1, the underside back, up side -1), given its first and last stations' sides (for its ends). */
+  mesh: (lanes: [number, V3][][], ends: [[[V3, V3], [V3, V3]], [[V3, V3], [V3, V3]]]) => Manifold;
   radius: number;
   /** The rail's top at plan point (x, y): railHeight, or lower where it dips to meet a low drop. */
   railTop: (x: number, y: number) => number;
-  /** The faces standing on the outline that it is cut back to (the drops'), each [a, b, outward] as Reach's faces. */
+  /** The faces standing on the outline that it is cut back to (the drops'), each [a, b, outward] (a and b plan, outward a plan unit vector). */
   standing: V3[][];
   /** PROTOTYPE ?ends=tie, flow: where the floor tie meets the rail and is filleted into it (plan polygons, the tie and tieRound and the rail's width round it); none without a tie. */
   tie: [number, number][][];
@@ -119,18 +138,16 @@ export interface RibKit {
 export type WallVariant = (kit: WallKit, side: WallSide) => Manifold[];
 
 /**
- * What a design asks of the outline: plan polygons (either winding) it must
- * take in as they are, the rail included, for its walls to stand on
- * (floors), unioned onto the outline after it is straightened, so they step
- * out of it crisply; and the faces its walls stand on the outline with, each
- * [a, b, outward] (a and b plan, outward a plan unit vector), no longer used
- * now the outline doesn't round its corners in. Asked on the outline without
- * them; the design is then called on the outline with them, so it must ask
- * only for floor it will then stand on.
+ * What a design asks of the outline: its walls' feet (plan polygons, either
+ * winding: each foot's outer face's bottom edge and the rail's width in from
+ * it), which the outline's hull takes in before it is straightened, so that
+ * a straight run passes along each (where the hull is convex there), and a
+ * pocket a foot stands in isn't turned in. Asked on the outline without
+ * them; the design is then called on the outline with them, so its feet must
+ * stand where it asked.
  */
 export interface Reach {
-  floors: [number, number][][];
-  faces: V3[][];
+  feet: [number, number][][];
 }
 /** What a design asks of the outline for one side. */
 export type WallReach = (kit: WallKit, side: WallSide) => Reach;
@@ -144,7 +161,7 @@ export const VARIANTS: Record<string, WallVariant> = {
   wishbone,
   pillars,
 };
-/** The variants that ask the outline for more floor. */
+/** The variants that ask the outline to take in their feet. */
 export const REACHES: Record<string, WallReach> = {
   wishbone: (kit, side) => ribLimbsReach(kit, side, true),
   pillars: (kit, side) => ribLimbsReach(kit, side, false),
@@ -156,7 +173,65 @@ const wallKit = (wasm: ManifoldToplevel, cfg: Config, rib: RibKit, sides: WallSi
   sweep: (sections) => sweep(wasm, cfg, sections),
   rib,
   sides,
+  ...ribbonClear(cfg),
 });
+
+/** The clearance (mm) walls keep round the main ribbon (WallKit.ribbon). */
+export const RIBBON_GAP = 2;
+
+/**
+ * WallKit.ribbon and ribbonTop: the ribbon's segments (adapterParts, the port
+ * panel where the Skeletyl's chassis puts it: at the landing's outer end),
+ * each a box grown by RIBBON_GAP; a point is in the ribbon's way if the box is
+ * round it or anywhere straight over it, and the ribbon's top over it is the
+ * highest such box's top there.
+ */
+function ribbonClear(cfg: Config) {
+  const frames = componentFrames(cfg);
+  const land = landingBox(cfg);
+  const e = frames.adapter.elements;
+  const panel = e[12] + e[0] * (land.end - land.length);
+  const boxes = adapterParts(cfg, frames, panel)
+    .filter((p) => p.group === 'ribbon')
+    .map((p) => {
+      const m = p.matrix;
+      return {
+        o: [m[12], m[13], m[14]] as V3,
+        axes: [0, 4, 8].map((i): V3 => [m[i], m[i + 1], m[i + 2]]),
+        c: p.center,
+        h: p.size.map((x) => x / 2 + RIBBON_GAP),
+      };
+    });
+  // How far up from p the line straight up from it is in box b: [from, to] (to < from where it misses).
+  const up = (p: V3, b: (typeof boxes)[number]) => {
+    let [lo, hi] = [0, Infinity];
+    b.axes.forEach((a, i) => {
+      const [at, rate] = [dot(sub(p, b.o), a) - b.c[i], a[2]];
+      if (Math.abs(rate) < 1e-12) {
+        if (Math.abs(at) > b.h[i]) [lo, hi] = [Infinity, -Infinity];
+        return;
+      }
+      const [q, r] = [(-b.h[i] - at) / rate, (b.h[i] - at) / rate];
+      [lo, hi] = [Math.max(lo, Math.min(q, r)), Math.min(hi, Math.max(q, r))];
+    });
+    return [lo, hi];
+  };
+  const under = (p: V3, b: (typeof boxes)[number]) => {
+    const [lo, hi] = up(p, b);
+    return lo <= hi;
+  };
+  return {
+    ribbon: (points: V3[]) => points.every((p) => boxes.every((b) => !under(p, b))),
+    ribbonTop: (p: V3) =>
+      Math.max(
+        -Infinity,
+        ...boxes.map((b) => {
+          const [lo, hi] = up(p, b);
+          return lo <= hi ? p[2] + hi : -Infinity;
+        }),
+      ),
+  };
+}
 
 /** The walls of design `key` for every side (none for "none"). */
 export function skeletylWalls(
@@ -182,10 +257,10 @@ export function skeletylReach(
   rib: RibKit,
 ): Reach {
   const reach = REACHES[key];
-  if (!reach) return { floors: [], faces: [] };
+  if (!reach) return { feet: [] };
   const kit = wallKit(wasm, cfg, rib, sides());
   const each = kit.sides.map((side) => reach(kit, side));
-  return { floors: each.flatMap((r) => r.floors), faces: each.flatMap((r) => r.faces) };
+  return { feet: each.flatMap((r) => r.feet) };
 }
 
 /** A section's normal by Newell's method: the polygon winds counter-clockwise round it. */

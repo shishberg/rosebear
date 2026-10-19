@@ -132,7 +132,7 @@ export const SIZES = {
    * The outline runs straight between the feet (the area's convex hull), but
    * turns in once over a pocket (where the hull spans floor the area doesn't
    * cover) that nothing stands in (no drop with both feet in it, no wall's
-   * floor), wider across its mouth than pocketMouth and deeper than
+   * foot), wider across its mouth than pocketMouth and deeper than
    * pocketDepth (straightened). A foot is in a pocket within pocketFoot of
    * its edge.
    */
@@ -878,8 +878,13 @@ function endSpans(d: Dims, k: RibKey, u: number, end: End): Span[] {
  * the rib's own mesh goes into it as it is). Meshed in lanes (laneSolid).
  */
 function ribSolid(wasm: ManifoldToplevel, d: Dims, rib: Rib, ends: End[]): Manifold {
+  return laneSolid(wasm, ribSpans(d, rib, ends), 'ribSolid');
+}
+
+/** A rib's spans, end to end: its ends', its plates' and its webs' (ribSolid). */
+function ribSpans(d: Dims, rib: Rib, ends: End[]): Span[] {
   const keys = rib.keys;
-  const spans: Span[] = [
+  return [
     ...endSpans(d, keys[0], -1, ends[0]).reverse().map(reversed),
     ...keys.flatMap((k, i) => [
       ...(i ? [poseSpan(edgePose(d, keys[i - 1], 1), edgePose(d, k, -1), 1)] : []),
@@ -887,7 +892,49 @@ function ribSolid(wasm: ManifoldToplevel, d: Dims, rib: Rib, ends: End[]): Manif
     ]),
     ...endSpans(d, keys.at(-1)!, 1, ends[1]),
   ];
-  return laneSolid(wasm, spans, 'ribSolid');
+}
+
+/** A lane of laneSolid's: across (0 at side -1, 1 at side 1) and down (0 top, 1 underside). */
+const laneAt =
+  (across: number, down: number) =>
+  ([l, r]: [Pair, Pair]) =>
+    lerp(lerp(l[0], r[0], across), lerp(l[1], r[1], across), down);
+/**
+ * A lane's points along one span, as laneSolid meshes it: [f, point], f how
+ * far along the span (its ends, if straight; else about ribMesh apart along
+ * the lane, and at least the span's steps).
+ */
+const laneAlong = (span: Span, path: (sides: [Pair, Pair]) => V3) =>
+  alongOf((f) => path(span.at(f)), span.straight, span.steps);
+/** How many lanes laneSolid cuts spans' cross-section into: across the top (and the underside), and down the sides. */
+function laneCounts(spans: Span[]): [number, number] {
+  const h = SIZES.ribMesh;
+  const stations = spans.flatMap((span) => [span.at(0), span.at(1)]);
+  const m = Math.ceil(Math.max(...stations.map(([l, r]) => Math.hypot(...sub(r[0], l[0])))) / h);
+  const v = Math.ceil(Math.max(...stations.map(([l]) => Math.hypot(...sub(l[0], l[1])))) / h);
+  return [m, v];
+}
+/** The points of a lane at(f) (f from 0 to 1) as laneAlong has them. */
+function alongOf(
+  path: (f: number) => V3,
+  straight: boolean | undefined,
+  steps: number,
+): [number, V3][] {
+  const h = SIZES.ribMesh;
+  const fine = 128;
+  const at = (f: number): [number, V3] => [f, path(f)];
+  if (straight) return [at(0), at(1)];
+  const dense = [...Array(fine + 1).keys()].map((j) => path(j / fine));
+  const run = [0];
+  dense.slice(1).forEach((p, j) => run.push(run[j] + Math.hypot(...sub(p, dense[j]))));
+  const n = Math.max(1, Math.ceil(run[fine] / h), steps);
+  return [...Array(n + 1).keys()].map((j) => {
+    const want = (run[fine] * j) / n;
+    let after = 1;
+    while (after < fine && run[after] < want) after++;
+    const f = (want - run[after - 1]) / (run[after] - run[after - 1] || 1);
+    return at((after - 1 + Math.min(1, Math.max(0, f))) / fine);
+  });
 }
 
 /**
@@ -906,42 +953,38 @@ function ribSolid(wasm: ManifoldToplevel, d: Dims, rib: Rib, ends: End[]): Manif
  * n = t × c from the underside, so that it faces out.
  */
 function laneSolid(wasm: ManifoldToplevel, spans: Span[], what: string): Manifold {
-  const h = SIZES.ribMesh;
   // The lanes, round the cross-section: the top from side -1 to 1, down side
   // 1, the underside back, up side -1.
-  const stations = spans.flatMap((span) => [span.at(0), span.at(1)]);
-  const m = Math.ceil(Math.max(...stations.map(([l, r]) => Math.hypot(...sub(r[0], l[0])))) / h);
-  const v = Math.ceil(Math.max(...stations.map(([l]) => Math.hypot(...sub(l[0], l[1])))) / h);
-  // Across (0 at side -1, 1 at side 1) and down (0 top, 1 underside).
-  const lane =
-    (across: number, down: number) =>
-    ([l, r]: [Pair, Pair]) =>
-      lerp(lerp(l[0], r[0], across), lerp(l[1], r[1], across), down);
+  const [m, v] = laneCounts(spans);
   const lanes = [
-    ...[...Array(m + 1).keys()].map((j) => lane(j / m, 0)),
-    ...[...Array(v - 1).keys()].map((j) => lane(1, (j + 1) / v)),
-    ...[...Array(m + 1).keys()].map((j) => lane(1 - j / m, 1)),
-    ...[...Array(v - 1).keys()].map((j) => lane(0, 1 - (j + 1) / v)),
+    ...[...Array(m + 1).keys()].map((j) => laneAt(j / m, 0)),
+    ...[...Array(v - 1).keys()].map((j) => laneAt(1, (j + 1) / v)),
+    ...[...Array(m + 1).keys()].map((j) => laneAt(1 - j / m, 1)),
+    ...[...Array(v - 1).keys()].map((j) => laneAt(0, 1 - (j + 1) / v)),
   ];
   // Each lane's points: [g, point], g its span's index and how far along it.
-  const fine = 128;
   const points = lanes.map((path) =>
-    spans.flatMap((span, i) => {
-      const at = (f: number): [number, V3] => [i + f, path(span.at(f))];
-      if (span.straight) return i ? [at(1)] : [at(0), at(1)];
-      const dense = [...Array(fine + 1).keys()].map((j) => path(span.at(j / fine)));
-      const run = [0];
-      dense.slice(1).forEach((p, j) => run.push(run[j] + Math.hypot(...sub(p, dense[j]))));
-      const n = Math.max(1, Math.ceil(run[fine] / h), span.steps);
-      return [...Array(n + 1).keys()].slice(i ? 1 : 0).map((j) => {
-        const want = (run[fine] * j) / n;
-        let after = 1;
-        while (after < fine && run[after] < want) after++;
-        const f = (want - run[after - 1]) / (run[after] - run[after - 1] || 1);
-        return at((after - 1 + Math.min(1, Math.max(0, f))) / fine);
-      });
-    }),
+    spans.flatMap((span, i) =>
+      laneAlong(span, path)
+        .slice(i ? 1 : 0)
+        .map(([f, p]): [number, V3] => [i + f, p]),
+    ),
   );
+  return laneMesh(wasm, points, [spans[0].at(0), spans.at(-1)!.at(1)], what);
+}
+
+/**
+ * laneSolid's mesh of its lanes' points ([g, point], g how far along, each
+ * lane round the cross-section in turn: the top from side -1 to 1, down side
+ * 1, the underside back, up side -1), its ends' stations (`ends`, first and
+ * last, for the ends' planes and which way they face).
+ */
+function laneMesh(
+  wasm: ManifoldToplevel,
+  points: [number, V3][][],
+  ends: [[Pair, Pair], [Pair, Pair]],
+  what: string,
+): Manifold {
   const verts: number[] = [];
   const ids = points.map((lane) => lane.map(([, p]) => verts.push(...p) / 3 - 1));
   const tris: number[] = [];
@@ -965,7 +1008,7 @@ function laneSolid(wasm: ManifoldToplevel, spans: Span[], what: string): Manifol
   // The two ends closed, facing back along the rib and on along it: seen
   // along the rib, across (c) and up (n) wind counter-clockwise, as c × n = t.
   [0, 1].forEach((last) => {
-    const [l, r] = last ? spans.at(-1)!.at(1) : spans[0].at(0);
+    const [l, r] = ends[last];
     const c = unit(sub(r[0], l[0]));
     const up = sub(l[0], l[1]);
     const n = unit(sub(up, scale(c, dot(up, c))));
@@ -1008,8 +1051,8 @@ const feet = (d: Dims, rib: Rib, end: number) =>
  * round an area (straightened), the feet's convex hull dug in at most
  * digDeepest, the outer sides' plates' and tile pockets' hulls, and each of
  * `keep` (plan points) and the rail's width round it, so the rail stays out
- * of them; and (PROTOTYPE ?walls=) each of `reach` (plan polygons) as it is,
- * the rail included: the floor a wall stands on.
+ * of them; and (PROTOTYPE ?walls=) each of `walls` (plan polygons): a wall's
+ * foot, which the hull takes in, so that a straight run passes along it.
  */
 function outlined(
   wasm: ManifoldToplevel,
@@ -1017,7 +1060,7 @@ function outlined(
   feet: V3[],
   sides: V3[][],
   keep: V3[][],
-  reach: [number, number][][] = [],
+  walls: [number, number][][] = [],
 ) {
   const plan = (ps: V3[]) => ps.map((p) => [p[0], p[1]] as [number, number]);
   const round = (c: CrossSection, by: number) => c.offset(by, 'Round', 2, SIZES.cornerSegments);
@@ -1026,23 +1069,28 @@ function outlined(
     ...sides.map((side) => wasm.CrossSection.hull([plan(side)])),
     ...keep.map((ps) => round(wasm.CrossSection.hull([plan(ps)]), d.wall)),
   ]);
-  const floors = reach.map((poly) => new wasm.CrossSection([poly], 'NonZero'));
-  return straightened(wasm, area, feet, floors);
+  const stand = walls.map((poly) => new wasm.CrossSection([poly], 'NonZero'));
+  return straightened(
+    wasm,
+    stand.length ? area.add(wasm.CrossSection.union(stand)) : area,
+    feet,
+    stand,
+  );
 }
 /**
  * The area's convex hull, but where the hull spans a pocket (a stretch where
  * the area turns in) that nothing stands in (no drop with both feet, `feet`
- * in pairs, on its edge; none of `floors`), both wider than pocketMouth and
+ * in pairs, on its edge; none of `walls`' feet), both wider than pocketMouth and
  * deeper than pocketDepth, turned in once there: from each end of the
  * pocket's mouth, straight on to the area (tangent to it, the farthest it can
  * run toward the other end without crossing it), the two lines meeting in one
- * corner. Then `floors` are taken in as they are.
+ * corner.
  */
 function straightened(
   wasm: ManifoldToplevel,
   area: CrossSection,
   feet: V3[],
-  floors: CrossSection[],
+  walls: CrossSection[],
 ) {
   const hull = area.hull();
   const edges = largest(hull).map((a, i, all) => [a, all[(i + 1) % all.length]]);
@@ -1067,7 +1115,7 @@ function straightened(
       const depth = Math.max(...chain.map((p) => gap([a, b], [p[0], p[1], 0])));
       // Whether something stands in it: a drop (both its feet on the
       // pocket's edge and off the hull, not one at the mouth's end) or a
-      // wall's floor (overlapping it).
+      // wall's foot (overlapping it).
       const near = (p: V3, es: number[][][], by: number) => es.some((e) => gap(e, p) < by);
       const sides = ring.map((p, i) => [p, ring[(i + 1) % ring.length]]);
       const stands =
@@ -1077,7 +1125,7 @@ function straightened(
             [p, feet[i + 1]].every(
               (q) => near(q, sides, SIZES.pocketFoot) && !near(q, edges, SIZES.cornerSnap),
             ),
-        ) || floors.some((f) => f.intersect(pocket).area() > SIZES.pocketFoot ** 2);
+        ) || walls.some((f) => f.intersect(pocket).area() > SIZES.pocketFoot ** 2);
       if (stands || mouth <= SIZES.pocketMouth || depth <= SIZES.pocketDepth) return [];
       // From each end, the line through the chain's point nearest in angle to
       // the mouth: none of the chain is on the mouth's side of it.
@@ -1107,17 +1155,7 @@ function straightened(
         ),
       ];
     });
-  if (!floors.length)
-    return largest(notches.length ? hull.subtract(wasm.CrossSection.union(notches)) : hull);
-  // The walls' floors are taken in as they are, after: the walls stand on
-  // them where they were placed (on the outline without them), so the hull
-  // isn't taken round them (it would move the rail out from under them).
-  return largest(
-    wasm.CrossSection.union([
-      notches.length ? hull.subtract(wasm.CrossSection.union(notches)) : hull,
-      ...floors,
-    ]),
-  );
+  return largest(notches.length ? hull.subtract(wasm.CrossSection.union(notches)) : hull);
 }
 /** The largest of a cross-section's polygons. */
 const largest = (c: CrossSection) =>
@@ -1496,10 +1534,22 @@ function wallSide(
   const space = keySpace(cfg, frames);
   const room = (from: V3, out: V3) => space.room(from, out, toRing(ring, from, out));
   const finish = (e: End) => (isDrop(e) ? 'drop' : isJoin(e) ? 'flush' : e);
+  // Each web's outer face, as the rib's mesh has it (ribSolid's web spans,
+  // laneSolid's lanes): every lane down it, from its top edge to its underside's.
+  const across = s > 0 ? 1 : 0;
+  const v = laneCounts(ribSpans(d, rib, ends))[1];
+  const webs = rib.keys.slice(1).map((k, i) => {
+    const span = poseSpan(edgePose(d, rib.keys[i], 1), edgePose(d, k, -1), 1);
+    const face = [...Array(v + 1).keys()].map((j) =>
+      laneAlong(span, laneAt(across, j / v)).map(([, p]) => p),
+    );
+    return { top: face[0], under: face[v], face };
+  });
   return {
     name,
     points,
     keys,
+    webs,
     ends: [finish(ends[0]), finish(ends[1])],
     carried,
     wall: d.wall,
@@ -1646,7 +1696,8 @@ function flowTo(
  * little as clears (toward where the ends face first), then square into the
  * rail as before. Its bends are rounded. Then each of those ends drops onto
  * it, landing square on it: across along it, its outer face on the tie's far
- * side. Where the rail is closer to an end drop than tieRound and tieGap from its side,
+ * side. Where the rail is closer to an end drop than tieRound and tieGap from its side
+ * (more where the tie meets it off square on the side the drop's face is on),
  * the drops land moved along the tie away from it, bending to meet it, so that
  * none lands in the tie's fillets into the rail; where the rail is that close
  * at both ends, so that no one move clears both, the end drop farther from
@@ -1719,6 +1770,16 @@ function floorTie(
           ] as V3),
     );
     const facing = order.reduce((sum, x) => add(sum, x.h), [0, 0, 0] as V3);
+    // Meeting the rail off square (cos), how much nearer the drop the fillet
+    // on the tie's sharper side starts than R short of where the tie's
+    // middle meets the rail's inner edge: that side meets it a half wall's
+    // tan sooner, and the fillet, in the sharper corner, touches it R
+    // cot(half that corner) before. Where that is the side the drop's outer
+    // face is on, its end would stand in the fillet otherwise.
+    const skew = (cos: number) => {
+      const off = Math.acos(Math.min(1, cos));
+      return (d.wall / 2) * Math.tan(off) + R / Math.tan(Math.PI / 4 - off / 2) - R;
+    };
     // The tie on from the drop x at one end, heading out, to the rail's middle,
     // its drop moved `moved` toward that end: the points after x's stand, and
     // how far too close to the rail it leaves the drop.
@@ -1747,7 +1808,11 @@ function floorTie(
           : [add(from, scale(v, S - d.wall / 2 / cos))];
         const path = [x.stand, ...(j ? [from] : []), ...legs];
         if (!path.slice(1).every((q, m) => clear(path[m], q))) continue;
-        return [path.slice(1), j || square ? 0 : Math.max(0, past - (S - d.wall / cos))];
+        // (The drop's outer face is on the tie's side toward x.h: the
+        // sharper one if the rail's normal leans that way.)
+        const side: V3 = [v[1], -v[0], 0];
+        const sharp = dot(side, n) * dot(side, x.h) > 0 ? skew(cos) : 0;
+        return [path.slice(1), j || square ? 0 : Math.max(0, past - (S - d.wall / cos) + sharp)];
       }
       // Else straight on anyway.
       const S = toRing(ring, x.stand, out);
@@ -2047,7 +2112,7 @@ export function skeletyl(
   cfg: Config,
   frames: Record<string, Matrix4>,
   wires: Wire[],
-  reach: Reach = { floors: [], faces: [] },
+  reach: Reach = { feet: [] },
 ): {
   frame: Manifold;
   outline: [number, number][];
@@ -2102,7 +2167,7 @@ export function skeletyl(
     all.flatMap((rib) => free(rib).flatMap((e) => feet(d, rib, e))),
     all.filter(outer).map(outerSide),
     columnsBelow(cfg, frames, SIZES.railHeight),
-    reach.floors,
+    reach.feet,
   );
   const kind = (rib: Rib, e: number): End => {
     if (rib.parted[e]) return endClear(cfg, d, frames, rib, e, 'hang') ? 'hang' : 'flush';
@@ -2229,6 +2294,8 @@ export function skeletyl(
     poseSpan,
     lineSpan,
     sidesOf,
+    along: alongOf,
+    mesh: (lanes, ends) => laneMesh(wasm, lanes, ends, 'wall'),
     radius: d.radius,
     railTop: (x, y) => Math.min(SIZES.railHeight, ...dips.map((dip) => dip.top(x, y))),
     standing: faces,
@@ -2239,9 +2306,9 @@ export function skeletyl(
           .map((p) => p.map((q) => [q[0], q[1]] as [number, number]))
       : [],
   };
-  if (!reach.floors.length) {
+  if (!reach.feet.length) {
     const more = skeletylReach(wasm, cfg, wallsKey, wallSides, ribKit);
-    if (more.floors.length) return skeletyl(wasm, cfg, frames, wires, more);
+    if (more.feet.length) return skeletyl(wasm, cfg, frames, wires, more);
   }
   const solids = all.map((rib, i) => ribSolid(wasm, d, rib, ends[i]));
   // Each drop keyed into the rail (or the tie) under it (footKey), by rib.

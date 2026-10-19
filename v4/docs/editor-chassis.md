@@ -63,7 +63,34 @@ other keys' tiles, switches and keycaps, else stops flush at its plate. Drops
 are left out where they would hit another key. Nothing is cut out
 of the frame. The base plate inside
 the outline is the bottom section; it carries the adapter mount and the
-ribbon's landing, the ribbon leaving through a notch in the rail. The
+ribbon's landing. On Swung in the ribbon leaves on the inner side, along
+−x at y ≈ 16 under the web between the inner home and top keys. It lies on the
+landing at z ≈ 10, about 4 mm over the rail's top (z 6), so it passes over the
+rail, not through it. The chassis cuts a notch for it 40 mm back from the
+landing's out end, but that notch lies wholly outside the frame and cuts
+nothing. The landing block (x −57.5 to −47.5, z 2 to 10) reaches about 7.6 mm
+past the rail's outer edge (x −49.9 there) and overlaps the rail. PROTOTYPE:
+`?walls=pillars|wishbone` stand limbs on the outer sides. Each leaves its rib
+at the middle of the web between two neighbouring keys, starting from the
+web's own outer edge as the rib's mesh has it, in the rib's section, as wide as
+fits the web (6 mm for a pillar, 8 mm for a trunk, at least 4 mm). It turns
+down in one round and runs straight down onto the rail flush. A wishbone's
+trunk forks into two legs 4 mm wide, each slanting at 45° and standing 9 mm
+from the trunk's middle (or as near as clears, and no further than halfway to
+the next web), so the fork is as high as that spread needs; where no fork fits
+under the trunk's round it is a pillar. A limb in the main ribbon's way forks
+over it (pillars too): its opening centred on the ribbon, 2 mm clear each side
+and above. Every limb keeps clear of the keys, the drops, the tie, the rail's
+dips and the ribbon. The outline's hull takes in the limbs' feet, so it runs
+straight along them, and each foot is turned along its run (up to 5°) so it
+stands flush. On Swung in the inner column has a limb at both its webs: at the
+bottom–home web a wishbone forking 7.2 mm over the rail, legs 7 mm out (a
+pillar on pillars), and at the home–top web a fork over the ribbon, 18.3 mm
+up, legs 8.2 and 12.8 mm out. Their lip and round alone reach 5 to 6 mm past
+the outline without them, so the inner side runs that much further out (the
+footprint 6 mm wider). The pinky has one pillar at its home–top web (too low
+to fork; its bottom–home web is too low for a limb), and the thumbs' webs are
+too short. The
 assembly is soldered first and lifted in, so the frame has no wire ways and
 the checks don't test the wires against it. The board's height to the keycaps'
 tops shows under its size.

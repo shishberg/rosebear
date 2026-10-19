@@ -68,6 +68,13 @@ function classOf(s: Seam) {
  *    meet the rail where it dips to them. Every drop's foot is keyed into the
  *    rail or tie (footKey), so no foot meets it edge to edge; on tie the
  *    drops stand wholly on the tie, clear of its bends and fillets by tieGap.
+ *  - tie and flow, every walls: re-pinned when the drops on the tie were
+ *    moved clear of the tie's fillet into the rail on its sharper side,
+ *    where the tie meets the rail off square (floorTie): the inner front
+ *    drop's end had stood about 1 mm into it, and more with pillars or
+ *    wishbone, the rail further out. The inner front drop stands further
+ *    along the tie, and the rail, the tie and the ribs near it are cut
+ *    differently: fewer spots on tie, as many on flow, moved between classes.
  *  - rail+wall, rib+wall, wall (flare): the flare walls reach 0.2 mm into the
  *    rib and the rail (the WallSide contract), so they meet them near tangent,
  *    and stand at railHeight even where the rail dips to a low drop. At a
@@ -80,15 +87,23 @@ function classOf(s: Seam) {
  *    went straight (the walls at the back corners and the pinky's front
  *    corner, standing on its rail, reshaped with it): their prototypes' own
  *    joints (piers and crowns, struts, limbs' fillets), not the frame's.
- *  - pillars and wishbone: no wall class but one. The rail's own corners
- *    (rail, rail+rib) are where its floor steps out under each limb's feet
- *    and back, crisply (the floors are taken in as they are after the outline
- *    is straightened). wall (wishbone): one sliver of no area on a straight
- *    edge of the inner home key's trunk, where the rib's straight end (LAP)
- *    lies in the trunk's shape, its corner on the shape's edge: the corner
- *    and the edge differ by a rounding, and every way of meeting them tried
- *    (touching, inset by a hair, matched point for point) leaves as much or
- *    more elsewhere.
+ *  - pillars and wishbone: the outline's hull takes in the limbs' feet, so
+ *    its inner side runs straight along them, 5 to 6 mm further out than
+ *    without them, and the inner column's front drops bend further out to
+ *    it: the rail's corners and its meeting with those drops and the thumbs'
+ *    (rail, rail+rib) are cut differently there. rib+wall: each limb's root
+ *    stands on its web's own outer edge, its sides upright; where the web
+ *    slopes (the pinky's, 28°, and the inner home and top keys', 24°) the
+ *    sides meet its sloping face square, which the check counts as creases
+ *    (it lets only square creases onto level or upright faces pass), with a
+ *    sliver or a shading where a side crosses the face between the mesh's
+ *    points. rail+wall (pillars): the inner bottom and home keys' pillar,
+ *    turned 0.8° to stand along the run, its inner face and the rail's inner
+ *    side a few microns apart. wall (pillars): one sliver of no area on a
+ *    straight edge of the inner home and top keys' fork, where the rib's
+ *    straight end (LAP) lies in the fork's shape, its corner on the shape's
+ *    edge (on wishbone that fork is turned to the run, and its rib twists
+ *    to it first, which leaves none).
  */
 const PINS: Record<string, Record<string, number>> = {
   'none/none': {
@@ -98,15 +113,15 @@ const PINS: Record<string, Record<string, number>> = {
     'rib+rib': 7,
   },
   'none/tie': {
-    rail: 15,
-    'rail+rib': 13,
-    rib: 37,
+    rail: 11,
+    'rail+rib': 9,
+    rib: 34,
     'rib+rib': 8,
   },
   'none/flow': {
     rail: 10,
-    'rail+rib': 11,
-    rib: 31,
+    'rail+rib': 10,
+    rib: 32,
     'rib+rib': 5,
   },
   'flare/none': {
@@ -120,21 +135,21 @@ const PINS: Record<string, Record<string, number>> = {
     wall: 36,
   },
   'flare/tie': {
-    rail: 19,
-    'rail+rib': 9,
-    'rail+rib+wall': 9,
-    'rail+wall': 44,
-    rib: 33,
+    rail: 16,
+    'rail+rib': 6,
+    'rail+rib+wall': 10,
+    'rail+wall': 43,
+    rib: 31,
     'rib+rib': 8,
-    'rib+wall': 55,
+    'rib+wall': 53,
     wall: 36,
   },
   'flare/flow': {
     rail: 12,
-    'rail+rib': 9,
+    'rail+rib': 8,
     'rail+rib+wall': 7,
     'rail+wall': 37,
-    rib: 27,
+    rib: 28,
     'rib+rib': 5,
     'rib+wall': 47,
     wall: 32,
@@ -150,21 +165,21 @@ const PINS: Record<string, Record<string, number>> = {
     wall: 12,
   },
   'arches/tie': {
-    rail: 19,
-    'rail+rib': 10,
-    'rail+rib+wall': 5,
-    'rail+wall': 15,
-    rib: 36,
+    rail: 15,
+    'rail+rib': 7,
+    'rail+rib+wall': 7,
+    'rail+wall': 16,
+    rib: 33,
     'rib+rib': 8,
-    'rib+wall': 35,
-    wall: 12,
+    'rib+wall': 33,
+    wall: 11,
   },
   'arches/flow': {
     rail: 12,
-    'rail+rib': 9,
+    'rail+rib': 8,
     'rail+rib+wall': 3,
     'rail+wall': 12,
-    rib: 32,
+    rib: 33,
     'rib+rib': 5,
     'rib+wall': 24,
     wall: 12,
@@ -180,24 +195,24 @@ const PINS: Record<string, Record<string, number>> = {
     wall: 98,
   },
   'truss/tie': {
-    rail: 17,
-    'rail+rib': 9,
-    'rail+rib+wall': 9,
-    'rail+wall': 49,
-    rib: 35,
+    rail: 16,
+    'rail+rib': 8,
+    'rail+rib+wall': 8,
+    'rail+wall': 50,
+    rib: 32,
     'rib+rib': 8,
-    'rib+wall': 49,
-    wall: 113,
+    'rib+wall': 50,
+    wall: 115,
   },
   'truss/flow': {
-    rail: 12,
-    'rail+rib': 9,
+    rail: 13,
+    'rail+rib': 8,
     'rail+rib+wall': 10,
-    'rail+wall': 48,
-    rib: 32,
+    'rail+wall': 47,
+    rib: 33,
     'rib+rib': 5,
     'rib+wall': 49,
-    wall: 113,
+    wall: 111,
   },
   'bones/none': {
     rail: 12,
@@ -209,61 +224,70 @@ const PINS: Record<string, Record<string, number>> = {
     wall: 26,
   },
   'bones/tie': {
-    rail: 16,
-    'rail+rib': 13,
+    rail: 13,
+    'rail+rib': 9,
     'rail+wall': 44,
-    rib: 36,
+    rib: 33,
     'rib+rib': 8,
     'rib+wall': 17,
     wall: 26,
   },
   'bones/flow': {
     rail: 11,
-    'rail+rib': 12,
+    'rail+rib': 11,
     'rail+wall': 35,
-    rib: 31,
+    rib: 32,
     'rib+rib': 5,
     'rib+wall': 17,
     wall: 14,
   },
   'pillars/none': {
-    rail: 13,
-    'rail+rib': 11,
-    rib: 31,
+    rail: 12,
+    'rail+rib': 13,
+    'rail+wall': 2,
+    rib: 30,
     'rib+rib': 7,
+    'rib+wall': 9,
+    wall: 1,
   },
   'pillars/tie': {
-    rail: 17,
-    'rail+rib': 13,
-    rib: 36,
+    rail: 15,
+    'rail+rib': 15,
+    'rail+wall': 1,
+    rib: 34,
     'rib+rib': 8,
+    'rib+wall': 9,
+    wall: 1,
   },
   'pillars/flow': {
-    rail: 11,
-    'rail+rib': 11,
-    rib: 30,
+    rail: 12,
+    'rail+rib': 13,
+    'rail+wall': 1,
+    rib: 29,
     'rib+rib': 5,
+    'rib+wall': 8,
+    wall: 1,
   },
   'wishbone/none': {
-    rail: 14,
-    'rail+rib': 12,
+    rail: 11,
+    'rail+rib': 13,
     rib: 30,
     'rib+rib': 7,
-    wall: 1,
+    'rib+wall': 7,
   },
   'wishbone/tie': {
-    rail: 17,
-    'rail+rib': 13,
-    rib: 36,
+    rail: 10,
+    'rail+rib': 18,
+    rib: 33,
     'rib+rib': 8,
-    wall: 1,
+    'rib+wall': 7,
   },
   'wishbone/flow': {
-    rail: 11,
-    'rail+rib': 11,
-    rib: 30,
+    rail: 9,
+    'rail+rib': 14,
+    rib: 29,
     'rib+rib': 5,
-    wall: 1,
+    'rib+wall': 8,
   },
 };
 
