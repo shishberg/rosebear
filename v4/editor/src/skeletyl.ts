@@ -30,7 +30,10 @@
 // the rest stop at the bottom of their rounds. Each rib, ends and all, is
 // meshed as one surface. One
 // rail round the outline, on the floor, joins the ribs into one piece; each
-// drop stands on it alone. PROTOTYPE: small bridges tie neighbouring ribs
+// drop stands on it alone, but two drops of different ribs standing too
+// close for a clean slit are fused (PROTOTYPE): each is widened on its facing
+// side into the other, so the union joins them along a line, and the rail
+// runs on under the pair, not in between them (fused). PROTOTYPE: small bridges tie neighbouring ribs
 // together up at the plates: where two keys of different ribs face each other
 // across a narrow gap, a short slab of the plate's section spans it between
 // their plates' facing edges, flush with both plates' tops (bridges).
@@ -55,6 +58,8 @@
 //           floor (the rail or the tie), its outer face its top;
 //  foot     where an end's drop would meet the floor straight down, on its
 //           outer face at each side;
+//  fused    PROTOTYPE: two drops of different ribs widened into each other
+//           on their facing sides, where they stand within fuseGap;
 //  bridge   PROTOTYPE: a short slab across the gap between two ribs, from one
 //           key's plate edge to a facing key's, flush with their tops;
 //  tie      PROTOTYPE ?ends=: a bar of the rail's section across the floor,
@@ -164,6 +169,20 @@ export const SIZES = {
   bridgeSlope: 1,
   wireGap: 0.5,
   bridgeProbe: 0.5,
+  /**
+   * PROTOTYPE: two drops of different ribs whose facing sides stand within
+   * fuseGap of each other (across, where their faces overlap at least
+   * fuseDepth in depth), too narrow a slit to print cleanly, are fused: each
+   * is widened on that side by half the widest gap and fuseInto, so the two
+   * overlap and the union joins them, from their feet up for as long as they
+   * stand that close (measured every fuseStep up), and the widening runs out
+   * over fuseRamp above that (fused).
+   */
+  fuseGap: 1.5,
+  fuseInto: 0.4,
+  fuseDepth: 0.5,
+  fuseStep: 0.25,
+  fuseRamp: 1,
 } as const;
 
 /** A key in a rib: its plate's centre, the key axis the rib runs along, across it, and its normal (right-handed: a = c × n). */
@@ -182,15 +201,21 @@ interface Rib {
   keys: RibKey[];
   parted: [boolean, boolean];
 }
-/** How a rib's end finishes: flush with the plate's edge, a round alone, a round and a drop to the floor (on the rail or the tie), landing as the pose `land`, or (PROTOTYPE ?ends=) a web joining it to another key's plate. */
-type End = 'flush' | 'hang' | { land: Pose } | { join: Join };
+/** How a rib's end finishes: flush with the plate's edge, a round alone, a round and a drop to the floor (on the rail or the tie), landing as the pose `land` (PROTOTYPE: and widened where it is fused to a neighbour's, `widen`), or (PROTOTYPE ?ends=) a web joining it to another key's plate. */
+type End = 'flush' | 'hang' | { land: Pose; widen?: Widen[] } | { join: Join };
+/** PROTOTYPE: how far a fused drop's side `side` (its landing pose's side, -1 or 1), and its round's, is widened at height z (fused). */
+interface Widen {
+  side: number;
+  at: (z: number) => number;
+}
 /** PROTOTYPE ?ends=: where a joined end's rib lands: on a plate edge of `key`, as a pose heading into that plate (its sides those of the end's own, heading out), carried on `into` mm past it. */
 interface Join {
   key: string;
   land: Pose;
   into: number;
 }
-const isDrop = (e: End): e is { land: Pose } => typeof e === 'object' && 'land' in e;
+const isDrop = (e: End): e is { land: Pose; widen?: Widen[] } =>
+  typeof e === 'object' && 'land' in e;
 const isJoin = (e: End): e is { join: Join } => typeof e === 'object' && 'join' in e;
 /** A point on one side of a rib: [top, underside]; on a drop, [outer face, inner face]. */
 type Pair = [V3, V3];
@@ -520,9 +545,25 @@ function endSide(d: Dims, k: RibKey, u: number, s: number, end: End): Pair[] {
   if (isDrop(end)) {
     const [top, foot] = dropPoses(d, k, u, end.land);
     path.push(...[...sweep(top, foot, SIZES.dropSteps), end.land].map((q) => poseSide(q, u * s)));
+    if (end.widen?.some((x) => x.side === u * s)) {
+      const other = endSide(d, k, u, -s, { land: end.land });
+      return path
+        .map((p, i) => widenPair(p, other[i], widthAt(end, u * s, p[0][2])))
+        .map(aboveFloor);
+    }
   }
   return path.map(aboveFloor);
 }
+
+/** PROTOTYPE: how far a fused drop's side `side` (its landing's pose side) is widened at height z (fused). */
+const widthAt = (end: { widen?: Widen[] }, side: number, z: number) =>
+  (end.widen ?? []).filter((x) => x.side === side).reduce((sum, x) => sum + x.at(z), 0);
+/** Side pair p, across from the other side's pair o at the same station, carried w on out across, away from o. */
+const widenPair = (p: Pair, o: Pair, w: number): Pair => {
+  if (!w) return p;
+  const across = unit(sub(p[0], o[0]));
+  return p.map((x) => add(x, scale(across, w))) as Pair;
+};
 
 /**
  * The top of the drop under the end of key k that faces u (-1 or 1 along):
@@ -722,6 +763,28 @@ function endSpans(d: Dims, k: RibKey, u: number, end: End): Span[] {
   if (isDrop(end)) {
     const [top, foot] = dropPoses(d, k, u, end.land);
     spans.push(poseSpan(top, foot, u));
+    // PROTOTYPE: fused, its side (and its round's and lip's) widened.
+    if (end.widen?.length) {
+      const widen = (sides: [Pair, Pair]) =>
+        sides.map((p, j) => widenPair(p, sides[1 - j], widthAt(end, u * (2 * j - 1), p[0][2]))) as [
+          Pair,
+          Pair,
+        ];
+      // (A span it doesn't reach is left as it is.)
+      const reaches = (span: Span) =>
+        [0, 0.5, 1].some((f) =>
+          span.at(f).some((p, j) => widthAt(end, u * (2 * j - 1), p[0][2]) > 0),
+        );
+      return spans.map((span) =>
+        reaches(span)
+          ? {
+              ...span,
+              straight: false,
+              at: (f) => widen(span.at(f).map(aboveFloor) as [Pair, Pair]),
+            }
+          : { ...span, at: (f) => span.at(f).map(aboveFloor) as [Pair, Pair] },
+      );
+    }
   }
   return spans.map((span) => ({ ...span, at: (f) => span.at(f).map(aboveFloor) as [Pair, Pair] }));
 }
@@ -902,9 +965,16 @@ const largest = (c: CrossSection) =>
  * cornerSnap of a face's end are moved onto it, so that where the outline
  * turns at a drop's corner (it is a corner of the feet's hull, rounded out and
  * back) it turns there exactly, rather than running on a few hundredths past
- * it, a ledge at the drop's foot.
+ * it, a ledge at the drop's foot. PROTOTYPE: it takes in each of `keep`
+ * (plan polygons) after it is cut: where two fused drops overlap, the foot
+ * of the junction, so that it runs on round the one in front there.
  */
-function trimmed(wasm: ManifoldToplevel, ring: [number, number][], faces: V3[][]) {
+function trimmed(
+  wasm: ManifoldToplevel,
+  ring: [number, number][],
+  faces: V3[][],
+  keep: [number, number][][] = [],
+) {
   if (!faces.length) return ring;
   const D = SIZES.corner;
   const cut = faces.map(
@@ -919,7 +989,12 @@ function trimmed(wasm: ManifoldToplevel, ring: [number, number][], faces: V3[][]
       ),
   );
   const ends = faces.flatMap(([a, b]) => [a, b]);
-  return largest(new wasm.CrossSection([ring], 'NonZero').subtract(wasm.CrossSection.union(cut)))
+  const left = new wasm.CrossSection([ring], 'NonZero').subtract(wasm.CrossSection.union(cut));
+  return largest(
+    keep.length
+      ? wasm.CrossSection.union([left, ...keep.map((p) => new wasm.CrossSection([p], 'NonZero'))])
+      : left,
+  )
     .map((q): [number, number] => {
       const e = ends.find((p) => Math.hypot(p[0] - q[0], p[1] - q[1]) < SIZES.cornerSnap);
       return e ? [e[0], e[1]] : q;
@@ -1655,6 +1730,88 @@ function bridges(
   );
 }
 
+const planDir = (v: number[]) => [...unitPlan(v), 0] as V3;
+
+/** PROTOTYPE: two drops fused (fused): the drops (rib, end), each one's facing side (its landing's pose side), how far each is widened on it, and up to what height before that runs out. */
+interface Fusion {
+  drops: [number, number][];
+  sides: number[];
+  w: number;
+  top: number;
+}
+
+/**
+ * PROTOTYPE: the drops of different ribs that fuse, so that they are built
+ * overlapping rather than all but touching, a slit too narrow to print. At
+ * each height (every fuseStep, from the higher foot up) each drop's facing
+ * side is cut there (its outer and inner face's edges, down its drop and
+ * round), and the gap across between them (along the first's across, at
+ * the ends of the depth they share) taken where they share at least
+ * fuseDepth of depth. Two drops fuse if that gap is at most fuseGap at
+ * their feet; they stand that close up to the last height it still is.
+ * Each is widened on its facing side by half the widest gap and fuseInto,
+ * so the two overlap by twice fuseInto at least and the union joins them
+ * along a crisp line, as any two ribs meet.
+ */
+function fusions(d: Dims, all: Rib[], ends: End[][]): Fusion[] {
+  const drops = all.flatMap((_, i) =>
+    [0, 1].flatMap((e): [number, number][] => (isDrop(ends[i][e]) ? [[i, e]] : [])),
+  );
+  const land = ([i, e]: number[]) => (ends[i][e] as { land: Pose }).land;
+  // The pose side of landing l nearer o's middle.
+  const facing = (l: Pose, o: Pose) =>
+    [-1, 1].reduce((x, y) =>
+      gap([o.p, o.p], poseSide(l, y)[0]) < gap([o.p, o.p], poseSide(l, x)[0]) ? y : x,
+    );
+  // Where a line, from its last point back, first crosses height z.
+  const crossing = (line: V3[], z: number) => {
+    for (let i = line.length - 1; i > 0; i--) {
+      const [p, q] = [line[i], line[i - 1]];
+      if ((p[2] - z) * (q[2] - z) <= 0 && p[2] !== q[2])
+        return lerp(p, q, (z - p[2]) / (q[2] - p[2]));
+    }
+    return undefined;
+  };
+  return drops.flatMap((x, m) =>
+    drops.slice(m + 1).flatMap((y): Fusion[] => {
+      if (x[0] === y[0]) return [];
+      const [a, b] = [land(x), land(y)];
+      const sides = [facing(a, b), facing(b, a)];
+      const lines = [x, y].map(([i, e], j) => {
+        const [k, u] = endKey(all[i], e);
+        const path = endSide(d, k, u, u * sides[j], { land: [a, b][j] });
+        return [path.map((p) => p[0]), path.map((p) => p[1])];
+      });
+      const out = planDir(normalOf(a));
+      const across = scale(planDir(a.c), sides[0]);
+      const gapAt = (z: number) => {
+        const cuts = lines.map((ls) => ls.map((l) => crossing(l, z)));
+        if (cuts.flat().some((p) => !p)) return Infinity;
+        // Each cut as [depth, across] at its two ends.
+        const [A, B] = cuts.map((c) => c.map((p) => [dot(p!, out), dot(p!, across)]));
+        const lo = Math.max(...[A, B].map((s) => Math.min(s[0][0], s[1][0])));
+        const hi = Math.min(...[A, B].map((s) => Math.max(s[0][0], s[1][0])));
+        if (hi - lo < SIZES.fuseDepth) return Infinity;
+        const at = (s: number[][], t: number) =>
+          Math.abs(s[1][0] - s[0][0]) < 1e-9
+            ? (s[0][1] + s[1][1]) / 2
+            : s[0][1] + ((t - s[0][0]) * (s[1][1] - s[0][1])) / (s[1][0] - s[0][0]);
+        return Math.max(...[lo, hi].map((t) => at(B, t) - at(A, t)));
+      };
+      const foot = Math.max(...[x, y].map(([i, e]) => footHeight(d, ...endKey(all[i], e))));
+      let [widest, top] = [-Infinity, foot];
+      for (let z = foot + 0.01; z < 200; z += SIZES.fuseStep) {
+        const g = gapAt(z);
+        if (!(g <= SIZES.fuseGap)) break;
+        widest = Math.max(widest, g);
+        top = z;
+      }
+      if (widest === -Infinity) return [];
+      return [{ drops: [x, y], sides, w: Math.max(0, widest) / 2 + SIZES.fuseInto, top }];
+    }),
+  );
+}
+
 /**
  * The frame: the ribs, the rail round the outline that the ends standing on
  * it drop to, and (PROTOTYPE) the bridges between neighbouring ribs, which
@@ -1684,7 +1841,10 @@ export function skeletyl(
     half: number;
     low: number;
     foot: number;
+    free: [number, number];
   }[];
+  /** PROTOTYPE: each fused pair of drops, by their ribs' names and end (fused). */
+  fused: { names: string[]; e: number[]; w: number; top: number }[];
 } {
   const d = dims(cfg);
   const keyRuns = runs(cfg, frames);
@@ -1733,14 +1893,33 @@ export function skeletyl(
     return endClear(cfg, d, frames, rib, e, drop) ? drop : 'hang';
   };
   const ends = all.map((rib) => [0, 1].map((e) => kind(rib, e)));
-  // The outline cut back to the drops on it.
-  const faces = all.flatMap((_, i) =>
-    [0, 1].flatMap((e) => {
-      const l = ends[i][e];
-      return isDrop(l) ? [[...[-1, 1].map((s) => poseSide(l.land, s)[0]), normalOf(l.land)]] : [];
+  // PROTOTYPE: the drops standing all but touching, widened to overlap.
+  const fuses = fusions(d, all, ends);
+  for (const f of fuses)
+    f.drops.forEach(([i, e], j) => {
+      const end = ends[i][e] as { land: Pose; widen?: Widen[] };
+      const at = (z: number) => f.w * Math.max(0, Math.min(1, 1 - (z - f.top) / SIZES.fuseRamp));
+      ends[i][e] = { ...end, widen: [...(end.widen ?? []), { side: f.sides[j], at }] };
+    });
+  // Each drop's outer face at its foot (as widened), and (PROTOTYPE) across
+  // each fused junction, the foot of its widening and as far back again.
+  const drops = all.flatMap((_, i) => [0, 1].map((e) => ends[i][e]).filter(isDrop));
+  const faces = drops.map((l) => [
+    ...[-1, 1].map((s) => add(poseSide(l.land, s)[0], scale(l.land.c, s * widthAt(l, s, 0)))),
+    normalOf(l.land),
+  ]);
+  const joins = drops.flatMap((l) =>
+    (l.widen ?? []).map(({ side }) => {
+      const [o, w, n] = [poseSide(l.land, side)[0], widthAt(l, side, 0), normalOf(l.land)];
+      const [a, b] = [-w, w].map((x) => add(o, scale(l.land.c, side * x)));
+      return [a, b, sub(b, scale(n, l.land.thick)), sub(a, scale(n, l.land.thick))].map(
+        (p) => [p[0], p[1]] as [number, number],
+      );
     }),
   );
-  const ring = trimmed(wasm, rough, [...faces, ...reach.faces]);
+  // The outline cut back to the drops on it, and taking in the fused
+  // junctions' feet, so that it runs on round the one in front there.
+  const ring = trimmed(wasm, rough, [...faces, ...reach.faces], joins);
   // PROTOTYPE ?ends= (skeletyl-ends.prototype.ts): the columns' hanging fronts
   // joined to the thumbs, and the floor tie that the hanging ends drop onto.
   const support = (cfg.chassis as { ends?: string }).ends ?? 'none';
@@ -1904,6 +2083,12 @@ export function skeletyl(
       ...(tie ? [{ name: 'tie', solid: dipped(railPlan.subtract(loop)) }] : []),
       ...walls.map((solid, i) => ({ name: `wall ${i + 1}`, solid })),
     ],
+    fused: fuses.map((f) => ({
+      names: f.drops.map(([i]) => named[i]),
+      e: f.drops.map(([, e]) => e),
+      w: f.w,
+      top: f.top,
+    })),
     drops: all.flatMap((rib, i) =>
       [0, 1].flatMap((e) => {
         const end = ends[i][e];
@@ -1920,6 +2105,7 @@ export function skeletyl(
             half: l.half,
             low: roundLow(d, k, u),
             foot: footHeight(d, k, u),
+            free: [-l.half + widthAt(end, -1, 0), l.half - widthAt(end, 1, 0)] as [number, number],
           },
         ];
       }),

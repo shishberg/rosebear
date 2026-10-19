@@ -1,9 +1,11 @@
-// The seam check (tests/seams.ts) on Swung in, ?walls= none, flare, pillars
-// and wishbone by ?ends= none, tie and flow: the frame builds as one piece on one footprint,
-// every drop stands flush on the rail, and the seams found between each class
-// of parts (rib, bridge, rail or tie, wall) are no more than they were when
-// pinned. A class's count can only fall: if it falls, lower its pin. No class
-// with a bridge in it is pinned: bridges must meet the ribs cleanly.
+// The seam check (tests/seams.ts) on Swung in, every ?walls= by ?ends= none,
+// tie and flow: the frame builds as one piece on one footprint, every drop
+// stands flush on the rail (but where a fused neighbour overlaps it), and the
+// seams found between each class of parts (rib, bridge, rail or tie, wall)
+// are no more than they were when pinned. A class's count can only fall: if
+// it falls, lower its pin. No class with a bridge in it is pinned: bridges
+// must meet the ribs cleanly. Two fused drops' ribs leave no gap or thin
+// skin between them (no slit), and no more slivers than FUSED_SLIVERS.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import Module from 'manifold-3d';
@@ -36,24 +38,37 @@ function classOf(s: Seam) {
  * and why it isn't fixed:
  *  - rib+rib: the pinky's back drop and thumb #2 cross (a layout collision,
  *    not a junction to blend), and the thumb fork's ribs meet at their plates.
- *    The index and middle columns' back drops stand all but touching (their
- *    facing corners 0.1 mm apart, the middle's face 1 mm proud), so their
- *    sides meet in a slit; the band between them hid it (with its own seams)
- *    until the bands went. The inner's and index's back drops shade each
- *    other's tops where they stand close.
+ *    The middle's and ring's front drops meet in a ledge, and the inner's and
+ *    index's back drops shade each other's tops where they stand close. The
+ *    index's and middle's back drops are fused (their facing corners 0.1 mm
+ *    apart): widened into each other, they meet along one crisp line, the
+ *    prouder face's side standing over the other's (the middle's below about
+ *    19.5 mm, the index's above, where the faces pass through flush), one
+ *    spot for the whole line; one sliver of no area near its top, where the
+ *    index's widened side meets the middle's round as it turns away (a spot
+ *    of FUSED_SLIVERS).
  *  - rib: a rib's own seams where it is cut (the joined ends, the switch
- *    seats' trims meeting a rounded end) and its sweep's own slivers.
+ *    seats' trims meeting a rounded end) and its sweep's own slivers. On
+ *    flow, 4 or 5 more on thumb #1 came with the fused drops, though that rib
+ *    is unchanged triangle for triangle and far from them: the union's
+ *    output is triangulated differently there.
  *  - rail: the rail's own corners where its outline turns tighter than the
  *    mesh (now also turning in round the corners between the back drops,
  *    where the bands stood), and the tie's strip and fillets meeting it
  *    (flow, at the thumbs).
  *  - rail+rib: where a column front hangs joined into a thumb plate (flow),
- *    the rail's inner edge passing under a rib's sweep near its foot, and the
- *    rail at the foot of the index and middle back drops' slit and of the
- *    index's beside the inner's.
+ *    the rail's inner edge passing under a rib's sweep near its foot, the
+ *    foot of the index and middle back drops' junction (where it passes
+ *    through flush, at the bottom of the same line) and of the index's
+ *    beside the inner's. The rail's inner edge also bends round the
+ *    junction's step (rail).
  *  - rail+wall, rib+wall, wall (flare): the flare walls reach 0.2 mm into the
  *    rib and the rail (the WallSide contract), so they meet them near tangent,
  *    and stand at railHeight even where the rail dips to a low drop.
+ *  - arches, truss and bones: their walls' classes (rail+wall, rib+wall,
+ *    wall, and rail+rib+wall) are pinned as they stand, from when they joined
+ *    this test: their prototypes' own joints (piers and crowns, struts,
+ *    limbs' fillets), not the frame's.
  *  - pillars and wishbone: no wall class but one. The rail's own corners are
  *    more (rail, rail+rib): the outline runs out under each limb's feet and
  *    turns back in past them, and that changes where it is resampled near the
@@ -66,90 +81,177 @@ function classOf(s: Seam) {
  */
 const PINS: Record<string, Record<string, number>> = {
   'none/none': {
-    rail: 8,
-    'rail+rib': 6,
-    rib: 27,
-    'rib+rib': 14,
-  },
-  'none/tie': {
-    rail: 8,
-    'rail+rib': 7,
-    rib: 29,
-    'rib+rib': 15,
-  },
-  'none/flow': {
     rail: 12,
     'rail+rib': 7,
     rib: 27,
     'rib+rib': 12,
   },
+  'none/tie': {
+    rail: 12,
+    'rail+rib': 8,
+    rib: 29,
+    'rib+rib': 13,
+  },
+  'none/flow': {
+    rail: 16,
+    'rail+rib': 8,
+    rib: 32,
+    'rib+rib': 10,
+  },
   'flare/none': {
-    rail: 8,
-    'rail+rib': 5,
+    rail: 12,
+    'rail+rib': 6,
     'rail+rib+wall': 2,
     'rail+wall': 35,
     rib: 25,
-    'rib+rib': 14,
+    'rib+rib': 12,
     'rib+wall': 45,
     wall: 25,
   },
   'flare/tie': {
-    rail: 9,
-    'rail+rib': 6,
+    rail: 13,
+    'rail+rib': 7,
     'rail+rib+wall': 3,
     'rail+wall': 37,
     rib: 27,
-    'rib+rib': 15,
+    'rib+rib': 13,
     'rib+wall': 44,
     wall: 25,
   },
   'flare/flow': {
-    rail: 13,
-    'rail+rib': 6,
+    rail: 17,
+    'rail+rib': 7,
     'rail+rib+wall': 2,
     'rail+wall': 35,
-    rib: 25,
-    'rib+rib': 12,
+    rib: 30,
+    'rib+rib': 10,
     'rib+wall': 45,
     wall: 25,
   },
-  'pillars/none': {
-    rail: 10,
+  'arches/none': {
+    rail: 14,
     'rail+rib': 7,
+    'rail+rib+wall': 5,
+    'rail+wall': 6,
     rib: 27,
-    'rib+rib': 14,
+    'rib+rib': 12,
+    'rib+wall': 17,
+    wall: 15,
   },
-  'pillars/tie': {
+  'arches/tie': {
     rail: 14,
     'rail+rib': 8,
+    'rail+rib+wall': 6,
+    'rail+wall': 6,
     rib: 29,
-    'rib+rib': 15,
+    'rib+rib': 13,
+    'rib+wall': 16,
+    wall: 15,
   },
-  'pillars/flow': {
+  'arches/flow': {
+    rail: 18,
+    'rail+rib': 8,
+    'rail+rib+wall': 5,
+    'rail+wall': 6,
+    rib: 32,
+    'rib+rib': 10,
+    'rib+wall': 17,
+    wall: 15,
+  },
+  'truss/none': {
+    rail: 11,
+    'rail+rib': 6,
+    'rail+rib+wall': 4,
+    'rail+wall': 31,
+    rib: 28,
+    'rib+rib': 12,
+    'rib+wall': 29,
+    wall: 68,
+  },
+  'truss/tie': {
+    rail: 11,
+    'rail+rib': 7,
+    'rail+rib+wall': 4,
+    'rail+wall': 38,
+    rib: 29,
+    'rib+rib': 13,
+    'rib+wall': 29,
+    wall: 79,
+  },
+  'truss/flow': {
+    rail: 14,
+    'rail+rib': 7,
+    'rail+rib+wall': 4,
+    'rail+wall': 38,
+    rib: 32,
+    'rib+rib': 10,
+    'rib+wall': 29,
+    wall: 79,
+  },
+  'bones/none': {
+    rail: 12,
+    'rail+rib': 7,
+    'rail+wall': 46,
+    rib: 27,
+    'rib+rib': 12,
+    'rib+wall': 17,
+    wall: 25,
+  },
+  'bones/tie': {
     rail: 13,
+    'rail+rib': 8,
+    'rail+wall': 46,
+    rib: 29,
+    'rib+rib': 13,
+    'rib+wall': 17,
+    wall: 25,
+  },
+  'bones/flow': {
+    rail: 16,
+    'rail+rib': 8,
+    'rail+wall': 45,
+    rib: 32,
+    'rib+rib': 10,
+    'rib+wall': 17,
+    wall: 22,
+  },
+  'pillars/none': {
+    rail: 14,
     'rail+rib': 8,
     rib: 27,
     'rib+rib': 12,
   },
+  'pillars/tie': {
+    rail: 18,
+    'rail+rib': 9,
+    rib: 29,
+    'rib+rib': 13,
+  },
+  'pillars/flow': {
+    rail: 17,
+    'rail+rib': 9,
+    rib: 31,
+    'rib+rib': 10,
+  },
   'wishbone/none': {
-    rail: 9,
-    'rail+rib': 7,
+    rail: 13,
+    'rail+rib': 8,
     rib: 27,
-    'rib+rib': 14,
+    'rib+rib': 12,
     wall: 1,
   },
   'wishbone/tie': {
-    rail: 13,
-    'rail+rib': 8,
+    rail: 17,
+    'rail+rib': 9,
     rib: 29,
-    'rib+rib': 15,
+    'rib+rib': 13,
     wall: 1,
   },
   'wishbone/flow': {
-    rail: 13,
-    'rail+rib': 8,
-    rib: 27,
-    'rib+rib': 12,
+    rail: 17,
+    'rail+rib': 9,
+    rib: 31,
+    'rib+rib': 10,
     wall: 1,
   },
 };
@@ -172,7 +274,10 @@ const inside = (cs: CrossSection, x: number, y: number) =>
     )
     .area() > 1e-5;
 
-for (const walls of ['none', 'flare', 'pillars', 'wishbone'])
+/** Slivers allowed between two fused drops' ribs (see rib+rib above). */
+const FUSED_SLIVERS = 1;
+
+for (const walls of ['none', 'flare', 'arches', 'truss', 'bones', 'pillars', 'wishbone'])
   for (const ends of ['none', 'tie', 'flow']) {
     const key = `${walls}/${ends}`;
     const p = clone(defaults);
@@ -202,6 +307,19 @@ for (const walls of ['none', 'flare', 'pillars', 'wishbone'])
             )
             .join('\n'),
       );
+      // Fused drops meet along a line: no gap, no thin skin, no slit.
+      for (const f of r.fused) {
+        const at = r.seams.filter((s) => f.names.every((n) => s.parts.includes(n)));
+        const say = (k: string) =>
+          `${f.names.join('+')}: ${k} ` +
+          at.map((s) => `${s.kind} at ${s.at.map((x) => x.toFixed(1))}`).join('; ');
+        assert.deepEqual(
+          at.filter((s) => s.kind === 'gap' || s.kind === 'thin'),
+          [],
+          say('gap or slit'),
+        );
+        assert(at.filter((s) => s.kind === 'sliver').length <= FUSED_SLIVERS, say('slivers'));
+      }
     });
 
     test(`Skeletyl ${key}: every drop's outer face is flush with the rail over its whole height`, () => {
@@ -219,7 +337,8 @@ for (const walls of ['none', 'flare', 'pillars', 'wishbone'])
           dr.p[1] + c * dr.c[1] + m * dr.n[1],
         ];
         const cs: number[] = [];
-        for (let c = -dr.half + END; c <= dr.half - END; c += 0.5) cs.push(c);
+        // Where it is fused, its side runs into its neighbour's: only its own face is checked.
+        for (let c = dr.free[0] + END; c <= dr.free[1] - END; c += 0.5) cs.push(c);
         // The rail (or the tie) is level at the foot's height under it.
         const [over, below] = [under.slice(dr.foot + 0.02), under.slice(dr.foot - 0.02)];
         for (const c of cs) {

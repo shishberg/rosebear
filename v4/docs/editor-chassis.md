@@ -28,9 +28,17 @@ it, landing square on the rail. Its outer face is flush with the rail's
 over the rail's whole height, and it bends or rounds only above it; under a
 drop whose round ends lower than that, the rail bends down to meet it. The
 others hang. Each drop stands on the rail alone; between neighbouring drops the
-rail runs in round the outline's rounded corner. (On Swung in the index and
-middle columns' back drops stand all but touching, 0.1 mm apart at the foot,
-so they meet in a slit that the band between them used to hide.) PROTOTYPE: small **bridges**
+rail runs in round the outline's rounded corner. PROTOTYPE: two drops of
+different ribs whose facing sides stand within 1.5 mm of each other (too
+narrow a slit to print cleanly) are **fused**: each is widened on that side
+(its section, and its round's, made wider) by half the widest gap plus
+0.4 mm, so the two overlap and the union joins them along one crisp line, as
+any two ribs meet. The widening runs from their feet up as far as they stand
+that close, measured every 0.25 mm, and runs out over 1 mm above that; there
+is no fill and no fairing. The rail runs on under the pair without turning in
+between them, taking in both widened feet, its outer edge stepping from one
+face to the other where they meet (each face flush with it). On Swung in only the index and middle columns' back drops
+fuse (0.13 mm apart at most, widened 0.47 mm each, up to 33.5 mm). PROTOTYPE: small **bridges**
 tie neighbouring ribs together up at the plates. Where two keys of different
 ribs face each other across a gap of 0.5 to 8 mm, along at least 6 mm of both
 plates' edges, a 4 mm wide bridge of the plate's section spans the gap at the

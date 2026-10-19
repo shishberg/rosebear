@@ -500,5 +500,7 @@ export function skeletylSeams(
     outline: built.outline,
     triangles: drawn.numTri(),
     frameTriangles: built.frame.numTri(),
+    /** The fused pairs of drops (PROTOTYPE, skeletyl().fused). */
+    fused: built.fused,
   };
 }
