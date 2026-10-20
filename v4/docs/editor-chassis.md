@@ -14,7 +14,18 @@ The default chassis is the **Skeletyl** (`src/skeletyl.ts`, `chassis.style:
 "skeletyl"`): a rib along each finger column and each thumb row, and one rail
 round the outline on the floor. A rib is one swept solid: the key plates as
 slabs, curved webs between them tangent to the plates, and a lip and round at
-each end, clear of the tile pocket and the switch. PROTOTYPE: the outline
+each end, clear of the tile pocket and the switch. Where the plate falls or is
+level toward its end, the lip carries it on along its own axis and the round
+has the ends' radius (5 mm on the outside). Where it rises (every finger
+column's back and front, and the thumb row's near key's back and the extra
+row's first key's back on Swung in), the lip leaves the plate's top edge
+level, creased there, and turns down in the tightest round (its inner face
+0.5 mm round, 2.9 mm on the outside), so no end stands higher than its
+plate's edge: the backs stood 0.86 to 2.25 mm proud of it, the fronts 0.33 to
+0.81. Either way the lip is as long as it must be for the round, and a drop
+straight down from it, to clear the tile pocket and the switch body by
+0.3 mm (on Swung in 1.8 to 7.9 mm where the end rises, the pinky's back the
+longest). PROTOTYPE: the outline
 runs straight from foot to foot: it is the hull of where the ends would drop
 straight down and of the outer sides of the first and last columns and the
 thumb rows (their plates and tile pockets), with no margin past them, so the
@@ -60,8 +71,9 @@ any two ribs meet. The widening runs from their feet up as far as they stand
 that close, measured every 0.25 mm, and runs out over 1 mm above that; there
 is no fill and no fairing. The rail runs on under the pair without turning in
 between them, taking in both widened feet, its outer edge stepping from one
-face to the other where they meet (each face flush with it). On Swung in only the index and middle columns' back drops
-fuse (0.13 mm apart at most, widened 0.47 mm each, up to 33.5 mm). PROTOTYPE: **bridges**
+face to the other where they meet (each face flush with it). On Swung in no
+drops stand that close: the index's and middle's back drops stand side by
+side, the middle's face about 1.5 mm in from the index's. PROTOTYPE: **bridges**
 tie neighbouring ribs together up at the plates. Where two keys of different
 ribs face each other (their facing edges turned at most 35° from square on in
 plan, their plates at most 35° apart), a bridge spans the gap, however wide,
@@ -108,7 +120,7 @@ at the middle of the web between two neighbouring keys, starting from the
 web's own outer edge as the rib's mesh has it, in the rib's section, 3.4 mm
 wide (every limb and every part of one, root to feet). After a 0.5 mm lip it
 turns down in one round as tight as its section allows (its inner face 0.5 mm
-round, the ends' least: 3.5 mm on the outside, where the ends' rounds are 5)
+round, as a rising end's: 3.5 mm on the outside on its 3 mm rib)
 and runs straight down onto the rail flush, so it stands as near under its
 column as clears and a key press loads it down the limb more than across its
 joint. A wishbone's
@@ -128,17 +140,20 @@ up, legs 9.1 and 11.3 mm out. Their rib rises 15° out of the column, so their
 round turns 105°; they stand 4.9 to 5.0 mm out from their webs' edges (7.6 and
 8.3 mm with the ends' radius and a 1 mm lip), 2.6 to 2.7 mm past the outline
 without them, so the inner side runs that much further out (the footprint
-3 mm wider). The pinky has a pillar at both its webs (too low to fork): they
+3 mm wider). The pinky has a pillar at both its webs (too low to fork; with
+`?ends=tie` and `flow` only at the home–top web, since the tie runs under the
+bottom–home one): they
 leave falling 15° and would stand 3.0 to 3.1 mm out, but the outline there is
 4.1 to 4.2 mm out, so they run on out to it. The thumbs' webs between
 keys are too short. With `?ends=flow` a web an end carries on in to a
 column's front is a span with nothing under it, so it gets a limb too, as near
 the plate it leaves as clears (from 2.2 mm on from the plate's corner, then
-each 1 mm further). On Swung in that puts a pillar (on wishbone too: no fork
-clears there) under the thumb extra row's 41 mm
-web to the middle column, about 11 mm on from `thumb_x1`'s corner, just past
-where the tie meets the rail, 3.0 mm out from the web's edge; the outline runs
-straight from `thumb_x2`'s corner to its foot. The thumb row's carried web
+each 1 mm further). On Swung in that puts a pillar (a wishbone's fork on
+wishbone) under the thumb extra row's 41 mm web to the middle column, at the
+nearest place, about 2 to 3 mm on from `thumb_x1`'s corner; the outline runs
+straight from `thumb_x2`'s corner to its foot. With `?ends=tie` and `flow`
+the tie runs from the inner column's front drop straight across the hand
+under the bottom row to the rail on the pinky's side. The thumb row's carried web
 faces in, over the thumb extra row: no limb is placed where the outline across
 its feet is more than 10 mm out. The
 assembly is soldered first and lifted in, so the frame has no wire ways and

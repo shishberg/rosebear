@@ -36,17 +36,14 @@ function classOf(s: Seam) {
 /**
  * Spots per junction class, at most, on each walls/ends. What is left in each,
  * and why it isn't fixed:
- *  - rib+rib: the middle's and ring's front drops meet in a ledge, and the inner's and
- *    index's back drops shade each other's tops where they stand close. The
- *    index's and middle's back drops are fused (their facing corners 0.1 mm
- *    apart): widened into each other, they meet along one crisp line, the
- *    prouder face's side standing over the other's (the middle's below about
- *    19.5 mm, the index's above, where the faces pass through flush), one
- *    spot for the whole line; one sliver of no area near its top, where the
- *    index's widened side meets the middle's round as it turns away (a spot
- *    of FUSED_SLIVERS). Both stand straight down: the outline steps in 0.5 mm
- *    from the index's face to the middle's at the junction (rail). On tie, one more: the inner's and index's front drops
- *    stand side by side on the tie, about 1.6 mm apart.
+ *  - rib+rib: the inner's and index's back drops shade each other's tops
+ *    where they stand close. The index's and middle's back drops stand side
+ *    by side, the middle's face about 1.5 mm in from the index's: a crease
+ *    and a sliver where the middle's side meets the index's. (On none and tie
+ *    the middle's and ring's front drops no longer meet in a ledge.) No drops
+ *    are fused on the default (fused; FUSED_SLIVERS). On tie, one more: the
+ *    inner's and index's front drops stand side by side on the tie, about
+ *    1.6 mm apart.
  *  - rib: a rib's own seams where it is cut (the joined ends, the switch
  *    seats' trims meeting a rounded end) and its sweep's own slivers, the
  *    thumb row's and the extra keys' among them. The union triangulates a rib
@@ -62,17 +59,15 @@ function classOf(s: Seam) {
  *    drop's corners and runs straight on to the next (trimmed), so it has
  *    a corner at each side of a drop standing in from the hull (the ring's
  *    and pinky's backs, the pinky's front), each a spot or two where the
- *    rail's top and bottom are triangulated, and a 0.5 mm step between the
- *    index's and middle's back drops (a ledge and a gap). The rail is level
+ *    rail's top and bottom are triangulated. The rail is level
  *    everywhere, never dipping: under the second extra key's front it stands
  *    in the band beside its plate's edge, over the tile pocket, a sliver
  *    there.
  *  - rail+rib: where a column front hangs joined into a thumb plate (flow),
  *    the rail's inner edge passing under a rib's sweep near its foot, the
- *    foot of the index and middle back drops' junction (where it passes
- *    through flush, at the bottom of the same line) and of the index's
- *    beside the inner's. The rail's inner edge also bends round the
- *    junction's step (rail). The two low ends stand on the rail's top, their
+ *    foot of the index's back drop beside the middle's (a ledge) and the
+ *    middle's own (a shading), and the pinky's back drop's outer corner (a
+ *    sliver; a ledge on truss). The two low ends stand on the rail's top, their
  *    faces its faces (lowDrop, lowCut): the second extra key's lower side
  *    ends 0.28 mm in from where the outline turns in along it (a ledge), and
  *    its plate's underside meets the rail's top at 15° just inside its inner
@@ -185,189 +180,220 @@ function classOf(s: Seam) {
  *    down (the rail's own slivers of under 0.02 mm and a 0.6 mm ledge,
  *    mostly on the pinky's side, gone or now counted with a wall), wall by
  *    1 down, rail+wall by 1 up. None of these spots touches a bridge.
+ *  - level ears: an end that rises off its plate leaves level and turns down
+ *    in the tightest round (endRound), so it stands no higher than its
+ *    plate's edge, its lip as long as clears. The middle's back drop stands
+ *    1.04 mm further in, the ring's 0.5 and the pinky's front 2.35, so the
+ *    index's and middle's back drops no longer fuse; the inner's front
+ *    drop's place (the tie's one hanging end) moves 2.2 mm in, and on tie
+ *    and flow the tie now runs on straight across the hand under the bottom
+ *    row to the pinky's side (floorTie), not turned to the thumbs. Down on
+ *    every combination: rib by 3 to 9 and rib+rib by 1 (the middle's and
+ *    ring's front ledge; on flow the inner's and index's shading), and rail
+ *    by 2 to 8 but flare's (the index and middle junction's step, a gap and
+ *    two ledges; on tie and flow, the tie's slivers where it met the rail by
+ *    the thumbs; flare/tie up 1, flare/flow the same). Up: rail+rib by 1 (2
+ *    on wishbone/flow; above). Where walls are swept along the sides (flare,
+ *    truss), which run over the ends' lips and rounds, they are rebuilt and
+ *    their spots move between classes: flare's rail+rib+wall up 3 to 6 (the
+ *    skirt's feet at the inner's and pinky's back drops), wall up 1 or 2,
+ *    rib+wall up 2 on none, rail+wall down 2 to 6; truss's wall up 1 to 10,
+ *    rail+wall down 1 to 6 (up 1 on tie), rib+wall down 6 to 9 and
+ *    rail+rib+wall down 3. bones: rail+wall up 1 on none and tie (a foot's
+ *    sliver split in two), rib+wall up 1 on flow (a ledge where a limb meets
+ *    the thumb extra row), wall down 1 or 2; a limb's foot lands on open
+ *    rail, never on a drop (open), which keeps the ring's carried web's fork
+ *    off the pinky's front drop on flow. arches: a wall's sliver now touches
+ *    the rail (rail+wall up 1, wall down 2, on none and tie). pillars and
+ *    wishbone: the sliver at the pinky front pillar's foot no longer touches
+ *    the rail (none: rail+wall down 1, wall up 1); on tie and flow that
+ *    pillar is gone (the tie runs under its web, and a limb keeps off the
+ *    tie), and with it its spots (wall and rail+wall down).
  */
 const PINS: Record<string, Record<string, number>> = {
   'none/none': {
-    rail: 11,
-    'rail+rib': 7,
-    rib: 25,
-    'rib+rib': 5,
-  },
-  'none/tie': {
-    rail: 10,
-    'rail+rib': 7,
-    rib: 27,
-    'rib+rib': 6,
-  },
-  'none/flow': {
-    rail: 10,
-    'rail+rib': 7,
-    rib: 25,
+    rail: 7,
+    'rail+rib': 8,
+    rib: 21,
     'rib+rib': 4,
   },
-  'flare/none': {
-    rail: 15,
-    'rail+rib': 5,
-    'rail+rib+wall': 4,
-    'rail+wall': 35,
-    rib: 25,
+  'none/tie': {
+    rail: 7,
+    'rail+rib': 8,
+    rib: 23,
     'rib+rib': 5,
-    'rib+wall': 51,
-    wall: 36,
+  },
+  'none/flow': {
+    rail: 7,
+    'rail+rib': 8,
+    rib: 18,
+    'rib+rib': 3,
+  },
+  'flare/none': {
+    rail: 12,
+    'rail+rib': 6,
+    'rail+rib+wall': 7,
+    'rail+wall': 33,
+    rib: 17,
+    'rib+rib': 4,
+    'rib+wall': 53,
+    wall: 38,
   },
   'flare/tie': {
-    rail: 12,
-    'rail+rib': 5,
-    'rail+rib+wall': 5,
-    'rail+wall': 34,
-    rib: 27,
-    'rib+rib': 6,
+    rail: 13,
+    'rail+rib': 6,
+    'rail+rib+wall': 10,
+    'rail+wall': 32,
+    rib: 19,
+    'rib+rib': 5,
     'rib+wall': 52,
-    wall: 35,
+    wall: 36,
   },
   'flare/flow': {
     rail: 12,
-    'rail+rib': 5,
-    'rail+rib+wall': 4,
-    'rail+wall': 37,
-    rib: 24,
-    'rib+rib': 4,
-    'rib+wall': 44,
-    wall: 33,
+    'rail+rib': 6,
+    'rail+rib+wall': 10,
+    'rail+wall': 31,
+    rib: 15,
+    'rib+rib': 3,
+    'rib+wall': 41,
+    wall: 35,
   },
   'arches/none': {
-    rail: 11,
-    'rail+rib': 7,
-    'rail+wall': 2,
-    rib: 25,
-    'rib+rib': 5,
+    rail: 8,
+    'rail+rib': 8,
+    'rail+wall': 3,
+    rib: 21,
+    'rib+rib': 4,
     'rib+wall': 14,
-    wall: 4,
+    wall: 2,
   },
   'arches/tie': {
-    rail: 10,
-    'rail+rib': 7,
-    'rail+wall': 2,
-    rib: 27,
-    'rib+rib': 6,
-    'rib+wall': 14,
-    wall: 4,
-  },
-  'arches/flow': {
-    rail: 10,
-    'rail+rib': 7,
-    'rail+wall': 1,
-    rib: 25,
-    'rib+rib': 4,
-    'rib+wall': 7,
-    wall: 5,
-  },
-  'truss/none': {
-    rail: 15,
-    'rail+rib': 5,
-    'rail+rib+wall': 7,
-    'rail+wall': 33,
+    rail: 8,
+    'rail+rib': 8,
+    'rail+wall': 3,
     rib: 23,
     'rib+rib': 5,
-    'rib+wall': 35,
-    wall: 79,
+    'rib+wall': 14,
+    wall: 2,
   },
-  'truss/tie': {
-    rail: 14,
-    'rail+rib': 5,
-    'rail+rib+wall': 7,
-    'rail+wall': 36,
-    rib: 25,
-    'rib+rib': 6,
-    'rib+wall': 33,
-    wall: 91,
-  },
-  'truss/flow': {
-    rail: 11,
-    'rail+rib': 5,
-    'rail+rib+wall': 7,
-    'rail+wall': 39,
-    rib: 24,
-    'rib+rib': 4,
-    'rib+wall': 31,
-    wall: 80,
-  },
-  'bones/none': {
-    rail: 14,
-    'rail+rib': 7,
-    'rail+wall': 40,
-    rib: 26,
-    'rib+rib': 5,
-    'rib+wall': 9,
-    wall: 20,
-  },
-  'bones/tie': {
-    rail: 15,
-    'rail+rib': 7,
-    'rail+wall': 40,
-    rib: 28,
-    'rib+rib': 6,
-    'rib+wall': 9,
-    wall: 20,
-  },
-  'bones/flow': {
-    rail: 13,
-    'rail+rib': 7,
-    'rail+wall': 36,
-    rib: 26,
-    'rib+rib': 4,
-    'rib+wall': 13,
-    wall: 16,
-  },
-  'pillars/none': {
-    rail: 14,
-    'rail+rib': 7,
-    'rail+wall': 3,
-    rib: 25,
-    'rib+rib': 5,
-    'rib+wall': 4,
-  },
-  'pillars/tie': {
-    rail: 12,
+  'arches/flow': {
+    rail: 7,
     'rail+rib': 8,
     'rail+wall': 1,
-    rib: 27,
-    'rib+rib': 6,
+    rib: 18,
+    'rib+rib': 3,
+    'rib+wall': 7,
+    wall: 4,
+  },
+  'truss/none': {
+    rail: 10,
+    'rail+rib': 6,
+    'rail+rib+wall': 4,
+    'rail+wall': 32,
+    rib: 20,
+    'rib+rib': 4,
+    'rib+wall': 26,
+    wall: 82,
+  },
+  'truss/tie': {
+    rail: 10,
+    'rail+rib': 6,
+    'rail+rib+wall': 4,
+    'rail+wall': 37,
+    rib: 22,
+    'rib+rib': 5,
+    'rib+wall': 27,
+    wall: 92,
+  },
+  'truss/flow': {
+    rail: 8,
+    'rail+rib': 6,
+    'rail+rib+wall': 4,
+    'rail+wall': 33,
+    rib: 17,
+    'rib+rib': 3,
+    'rib+wall': 25,
+    wall: 90,
+  },
+  'bones/none': {
+    rail: 11,
+    'rail+rib': 8,
+    'rail+wall': 41,
+    rib: 22,
+    'rib+rib': 4,
+    'rib+wall': 9,
+    wall: 19,
+  },
+  'bones/tie': {
+    rail: 12,
+    'rail+rib': 8,
+    'rail+wall': 41,
+    rib: 24,
+    'rib+rib': 5,
+    'rib+wall': 9,
+    wall: 19,
+  },
+  'bones/flow': {
+    rail: 11,
+    'rail+rib': 8,
+    'rail+wall': 36,
+    rib: 19,
+    'rib+rib': 3,
+    'rib+wall': 14,
+    wall: 14,
+  },
+  'pillars/none': {
+    rail: 10,
+    'rail+rib': 8,
+    'rail+wall': 2,
+    rib: 21,
+    'rib+rib': 4,
+    'rib+wall': 4,
+    wall: 1,
+  },
+  'pillars/tie': {
+    rail: 8,
+    'rail+rib': 9,
+    'rail+wall': 1,
+    rib: 23,
+    'rib+rib': 5,
     'rib+wall': 4,
   },
   'pillars/flow': {
-    rail: 15,
-    'rail+rib': 8,
-    'rail+wall': 3,
-    rib: 24,
-    'rib+rib': 4,
+    rail: 9,
+    'rail+rib': 9,
+    'rail+wall': 2,
+    rib: 18,
+    'rib+rib': 3,
     'rib+wall': 6,
-    wall: 4,
+    wall: 1,
   },
   'wishbone/none': {
-    rail: 13,
-    'rail+rib': 8,
-    'rail+wall': 2,
-    rib: 24,
+    rail: 9,
+    'rail+rib': 9,
+    'rail+wall': 1,
+    rib: 20,
+    'rib+rib': 4,
+    'rib+wall': 4,
+    wall: 1,
+  },
+  'wishbone/tie': {
+    rail: 7,
+    'rail+rib': 9,
+    'rail+wall': 1,
+    rib: 23,
     'rib+rib': 5,
     'rib+wall': 4,
   },
-  'wishbone/tie': {
-    rail: 15,
-    'rail+rib': 8,
-    'rail+wall': 1,
-    rib: 26,
-    'rib+rib': 6,
-    'rib+wall': 4,
-  },
   'wishbone/flow': {
-    rail: 14,
-    'rail+rib': 8,
-    'rail+wall': 3,
-    rib: 24,
-    'rib+rib': 4,
+    rail: 6,
+    'rail+rib': 10,
+    'rail+wall': 2,
+    rib: 18,
+    'rib+rib': 3,
     'rib+wall': 6,
-    wall: 2,
+    wall: 1,
   },
 };
 

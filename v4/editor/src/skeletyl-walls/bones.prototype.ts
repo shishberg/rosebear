@@ -39,7 +39,8 @@
 // its feet, bows of its fork outward and sizes of its fillets it takes the
 // first, by preference, that is smooth so and clear of the keys as it stands,
 // with no bend tighter than the tube, no section dented and each branch on
-// its own side of the fork. Failing any, a single post (no fork) from a few
+// its own side of the fork, its feet on open rail (never on a drop's foot,
+// where the fillet over the rail's edge would stand proud of the drop's face). Failing any, a single post (no fork) from a few
 // starts; failing that, the limb is left out.
 import type { Manifold } from 'manifold-3d';
 import { add, cross, dot, scale, sub, unit, type V3 } from '../geometry';
@@ -116,6 +117,20 @@ type Rim = { chart: Chart; along: V3; s: number; U: number; S: number };
  */
 type Limb = { trunk: V3[][]; branches: V3[][][]; crotch: V3[] };
 
+/** Whether p is inside polygon `poly` in plan (even-odd). */
+function inPlan(poly: [number, number][], p: V3) {
+  let w = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const [a, b] = [poly[i], poly[j]];
+    if (
+      a[1] > p[1] !== b[1] > p[1] &&
+      p[0] < ((b[0] - a[0]) * (p[1] - a[1])) / (b[1] - a[1]) + a[0]
+    )
+      w = !w;
+  }
+  return w;
+}
+
 export function bones(kit: WallKit, side: WallSide): Manifold[] {
   const { keys } = side;
   if (!keys.length) return [];
@@ -150,6 +165,24 @@ export function bones(kit: WallKit, side: WallSide): Manifold[] {
     return plan(sub(m.rail, m.under)) <= FAR;
   };
   const carried = (a: number, b: number) => (near(middle(a, b)) ? [middle(a, b)] : []);
+  // A foot at x lands on open rail: its rim along the rail (half-length half)
+  // is off every drop's foot (its outer face on the outline and a wall in),
+  // so it never lands under a drop, its fillet over the rail's edge standing
+  // proud of the drop's face.
+  const drops = kit.rib.standing.map(([a, b, o]) =>
+    [a, b, sub(b, scale(o, side.wall)), sub(a, scale(o, side.wall))].map((q): [number, number] => [
+      q[0],
+      q[1],
+    ]),
+  );
+  const open = (x: number, half: number) =>
+    [-4, -2, 0, 2, 4].every((i) => {
+      const m = at(x + (half * i) / 4);
+      return [-0.4, 0, 0.4].every((w) => {
+        const p = add(m.rail, scale(m.across, w * side.wall));
+        return !drops.some((f) => inPlan(f, p));
+      });
+    });
   const anchors = [
     ...(c0.length ? carried(first, from) : side.ends[0] !== 'drop' ? [s[first] + INSET] : []),
     ...keys.slice(1).map((k, i) => middle(keys[i].to + shift, k.from + shift)),
@@ -171,7 +204,7 @@ export function bones(kit: WallKit, side: WallSide): Manifold[] {
           for (const k of SCALES) {
             if (!fits(x + d, ROOT.along * k)) continue;
             const feet = most.map((m) => inside(x + r * m, FOOT.along * k));
-            if (!feet.every(near)) continue;
+            if (!feet.every(near) || !feet.every((f) => open(f, FOOT.along * k))) continue;
             const y = limb(side, at, x + d, feet, k, bow);
             if (y) return [solid(kit, y)];
           }
@@ -179,6 +212,7 @@ export function bones(kit: WallKit, side: WallSide): Manifold[] {
       for (const bow of BOW)
         for (const k of SCALES) {
           if (!fits(x + d, ROOT.along * k) || !fits(x + d, FOOT.along * k)) continue;
+          if (!open(x + d, FOOT.along * k)) continue;
           const y = limb(side, at, x + d, [x + d], k, bow);
           if (y) return [solid(kit, y)];
         }
