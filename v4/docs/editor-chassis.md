@@ -14,7 +14,14 @@ The default chassis is the **Skeletyl** (`src/skeletyl.ts`, `chassis.style:
 "skeletyl"`): a rib along each finger column and each thumb row, and one rail
 round the outline on the floor. A rib is one swept solid: the key plates as
 slabs, curved webs between them tangent to the plates, and a lip and round at
-each end, clear of the tile pocket and the switch. PROTOTYPE: the outline
+each end, clear of the tile pocket and the switch. Each end keeps its plate's
+tilt across (about 15° on the fingers), except PROTOTYPE the rib's high end
+where it rises off its plate (every finger column's back, and on the thumbs
+the near key's and the extra row's x1 key's end): there the end is levelled across over
+its round, its lower side raised to the higher side's from the lip's end to 35°
+past the round's top (`levelPast`), so the top of the end and the drop under it
+stand level, no higher than the plate's high corner, rather than in a tilted
+ear. The lip and round are as long and big as without it. PROTOTYPE: the outline
 runs straight from foot to foot: it is the hull of where the ends would drop
 straight down and of the outer sides of the first and last columns and the
 thumb rows (their plates and tile pockets), with no margin past them, so the

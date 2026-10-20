@@ -12,7 +12,9 @@
 // lip carries the plate on along its own axis, and a round sweeps it over and
 // down to vertical; the round (where the end rises) or else the lip is as big
 // as it must be for the round, and the drop under it, to clear the end key's
-// tile pocket and switch body. Where the next
+// tile pocket and switch body. At the rib's high end, where it rises, the
+// round is levelled across over its top (its lower side raised to the
+// higher's), so it doesn't stand up in a tilted ear. Where the next
 // key's plate edge isn't past this one's along either key's axis (the plates
 // overlap in plan, or a web would fold back) the rib parts there, and each
 // part has its own ends: a round where it clears what the other keys hold
@@ -131,6 +133,8 @@ export const SIZES = {
   endGap: 0.3,
   /** An end's round whose lower side would end less than dropBend above railHeight is tightened by lipStep at a time until it ends that high, as far as it still clears and its inner face keeps at least this radius (endRound); if it still can't, the end is low (isLow). */
   endInner: 0.5,
+  /** The rib's high end, where it rises off its plate, is levelled across: its lower side is raised to the higher's from the lip's end to this many degrees past its round's top (endRound). */
+  levelPast: 35,
   /** Stations inside each web, round each end's round, and down each drop (for the checks and the walls; the drop itself is meshed finer, as a joined end is). */
   webSteps: 8,
   roundSteps: 8,
@@ -228,6 +232,8 @@ interface RibKey {
   n: V3;
   /** Which key axis a is (0: x, 1: y). */
   axis: number;
+  /** Where this key ends its rib at the rib's high end: that end's u (-1 or 1 along; ribs). */
+  high?: number;
 }
 /** A rib: which run it is from, its keys in order, and whether each end (first, last) is where the run parted. */
 interface Rib {
@@ -467,6 +473,11 @@ function ribs(d: Dims, frames: Record<string, Matrix4>, keyRuns: string[][]): Ri
         part.push(keys[i]);
         continue;
       }
+      // Its high end: the end whose plate edge stands higher.
+      const [first, last] = [part[0], part.at(-1)!];
+      const z = (k: RibKey, u: number) => keyPoint(k, d.plateHalf, u, 0, 0)[2];
+      if (z(first, -1) > z(last, 1)) first.high = -1;
+      else last.high = 1;
       out.push({ run: r, keys: part, parted: [parted, i < keys.length] });
       part = [keys[i]];
       parted = true;
@@ -508,7 +519,12 @@ const fromLine = (line: number[][], [x, z]: number[]) =>
  * thinning to a wall; the round sweeps it over and down until it heads
  * straight down, where a drop can stand under it. Each side turns on the
  * same arc, in the upright plane along the end, so the end doesn't twist: it
- * keeps the plate's tilt across, as the drop under it does. They are as small as
+ * keeps the plate's tilt across, as the drop under it does, except at the
+ * rib's high end where it rises off its plate (k.high), which is levelled
+ * across: the lower side is raised to the higher's, easing in from the lip's
+ * end to levelPast past the round's top, so the end's top, and the drop
+ * under it, stand level across, no higher than the plate's high corner.
+ * Lip and round are sized as without it. They are as small as
  * lets the inner faces, and a drop straight down from them, clear the end
  * key's tile pocket and switch body by endGap. Where the end rises off the
  * plate the round grows for that (from the end radius), so it rolls over in a
@@ -528,19 +544,50 @@ function endRound(d: Dims, k: RibKey, u: number) {
   // The round's outward direction where its tangent is at angle a up from h.
   const out = (a: number): V3 => add(scale(h, -Math.sin(a)), [0, 0, Math.cos(a)]);
   const start = Math.atan2(sin, cos);
+  // The rib's high end, where it rises off its plate, is levelled across
+  // (levelPast): each side, in its own upright plane, is raised from its
+  // corner's height off the middle (s·half·c_z, the plate's tilt across) to
+  // the higher side's, easing in from the lip's end to levelPast past the
+  // round's top, and stays there on down.
+  const tilt = edge.half * edge.c[2];
+  const levelled = start > 0 && k.high === u;
+  const ease = (start + (SIZES.levelPast * Math.PI) / 180) / (start + Math.PI / 2);
+  const level = (s: number, f: number) => {
+    if (!levelled) return 0;
+    const x = Math.min(1, f / ease);
+    return x * x * (3 - 2 * x) * (Math.abs(tilt) - s * tilt);
+  };
   // Each side's path: from its corner, a lip L long, then a round of radius R
-  // about a centre under the lip's end.
+  // about a centre under the lip's end (raised as level has it).
   const build = (L: number, R: number) => {
     const at = (s: number, f: number): Pair => {
-      const centre = sub(add(poseSide(edge, s)[0], scale(t, L)), scale(out(start), R));
+      const centre = add(sub(add(poseSide(edge, s)[0], scale(t, L)), scale(out(start), R)), [
+        0,
+        0,
+        level(s, f),
+      ]);
       const a = start + (-Math.PI / 2 - start) * f;
       return [add(centre, scale(out(a), R)), add(centre, scale(out(a), R - d.wall))];
     };
+    // How far it turns: the round's turn, or where it is levelled, the most
+    // either side's top turns along it.
+    let turn = Math.PI / 2 + start;
+    if (levelled)
+      for (const s of [-1, 1]) {
+        const top = [...Array(65).keys()].map((j) => at(s, j / 64)[0]);
+        const ts = top.slice(1).map((p, j) => unit(sub(p, top[j])));
+        turn = Math.max(
+          turn,
+          ts.slice(1).reduce((sum, q, j) => sum + turnOf(ts[j], q), 0),
+        );
+      }
+    // Its stations: roundSteps, more as it turns further.
+    const steps = Math.ceil((SIZES.roundSteps * turn) / (Math.PI / 2 + start));
     const path = (s: number): Pair[] => [
       poseSide(edge, s),
-      ...[...Array(SIZES.roundSteps + 1).keys()].map((j) => at(s, j / SIZES.roundSteps)),
+      ...[...Array(steps + 1).keys()].map((j) => at(s, j / steps)),
     ];
-    return Object.assign(path, { at, turn: Math.PI / 2 + start });
+    return Object.assign(path, { at, turn });
   };
   // In the plate's own plane (along t and n from its edge's middle, seen
   // along c): the room under each side is under the plate (its underside
@@ -1553,8 +1600,11 @@ function endClear(
 }
 
 /** One side of a dropping end, from the bottom of its round to the floor. */
-const dropSide = (d: Dims, rib: Rib, end: number, s: number, kind: End) =>
-  endSide(d, ...endKey(rib, end), s, kind).slice(SIZES.roundSteps + 1);
+function dropSide(d: Dims, rib: Rib, end: number, s: number, kind: End) {
+  const [k, u] = endKey(rib, end);
+  const round = (isDrop(kind) && isLow(d, k, u) ? lowRound : endRound)(d, k, u)(u * s);
+  return endSide(d, k, u, s, kind).slice(round.length - 1);
+}
 /** A point on a drop side at height z (or its top, if z is above it), its outer and inner faces. */
 function dropAt(side: Pair[], z: number): Pair {
   const i = Math.max(0, side.findIndex((p) => p[0][2] <= z) - 1);
