@@ -1756,13 +1756,26 @@ function wallSide(
   // laneSolid's lanes): every lane down it, from its top edge to its underside's.
   const across = s > 0 ? 1 : 0;
   const v = laneCounts(ribSpans(d, rib, ends))[1];
-  const webs = rib.keys.slice(1).map((k, i) => {
-    const span = poseSpan(edgePose(d, rib.keys[i], 1), edgePose(d, k, -1), 1);
+  const edgeOf = (span: Span) => {
     const face = [...Array(v + 1).keys()].map((j) =>
       laneAlong(span, laneAt(across, j / v)).map(([, p]) => p),
     );
     return { top: face[0], under: face[v], face };
-  });
+  };
+  const webs = rib.keys
+    .slice(1)
+    .map((k, i) => edgeOf(poseSpan(edgePose(d, rib.keys[i], 1), edgePose(d, k, -1), 1)));
+  // A joined end's web (its first span, to the plate edge it lands on), as
+  // the mesh has it (a first end's reversed, as ribSpans runs it), from the
+  // plate's corner on.
+  const carriedWebs = [0, 1].map((e) => {
+    const [k, u] = endKey(rib, e);
+    if (!isJoin(ends[e])) return undefined;
+    const span = endSpans(d, k, u, ends[e])[0];
+    if (e) return edgeOf(span);
+    const face = edgeOf(reversed(span)).face.map((lane) => [...lane].reverse());
+    return { top: face[0], under: face[v], face };
+  }) as WallSide['carriedWebs'];
   return {
     name,
     points,
@@ -1770,6 +1783,7 @@ function wallSide(
     webs,
     ends: [finish(ends[0]), finish(ends[1])],
     carried,
+    carriedWebs,
     wall: d.wall,
     railHeight: SIZES.railHeight,
     outline: ring,

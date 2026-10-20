@@ -173,8 +173,11 @@ holding up the rib ends (`src/skeletyl-walls.prototype.ts`, `src/skeletyl-ends.p
 `?walls=pillars|wishbone` carry the rib on down from the web between two keys on
 an outer side to the rail (a pillar, or a trunk forking into two legs at 45°),
 turning down at once in a round as tight as the rib's section allows, so each
-stands as near under its column as clears. Webs
-too narrow or too low for one get none. A limb in the main ribbon's way forks over
+stands as near under its column as clears. With `?ends=flow` a web a thumb
+row's end carries on in to a column's front gets one too, as near the plate it
+leaves as clears (on Swung in a pillar under the thumb extra row's, past
+the tie). Webs too narrow or too low for one get none, and so does a web
+facing in over another rib (the outline more than 10 mm out across its feet). A limb in the main ribbon's way forks over
 it, 2 mm clear. The outline runs straight along the limbs' feet
 (see [chassis](../docs/editor-chassis.md)).
 

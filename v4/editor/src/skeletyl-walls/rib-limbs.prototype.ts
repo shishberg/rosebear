@@ -2,8 +2,8 @@
 // switchable via ?walls= on the editor.
 //
 // ?walls=pillars (rib pillars) and ?walls=wishbone (forked rib legs): limbs
-// built as the ribs are, out of the outer side of the webs between
-// neighbouring keys and down to the rail. A limb is the rib carried on
+// built as the ribs are, out of the outer side of a rib's webs (between
+// neighbouring keys, and those its ends carry on in) and down to the rail. A limb is the rib carried on
 // sideways: it leaves the web's outer edge at its middle, in the rib's plane
 // there, runs a short lip, turns down in one round about that edge (thinning
 // from the rib to a wall, as an end does), so it doesn't twist, and runs
@@ -41,11 +41,27 @@
 // such place gets none, and a side with no such web has none: its ends
 // already stand on the rail or hang, as without walls. The whole limb is
 // then built about that middle. On Swung in the inner and pinky columns each
-// have two webs 5.7 to 7 mm long, the thumb rows none; the face's points
+// have two webs 5.7 to 7 mm long, the thumb rows none long enough (the
+// thumb extra row's is 3.6); the face's points
 // leave the inner front web room for a limb 2.6 to 3.5 mm wide, the inner
 // back one 2.8 to 3.7 and the pinky back one 3.2 to 4.4, so S.width is the
 // most all three take with a little to spare, each centred on its web. The
 // pinky front web has room too, and a pillar clears there.
+//
+// A web an end carries on in (?ends=flow: a thumb row's end carried on to a
+// column's front, WallSide.carriedWebs) is a span of rib with nothing under
+// it but where it lands, so it gets a limb too: as near the plate it leaves
+// as clears (its middle HALF and S.edge on from the plate's corner, then
+// each SLIDE, 1 mm, further on), as a finger key's side has one near each
+// web. On Swung in that is the thumb extra row's, 41 mm from thumb_x1 to the
+// middle column's front, over open floor. The tie (?ends=flow has one)
+// meets the rail under the web's first few mm, so its nearer places don't
+// clear; a pillar stands about 11 mm on from thumb_x1's corner (on wishbone
+// too: no fork clears there), 3.0 mm
+// out from the web's edge, near where the user marked.
+// The thumb row's carried web faces in, over the thumb extra row, and no
+// limb is placed where the outline across its feet is more than S.far
+// (10 mm) out: a limb is for a side facing open floor, near the rail.
 //
 // A wishbone's trunk, partway down, forks into two legs, each
 // leaving the trunk at one slant, SLANT (45°) off upright, turning back to
@@ -94,7 +110,7 @@
 import type { Manifold } from 'manifold-3d';
 import { add, cross, dot, scale, sub, type V3 } from '../geometry';
 import type { Pose, Span } from '../skeletyl';
-import type { Reach, WallKit, WallSide } from '../skeletyl-walls.prototype';
+import type { Reach, WallKit, WallPoint, WallSide, WebEdge } from '../skeletyl-walls.prototype';
 
 /**
  * Sizes in mm: the width (along the side) of every limb and every part of
@@ -108,8 +124,10 @@ import type { Reach, WallKit, WallSide } from '../skeletyl-walls.prototype';
  * over the rail before it slants; how
  * far past its feet (along the side: more than the rail is wide) and in from
  * the web's edge the floor round them runs, which keeps clear of the drops
- * and the tie; the least gap between neighbouring limbs; and the
- * furthest a wishbone's foot is out from its trunk's middle (over the ribbon).
+ * and the tie; the least gap between neighbouring limbs; the
+ * furthest a wishbone's foot is out from its trunk's middle (over the ribbon);
+ * and the furthest out the outline may be across a limb's feet (a web facing
+ * in, over another rib, gets none).
  */
 const S = {
   width: 3.4,
@@ -121,11 +139,14 @@ const S = {
   back: 6,
   gap: 2,
   widest: 14,
+  far: 10,
 };
 /** Half a limb's width. */
 const HALF = S.width / 2;
 /** How much further out (mm) than the least a limb may come down, tried in turn, to clear the keys. */
 const FURTHER = [0, 1, 2, 3, 4, 6, 8];
+/** How far on (mm) along a web an end carries on in each next place its limb may leave it is (lineOf). */
+const SLIDE = 1;
 /**
  * Every wishbone leg's slant off upright (degrees): well past the viewer's
  * 30° crease, so its side doesn't shade into the trunk's, and as far out as
@@ -207,11 +228,92 @@ interface Limb {
   fork?: { height: number; legs: [number, number]; kind: Kind };
 }
 
-/** A web along a side: the points over it, from one plate's corner (from) to the next's (to), and its outer edge as the rib's mesh has it (WallSide.webs). */
+/**
+ * A web along a side: the points over it (in its Line), from one plate's
+ * corner (from) to the next's (to), where along them its limb may leave it
+ * (fractional, first choice first: `at`), and its outer edge as the rib's
+ * mesh has it, the same way
+ * (WallSide.webs, carriedWebs); and for a web an end carries on in, that
+ * end's points (WallSide.carried).
+ */
 interface Web {
   from: number;
   to: number;
-  edge: { top: V3[]; under: V3[]; face: V3[][] };
+  at: number[];
+  edge: WebEdge;
+  own?: WallPoint[];
+}
+
+/** A side's points with the webs its ends carry on in (?ends=flow), first to last, and its webs along them. */
+interface Line {
+  points: WallPoint[];
+  webs: Web[];
+}
+
+/**
+ * Side's line: its points, with each carried web's on past its ends, and
+ * its webs: between each two of its keys, its limb leaving at its middle;
+ * and each an end carries on in, from the plate's corner to the plate edge
+ * it lands on, its limb leaving as near the plate it leaves as clears: its
+ * middle HALF and S.edge on from that plate's corner (settle then keeps its
+ * sides clear of the edge's points), else each SLIDE further on in turn, up
+ * to as near the plate it lands on.
+ */
+function lineOf(side: WallSide): Line {
+  const [c0, c1] = side.carried;
+  const shift = Math.max(0, c0.length - 1);
+  const points = [...c0.slice(1).reverse(), ...side.points, ...c1.slice(1)];
+  // The point (of those from lo to hi) at p.
+  const index = (p: V3, lo: number, hi: number) => {
+    let best = lo;
+    for (let j = lo; j <= hi; j++)
+      if (len(sub(points[j].top, p)) < len(sub(points[best].top, p))) best = j;
+    return best;
+  };
+  // Where along the points (fractional) the limb may leave, from point j
+  // (a plate's corner) toward k, HALF and S.edge on from j and every SLIDE
+  // further, up to HALF and S.edge short of k, along their tops.
+  const from = (j: number, k: number) => {
+    const sg = Math.sign(k - j);
+    const run = [0];
+    for (let i = j; i !== k; i += sg)
+      run.push(run.at(-1)! + len(sub(points[i + sg].top, points[i].top)));
+    const lead = S.edge + HALF;
+    const at: number[] = [];
+    for (let d = lead; d <= run.at(-1)! - lead; d += SLIDE) {
+      const n = run.findIndex((r) => r >= d);
+      at.push(j + sg * (n - 1 + (d - run[n - 1]) / (run[n] - run[n - 1])));
+    }
+    return at;
+  };
+  const between = side.keys.slice(1).map((k, i): Web => ({
+    from: side.keys[i].to + shift,
+    to: k.from + shift,
+    at: [(side.keys[i].to + k.from) / 2 + shift],
+    edge: side.webs[i],
+  }));
+  const [w0, w1] = side.carriedWebs;
+  const last = shift + side.points.length - 1;
+  // (The first end's runs back to its plate's corner: turned to run along the line.)
+  const from0 = w0 ? index(w0.top.at(-1)!, 0, shift) : 0;
+  const before: Web[] = w0
+    ? [
+        {
+          from: from0,
+          to: shift,
+          at: from(shift, from0),
+          edge: {
+            top: [...w0.top].reverse(),
+            under: [...w0.under].reverse(),
+            face: w0.face.map((lane) => [...lane].reverse()),
+          },
+          own: c0,
+        },
+      ]
+    : [];
+  const to1 = w1 ? index(w1.top.at(-1)!, last, points.length - 1) : 0;
+  const after: Web[] = w1 ? [{ from: last, to: to1, at: from(last, to1), edge: w1, own: c1 }] : [];
+  return { points, webs: [...before, ...between, ...after] };
 }
 
 /** What a limb keeps clear of besides the keys and the ribbon: in plan (`free`), and all of it (`clear`). */
@@ -264,12 +366,14 @@ function limbs(kit: WallKit, side: WallSide, forked: boolean, reach: boolean) {
 /** Each side's limbs on the outline `rings`, one at each web in order, each kept clear of those before it. */
 function place(kit: WallKit, forked: boolean, rings: [number, number][][], span: Span_) {
   const all: Limb[] = [];
-  // The sides' ends (lips, rounds, drops, and webs carried on): a limb keeps clear of them too.
-  const ends = kit.sides.flatMap((s) =>
-    [...s.points.filter((p) => p.over === 'end'), ...s.carried.flat()].flatMap((p) =>
-      [p.top, p.under].map((q): [number, number] => [q[0], q[1]]),
-    ),
-  );
+  // The sides' ends (lips, rounds, drops, and webs carried on): a limb keeps
+  // clear of them too, but for the carried web it leaves from (`own`).
+  const flat = (pts: WallPoint[]) =>
+    pts.flatMap((p) => [p.top, p.under].map((q): [number, number] => [q[0], q[1]]));
+  const ends = kit.sides.flatMap((s) => [
+    { own: undefined, pts: flat(s.points.filter((p) => p.over === 'end')) },
+    ...s.carried.map((c) => ({ own: c, pts: flat(c) })),
+  ]);
   // And its floor keeps clear of the faces standing on the outline (drops).
   const standing = kit.rib.standing.map(([a, b]) =>
     [a, b].map((p): [number, number] => [p[0], p[1]]),
@@ -277,30 +381,39 @@ function place(kit: WallKit, forked: boolean, rings: [number, number][][], span:
   // And of where the tie (if any) is filleted into the rail.
   const { CrossSection } = kit.wasm;
   const tie = kit.rib.tie.length ? new CrossSection(kit.rib.tie, 'NonZero') : undefined;
-  const free = (plan: [number, number][]) =>
-    all.every((l) => apart(l.plan, plan, S.gap)) && ends.every((q) => apart(plan, [q], S.gap));
-  const clear = (limb: Limb) =>
-    free(limb.plan) &&
-    standing.every((f) => apart(limb.floor, f, S.gap)) &&
-    !(tie && tie.intersect(new CrossSection([limb.floor], 'NonZero').offset(S.gap)).area() > 1e-6);
+  const avoid = (own?: WallPoint[]): Avoid => {
+    const free = (plan: [number, number][]) =>
+      all.every((l) => apart(l.plan, plan, S.gap)) &&
+      ends.every((x) => x.own === own || x.pts.every((q) => apart(plan, [q], S.gap)));
+    const clear = (limb: Limb) =>
+      free(limb.plan) &&
+      standing.every((f) => apart(limb.floor, f, S.gap)) &&
+      !(
+        tie && tie.intersect(new CrossSection([limb.floor], 'NonZero').offset(S.gap)).area() > 1e-6
+      );
+    return { free, clear };
+  };
   // A limb in the ribbon's way (within a wishbone's widest spread of its
   // web's middle, or half a pillar's width) forks over it. Those are placed first,
   // since where their feet go is the ribbon's to say; then the rest, each web
   // in order, clear of them: a wishbone forks where it can, and is a pillar
   // where it can't.
   const within = forked ? S.widest : HALF;
-  const webs = kit.sides.flatMap((side) =>
-    side.keys.slice(1).map((k, i) => ({
-      side,
-      web: { from: side.keys[i].to, to: k.from, edge: side.webs[i] },
-    })),
-  );
+  const webs = kit.sides.flatMap((side) => {
+    const line = lineOf(side);
+    return line.webs.map((web) => ({ side, line, web }));
+  });
   const at = new Map<(typeof webs)[number], Limb>();
   const passes: Kind[][] = [['over'], forked ? ['fork', 'pillar'] : ['pillar']];
   for (const kinds of passes)
     for (const x of webs)
-      for (const kind of at.has(x) ? [] : kinds) {
-        const limb = limbAt(kit, x.side, x.web, kind, within, rings, span, { free, clear });
+      for (const m of at.has(x) ? [] : x.web.at) {
+        const limb = kinds.reduce<Limb | undefined>(
+          (found, kind) =>
+            found ??
+            limbAt(kit, x.side, x.line, x.web, m, kind, within, rings, span, avoid(x.web.own)),
+          undefined,
+        );
         if (limb) {
           at.set(x, limb);
           all.push(limb);
@@ -339,7 +452,9 @@ type Kind = 'pillar' | 'fork' | 'over';
 function limbAt(
   kit: WallKit,
   side: WallSide,
+  { points, webs }: Line,
   web: Web,
+  m: number,
   kind: Kind,
   within: number,
   rings: [number, number][][],
@@ -347,13 +462,13 @@ function limbAt(
   avoid: Avoid,
 ): Limb | undefined {
   const forked = kind !== 'pillar';
-  const { points, railHeight: rail, wall } = side;
+  const { railHeight: rail, wall } = side;
+
   // The rib's top and underside at f along the side's points (between two if f falls between).
   const along_ = (f: number, k: 'top' | 'under') => {
     const j = Math.min(Math.floor(f), points.length - 2);
     return lerp(points[j][k], points[j + 1][k], f - j);
   };
-  const m = (web.from + web.to) / 2;
   const mid = along_(m, 'top');
   const u0 = along_(m, 'under');
   const thick = len(sub(mid, u0));
@@ -508,13 +623,12 @@ function limbAt(
   // in from there as far as its foot needs to be clear; then each pair
   // narrower in turn, both legs at most `s` out, so that the fork comes lower.
   const spreadsAt = (g: V3): [number, number][] => {
-    const webs = side.keys
-      .slice(1)
-      .map((k, i) => (side.keys[i].to + k.from) / 2)
-      .filter((f) => f !== m)
+    const others = webs
+      .filter((x) => x !== web)
+      .map((x) => x.at[0])
       .map((f) => dot(sub(along_(f, 'top'), o), a));
     const [sl, sr] = [-1, 1].map((sg) => {
-      const next = Math.min(...webs.filter((x) => sg * x > 0).map((x) => sg * x));
+      const next = Math.min(...others.filter((x) => sg * x > 0).map((x) => sg * x));
       const most = Math.min(SPREAD, next / 2 - S.gap / 2 - HALF);
       for (let x = most; x >= LEAST; x -= 0.5) if (clearAt(g, sg * x)) return x;
       return undefined;
@@ -526,7 +640,8 @@ function limbAt(
     return out;
   };
   let outline = outlineOf([SPREAD, SPREAD]);
-  if (!(outline < Infinity)) return undefined;
+  // (A web facing in, the outline far off across it, gets none.)
+  if (!(outline <= S.far)) return undefined;
   // Each of its legs' spreads to try (one for a pillar), and how high its
   // legs stand upright before they slant.
   let tries: { legs: [number, number]; stand: number }[] = [{ legs: [0, 0], stand: 0 }];

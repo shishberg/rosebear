@@ -53,6 +53,13 @@ export interface WallPoint {
   rail: { inner: V3; centre: V3; outer: V3 };
 }
 
+/** A web's outer edge as the rib's mesh has it: its points along its top and along its underside, and every lane's down its outer face (`face`, the first `top` and the last `under`). */
+export interface WebEdge {
+  top: V3[];
+  under: V3[];
+  face: V3[][];
+}
+
 /**
  * One outer side of the frame: everything a wall variant needs to build a
  * wall from the rib's outer edge down to the rail round the outline, clear of
@@ -68,9 +75,11 @@ export interface WallSide {
   /** How each end (first, last) finishes: "drop" (the end drops to the floor: the rib carried on down onto the rail, straight down or bending out in the end's own plane, onto a square foot), "hang" (a round, stopping above the floor, at its last point), or "flush" (the run parted there: the side stops at the plate's corner). A drop's points go down, near one above another, so a wall swept along the side can't follow them: it can stop at the bottom of the round, flush with the drop's outer face, as flare does. */
   ends: ['drop' | 'hang' | 'flush', 'drop' | 'hang' | 'flush'];
   /** Each web's outer edge (web i between keys[i] and keys[i + 1]): the rib mesh's own points along its top and along its underside, from keys[i]'s plate corner to keys[i + 1]'s, exactly as the mesh has them, so that a wall can start from them and share the rib's edges there; and every lane's down the outer face (`face`, the first `top` and the last `under`), so that a wall's sides can keep clear of the face's points. */
-  webs: { top: V3[]; under: V3[]; face: V3[][] }[];
+  webs: WebEdge[];
   /** PROTOTYPE ?ends=flow: an end (first, last) that carries on into another rib as a web is "flush" in `ends`, and `points` stop at its plate's corner; this is that web's side, as points are, from the corner (`points`' first or last, again) on to the plate edge it lands on. Empty for the other ends. */
   carried: [WallPoint[], WallPoint[]];
+  /** PROTOTYPE ?ends=flow: each carried end's web's outer edge, as `webs` has a web's (the rib mesh's own points), from the plate's corner on to the plate edge it lands on, as `carried` runs; undefined for the other ends. */
+  carriedWebs: [WebEdge | undefined, WebEdge | undefined];
   /** The wall thickness the frame is built to (its ends and rail), mm. */
   wall: number;
   /** The rail's height, mm (it is `wall` wide, inside the outline). */

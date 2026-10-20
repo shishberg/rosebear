@@ -134,6 +134,16 @@ function classOf(s: Seam) {
  *    lies on the rail's inner top edge, is now a shading at its back leg's,
  *    and the new pinky front pillar, turned to stand along the run, has its
  *    inner face and the rail's inner side a few microns apart (not on tie).
+ *    On flow the thumb extra row's carried web has a pillar (wall 5) about
+ *    11 mm on from thumb_x1's corner: rib+wall up 2, its root's sides on the
+ *    web's sloping face, as the other limbs'; rail+wall up 1, its foot's
+ *    ledge on the rail's top; wall 0 to 2 (wishbone) and 4 (pillars), ledges
+ *    and shadings where its second round (the web slopes along the side)
+ *    meets its first; rail up 2: the outline's run from thumb_x2's corner
+ *    now goes to the pillar's foot, so the tie meets the rail at another
+ *    angle and its fillet there leaves a sliver and a gap (faces under
+ *    0.2 mm apart, both the tie's); the rail's sliver by thumb_x2 moved to
+ *    the pillar's foot.
  *  - glue posts: each leg goes 0.3 mm up into the web or the rib's end over
  *    it, its top following that underside, so the union splits the frame's
  *    faces along where they meet; what that leaves within postMeet of a leg
@@ -316,12 +326,13 @@ const PINS: Record<string, Record<string, number>> = {
     'rib+wall': 4,
   },
   'pillars/flow': {
-    rail: 13,
+    rail: 15,
     'rail+rib': 8,
-    'rail+wall': 2,
+    'rail+wall': 3,
     rib: 24,
     'rib+rib': 4,
-    'rib+wall': 4,
+    'rib+wall': 6,
+    wall: 4,
   },
   'wishbone/none': {
     rail: 13,
@@ -340,12 +351,13 @@ const PINS: Record<string, Record<string, number>> = {
     'rib+wall': 4,
   },
   'wishbone/flow': {
-    rail: 12,
+    rail: 14,
     'rail+rib': 8,
-    'rail+wall': 2,
+    'rail+wall': 3,
     rib: 24,
     'rib+rib': 4,
-    'rib+wall': 4,
+    'rib+wall': 6,
+    wall: 2,
   },
 };
 

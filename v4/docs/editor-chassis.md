@@ -112,8 +112,17 @@ round turns 105°; they stand 4.9 to 5.0 mm out from their webs' edges (7.6 and
 without them, so the inner side runs that much further out (the footprint
 3 mm wider). The pinky has a pillar at both its webs (too low to fork): they
 leave falling 15° and would stand 3.0 to 3.1 mm out, but the outline there is
-4.1 to 4.2 mm out, so they run on out to it. The thumbs' webs are
-too short. The
+4.1 to 4.2 mm out, so they run on out to it. The thumbs' webs between
+keys are too short. With `?ends=flow` a web an end carries on in to a
+column's front is a span with nothing under it, so it gets a limb too, as near
+the plate it leaves as clears (from 2.2 mm on from the plate's corner, then
+each 1 mm further). On Swung in that puts a pillar (on wishbone too: no fork
+clears there) under the thumb extra row's 41 mm
+web to the middle column, about 11 mm on from `thumb_x1`'s corner, just past
+where the tie meets the rail, 3.0 mm out from the web's edge; the outline runs
+straight from `thumb_x2`'s corner to its foot. The thumb row's carried web
+faces in, over the thumb extra row: no limb is placed where the outline across
+its feet is more than 10 mm out. The
 assembly is soldered first and lifted in, so the frame has no wire ways and
 the checks don't test the wires against it. The board's height to the keycaps'
 tops shows under its size.
