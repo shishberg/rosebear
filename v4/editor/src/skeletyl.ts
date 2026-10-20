@@ -2536,6 +2536,7 @@ export function skeletyl(
     along: alongOf,
     mesh: (lanes, ends) => laneMesh(wasm, lanes, ends, 'wall'),
     radius: d.radius,
+    inner: SIZES.endInner,
     standing: faces,
     tie: tie
       ? tie

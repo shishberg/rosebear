@@ -106,7 +106,7 @@ function classOf(s: Seam) {
  *    their prototypes' own joints (piers and crowns, struts, limbs'
  *    fillets), not the frame's.
  *  - pillars and wishbone: the outline's hull takes in the limbs' feet, so
- *    its inner side runs straight along them, 5 to 6 mm further out than
+ *    its inner side runs straight along them, 2.6 to 2.7 mm further out than
  *    without them, and turns in to the inner column's front drops where
  *    they stand: the rail's corners and its meeting with those drops and the thumbs'
  *    (rail, rail+rib) are cut differently there; and where the run passes
@@ -121,9 +121,19 @@ function classOf(s: Seam) {
  *    rounded out past it, each left a sliver of no area and a shading.)
  *    rail+wall (pillars/none): the inner bottom and home keys' pillar,
  *    turned 0.8° to stand along the run, its inner face and the rail's inner
- *    side a few microns apart. wall (wishbone): one sliver of no area at the
- *    foot of the inner home and top keys' fork's front leg, where its inner
- *    face's bottom corner lies on the rail's inner top edge.
+ *    side a few microns apart. Re-pinned when the limbs turned down in rounds
+ *    as tight as their section allows, after a 0.5 mm lip, nearest first,
+ *    the inner column's standing 2.6 to 3.3 mm nearer their webs and the
+ *    pinky's 0.4 mm, and a new pillar at the pinky's front web: the rail
+ *    moved in with their feet, so its spots and the drops' near it moved
+ *    (rail down 1 to 6, rail+rib down 1 and rib up 1 on pillars/none, where
+ *    a thumb's shading near the rail's top no longer touches it, rib up 1 on
+ *    pillars/tie, a sliver at the pinky's front drop's foot); rail+wall up 1
+ *    or 2 (and wall down 1 on wishbone): the sliver of no area at the inner
+ *    home and top keys' fork's foot, where a leg's inner face's bottom corner
+ *    lies on the rail's inner top edge, is now a shading at its back leg's,
+ *    and the new pinky front pillar, turned to stand along the run, has its
+ *    inner face and the rail's inner side a few microns apart (not on tie).
  *  - glue posts: each leg goes 0.3 mm up into the web or the rib's end over
  *    it, its top following that underside, so the union splits the frame's
  *    faces along where they meet; what that leaves within postMeet of a leg
@@ -290,50 +300,52 @@ const PINS: Record<string, Record<string, number>> = {
     wall: 16,
   },
   'pillars/none': {
-    rail: 15,
-    'rail+rib': 8,
-    'rail+wall': 1,
-    rib: 24,
+    rail: 14,
+    'rail+rib': 7,
+    'rail+wall': 3,
+    rib: 25,
     'rib+rib': 5,
     'rib+wall': 4,
   },
   'pillars/tie': {
-    rail: 18,
+    rail: 12,
     'rail+rib': 8,
-    rib: 26,
+    'rail+wall': 1,
+    rib: 27,
     'rib+rib': 6,
     'rib+wall': 4,
   },
   'pillars/flow': {
-    rail: 14,
+    rail: 13,
     'rail+rib': 8,
+    'rail+wall': 2,
     rib: 24,
     'rib+rib': 4,
     'rib+wall': 4,
   },
   'wishbone/none': {
-    rail: 14,
+    rail: 13,
     'rail+rib': 8,
+    'rail+wall': 2,
     rib: 24,
     'rib+rib': 5,
     'rib+wall': 4,
-    wall: 1,
   },
   'wishbone/tie': {
-    rail: 18,
+    rail: 15,
     'rail+rib': 8,
+    'rail+wall': 1,
     rib: 26,
     'rib+rib': 6,
     'rib+wall': 4,
-    wall: 1,
   },
   'wishbone/flow': {
-    rail: 14,
+    rail: 12,
     'rail+rib': 8,
+    'rail+wall': 2,
     rib: 24,
     'rib+rib': 4,
     'rib+wall': 4,
-    wall: 1,
   },
 };
 

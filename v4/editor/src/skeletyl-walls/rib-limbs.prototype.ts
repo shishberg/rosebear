@@ -5,13 +5,21 @@
 // built as the ribs are, out of the outer side of the webs between
 // neighbouring keys and down to the rail. A limb is the rib carried on
 // sideways: it leaves the web's outer edge at its middle, in the rib's plane
-// there, runs a short lip, turns down in one round of the ends' radius about
-// that edge (thinning from the rib to a wall, as an end does), so it doesn't
-// twist, and runs down, its top now its outer face, to stand on the rail, its
-// faces flush with the rail's: a rib's end turned to the side. Where the edge
-// isn't level, the round leaves it leaning along the side, and a second
-// round, in its outer face, turns it upright. Its section is the rib's
-// (laneSolid), so its edges are crisp, and every bend is one way, once.
+// there, runs a short lip, turns down in one round about that edge (thinning
+// from the rib to a wall, as an end does), so it doesn't twist, and runs
+// down, its top now its outer face, to stand on the rail, its faces flush
+// with the rail's: a rib's end turned to the side. Where the edge isn't
+// level, the round leaves it leaning along the side, and a second round, in
+// its outer face, turns it upright (if it leans more than STRAIGHT). Its
+// section is the rib's (laneSolid), so its edges are crisp, and every bend is
+// one way, once. The lip is as short as the root has room for, and each
+// round as tight as the limb's section allows, its inner face the ends'
+// least radius (kit.rib.inner, 0.5 mm) round: the first's outer face the
+// rib's thickness more (3.5 mm on Swung in, where the ends' rounds are 5),
+// the second's middle half the limb's width more. So the limb turns down
+// as soon as it leaves the column and stands as near under it as clears:
+// a key pressed on the column loads it down the limb more than across its
+// joint.
 //
 // It starts from the web's own outer edge, as the rib's mesh has it
 // (WallSide.webs): its top and underside there are the edge's own points
@@ -37,7 +45,7 @@
 // leave the inner front web room for a limb 2.6 to 3.5 mm wide, the inner
 // back one 2.8 to 3.7 and the pinky back one 3.2 to 4.4, so S.width is the
 // most all three take with a little to spare, each centred on its web. The
-// pinky front web has room but no limb clears there.
+// pinky front web has room too, and a pillar clears there.
 //
 // A wishbone's trunk, partway down, forks into two legs, each
 // leaving the trunk at one slant, SLANT (45°) off upright, turning back to
@@ -63,7 +71,8 @@
 //
 // The limb comes straight down where its round puts it, at least the lip and
 // the round out from the web's edge, or further out if that clears the keys
-// (tiles, switch bodies, keycap rooms and switch holes' columns: side.clear).
+// (tiles, switch bodies, keycap rooms and switch holes' columns: side.clear):
+// nearest first, a wishbone's legs narrower there before it goes further.
 // Limbs are placed for every side at once, each clear of those before it, of
 // the sides' ends (lips, rounds, drops and webs carried on), of the faces
 // standing on the outline (drops), of the tie, and of the ribbon. They stand on the straightened outline: placed
@@ -75,8 +84,13 @@
 // (up to TURN): a pillar twisting to it all the way down, a wishbone's trunk
 // over TWIST under its rounds. So each foot stands flush on the run, and the
 // rail needs no step out. On Swung in the inner column's limbs can't come
-// down inside the outline (their lip and round alone reach 5 to 6 mm past
-// it), so its inner side runs that much further out along them.
+// down inside the outline (their lip and round alone reach 2.6 to 2.7 mm
+// past it: their rib rises 15° out of the column, so the round turns 105°),
+// so its inner side runs that much further out along them; they stand 4.9
+// to 5.0 mm out from their webs' edges (7.6 and 8.3 with the ends' radius
+// and a 1 mm lip). The pinky's leave falling 15° and would stand 3.0 to
+// 3.1 mm out, but the outline there (the pinky's tiles and ends) is 4.1 to
+// 4.2, so they run on out to it.
 import type { Manifold } from 'manifold-3d';
 import { add, cross, dot, scale, sub, type V3 } from '../geometry';
 import type { Pose, Span } from '../skeletyl';
@@ -89,7 +103,8 @@ import type { Reach, WallKit, WallSide } from '../skeletyl-walls.prototype';
  * so that a leg is a sturdy post, seven or so lines of a 0.4 mm nozzle
  * across); how far a limb starts inside the rib; the least its root's sides
  * stay in from the plates' corners at the web's ends, along the edge; the
- * least lip past the web's edge; the least a wishbone's leg stands upright
+ * least lip past the web's edge (as short as the root's blend to the
+ * lip's section has room for, so that the limb turns down at once); the least a wishbone's leg stands upright
  * over the rail before it slants; how
  * far past its feet (along the side: more than the rail is wide) and in from
  * the web's edge the floor round them runs, which keeps clear of the drops
@@ -100,7 +115,7 @@ const S = {
   width: 3.4,
   into: 0.5,
   edge: 0.5,
-  lip: 1,
+  lip: 0.5,
   upright: 1,
   margin: 2.5,
   back: 6,
@@ -147,9 +162,14 @@ const MESH = 2;
 const INSIDE = 1e-7;
 /** The gap side.clear keeps (mm), and a hair more. */
 const GAP = 0.31;
-/** The most a limb leans along the side under a sloping edge (radians), and the least it is turned upright for. */
+/**
+ * The most a limb leans along the side under a sloping edge (radians), and
+ * the least it is turned upright for by a round of its own: under that, its
+ * straight run down takes the lean out (the round's few hundredths of a mm
+ * left slivers where a wishbone's trunk meets its legs, and at a pillar's foot).
+ */
 const LEAN = (50 * Math.PI) / 180;
-const STRAIGHT = 1e-4;
+const STRAIGHT = (2 * Math.PI) / 180;
 /** The least a pillar's straight run down to the rail (mm), where there is no height for more. */
 const SHORT = 0.2;
 /** How far a wishbone's rib comes straight down under its rounds before the trunk's shape takes over. */
@@ -370,11 +390,13 @@ function limbAt(
   const [du, dv] = [dot(d, a), d[2]];
   const lean = Math.acos(Math.max(-1, Math.min(1, -dv)));
   if (cw < 0.3 || lean > LEAN) return undefined;
-  // The round: the ends' radius, through the turn from C to d; and the
-  // second, in the face, from d to straight down: the ends' radius on its inner side.
-  const R = kit.rib.radius;
+  // The round, through the turn from C to d, and the second, in the face,
+  // from d to straight down: each as tight as the limb's section allows, its
+  // inner face kit.rib.inner round (the rib's thickness, or half the limb's
+  // width, in from its outer face's).
+  const R = thick + kit.rib.inner;
   const T = R * Math.tan(Math.acos(Math.max(-1, Math.min(1, dot(C, d)))) / 2);
-  const Tb = lean > STRAIGHT ? (R + HALF) * Math.tan(lean / 2) : 0;
+  const Tb = lean > STRAIGHT ? (kit.rib.inner + HALF) * Math.tan(lean / 2) : 0;
   // Along the side from where the outer face's top is over to the trunk's foot's middle.
   const uf = (T + Tb) * du;
   // Along the side (from the edge's middle) to where the outer face's top is, X out.
@@ -516,14 +538,12 @@ function limbAt(
       tries = [over];
     } else tries = spreadsAt(g).map((legs) => ({ legs, stand: S.upright }));
   }
-  // Each spread at each of FURTHER out in turn; on the second pass, every
-  // spread standing on the run first (where it asked), narrower if its foot,
-  // turned along the run, comes nearer a neighbour than it did, before any
-  // further out.
-  const order =
-    measure === 'reach'
-      ? tries.flatMap((t) => FURTHER.map((more) => ({ ...t, more })))
-      : FURTHER.flatMap((more) => tries.map((t) => ({ ...t, more })));
+  // Nearest first: every spread, widest first, at each of FURTHER out in
+  // turn, so that a limb stands as near under its column as clears, its legs
+  // narrower there rather than wider further out (on the second pass,
+  // standing on the run, where it asked, narrower if its foot, turned along
+  // the run, comes nearer a neighbour than it did).
+  const order = FURTHER.flatMap((more) => tries.map((t) => ({ ...t, more })));
   for (const { legs, stand, more } of order) {
     const out = forked ? outlineOf(legs) : outline;
     if (!(out < Infinity)) continue;
@@ -731,7 +751,7 @@ function limbAt(
       // Along each leg's inner side from the crotch to the corner over its foot, and the round's reach.
       const spreads = [sl, sr];
       const sqs = spreads.map((s) => (s - h * ca) / sa);
-      const Tl = R * Math.tan(slant / 2);
+      const Tl = kit.rib.radius * Math.tan(slant / 2);
       if (sqs.some((sq) => sq - Tl < 0.5)) return undefined;
       // The fork as high as its legs need to reach their feet at SLANT
       // (each standing upright `stand` first), the wider's: so its height

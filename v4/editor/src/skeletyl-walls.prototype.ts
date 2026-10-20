@@ -126,6 +126,8 @@ export interface RibKit {
   /** `solid`'s mesh of its lanes ([g, point] each, round the cross-section: the top from side -1 to 1, down side 1, the underside back, up side -1), given its first and last stations' sides (for its ends). */
   mesh: (lanes: [number, V3][][], ends: [[[V3, V3], [V3, V3]], [[V3, V3], [V3, V3]]]) => Manifold;
   radius: number;
+  /** The least radius (mm) an end's round's inner face keeps (SIZES.endInner). */
+  inner: number;
   /** The faces standing on the outline that it is cut back to (the drops'), each [a, b, outward] (a and b plan, outward a plan unit vector). */
   standing: V3[][];
   /** PROTOTYPE ?ends=tie, flow: where the floor tie meets the rail and is filleted into it (plan polygons, the tie and tieRound and the rail's width round it); none without a tie. */
