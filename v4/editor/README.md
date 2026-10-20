@@ -107,12 +107,16 @@ walls and deck (the adapter and loom stand on the floor). `skin_mm` must exceed
 runs against a fraction of the mesh:
 
 - Each switch has a crisp, planar 15.8 × 15.8 mm seat (`switch.seat_outer_mm`,
-  0.1 mm clear of a 15.6 mm switch housing rim), 1.5 mm thick, with the
+  0.1 mm clear of a 15.6 mm switch housing rim), 1.5 mm thick (the plate is
+  trimmed from below over the seat's footprint, but in the tile's corner
+  notches only to 0.3 mm past its underside, which leaves the glue posts'
+  corner rounds there), with the
   14.15 mm opening; two 5 mm-wide underside reliefs give the spring clips room.
   Seats are checked for a complete plate ring, material outside their planes and
   clip obstructions.
 - Each opening is probed at nine points.
-- Tiles (with their corner notches, where the glue posts stand), tile
+- Tiles (with their corner notches, where the glue posts' rounds stand, 0.15 mm
+  clear), tile
   components, the FFC adapter with its connector and
   latch room, and the main ribbon must not overlap the chassis or the bottom
   section. The adapter and the ribbon must not overlap the port insert either.

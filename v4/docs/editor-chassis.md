@@ -159,7 +159,18 @@ tops shows under its size.
   and the C64 alike, and glued to them. The glue holds it when a switch is
   pressed into its socket.
   - In each corner a round post (1.35 mm radius) stands in the tile's corner
-    notch, 0.15 mm clear of it.
+    notch, concentric with it and 0.15 mm clear of it, from the tile's
+    underside up into the plate. It is the whole round wherever it is clear:
+    along the rib it runs on into the leg on that edge (one solid with it),
+    and across the rib it stops where the legs do, 0.15 mm inside the
+    plate's side, so it doesn't widen the rib. Above the tile it only has to
+    keep 0.1 mm off the switch body, which by default it clears (0.77 mm at
+    the body's corner), so it stays round up to 0.3 mm under the plate.
+    There the seat's trim, which thins the plate to the seat's 1.5 mm over
+    its 15.8 mm footprint, takes the corner of the round inside that
+    footprint off level: in the tile's corner notches the trim stops 0.3 mm
+    past the plate's underside (`SEAT.trimUnder`), so it leaves the round
+    below that.
   - Along the two edges that face along the key's rib (north and south on a
     finger key; every key's north and south on the C64), a leg stands 0.15 mm
     outside the tile. A leg is 1.6 mm thick (`postMin`: four 0.4 mm lines, two
@@ -185,8 +196,9 @@ tops shows under its size.
     takes the highest of its own and its neighbours', so where the underside
     steps down beside a leg's end (a wall or bone coming down) the leg runs
     up to the higher level over the step rather than closing a hollow under
-    it. Up in the frame
-    the legs stop 0.15 mm (`postEdgeIn`) inside the plate's sides. A leg
+    it. On the Skeletyl the legs, and with them the shelves and corner
+    posts, stop 0.15 mm (`postEdgeIn`) inside the plate's sides all the way
+    up. A leg
     within 1.5 mm of the frame or another key's post beside it is grown out
     into it, not leaving a slit too narrow to print (by default only on the
     thumbs), but not into the tie it stands on. In the C64's case the legs go

@@ -31,6 +31,12 @@ export function seatSettings(cfg: Config) {
 const SEAT = {
   /** Each seat is trimmed flat this far above and below its plane. */
   trim: 7,
+  /**
+   * But for the tile's corner notches below this far past the plate's
+   * underside: the glue posts' corner rounds stand in them (chassis.ts
+   * gluePosts), clear of the switch body, and the trim leaves them.
+   */
+  trimUnder: 0.3,
   /** Clip reliefs: this tall below the seat, reaching this far into the switch hole and this far past clip_relief_depth_mm. */
   reliefHeight: 3,
   reliefIntoHole: 0.15,
@@ -80,22 +86,37 @@ export const openingCutter = (M: Factory, cfg: Config, m: Matrix4) => {
 
 /**
  * Flat seats on the body: each mounting footprint is filled so the switch lip
- * is continuously supported, then the plate above and below it is trimmed.
+ * is continuously supported, then the plate above and below it is trimmed
+ * (below the plate, but for the tile's corner notches: SEAT.trimUnder).
  * Fill before trimming: trimming first puts the trimmed faces exactly on the
  * fill's faces, where Manifold's union drops material elsewhere. Returns the
  * seated body, the clip reliefs and the openings (one per key) to cut from it.
  */
 export function seatSwitches(M: Factory, cfg: Config, body: Manifold, keys: Matrix4[]) {
   const { outer, thickness } = seatSettings(cfg);
+  // Under the plate the trim leaves the tile's corner notches, where the glue
+  // posts' rounds stand.
+  const under = Math.max(cfg.chassis.plate_thickness_mm, thickness) + SEAT.trimUnder;
+  const r = cfg.tile.corner_notch_radius_mm;
+  const notches = M.union(
+    [-1, 1].flatMap((x) =>
+      [-1, 1].map((y) =>
+        M.cylinder(SEAT.trim + 1 - under, r, r, 32).translate([
+          (x * cfg.tile.size_mm[0]) / 2,
+          (y * cfg.tile.size_mm[1]) / 2,
+          -SEAT.trim - 1,
+        ]),
+      ),
+    ),
+  );
+  const below = box(M, [...outer, SEAT.trim - thickness], [0, 0, (-SEAT.trim - thickness) / 2]);
+  const lower = r > 0 ? below.subtract(notches) : below;
   const fills: Manifold[] = [];
   const trims: Manifold[] = [];
   const reliefs: Manifold[] = [];
   for (const m of keys) {
     fills.push(seatBox(M, cfg, m));
-    trims.push(
-      place(box(M, [...outer, SEAT.trim], [0, 0, SEAT.trim / 2]), m),
-      place(box(M, [...outer, SEAT.trim - thickness], [0, 0, (-SEAT.trim - thickness) / 2]), m),
-    );
+    trims.push(place(box(M, [...outer, SEAT.trim], [0, 0, SEAT.trim / 2]), m), place(lower, m));
     for (const sign of [-1, 1]) reliefs.push(clipBox(M, cfg, m, sign));
   }
   return {

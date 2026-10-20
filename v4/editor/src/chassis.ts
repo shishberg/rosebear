@@ -10,10 +10,11 @@
 // to the hollow, so the tiles can be soldered from below with the base off.
 // The ribbon leaves through the port panel on the finger bin's inner end.
 // Both: each tile is held by glue posts under its plate (gluePosts): at each
-// corner a round post stands in the tile's corner notch, and along the two
+// corner a round post stands in the tile's corner notch, filling it (but for
+// the fit) from the tile's underside up into the plate, and along the two
 // edges that face along the key's rib (its north and south on a finger key) a
-// leg stands just outside the tile, joined to the corner post, from the
-// plate's underside down to the tile's underside. The posts locate the tile; a
+// leg stands just outside the tile, the corner posts running on into it, from
+// the plate's underside down to the tile's underside. The posts locate the tile; a
 // shelf on each leg, just over the tile's top edge, sets its height. The tile is
 // glued to the shelves and to the legs along its edges, and the glue holds it
 // when a switch is pressed into its socket. On the Skeletyl the legs run on
@@ -225,14 +226,18 @@ export const plainFit: PostFit = { grow: [0, 0] };
  *   band (`legs`, per edge) are boxes up to their highest; postSolid() shapes
  *   their tops;
  * - a shelf on each leg, from glueInto up into the plate (postEdgeIn inside
- *   its edge and sides) down to glueLayer over the tile's top, reaching in over
+ *   its edge, and across stopping where the legs do: postSolid() cuts them
+ *   as one) down to glueLayer over the tile's top, reaching in over
  *   the tile's top edge to the switch seat (and glueSeatGap): it sets the
  *   tile's height. It is broken where a hole is near the edge (glueHoleGap
  *   clear of its ring);
- * - a corner post in each corner's notch, concentric with it, postGap smaller
- *   than it, from glueInto up into the plate down to the tile's underside, cut
- *   back to the plate's side (postEdgeIn inside its edge, and its side up in
- *   the plate) and out of the switch seat.
+ * - a corner post in each corner's notch: a round, concentric with it,
+ *   postGap smaller than it, from the tile's underside up into the plate
+ *   (with its edge's legs, postSolid()). It is whole wherever it is clear:
+ *   along the rib it runs on into its edge's leg, across it stops where the
+ *   legs do (postEdgeIn inside the plate's side), and above the tile it keeps
+ *   glueSeatGap off the switch body (by default it is clear of it). The
+ *   seat's trim under the plate (seatSwitches) leaves it.
  * The glue (`glue`) is where the tile meets them: under the shelves, on its
  * top edge, and between its edges and the legs' ends.
  */
@@ -320,6 +325,9 @@ export function gluePosts(cfg: Config, axis: number, fit: PostFit = plainFit) {
     boxes,
     /** Each edge's legs and band ([the -1 edge's, the +1 edge's]), up to their highest. */
     legs,
+    /** How far across the rib each edge's legs (and its corner posts) reach, and how high the legs go. */
+    legEnds: [0, 1].map((i) => legs[i][0].size[across] / 2) as [number, number],
+    legTops: [0, 1].map((i) => legs[i][0].center[2] + legs[i][0].size[2] / 2) as [number, number],
     glue,
     /** The corner posts' centres (the notches'), and their radius. */
     corners,
@@ -352,7 +360,9 @@ function underOver(
   dz: number,
   floor: number,
 ) {
-  const pad = 1;
+  // (In along the rib, past the corner posts' rounds, which reach in
+  // postGap and their radius inside the legs.)
+  const pad = 2;
   const al = [over.al[0] - pad, ...over.al, over.al.at(-1)! + pad];
   const ac = [over.ac[0] - pad, ...over.ac, over.ac.at(-1)! + pad];
   const clamp = (i: number, n: number) => Math.min(Math.max(i - 1, 0), n - 1);
@@ -420,10 +430,13 @@ function underOver(
 }
 
 /**
- * A key's glue posts as one solid, in key coordinates (gluePosts). Where
- * `fit` has the underside over an edge's legs and band, their tops follow it
- * glueInto up into it (gluePosts has them postEdgeIn inside the plate's
- * sides).
+ * A key's glue posts as one solid, in key coordinates (gluePosts). Each
+ * edge's legs, shelves and corner rounds are one union, cut once across (at
+ * its legs' ends), at the tile's underside and at the top, so the rounds
+ * share the legs' faces rather than meeting them on coincident ones. Where
+ * `fit` has the underside over an edge's legs and band, their tops (and the
+ * shelves' and rounds') follow it glueInto up into it (gluePosts has them
+ * postEdgeIn inside the plate's sides).
  */
 export function postSolid(
   wasm: ManifoldToplevel,
@@ -433,21 +446,18 @@ export function postSolid(
 ) {
   const M = wasm.Manifold;
   const g = gluePosts(cfg, axis, fit);
-  const h = g.top - g.bottom;
-  const z = (g.top + g.bottom) / 2;
-  const span: number[] = [];
-  span[axis] = 2 * g.edge;
-  span[1 - axis] = 2 * g.reach[0];
-  const rounds = M.union(
-    g.corners.map(([x, y]) =>
-      M.cylinder(h, g.radius, g.radius, SIZES.postSegments, true).translate([x, y, z]),
-    ),
-  )
-    .intersect(M.cube([span[0], span[1], h + 2], true).translate([0, 0, z]))
-    .subtract(M.cube([2 * g.seat[0], 2 * g.seat[1], h + 2], true).translate([0, 0, z]));
+  const across = 1 - axis;
   // Clear of the switch's clip reliefs, which are cut from the case but not
   // from its bottom section, where a low key's posts may stand.
   const reliefs = M.union([-1, 1].map((s) => clipBox(M, cfg, new Matrix4(), s)));
+  // The switch body under the plate, glueSeatGap wider: all a corner post
+  // keeps clear of above the tile (by default the rounds are clear of it).
+  const sw = cfg.switch;
+  const bodyBottom = -sw.body_below_plate_mm;
+  const body = M.cube(
+    [sw.body_mm[0] + 2 * SIZES.glueSeatGap, sw.body_mm[1] + 2 * SIZES.glueSeatGap, 20 - bodyBottom],
+    true,
+  ).translate([0, 0, (20 + bodyBottom) / 2]);
   // Up in the plate, postEdgeIn inside its sides too: a face flush with a
   // side leaves a sheet of nothing where it meets the side's edge.
   const plate = cfg.chassis.plate_thickness_mm;
@@ -467,16 +477,56 @@ export function postSolid(
         ]);
       }),
     );
-  const cube = (b: KeyBox) => M.cube(b.size, true).translate(b.center);
-  const flat = [...g.boxes.map(cube), rounds];
+  const flat: Manifold[] = [];
   const shaped: Manifold[] = [];
   g.legs.forEach((legs, i) => {
+    const s = 2 * i - 1;
     const over = fit.over?.[i];
-    const solid = M.union(legs.map(cube));
+    const end = g.legEnds[i];
+    // Fitted to what is over them, the edge's posts' tops are shaped by it
+    // (underOver); in the plate alone they stop glueInto up in it.
+    const roof = over ? g.legTops[i] + 2 : g.top;
+    // Each of the edge's boxes (its legs and shelves) runs on 1 past the faces
+    // the edge's one cut makes (across at its legs' ends, the tile's
+    // underside, the top), so they and the corner posts that stand in them
+    // share those faces, not just meet on them.
+    const run = (b: KeyBox) => {
+      const lo = b.center.map((c, k) => c - b.size[k] / 2);
+      const hi = b.center.map((c, k) => c + b.size[k] / 2);
+      if (hi[across] > end - 1e-9) hi[across] += 1;
+      if (lo[across] < -end + 1e-9) lo[across] -= 1;
+      if (lo[2] < g.bottom + 1e-9) lo[2] -= 1;
+      if (hi[2] > g.top - 1e-9) hi[2] += 1;
+      return M.cube(hi.map((x, k) => x - lo[k]) as Vec3).translate(lo as Vec3);
+    };
+    const shelves = g.boxes.filter((b) => Math.sign(b.center[axis]) === s);
+    // The corner posts at this edge: the whole round of each (concentric with
+    // its notch, postGap clear of it) from the tile's underside up into the
+    // plate, merging into the leg it stands in along the rib, and kept clear
+    // only of the switch body above the tile.
+    const rounds = g.corners
+      .filter((c) => Math.sign(c[axis]) === s)
+      .map(([x, y]) =>
+        M.cylinder(roof - g.bottom + 2, g.radius, g.radius, SIZES.postSegments).translate([
+          x,
+          y,
+          g.bottom - 1,
+        ]),
+      );
+    const size: number[] = [];
+    size[axis] = 2 * g.reach[1] + 4;
+    size[across] = 2 * end;
+    const clip = M.cube([size[0], size[1], roof - g.bottom], true).translate([
+      0,
+      0,
+      (roof + g.bottom) / 2,
+    ]);
+    const solid = M.union([
+      ...[...legs, ...shelves].map(run),
+      M.union(rounds).subtract(body),
+    ]).intersect(clip);
     if (!over) return flat.push(solid);
-    shaped.push(
-      solid.intersect(underOver(wasm, over, axis, 2 * i - 1, SIZES.glueInto, g.bottom - 1)),
-    );
+    shaped.push(solid.intersect(underOver(wasm, over, axis, s, SIZES.glueInto, g.bottom - 1)));
   });
   return M.union([
     M.union(flat).subtract(sides(-plate + SIZES.postOverlap, g.top + 1)),
