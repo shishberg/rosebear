@@ -175,6 +175,16 @@ function classOf(s: Seam) {
  *    key; on flow, the index's crease beside the thumb row's near key's
  *    corner post), flare's wall by 1 to 3 (shadings and a sliver where its
  *    walls pass the inner bottom key's and the thumb row's near key's posts).
+ *  - bridges always (PROTOTYPE): a straight slab between every facing pair of
+ *    neighbouring keys, however wide the gap (twelve on Swung in, was six).
+ *    The walls don't read the bridges, but the frame's one union re-meshes
+ *    with them, and the walls' and rail's spots of no area or a few
+ *    hundredths come and go with it. flare/tie: a wall's ledge on the
+ *    pinky's side (worst 0.046 mm either way) now reaches the rail, so
+ *    rib+wall by 1 down and rail+rib+wall by 1 up. truss/flow: rail by 6
+ *    down (the rail's own slivers of under 0.02 mm and a 0.6 mm ledge,
+ *    mostly on the pinky's side, gone or now counted with a wall), wall by
+ *    1 down, rail+wall by 1 up. None of these spots touches a bridge.
  */
 const PINS: Record<string, Record<string, number>> = {
   'none/none': {
@@ -208,11 +218,11 @@ const PINS: Record<string, Record<string, number>> = {
   'flare/tie': {
     rail: 12,
     'rail+rib': 5,
-    'rail+rib+wall': 4,
+    'rail+rib+wall': 5,
     'rail+wall': 34,
     rib: 27,
     'rib+rib': 6,
-    'rib+wall': 53,
+    'rib+wall': 52,
     wall: 35,
   },
   'flare/flow': {
@@ -273,14 +283,14 @@ const PINS: Record<string, Record<string, number>> = {
     wall: 91,
   },
   'truss/flow': {
-    rail: 17,
+    rail: 11,
     'rail+rib': 5,
     'rail+rib+wall': 7,
-    'rail+wall': 38,
+    'rail+wall': 39,
     rib: 24,
     'rib+rib': 4,
     'rib+wall': 31,
-    wall: 81,
+    wall: 80,
   },
   'bones/none': {
     rail: 14,

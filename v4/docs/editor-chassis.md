@@ -61,17 +61,35 @@ that close, measured every 0.25 mm, and runs out over 1 mm above that; there
 is no fill and no fairing. The rail runs on under the pair without turning in
 between them, taking in both widened feet, its outer edge stepping from one
 face to the other where they meet (each face flush with it). On Swung in only the index and middle columns' back drops
-fuse (0.13 mm apart at most, widened 0.47 mm each, up to 33.5 mm). PROTOTYPE: small **bridges**
+fuse (0.13 mm apart at most, widened 0.47 mm each, up to 33.5 mm). PROTOTYPE: **bridges**
 tie neighbouring ribs together up at the plates. Where two keys of different
-ribs face each other across a gap of 0.5 to 8 mm, along at least 6 mm of both
-plates' edges, a 4 mm wide bridge of the plate's section spans the gap at the
-middle of that stretch: a sweep from one plate's edge to the other's, flush
-with both plates' tops and undersides, its sides square on their edges. It is
-left out where its mean slope out of the plates is over 45°, or where it
-would come near what the keys hold or near a wire (the router doesn't route
-round the frame, so the bridges keep 0.5 mm off the routed wires). On Swung
-in there are six: between the inner and index columns at every row, index
-and middle at the home and bottom rows, and middle and ring at the home row.
+ribs face each other (their facing edges turned at most 35° from square on in
+plan, their plates at most 35° apart), a bridge spans the gap, however wide,
+at the middle of the stretch both plates' edges share, or the nearest place
+to it (tried every 0.5 mm either way) where it can go. It is a straight slab
+from one plate's edge to the other's: its top runs straight from top edge to
+top edge and its underside from underside edge to underside edge, its sides
+square on the edges, so where the plates are at different heights it slopes,
+still the plate's thickness deep. Square to itself it is then thinner (the
+plate's thickness times the slope's cosine), so it is made wider by as much:
+4 mm wide when level, 4 mm over the cosine where it slopes, as far as the
+shared stretch holds with 1 mm to spare at each end. It runs 0.5 mm into
+each plate in that plate's own plane and 0.05 mm straight on out of it
+before it turns. It is left out where it would be steeper than 60° (thinner
+than half the plate), where the gap in either plate's plane is under 0.5 mm,
+where another key's plate is in the way, or where it would come near what the
+keys hold (the two keys' keycaps only as low as they are pressed) or near a
+wire (the router doesn't route round the frame, so the bridges keep 0.5 mm
+off the routed wires). On Swung in there are twelve: between every two
+neighbouring finger keys but ring and pinky at the back and bottom rows (up
+to 6.2 mm across and 59° steep, middle and ring at the back the widest, 6.8
+mm wide), and between the thumb rows, thumb_far to thumb_x2 and thumb_home
+to thumb_x1 (7.3 and 7.7 mm across). Ring and pinky can't be bridged
+straight at the back or bottom row: the pinky's back plate stands 12.5 mm
+above the ring's with 3.2 mm between their edges, and its bottom plate
+6.8 mm below with 1.3 mm between; straight across, either bridge would slope
+76° or 80° (0.7 or 0.5 mm thick square to itself) and run into the lower
+key's keycap room as it is pressed.
 Where two keys are too steep or too far round to
 web, the rib is parted there, and each end is rounded if the round clears the
 other keys' tiles, switches and keycaps, else stops flush at its plate. Drops
