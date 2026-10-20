@@ -66,8 +66,7 @@
 // (tiles, switch bodies, keycap rooms and switch holes' columns: side.clear).
 // Limbs are placed for every side at once, each clear of those before it, of
 // the sides' ends (lips, rounds, drops and webs carried on), of the faces
-// standing on the outline (drops), of the tie, of the rail where it dips to a
-// low drop, and of the ribbon. They stand on the straightened outline: placed
+// standing on the outline (drops), of the tie, and of the ribbon. They stand on the straightened outline: placed
 // first on the outline without them, each at least as far out as it runs
 // across its feet, they ask for their feet (REACHES in
 // skeletyl-walls.prototype.ts), which its hull takes in before it is
@@ -696,8 +695,6 @@ function limbAt(
           [0.1, rail].map((z) => add(add(g, scale(fa, u)), add(scale(fw, -x), [0, 0, z]))),
         ),
     );
-    // It stands on the rail where it is level (not where it dips to a low drop).
-    if (rails.some((p) => kit.rib.railTop(p[0], p[1]) < rail - 1e-3)) return undefined;
     // The keycap's room stands on the plate's top, which the web curves up
     // to and the limb carries on out: so (as a rib's ends are not tested
     // against their own key) its points are tested no nearer under that

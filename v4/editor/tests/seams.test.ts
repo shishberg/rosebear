@@ -51,8 +51,10 @@ function classOf(s: Seam) {
  *    seats' trims meeting a rounded end) and its sweep's own slivers, the
  *    thumb row's and the extra keys' among them. The union triangulates a rib
  *    differently with every change near it, though the rib is unchanged
- *    triangle for triangle: on flow, the thumb row's low front foot shows 3
- *    creases and ledges of the rail's unsubdivided dip under it (footKey).
+ *    triangle for triangle. A low end (the thumb row's far key's front and
+ *    the second extra key's) is cut off level with the rail's top (lowCut),
+ *    and so is its plate's underside where that comes lower, beside the
+ *    rail's inner edge: a shading each.
  *  - rail: the rail's own corners where its outline turns tighter than the
  *    mesh (the straight outline's corners, and its one turn in, at the front),
  *    and
@@ -62,15 +64,19 @@ function classOf(s: Seam) {
  *    and pinky's backs, the pinky's front), each a spot or two where the
  *    rail's top and bottom are triangulated, and a 0.5 mm step between the
  *    index's and middle's back drops (a ledge and a gap). The rail is level
- *    round a low drop's foot as a piece of its own (Dip.patch), which leaves
- *    a sliver or a shading where its sides meet the rest.
+ *    everywhere, never dipping: under the second extra key's front it stands
+ *    in the band beside its plate's edge, over the tile pocket, a sliver
+ *    there.
  *  - rail+rib: where a column front hangs joined into a thumb plate (flow),
  *    the rail's inner edge passing under a rib's sweep near its foot, the
  *    foot of the index and middle back drops' junction (where it passes
  *    through flush, at the bottom of the same line) and of the index's
  *    beside the inner's. The rail's inner edge also bends round the
- *    junction's step (rail). The extra keys' front drop and the pinky's
- *    meet the rail where it dips to them. Every drop's foot is keyed into the
+ *    junction's step (rail). The two low ends stand on the rail's top, their
+ *    faces its faces (lowDrop, lowCut): the second extra key's lower side
+ *    ends 0.28 mm in from where the outline turns in along it (a ledge), and
+ *    its plate's underside meets the rail's top at 15° just inside its inner
+ *    corner (a crease). Every other drop's foot is keyed into the
  *    rail or tie (footKey), so no foot meets it edge to edge; on tie the
  *    drops stand wholly on the tie, clear of its bends and fillets by tieGap.
  *  - tie and flow, every walls: re-pinned when the drops on the tie were
@@ -81,10 +87,12 @@ function classOf(s: Seam) {
  *    along the tie, and the rail, the tie and the ribs near it are cut
  *    differently: fewer spots on tie, as many on flow, moved between classes.
  *  - rail+wall, rib+wall, wall (flare): the flare walls reach 0.2 mm into the
- *    rib and the rail (the WallSide contract), so they meet them near tangent,
- *    and stand at railHeight even where the rail dips to a low drop. At a
- *    hanging end the skirt stops short of the round's last point, so it never
- *    lies on the round's face.
+ *    rib and the rail (the WallSide contract), so they meet them near tangent.
+ *    At a hanging end the skirt stops short of the round's last point, so it
+ *    never lies on the round's face. At the thumb row's far key's low front
+ *    the skirt stops two points short of where the round stops, where they
+ *    stand nearly one over another, 0.06 mm in from the end's face: a crease,
+ *    a gap, a thin skin, a 0.02 mm ledge and a sliver there.
  *  - arches, truss and bones: their walls' classes (rail+wall, rib+wall,
  *    wall, and rail+rib+wall) are pinned as they stand, from when they joined
  *    this test, again when the extra keys went into the default (their
@@ -128,59 +136,70 @@ function classOf(s: Seam) {
  *    wall by 1 or 2, truss's and bones/flow's by 1 (a wall coming down beside
  *    a leg's end), and rail by 1 on every tie (a sliver of no area on the tie
  *    1.2 mm below the pinky home's leg).
+ *  - the level rail (PROTOTYPE): the rail no longer dips to a low end, which
+ *    stands on its level top instead (lowDrop, lowCut), and the rail is the
+ *    outline extruded as it is (simplified, the drops' corners put back), no
+ *    longer cut into dipMesh lengths and warped. Down: rail by 1 to 6 on
+ *    every combination but truss/flow, rail+rib by 1 on every combination,
+ *    flare's rail+rib+wall by 5 or 6, truss's wall by 1 or 3, truss/flow's
+ *    and bones/flow's rail+wall by 1. Up: flare's rail+wall by 4 to 8 and
+ *    truss/none's by 1 (the walls' feet meeting the rail's plainer sides
+ *    differently, along the sides and at the back), flare's rib+wall by 2
+ *    or 3 and wall by 2 (where its skirt stops at the thumb row's far key's
+ *    front, above).
  */
 const PINS: Record<string, Record<string, number>> = {
   'none/none': {
-    rail: 15,
-    'rail+rib': 8,
+    rail: 11,
+    'rail+rib': 7,
     rib: 26,
     'rib+rib': 5,
   },
   'none/tie': {
-    rail: 16,
-    'rail+rib': 8,
+    rail: 10,
+    'rail+rib': 7,
     rib: 28,
     'rib+rib': 6,
   },
   'none/flow': {
-    rail: 14,
-    'rail+rib': 8,
+    rail: 10,
+    'rail+rib': 7,
     rib: 26,
     'rib+rib': 4,
   },
   'flare/none': {
-    rail: 16,
+    rail: 15,
     'rail+rib': 5,
-    'rail+rib+wall': 9,
-    'rail+wall': 29,
+    'rail+rib+wall': 4,
+    'rail+wall': 35,
     rib: 26,
     'rib+rib': 5,
-    'rib+wall': 49,
-    wall: 35,
+    'rib+wall': 51,
+    wall: 37,
   },
   'flare/tie': {
-    rail: 18,
+    rail: 12,
     'rail+rib': 5,
-    'rail+rib+wall': 10,
-    'rail+wall': 30,
+    'rail+rib+wall': 4,
+    'rail+wall': 34,
     rib: 28,
     'rib+rib': 6,
-    'rib+wall': 50,
-    wall: 34,
+    'rib+wall': 53,
+    wall: 36,
   },
   'flare/flow': {
-    rail: 16,
+    rail: 12,
     'rail+rib': 5,
-    'rail+rib+wall': 9,
-    'rail+wall': 29,
+    'rail+rib+wall': 4,
+    'rail+wall': 37,
     rib: 25,
     'rib+rib': 4,
-    'rib+wall': 42,
-    wall: 34,
+    'rib+wall': 44,
+    wall: 36,
   },
   'arches/none': {
-    rail: 15,
-    'rail+rib': 8,
+    rail: 11,
+    'rail+rib': 7,
     'rail+wall': 2,
     rib: 26,
     'rib+rib': 5,
@@ -188,8 +207,8 @@ const PINS: Record<string, Record<string, number>> = {
     wall: 4,
   },
   'arches/tie': {
-    rail: 16,
-    'rail+rib': 8,
+    rail: 10,
+    'rail+rib': 7,
     'rail+wall': 2,
     rib: 28,
     'rib+rib': 6,
@@ -197,8 +216,8 @@ const PINS: Record<string, Record<string, number>> = {
     wall: 4,
   },
   'arches/flow': {
-    rail: 14,
-    'rail+rib': 8,
+    rail: 10,
+    'rail+rib': 7,
     'rail+wall': 1,
     rib: 26,
     'rib+rib': 4,
@@ -206,38 +225,38 @@ const PINS: Record<string, Record<string, number>> = {
     wall: 5,
   },
   'truss/none': {
-    rail: 18,
-    'rail+rib': 6,
+    rail: 15,
+    'rail+rib': 5,
     'rail+rib+wall': 7,
-    'rail+wall': 32,
+    'rail+wall': 33,
     rib: 24,
     'rib+rib': 5,
     'rib+wall': 35,
-    wall: 80,
+    wall: 79,
   },
   'truss/tie': {
-    rail: 20,
-    'rail+rib': 6,
+    rail: 14,
+    'rail+rib': 5,
     'rail+rib+wall': 7,
     'rail+wall': 36,
     rib: 26,
     'rib+rib': 6,
     'rib+wall': 33,
-    wall: 94,
+    wall: 91,
   },
   'truss/flow': {
     rail: 17,
-    'rail+rib': 6,
+    'rail+rib': 5,
     'rail+rib+wall': 7,
-    'rail+wall': 39,
+    'rail+wall': 38,
     rib: 25,
     'rib+rib': 4,
     'rib+wall': 31,
     wall: 81,
   },
   'bones/none': {
-    rail: 19,
-    'rail+rib': 8,
+    rail: 14,
+    'rail+rib': 7,
     'rail+wall': 40,
     rib: 27,
     'rib+rib': 5,
@@ -245,8 +264,8 @@ const PINS: Record<string, Record<string, number>> = {
     wall: 20,
   },
   'bones/tie': {
-    rail: 21,
-    'rail+rib': 8,
+    rail: 15,
+    'rail+rib': 7,
     'rail+wall': 40,
     rib: 29,
     'rib+rib': 6,
@@ -254,55 +273,55 @@ const PINS: Record<string, Record<string, number>> = {
     wall: 20,
   },
   'bones/flow': {
-    rail: 17,
-    'rail+rib': 8,
-    'rail+wall': 37,
+    rail: 13,
+    'rail+rib': 7,
+    'rail+wall': 36,
     rib: 27,
     'rib+rib': 4,
     'rib+wall': 13,
     wall: 16,
   },
   'pillars/none': {
-    rail: 19,
-    'rail+rib': 9,
+    rail: 15,
+    'rail+rib': 8,
     'rail+wall': 1,
     rib: 25,
     'rib+rib': 5,
     'rib+wall': 4,
   },
   'pillars/tie': {
-    rail: 23,
-    'rail+rib': 9,
+    rail: 18,
+    'rail+rib': 8,
     rib: 27,
     'rib+rib': 6,
     'rib+wall': 4,
   },
   'pillars/flow': {
-    rail: 18,
-    'rail+rib': 9,
+    rail: 14,
+    'rail+rib': 8,
     rib: 25,
     'rib+rib': 4,
     'rib+wall': 4,
   },
   'wishbone/none': {
-    rail: 19,
-    'rail+rib': 9,
+    rail: 14,
+    'rail+rib': 8,
     rib: 25,
     'rib+rib': 5,
     'rib+wall': 4,
     wall: 1,
   },
   'wishbone/tie': {
-    rail: 22,
-    'rail+rib': 9,
+    rail: 18,
+    'rail+rib': 8,
     rib: 27,
     'rib+rib': 6,
     'rib+wall': 4,
     wall: 1,
   },
   'wishbone/flow': {
-    rail: 17,
-    'rail+rib': 9,
+    rail: 14,
+    'rail+rib': 8,
     rib: 25,
     'rib+rib': 4,
     'rib+wall': 4,
@@ -385,6 +404,11 @@ for (const walls of ['none', 'flare', 'arches', 'truss', 'bones', 'pillars', 'wi
       );
       assert(built.drops.length > 0);
       const bad: string[] = [];
+      // The rail (and the tie) is level: railHeight high, the same plan all the way up.
+      const H = SIZES.railHeight;
+      assert(Math.abs(under.boundingBox().max[2] - H) < 1e-6, 'rail top at railHeight');
+      const [foot, top] = [under.slice(0.02).area(), under.slice(H - 0.02).area()];
+      assert(Math.abs(foot - top) < 1e-3 * foot, `rail level: ${foot} vs ${top} mm²`);
       for (const dr of built.drops) {
         const at = (c: number, m: number): [number, number] => [
           dr.p[0] + c * dr.c[0] + m * dr.n[0],
@@ -393,19 +417,22 @@ for (const walls of ['none', 'flare', 'arches', 'truss', 'bones', 'pillars', 'wi
         const cs: number[] = [];
         // Where it is fused, its side runs into its neighbour's: only its own face is checked.
         for (let c = dr.free[0] + END; c <= dr.free[1] - END; c += 0.5) cs.push(c);
-        // The rail (or the tie) is level at the foot's height under it.
-        const [over, below] = [under.slice(dr.foot + 0.02), under.slice(dr.foot - 0.02)];
+        // The rail (or the tie) runs under its foot.
+        const [over, below] = [under.slice(H + 0.02), under.slice(H - 0.02)];
         for (const c of cs) {
           if (inside(over, ...at(c, -0.5)))
             bad.push(`${dr.name} ${dr.e}: rail above its foot at ${c}`);
           if (!inside(below, ...at(c, -0.5)))
             bad.push(`${dr.name} ${dr.e}: rail not under its foot at ${c}`);
         }
-        // Its foot runs at least dropBend below where its round ends.
-        if (dr.foot > dr.low - SIZES.dropBend + 1e-6)
-          bad.push(`${dr.name} ${dr.e}: foot ${dr.foot} too near the round's end ${dr.low}`);
+        // Its foot runs at least dropBend below where its round ends, or
+        // it is a low end, come down into the rail.
+        if (!dr.into && H > dr.low - SIZES.dropBend + 1e-6)
+          bad.push(`${dr.name} ${dr.e}: foot too near the round's end ${dr.low}`);
+        if (dr.into && !(dr.low < H + SIZES.dropBend))
+          bad.push(`${dr.name} ${dr.e}: into the rail, but its round ends at ${dr.low}`);
         // The frame's face is the plane of its outer face, the floor to its foot.
-        for (let z = 0.1; z < dr.foot - OFF; z += 0.5) {
+        for (let z = 0.1; z < H - OFF; z += 0.5) {
           const s = built.frame.slice(z);
           for (const c of cs) {
             if (!inside(s, ...at(c, -OFF)))

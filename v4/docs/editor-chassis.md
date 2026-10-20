@@ -36,10 +36,21 @@ way down to a square foot, so it never twists or splays. It stands straight down
 heading, until the nearer corner of its outer face meets the outline (on Swung
 in only the ring column's back, 0.5 mm); an end whose outline is more than
 12 mm out hangs. Its outer face is flush with the rail's
-over the rail's whole height, and it bends or rounds only above it; under a
-drop whose round still ends lower than that, the rail bends down to meet it
-(on Swung in, the fronts of the thumb row's far key and the second extra
-key, their rounds at 2.9 mm instead of 5 mm, their feet 1.5 and 1.7 mm higher). The others hang. Each drop stands on the rail alone; between
+over the rail's whole height, and it bends or rounds only above it. The rail
+is level everywhere, 6 mm high, and never dips: a low end, whose round,
+drawn as tight as it clears, still ends less than 1 mm above the rail's top,
+has no drop of its own. Standing on the outline, its round stops 0.5 mm over
+the rail's top, and below that its section carries straight on down onto the
+rail, its outer face the rail's outer face and its inner face the rail's
+inner face (a full wall in), its sides in the round's own upright planes; the
+outline turns in along its sides. Whatever of it comes lower (the round's
+lower side, the lip, the plate's underside corner) is cut off level with the
+rail's top, so it meets the rail along one crisp line, with no fill and no
+fairing. On Swung in these are the fronts of the thumb row's far key and the
+second extra key; under the second extra key's front the rail stands in the
+band beside its plate's edge, over its tile pocket, and fuses into its glue
+posts there (the tile, its glue and the switch stay clear). Ends further from
+the outline hang. Each drop stands on the rail alone; between
 neighbouring drops the rail runs straight on. PROTOTYPE: two drops of
 different ribs whose facing sides stand within 1.5 mm of each other (too
 narrow a slit to print cleanly) are **fused**: each is widened on that side
@@ -84,8 +95,8 @@ from the trunk's middle (or as near as clears, and no further than halfway to
 the next web), so the fork is as high as that spread needs; where no fork fits
 under the trunk's round it is a pillar. A limb in the main ribbon's way forks
 over it (pillars too): its opening centred on the ribbon, 2 mm clear each side
-and above. Every limb keeps clear of the keys, the drops, the tie, the rail's
-dips and the ribbon. The outline's hull takes in the limbs' feet, so it runs
+and above. Every limb keeps clear of the keys, the drops, the tie and the
+ribbon. The outline's hull takes in the limbs' feet, so it runs
 straight along them, and each foot is turned along its run (up to 5°) so it
 stands flush. On Swung in the inner column has a limb at both its webs: at the
 bottom–home web a wishbone forking 7.2 mm over the rail, legs 7 mm out (a

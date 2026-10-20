@@ -49,7 +49,7 @@ export interface WallPoint {
   /** What the point is on: a key's plate (`key` names it), a web between two plates, or an end (lip, round, drop). */
   over: 'key' | 'web' | 'end';
   key?: string;
-  /** The rail straight out from `under` along `out`, on the floor (z 0): its inner edge, centreline and outer edge (the outline). Its top is side.railHeight up. Where the side is already on the rail (a drop's landing) these are close to `under` or behind it. */
+  /** The rail straight out from `under` along `out`, on the floor (z 0): its inner edge, centreline and outer edge (the outline). Its top is side.railHeight up. Where the side is already on the rail (a drop's landing) these are close to `under` or behind it; where `under` is on the rail's inner edge, within footInto of it (a low end's round, flush with it), the inner edge is no further out than `under`. */
   rail: { inner: V3; centre: V3; outer: V3 };
 }
 
@@ -126,8 +126,6 @@ export interface RibKit {
   /** `solid`'s mesh of its lanes ([g, point] each, round the cross-section: the top from side -1 to 1, down side 1, the underside back, up side -1), given its first and last stations' sides (for its ends). */
   mesh: (lanes: [number, V3][][], ends: [[[V3, V3], [V3, V3]], [[V3, V3], [V3, V3]]]) => Manifold;
   radius: number;
-  /** The rail's top at plan point (x, y): railHeight, or lower where it dips to meet a low drop. */
-  railTop: (x: number, y: number) => number;
   /** The faces standing on the outline that it is cut back to (the drops'), each [a, b, outward] (a and b plan, outward a plan unit vector). */
   standing: V3[][];
   /** PROTOTYPE ?ends=tie, flow: where the floor tie meets the rail and is filleted into it (plan polygons, the tie and tieRound and the rail's width round it); none without a tie. */

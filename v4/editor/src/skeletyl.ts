@@ -25,9 +25,12 @@
 // hull, so it runs straight from foot to foot. It turns in only over open
 // floor, a pocket nothing stands in, wide and deep enough (between the
 // thumbs and the fingers' fronts), and there once, in one crisp corner
-// (straightened). A low end's round is as tight as clears, so its drop's
-// foot stands as high as it can; where it still stands below the rail's
-// top, the rail dips to it. The ends whose feet are near the outline drop to
+// (straightened). The rail is level, railHeight high everywhere. A low end's
+// round is as tight as clears; where it still ends less than dropBend over
+// the rail's top it has no drop of its own: standing on the outline, its
+// section is carried straight down onto the rail's top, its faces the
+// rail's, and what of it comes lower is cut off level with that top (isLow,
+// lowDrop, lowCut). The ends whose feet are near the outline drop to
 // the floor: the rib carried on from the bottom of its round down to the
 // rail, as one sweep (as between keys), its across and its width as at the
 // bottom of its round all the way down, its foot square: it never twists or
@@ -124,7 +127,7 @@ export const SIZES = {
   lip: 1,
   lipStep: 0.1,
   endGap: 0.3,
-  /** A low end's round (one whose lower side would end less than dropBend above railHeight) is tightened by lipStep at a time until it ends that high, as far as it still clears and its inner face keeps at least this radius (endRound). */
+  /** An end's round whose lower side would end less than dropBend above railHeight is tightened by lipStep at a time until it ends that high, as far as it still clears and its inner face keeps at least this radius (endRound); if it still can't, the end is low (isLow). */
   endInner: 0.5,
   /** Stations inside each web, round each end's round, and down each drop (for the checks and the walls; the drop itself is meshed finer, as a joined end is). */
   webSteps: 8,
@@ -159,12 +162,11 @@ export const SIZES = {
   plateSteps: 5,
   /** The rail round the outline: its height. */
   railHeight: 6,
-  /** A drop's foot runs at least this far below where its round ends (footHeight); where the rail dips to meet it, it rises again over dipRun times the dip (railDip). */
+  /** A low end's face's ends (lowFace) are put on a grid of this many to the mm, which float32 and the outline's 1e-8 grid both hold exactly. */
+  lowGrid: 256,
+  /** A drop's foot, on the rail's top, runs at least this far below where its round ends; an end whose round can't end that high is low (isLow): it comes down into the rail. */
   dropBend: 1,
-  dipRun: 2.5,
-  /** The rail is meshed this fine (mm) where it dips, but not where it is level round a drop's foot, where the foot's own edges lie: points of its own there, a hair off the foot's edge, the union leaves specks of no volume at (railDip). */
-  dipMesh: 0.5,
-  /** A drop's foot is keyed this far into the rail (or the tie) under it, and as far up into the drop, inside both (footKey), so the two overlap rather than only meet face to face. */
+  /** A drop's foot is keyed this far into the rail (or the tie) under it, and as far up into the drop, inside both (footKey), so the two overlap rather than only meet face to face. A low end's round stops this far over the rail's top (lowFace), and its section goes on at least this far under it before it is cut (lowFoot). */
   footInto: 0.5,
   /** PROTOTYPE ?ends=: a column's front joins a thumb key's plate edge at most this far off (plan, middle to middle), its web reaching joinInto into the plate; the tie's bends and its fillets into the rail are rounded to tieRound (plan), and a drop on the tie stands at least tieRound and tieGap (along it) from where it bends or from the rail's inner edge, clear of where the bend's or the fillet's round starts rather than on it. */
   joinReach: 20,
@@ -231,7 +233,9 @@ interface Rib {
   parted: [boolean, boolean];
 }
 /** How a rib's end finishes: flush with the plate's edge, a round alone, a round and a drop to the floor (on the rail or the tie), landing as the pose `land` (PROTOTYPE: and widened where it is fused to a neighbour's, `widen`), or (PROTOTYPE ?ends=) a web joining it to another key's plate. */
-type End = 'flush' | 'hang' | { land: Pose; widen?: Widen[] } | { join: Join };
+type End = 'flush' | 'hang' | Drop | { join: Join };
+/** A drop's end (End): where it lands, (PROTOTYPE) where it is widened, and a low end's footprint (lowFootprint), the outline taking that in rather than a foot square to its face. */
+type Drop = { land: Pose; widen?: Widen[]; foot?: V3[] };
 /** PROTOTYPE: how far a fused drop's side `side` (its landing pose's side, -1 or 1), and its round's, is widened at height z (fused). */
 interface Widen {
   side: number;
@@ -243,8 +247,7 @@ interface Join {
   land: Pose;
   into: number;
 }
-const isDrop = (e: End): e is { land: Pose; widen?: Widen[] } =>
-  typeof e === 'object' && 'land' in e;
+const isDrop = (e: End): e is Drop => typeof e === 'object' && 'land' in e;
 const isJoin = (e: End): e is { join: Join } => typeof e === 'object' && 'join' in e;
 /** A point on one side of a rib: [top, underside]; on a drop, [outer face, inner face]. */
 type Pair = [V3, V3];
@@ -507,9 +510,10 @@ const fromLine = (line: number[][], [x, z]: number[]) =>
  * key's tile pocket and switch body by endGap. Where the end rises off the
  * plate the round grows for that (from the end radius), so it rolls over in a
  * wider arc rather than running on up the plate's slope; where it is level or
- * falls, the lip grows. A low end's round (one ending less than dropBend
- * above the rail) is then tightened, as far as it still clears, so that its
- * drop's foot stands as high as it can and the rail dips to it as little. Its
+ * falls, the lip grows. A round ending less than dropBend above the rail is
+ * then tightened, as far as it still clears, until it ends that high, so
+ * that a drop can stand under it on the rail's top; one that still ends
+ * lower is a low end's (isLow), which comes down into the rail. Its
  * `at` is side s at f along the round (0 at its top, where the lip ends, 1 at
  * its bottom), and `turn` how far it turns.
  */
@@ -559,7 +563,7 @@ function endRound(d: Dims, k: RibKey, u: number) {
     if (sin > 0) R += SIZES.lipStep;
     else L += SIZES.lipStep;
   }
-  // A low end: its round tightened, by lipStep at a time, until its lower
+  // A round ending low: tightened, by lipStep at a time, until its lower
   // side ends dropBend above the rail, as long as it still clears and its
   // inner face keeps endInner of radius.
   const low = (r: number) => Math.min(...[-1, 1].map((s) => build(L, r).at(s, 1)[0][2]));
@@ -578,7 +582,9 @@ function endRound(d: Dims, k: RibKey, u: number) {
  * (endRound) turn it over and down until it is vertical. A dropping end runs
  * on from there down to its landing, swept as between keys: straight down,
  * or bending out in its own plane to the rail, or along the tie and turning
- * to lie along it.
+ * to lie along it. A low end (isLow) stands straight down: its side runs on
+ * straight down from where its round stops (lowRound) into the rail
+ * (lowDrop), to be cut off level with the rail's top (lowCut).
  * Nothing goes below the floor.
  */
 function endSide(d: Dims, k: RibKey, u: number, s: number, end: End): Pair[] {
@@ -597,10 +603,16 @@ function endSide(d: Dims, k: RibKey, u: number, s: number, end: End): Pair[] {
     path.push(...poses.map((q) => poseSide(q, u * s)));
     return path;
   }
-  path.push(...endRound(d, k, u)(u * s).slice(1));
+  const low = isDrop(end) && isLow(d, k, u);
+  path.push(...(low ? lowRound(d, k, u) : endRound(d, k, u))(u * s).slice(1));
   if (isDrop(end)) {
-    const [top, foot] = dropPoses(d, k, u, end.land);
-    path.push(...[...sweep(top, foot, SIZES.dropSteps), end.land].map((q) => poseSide(q, u * s)));
+    if (low) {
+      const [bottom, z] = [path.at(-1)!, lowFoot(d, k, u)];
+      path.push(bottom.map((p) => [p[0], p[1], z] as V3) as Pair);
+    } else {
+      const [top, foot] = dropPoses(d, k, u, end.land);
+      path.push(...[...sweep(top, foot, SIZES.dropSteps), end.land].map((q) => poseSide(q, u * s)));
+    }
     if (end.widen?.some((x) => x.side === u * s)) {
       const other = endSide(d, k, u, -s, { land: end.land });
       return path
@@ -654,116 +666,199 @@ function landing(top: Pose, q: V3, along: number[]): Pose {
 }
 /** Where a drop from `top` would land straight down. */
 const straightDown = (top: Pose) => landing(top, top.p, top.c);
-/**
- * How high the foot of the drop under the end of key k that faces u runs
- * straight down onto the floor, and so how high the rail (or the tie) is
- * under it: railHeight, or, where the round's lower side ends less than
- * dropBend above that, dropBend below where it ends. So whatever its height
- * the drop's outer face is flush with the rail's over the rail's whole height
- * there, one face, and it bends (or its round turns) only above the rail; the
- * rail dips to meet a low one (railDip).
- */
-function footHeight(d: Dims, k: RibKey, u: number) {
-  return Math.min(SIZES.railHeight, roundLow(d, k, u) - SIZES.dropBend);
-}
 /** How high the lower side of the round at the end of key k that faces u ends. */
 function roundLow(d: Dims, k: RibKey, u: number) {
   const round = endRound(d, k, u);
   return Math.min(...[-1, 1].map((s) => round(s).at(-1)![0][2]));
 }
 /**
+ * Whether the end of key k that faces u is low: its round, as tight as it
+ * clears, still ends less than dropBend above the rail's top on its lower
+ * side, too low for a drop under it to stand on the rail's top (the drop
+ * turns its tilt across level by its foot, over at least dropBend). Standing
+ * on the outline, a low end comes down onto the rail, which runs on level
+ * under it (lowDrop, lowCut).
+ */
+const isLow = (d: Dims, k: RibKey, u: number) =>
+  roundLow(d, k, u) < SIZES.railHeight + SIZES.dropBend - 1e-9;
+/**
  * The drop under the end of key k that faces u, landing as `land`: its top
- * (dropTop) and the top of its foot (footHeight up), where its outer face
- * stands flush on the rail's (or the tie's) rather than meeting the rail's
- * top a little in from its edge; the drop bends above it.
+ * (dropTop) and the top of its foot, on the rail's (or the tie's) top, where
+ * its outer face stands flush on the rail's rather than meeting the rail's
+ * top a little in from its edge; the drop bends above it. Not a low end's
+ * (lowDrop).
  */
 function dropPoses(d: Dims, k: RibKey, u: number, land: Pose): [Pose, Pose] {
-  return [dropTop(d, k, u), ahead(land, -footHeight(d, k, u))];
+  return [dropTop(d, k, u), ahead(land, -SIZES.railHeight)];
+}
+/**
+ * Where each side (round side -1 and 1) of a low end's (isLow) round stops:
+ * where its outer face, turning down, comes to footInto over the rail's top,
+ * or at its bottom where that is higher (f, along the round), and that point
+ * (q, on the floor); and the end's face through them, its outward normal in
+ * plan (n). A round ends vertical, so on a side that ends lower its outer face
+ * comes to that height a little in from its bottom: the face is that far in
+ * on that side. The points are put on a grid (lowGrid) that both the frame's
+ * floats and the outline's (CrossSection's) hold exactly, so that the end's
+ * corners, cut level with the rail's top (lowCut), are the rail's own.
+ */
+function lowFace(d: Dims, k: RibKey, u: number) {
+  const round = endRound(d, k, u);
+  const H = SIZES.railHeight + SIZES.footInto;
+  const f = [-1, 1].map((s) => {
+    const z = (f: number) => round.at(s, f)[0][2];
+    if (z(1) >= H) return 1;
+    let [lo, hi] = [0, 1];
+    for (let j = 0; j < 50; j++) {
+      const m = (lo + hi) / 2;
+      if (z(m) > H) lo = m;
+      else hi = m;
+    }
+    return lo;
+  });
+  const grid = (x: number) => Math.round(x * SIZES.lowGrid) / SIZES.lowGrid;
+  const q = [-1, 1].map((s, i) => {
+    const x = round.at(s, f[i])[0];
+    return [grid(x[0]), grid(x[1]), 0] as V3;
+  });
+  const n = cross([0, 0, -1], planDir(sub(q[1], q[0])));
+  const out = planDir(scale(k.a, u));
+  return { f, q, n: dot(n, out) < 0 ? scale(n, -1) : n };
+}
+/** Where a low end lands (lowFace): its face's middle on the floor, heading straight down, across along it, as a drop's landing. */
+function lowLand(d: Dims, k: RibKey, u: number): Pose {
+  const { q } = lowFace(d, k, u);
+  const top = dropTop(d, k, u);
+  const along = planDir(sub(q[1], q[0]));
+  return {
+    p: lerp(q[0], q[1], 0.5),
+    t: [0, 0, -1],
+    c: dot(along, top.c) < 0 ? scale(along, -1) : along,
+    half: Math.hypot(...sub(q[1], q[0])) / 2,
+    thick: d.wall,
+  };
+}
+/**
+ * The round of a low end (isLow): endRound, each side stopping where lowFace
+ * has it, and its sections drawn out, each along itself, over the round's
+ * lower half, until where it stops its inner face is a wall in from the
+ * end's face, as a drop's foot is. Each side stays in its own upright plane
+ * along the end (the round's), so where the plate is tilted both ways, and
+ * the face is skewed to that plane, the section is a little longer than a
+ * wall. A side that ends square has its section level there; one stopped
+ * short of that (on the lower side) still slopes down from its outer face to
+ * its inner, under the rail's top, and is drawn out along that slope (moved
+ * back level, it would cross the sections over it).
+ */
+function lowRound(d: Dims, k: RibKey, u: number) {
+  const round = endRound(d, k, u);
+  const { f: stop, q, n } = lowFace(d, k, u);
+  const at = (s: number, f: number): Pair => {
+    const [r, i] = round.at(s, f * stop[(s + 1) / 2]);
+    // Where it stops, its outer face on the face's end (lowFace).
+    const o: V3 = f === 1 ? [q[(s + 1) / 2][0], q[(s + 1) / 2][1], r[2]] : r;
+    const [o1, i1] = round.at(s, 1);
+    const back = planDir(sub(i1, o1));
+    // How far it reaches back in plan, and how far it has to (a wall in).
+    const [has, needs] = [dot(sub(i, o), back), -d.wall / dot(back, n)];
+    const t = Math.max(0, Math.min(1, 2 * f - 1));
+    const w = t * t * (3 - 2 * t);
+    return [o, add(o, scale(sub(i, o), 1 + w * (needs / has - 1)))];
+  };
+  const path = (s: number): Pair[] => [
+    round(s)[0],
+    ...[...Array(SIZES.roundSteps + 1).keys()].map((j) => at(s, j / SIZES.roundSteps)),
+  ];
+  return Object.assign(path, { at, turn: round.turn });
+}
+/**
+ * How far down a low end's section goes on (lowDrop), before it is cut off
+ * level with the rail's top (lowCut): footInto under that top, or under the
+ * lowest its round's section comes where it stops (on its lower side, under
+ * the rail's top), whichever is lower, so that it runs on down past the cut
+ * on both sides, and what is left of it above stands upright on the rail.
+ */
+function lowFoot(d: Dims, k: RibKey, u: number): number {
+  const round = lowRound(d, k, u);
+  const under = [-1, 1].map((s) => round.at(s, 1)[1][2]);
+  return Math.min(SIZES.railHeight, ...under) - SIZES.footInto;
+}
+/**
+ * A low end (isLow) standing on the outline, straight down (lowLand): below
+ * where its round stops (lowRound), its section carried on straight down past
+ * the rail's top (lowFoot), to be cut off level with it (lowCut), its outer
+ * face in the rail's outer face and its inner face in the rail's inner face,
+ * so that above the rail's top they carry on the rail's, its sides in the
+ * round's planes. The rail, level, runs on under it; the rail's top meets its
+ * sides, and its key's underside where that comes down to it, along one line
+ * each.
+ */
+function lowDrop(d: Dims, k: RibKey, u: number): Span {
+  const round = lowRound(d, k, u);
+  const z = lowFoot(d, k, u);
+  const bottom = [-1, 1].map((s) => round.at(u * s, 1)) as [Pair, Pair];
+  const foot = bottom.map((p) => p.map((x) => [x[0], x[1], z] as V3)) as [Pair, Pair];
+  return lineSpan(bottom, foot);
+}
+/** A low end's footprint in plan (lowDrop): its section where its round stops, each side's outer then inner, round the end. */
+function lowFootprint(d: Dims, k: RibKey, u: number): V3[] {
+  const round = lowRound(d, k, u);
+  const [a, b] = [-1, 1].map((s) => round.at(s, 1));
+  return [a[0], b[0], b[1], a[1]].map((p) => [p[0], p[1], 0] as V3);
+}
+/**
+ * What is cut away under a low end (isLow): everything of its rib under the
+ * rail's top, over its key and its footprint (lowFootprint) and a mm round.
+ * Its section, carried on down past the rail's top (lowDrop), then stands on
+ * that level top, as a drop's foot does, its faces meeting the rail's only
+ * there (rather than overlapping them below it, near-coplanar faces the union
+ * leaves slivers between), and where its round, its lip or its plate's
+ * underside comes lower (where the end comes down into the rail, and beside
+ * the rail's inner face) they are level with the rail's top.
+ */
+function lowCut(wasm: ManifoldToplevel, d: Dims, k: RibKey, u: number): Manifold {
+  const plate = [-1, 1].flatMap((v) =>
+    [-1, 1].flatMap((s) => [0, -d.plate].map((z) => corner(d, k, v, s, z))),
+  );
+  const plan = [...lowFootprint(d, k, u), ...plate].map((p) => [p[0], p[1]] as [number, number]);
+  return wasm.CrossSection.hull([plan])
+    .offset(1, 'Miter')
+    .extrude(SIZES.railHeight + 1)
+    .translate([0, 0, -1]);
 }
 /**
  * The key of the drop under the end of key k that faces u, landing as
  * `land`: a block footInto down into the rail (or the tie) under its foot and
- * as far up into the drop (to its section there, as it bends), narrowed by as
- * much on every side (in from its outer and inner faces and its sides), so
- * that it lies inside both and they
- * overlap by that much, rather than only meet on the foot's level. Its faces
- * cross that level square, well in from the edges where the drop's faces
- * carry on the rail's. None for a foot too low to key.
+ * as far up into the drop (to its section there, as it bends), narrowed by
+ * as much on every side (in from its outer and inner faces and its sides),
+ * so that it lies inside both and they overlap by that much, rather than
+ * only meet on the foot's level. Its faces cross that level square, well in
+ * from the edges where the drop's faces carry on the rail's. A low end has
+ * none: cut off level with the rail's top (lowCut), it meets it on that
+ * level alone.
  */
 function footKey(wasm: ManifoldToplevel, d: Dims, k: RibKey, u: number, land: Pose) {
-  const [top, foot] = dropPoses(d, k, u, land);
-  const into = Math.min(SIZES.footInto, foot.p[2] / 2);
-  if (!(into > 0)) return [];
+  const into = SIZES.footInto;
+  const foot = ahead(land, -SIZES.railHeight);
   const narrowed = (q: Pose): Pose => ({
     ...q,
     p: sub(q.p, scale(normalOf(q), into)),
     half: q.half - into,
     thick: q.thick - 2 * into,
   });
-  // Up in the drop: where it is `into` above its foot, as it bends there
-  // (the foot of a low drop is only dropBend below its round).
-  const at = sweepAt(top, foot);
+  // A low end is cut off level with the rail's top (lowCut).
+  if (isLow(d, k, u)) return [];
+  // Up in the drop: where it is `into` above its foot, as it bends there.
+  const at = sweepAt(dropTop(d, k, u), foot);
   let [lo, hi] = [0, 1];
   for (let j = 0; j < 30; j++) {
     const m = (lo + hi) / 2;
     if (at(m).p[2] > foot.p[2] + into) lo = m;
     else hi = m;
   }
-  const ends = [at(lo), ahead(foot, into)].map(narrowed);
+  const up = at(lo);
+  const ends = [up, ahead(foot, into)].map(narrowed);
   return [wasm.Manifold.hull(ends.flatMap((q) => [-1, 1].flatMap((s) => poseSide(q, s))))];
-}
-/** Where the rail dips to meet a low drop: its top at a plan point, whether the point is near enough to be on the dip (or just past it) but not where it is level, and (plan) the level ground under the foot (patch). */
-interface Dip {
-  top: (x: number, y: number) => number;
-  near: (x: number, y: number) => boolean;
-  patch: [number, number][];
-}
-/**
- * The rail's (and the tie's) top where a drop landing as `land` stands on it
- * lower than railHeight, at `height` (footHeight): level at that height under
- * the drop's foot and a mm round it (so the rail stands square to the
- * drop's faces where they meet), rising on a
- * smooth step (half a cosine wave) to railHeight dipRun times the dip out,
- * the same every way out from the foot (by plan distance from it), so it
- * follows the rail round a corner, and leaves and meets the level tangent.
- * The rail is bent to it (dipped), not cut, so its top stays one smooth
- * surface: a cut would cross the rail's top at a slant, a crease, or graze it,
- * which the union leaves slivers along.
- */
-function railDip(land: Pose, height: number): Dip {
-  const H = SIZES.railHeight;
-  const run = SIZES.dipRun * (H - height);
-  // The foot's level, as its mesh has it (laneSolid's are single precision).
-  const level = Math.fround(height);
-  const [c, n] = [land.c, normalOf(land)];
-  const [c0, c1, n0, n1] = [-land.half - 1, land.half + 1, -land.thick - 1, 1];
-  // Where a point is (plan): along the foot and out of its outer face.
-  const at = (x: number, y: number) => {
-    const v = [x - land.p[0], y - land.p[1]];
-    return [v[0] * land.c[0] + v[1] * land.c[1], v[0] * n[0] + v[1] * n[1]];
-  };
-  // How far (plan) a point is out from the foot.
-  const out = (x: number, y: number) => {
-    const [c, m] = at(x, y);
-    return Math.hypot(Math.max(c0 - c, 0, c - c1), Math.max(n0 - m, 0, m - n1));
-  };
-  return {
-    top: (x, y) => {
-      const o = out(x, y);
-      return o >= run ? H : level + ((H - level) * (1 - Math.cos((Math.PI * o) / run))) / 2;
-    },
-    near: (x, y) => {
-      const o = out(x, y);
-      return o > 0 && o < run + SIZES.dipMesh;
-    },
-    // Halfway out into the level mm round the foot, where the top is level.
-    patch: [
-      [c0 / 2 - land.half / 2, n0 / 2 - land.thick / 2],
-      [c1 / 2 + land.half / 2, n0 / 2 - land.thick / 2],
-      [c1 / 2 + land.half / 2, n1 / 2],
-      [c0 / 2 - land.half / 2, n1 / 2],
-    ].map(([u, m]) => [land.p[0] + c[0] * u + n[0] * m, land.p[1] + c[1] * u + n[1] * m]),
-  };
 }
 /** A pair kept above the floor. */
 const aboveFloor = (pair: Pair) => pair.map((p) => [p[0], p[1], Math.max(0, p[2])]) as Pair;
@@ -844,12 +939,12 @@ const plateSides = (d: Dims, k: RibKey, u: number) =>
  * into the plate it joins (at least joinInto, inside that plate's slab, so it
  * overlaps it rather than only meeting it face to face); else the lip, the
  * round and a drop's bend, down to the top of its foot (dropPoses), kept
- * above the floor. The drop stands there on the rail (or the tie), whose top
- * is level at that height under it (footHeight), its own faces carrying on
- * the drop's: their faces meet only on that level, rather than overlapping
- * down to the floor, two near-coplanar faces the union leaves slivers
- * between. Inside, the two overlap: the drop is keyed into the rail
- * (footKey).
+ * above the floor. The drop stands there on the rail's (or the tie's) level
+ * top, the rail's faces carrying on the drop's: their faces meet only on
+ * that level, rather than overlapping down to the floor, two near-coplanar
+ * faces the union leaves slivers between. Inside, the two overlap: the drop
+ * is keyed into the rail (footKey). A low end's section goes on down into
+ * the rail, to be cut off level with its top (lowDrop, lowCut).
  */
 function endSpans(d: Dims, k: RibKey, u: number, end: End): Span[] {
   if (end === 'flush') return [];
@@ -859,15 +954,15 @@ function endSpans(d: Dims, k: RibKey, u: number, end: End): Span[] {
     const on = ahead(land, Math.max(into, SIZES.joinInto));
     return [poseSpan(from, land, u), lineSpan(sidesOf(land, u), sidesOf(on, u))];
   }
-  const round = endRound(d, k, u);
+  const round = isDrop(end) && isLow(d, k, u) ? lowRound(d, k, u) : endRound(d, k, u);
   const arc = (f: number) => [-1, 1].map((s) => round.at(u * s, f)) as [Pair, Pair];
   const spans: Span[] = [
     lineSpan(plateSides(d, k, u), arc(0)),
     { at: arc, steps: stepsOf(round.turn) },
   ];
   if (isDrop(end)) {
-    const [top, foot] = dropPoses(d, k, u, end.land);
-    spans.push(poseSpan(top, foot, u));
+    if (isLow(d, k, u)) spans.push(lowDrop(d, k, u));
+    else spans.push(poseSpan(...dropPoses(d, k, u, end.land), u));
     // PROTOTYPE: fused, its side (and its round's and lip's) widened.
     if (end.widen?.length) {
       const widen = (sides: [Pair, Pair]) =>
@@ -903,10 +998,17 @@ function endSpans(d: Dims, k: RibKey, u: number, end: End): Span[] {
  * plate it joins and the union takes it; a drop stands on the rail (or the
  * tie), meeting it on the level top of its foot (endSpans), and is keyed
  * into it there (footKey, a solid of its own in the frame's union, so that
- * the rib's own mesh goes into it as it is). Meshed in lanes (laneSolid).
+ * the rib's own mesh goes into it as it is). A low end, and what of its key
+ * comes lower, is cut off level with the rail's top (lowCut), and stands on
+ * it as a drop's foot does. Meshed in lanes (laneSolid).
  */
 function ribSolid(wasm: ManifoldToplevel, d: Dims, rib: Rib, ends: End[]): Manifold {
-  return laneSolid(wasm, ribSpans(d, rib, ends), 'ribSolid');
+  const solid = laneSolid(wasm, ribSpans(d, rib, ends), 'ribSolid');
+  const cuts = [0, 1].flatMap((e) => {
+    const [k, u] = endKey(rib, e);
+    return isDrop(ends[e]) && isLow(d, k, u) ? [lowCut(wasm, d, k, u)] : [];
+  });
+  return cuts.length ? solid.subtract(wasm.Manifold.union(cuts)) : solid;
 }
 
 /** A rib's spans, end to end: its ends', its plates' and its webs' (ribSolid). */
@@ -1609,10 +1711,18 @@ function wallSide(
     on.push(...Array(l && l === labels[i + 1] ? SIZES.plateSteps : 1).fill(l)),
   );
   const flat = (p: number[]): V3 => [p[0], p[1], 0];
+  // Whether p is within footInto of the rail's inner edge in plan.
+  const edge = innerRing.map((a, i) => [a, innerRing[(i + 1) % innerRing.length]]);
+  const near = (p: V3) => edge.some((e) => gap(e, p) < SIZES.footInto);
   const all = side.map(([top, under], i): WallPoint => {
     const out = flat(unitPlan(sub(under, other[i][1])));
-    const at = (r: [number, number][]) => flat(add(under, scale(out, toRing(r, under, out))));
-    const [inner, outerEdge] = [at(innerRing), at(ring)];
+    const at = (r: [number, number][], t = toRing(r, under, out)) =>
+      flat(add(under, scale(out, t)));
+    // An underside that is on the rail's inner edge already (a low end's,
+    // flush with it) has the rail there, under it, not further out: straight
+    // out along the side runs along that edge, crossing it anywhere.
+    const t = toRing(innerRing, under, out);
+    const [inner, outerEdge] = [at(innerRing, near(under) ? Math.min(t, 0) : t), at(ring)];
     const key = on[i] || undefined;
     return {
       top,
@@ -2193,7 +2303,7 @@ function fusions(d: Dims, all: Rib[], ends: End[][]): Fusion[] {
             : s[0][1] + ((t - s[0][0]) * (s[1][1] - s[0][1])) / (s[1][0] - s[0][0]);
         return Math.max(...[lo, hi].map((t) => at(B, t) - at(A, t)));
       };
-      const foot = Math.max(...[x, y].map(([i, e]) => footHeight(d, ...endKey(all[i], e))));
+      const foot: number = SIZES.railHeight;
       let [widest, top] = [-Infinity, foot];
       for (let z = foot + 0.01; z < 200; z += SIZES.fuseStep) {
         const g = gapAt(z);
@@ -2226,7 +2336,7 @@ export function skeletyl(
   outline: [number, number][];
   /** The solids the frame is the union of, named, for the seam check (tests/seams.ts): each rib (by its run's name), bridge (by the keys it joins), the rail, the tie (its strip and fillets) and each wall. Made when called. */
   parts: () => { name: string; solid: Manifold }[];
-  /** Each drop, for the seam test: its rib's name and end (0 front, 1 back), its landing (the outer face's bottom edge: p its middle, c along it, n out of it, half its half-length), where its round's lower side ends (low) and how high its foot, and the rail under it, is (foot, footHeight). */
+  /** Each drop, for the seam test: its rib's name and end (0 front, 1 back), its landing (the outer face's bottom edge: p its middle, c along it, n out of it, half its half-length), where its round's lower side ends (low), and whether it is a low end, standing on the rail's top (isLow, lowDrop, lowCut). Every drop's foot, and the rail under it, is railHeight high. */
   drops: {
     name: string;
     e: number;
@@ -2235,7 +2345,7 @@ export function skeletyl(
     n: V3;
     half: number;
     low: number;
-    foot: number;
+    into: boolean;
     free: [number, number];
   }[];
   /** PROTOTYPE: each fused pair of drops, by their ribs' names and end (fused). */
@@ -2281,7 +2391,9 @@ export function skeletyl(
     if (rib.parted[e]) return endClear(cfg, d, frames, rib, e, 'hang') ? 'hang' : 'flush';
     // Straight down, or bent out along the end (in its own plane) until the
     // nearer corner of its outer face meets the outline; the outline then
-    // turns in to the rest of it (trimmed).
+    // turns in to the rest of it (trimmed). A low end can't bend (its round
+    // already ends in the rail's height): it stands straight down, the
+    // outline turning in to all of it, along its sides.
     const top = dropTop(d, ...endKey(rib, e));
     const down = straightDown(top);
     const out = Math.max(
@@ -2289,7 +2401,9 @@ export function skeletyl(
       Math.min(...[-1, 1].map((s) => toRing(rough, poseSide(down, s)[0], top.n!))),
     );
     if (!(out <= SIZES.reach)) return 'hang';
-    const drop = { land: landing(top, add(top.p, scale(top.n!, out)), top.c) };
+    const drop: Drop = isLow(d, ...endKey(rib, e))
+      ? { land: lowLand(d, ...endKey(rib, e)), foot: lowFootprint(d, ...endKey(rib, e)) }
+      : { land: landing(top, add(top.p, scale(top.n!, out)), top.c) };
     return endClear(cfg, d, frames, rib, e, drop) ? drop : 'hang';
   };
   const ends = all.map((rib) => [0, 1].map((e) => kind(rib, e)));
@@ -2331,7 +2445,11 @@ export function skeletyl(
     wasm.CrossSection.union([
       firm,
       ...drops.map(
-        (l, i) => new wasm.CrossSection([footOf(l, faces[i][0], faces[i][1])], 'NonZero'),
+        (l, i) =>
+          new wasm.CrossSection(
+            [l.foot ? plan(l.foot) : footOf(l, faces[i][0], faces[i][1])],
+            'NonZero',
+          ),
       ),
     ]),
     faces,
@@ -2410,15 +2528,6 @@ export function skeletyl(
         ? [wallSide(cfg, d, frames, rib, ends[i], outward(rib), named[i], ring, innerRing())]
         : [],
     );
-  // Where a drop stands lower than railHeight, the rail dips to meet it.
-  const dips = all.flatMap((rib, i) =>
-    [0, 1].flatMap((e) => {
-      const end = ends[i][e];
-      if (!isDrop(end)) return [];
-      const h = footHeight(d, ...endKey(rib, e));
-      return h < SIZES.railHeight ? [railDip(end.land, h)] : [];
-    }),
-  );
   const ribKit: RibKit = {
     solid: (spans) => laneSolid(wasm, spans, 'wall'),
     poseSpan,
@@ -2427,7 +2536,6 @@ export function skeletyl(
     along: alongOf,
     mesh: (lanes, ends) => laneMesh(wasm, lanes, ends, 'wall'),
     radius: d.radius,
-    railTop: (x, y) => Math.min(SIZES.railHeight, ...dips.map((dip) => dip.top(x, y))),
     standing: faces,
     tie: tie
       ? tie
@@ -2460,61 +2568,23 @@ export function skeletyl(
           .intersect(tie.offset(R + d.wall)),
       )
     : loop;
-  // The rail (or a part of it, `plan`) stood up railHeight and bent down to
-  // them: its outline given points every dipMesh round each (but where it is
-  // level round the foot), so that its top has the room to follow the dip,
-  // and its top's points lowered to it, the points down its sides in
-  // proportion (its bottom stays). Bent rather than cut, its top stays one
-  // surface, with no seam to slip in a sliver. The level ground under each
-  // foot (Dip.patch) is stood up on its own and the two unioned, so that its
-  // top is drawn from its own points alone, all level: drawn with the rest,
-  // a triangle could run from a corner of the foot over it to a point out on
-  // the dip, tilting the top under the foot, which the union leaves specks
-  // along.
-  const dipped = (plan: CrossSection) => {
-    const H = SIZES.railHeight;
-    if (!dips.length) return plan.extrude(H);
-    const patches = wasm.CrossSection.union(
-      dips.map((dip) => new wasm.CrossSection([dip.patch], 'NonZero')),
-    );
-    return wasm.Manifold.union(
-      [plan.subtract(patches), plan.intersect(patches)].filter((p) => !p.isEmpty()).map(bent),
-    );
-  };
-  const bent = (plan: CrossSection) => {
-    const H = SIZES.railHeight;
-    const top = (x: number, y: number) => Math.min(...dips.map((dip) => dip.top(x, y)));
-    const near = (x: number, y: number) => dips.some((dip) => dip.near(x, y));
-    const corners = faces.flatMap(([a, b]) => [a, b]);
-    // (Simplified first: the outline's offsets leave points a few nm apart,
-    // which extrude alone merges but a warped mesh keeps, as slivers.)
-    // Simplifying also drops a point a hundredth or so off the line of its
-    // neighbours, as the outline has where it runs straight past a drop's
-    // corner (trimmed): such points are put back, so the rail's edge turns
-    // under the foot's corner rather than a hair past it.
-    const fine = plan
-      .simplify()
-      .toPolygons()
-      .map((poly) => through(poly as [number, number][], corners, SIZES.cornerSnap))
-      .map((poly) =>
-        poly.flatMap((a, i) => {
-          const b = poly[(i + 1) % poly.length];
-          const n = Math.max(1, Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) / SIZES.dipMesh));
-          return [...Array(n).keys()].flatMap((j): [number, number][] => {
-            const q: [number, number] = [
-              a[0] + ((b[0] - a[0]) * j) / n,
-              a[1] + ((b[1] - a[1]) * j) / n,
-            ];
-            return !j || near(...q) ? [q] : [];
-          });
-        }),
-      );
-    return new wasm.CrossSection(fine, 'NonZero').extrude(H).warp((v) => {
-      const t = top(v[0], v[1]);
-      v[2] = v[2] >= H ? t : (v[2] * t) / H;
-    });
-  };
-  const rail = dipped(railPlan);
+  // The rail stood up, level, railHeight high. (Simplified first: the
+  // outline's offsets and the tie's fillets leave points a few nm apart, and
+  // a hundredth or so off the line of their neighbours, which the union
+  // leaves slivers and ledges at. Simplifying also drops such a point where
+  // the outline runs straight past a drop's corner (trimmed): those are put
+  // back, so the rail's edge turns under the foot's corner rather than a hair
+  // past it.)
+  const corners = faces.flatMap(([a, b]) => [a, b]);
+  const stood = (plan: CrossSection) =>
+    new wasm.CrossSection(
+      plan
+        .simplify()
+        .toPolygons()
+        .map((poly) => through(poly as [number, number][], corners, SIZES.cornerSnap)),
+      'NonZero',
+    ).extrude(SIZES.railHeight);
+  const rail = stood(railPlan);
   // PROTOTYPE ?walls= (skeletyl-walls.prototype.ts): walls under the outer sides.
   const walls = skeletylWalls(wasm, cfg, wallsKey, wallSides, ribKit);
   return {
@@ -2530,8 +2600,8 @@ export function skeletyl(
       ...solids.map((solid, i) => ({ name: named[i], solid })),
       ...keyed.flatMap((keys, i) => keys.map((solid) => ({ name: named[i], solid }))),
       ...bridged.map((b) => ({ name: `bridge ${b.keys.join('–')}`, solid: b.solid })),
-      { name: 'rail', solid: dipped(loop) },
-      ...(tie ? [{ name: 'tie', solid: dipped(railPlan.subtract(loop)) }] : []),
+      { name: 'rail', solid: stood(loop) },
+      ...(tie ? [{ name: 'tie', solid: stood(railPlan.subtract(loop)) }] : []),
       ...walls.map((solid, i) => ({ name: `wall ${i + 1}`, solid })),
     ],
     fused: fuses.map((f) => ({
@@ -2555,7 +2625,7 @@ export function skeletyl(
             n: normalOf(l),
             half: l.half,
             low: roundLow(d, k, u),
-            foot: footHeight(d, k, u),
+            into: isLow(d, k, u),
             free: [-l.half + widthAt(end, -1, 0), l.half - widthAt(end, 1, 0)] as [number, number],
           },
         ];
