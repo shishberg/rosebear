@@ -64,8 +64,8 @@ Main assembly concerns:
   line crossings in the drawing are not electrical junctions. Power terminals
   typically take both incoming and outgoing wires; confirm the bought pads can
   accommodate the chosen wire before cutting the whole loom.
-- **Trackball:** the pointing device is open (a Cirque TM040040 trackpad is
-  likely), so this loom is a placeholder. Its seven-wire loom follows the outer thumb edge, clear of the
+- **Trackball:** left from an earlier plan; v4 has no pointing device. Its
+  seven-wire loom follows the outer thumb edge, clear of the
   thumb key bodies, then returns to the breakout. Connector/pad locations on the
   bought trackball are still provisional.
 - **Access:** solder and test small subassemblies before closing the chassis.
@@ -186,8 +186,7 @@ Dots indicate joins; undotted crossings are not joined.
    Each tile's **V** hole is joined to its V edge pads, and its **G** hole to
    its G edge pads, so one power wire arrives at the hole and one leaves from
    the LED-edge pad without a splice.
-5. The Cirque trackpad has its own 12-way FFC to the pod and does not use the
-   hand ribbon, so pins 14–19 are spare.
+5. Ribbon pins 14–19 are spare.
 
 ### Effort and physical feasibility
 
@@ -232,7 +231,7 @@ from the connector names. This is a removable interconnect, not a hot-plug desig
 | 7, 8, 9, 10, 11 | C0 pinky, C1 ring, C2 middle, C3 index, C4 inner |
 | 12 | RX, the thumb row (was C5) |
 | 13 | GND |
-| 14–19 | Spare. They were the trackball's 3V3 and signals; the Cirque trackpad now has its own cable to the pod |
+| 14–19 | Spare. They were the trackball's 3V3 and signals |
 | 20 | GND |
 | 21, 22, 23 | +5 V LED power, connected in parallel |
 | 24 | GND |
