@@ -399,11 +399,11 @@ test('the checker reports keycap collisions', () => {
   }
 });
 test('the checker reports chassis built where a keycap goes', () => {
-  // The thumb cluster moved 7 mm toward the fingers: the middle bottom key's
+  // The thumb cluster moved 5 mm toward the fingers: the middle bottom key's
   // room cuts into the chassis (Swung in's own room cut is at the pinky
   // bottom key).
   const close = clone(defaults);
-  close.config.geometry.thumb.position_mm[1] += 7;
+  close.config.geometry.thumb.position_mm[1] += 5;
   const r = buildSolid(wasm, close);
   const cut = r.report.roomCuts.find((c) => c.name === 'matrix_middle_bottom');
   assert(cut && cut.volume > 10);

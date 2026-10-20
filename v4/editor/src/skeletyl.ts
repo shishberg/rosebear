@@ -9,11 +9,10 @@
 // Between neighbouring keys a web sweeps the rib from one plate's edge to the
 // next (`sweep`: each side along a cubic tangent to both plates, a circular
 // arc where it can be). Past each end key a short
-// lip carries the plate on along its own axis (or level, where the plate
-// rises, so no end stands above its plate's edge), and a round sweeps it over
-// and down to vertical (as tight as can be where the end rises); the lip is as
-// long as it must be for the round, and the drop under it, to clear the end
-// key's tile pocket and switch body. Where the next
+// lip carries the plate on along its own axis, and a round sweeps it over and
+// down to vertical; the round (where the end rises) or else the lip is as big
+// as it must be for the round, and the drop under it, to clear the end key's
+// tile pocket and switch body. Where the next
 // key's plate edge isn't past this one's along either key's axis (the plates
 // overlap in plan, or a web would fold back) the rib parts there, and each
 // part has its own ends: a round where it clears what the other keys hold
@@ -124,13 +123,13 @@ import type { Wire } from './wiring';
 export const SIZES = {
   /** The ends and the rail are this thick, unless chassis.wall_mm says. */
   wall: 2.4,
-  /** The rounds of ends that are level or fall off their plate have this outer radius, unless chassis.end_radius_mm says (rising ends turn down tighter, endInner). */
+  /** The ends' rounds have at least this outer radius, unless chassis.end_radius_mm says. */
   endRadius: 5,
-  /** An end's lip is at least this long. It grows by lipStep until its round and the drop clear the end key's tile pocket and switch body by endGap. Rounds and drops keep endGap from what the other keys hold too, or are not built. */
+  /** An end's lip is at least this long. Its round (where the end rises off the plate) or else its lip grows by lipStep until the round and the drop clear the end key's tile pocket and switch body by endGap. Rounds and drops keep endGap from what the other keys hold too, or are not built. */
   lip: 1,
   lipStep: 0.1,
   endGap: 0.3,
-  /** An end that rises off its plate leaves level and turns down in a round whose inner face has this radius. An end's round whose lower side would end less than dropBend above railHeight is tightened by lipStep at a time until it ends that high, as far as it still clears and its inner face keeps at least this radius (endRound); if it still can't, the end is low (isLow). */
+  /** An end's round whose lower side would end less than dropBend above railHeight is tightened by lipStep at a time until it ends that high, as far as it still clears and its inner face keeps at least this radius (endRound); if it still can't, the end is low (isLow). */
   endInner: 0.5,
   /** Stations inside each web, round each end's round, and down each drop (for the checks and the walls; the drop itself is meshed finer, as a joined end is). */
   webSteps: 8,
@@ -505,18 +504,18 @@ const fromLine = (line: number[][], [x, z]: number[]) =>
 /**
  * The lip and round past key k's plate edge u (-1 or 1 along): each side's
  * path (its pose side s, -1 or 1; the rib's side u·s) out from the plate's
- * corner, [top, underside]. Where the plate is level or falls, the lip
- * carries it on along its own axis, thinning to a wall, and the round (of the
- * end radius) sweeps it over and down until it heads straight down, where a
- * drop can stand under it. Where the plate rises, the lip leaves its top edge
- * level, creased there, and turns down in the tightest round (its inner face at
- * endInner), so no end stands higher than its plate's edge. Each side turns on
- * the same arc, in the upright plane along the end, so the end doesn't twist: it
- * keeps the plate's tilt across, as the drop under it does. The lip grows until
- * the inner faces, and a drop straight down from them, clear the end key's tile
- * pocket and switch body by endGap. A round ending less than dropBend above the
- * rail is then tightened, as far as it still clears, until it ends that high,
- * so that a drop can stand under it on the rail's top; one that still ends
+ * corner, [top, underside]. The lip carries the plate on along its own axis,
+ * thinning to a wall; the round sweeps it over and down until it heads
+ * straight down, where a drop can stand under it. Each side turns on the
+ * same arc, in the upright plane along the end, so the end doesn't twist: it
+ * keeps the plate's tilt across, as the drop under it does. They are as small as
+ * lets the inner faces, and a drop straight down from them, clear the end
+ * key's tile pocket and switch body by endGap. Where the end rises off the
+ * plate the round grows for that (from the end radius), so it rolls over in a
+ * wider arc rather than running on up the plate's slope; where it is level or
+ * falls, the lip grows. A round ending less than dropBend above the rail is
+ * then tightened, as far as it still clears, until it ends that high, so
+ * that a drop can stand under it on the rail's top; one that still ends
  * lower is a low end's (isLow), which comes down into the rail. Its
  * `at` is side s at f along the round (0 at its top, where the lip ends, 1 at
  * its bottom), and `turn` how far it turns.
@@ -528,16 +527,12 @@ function endRound(d: Dims, k: RibKey, u: number) {
   const [cos, sin] = [Math.hypot(t[0], t[1]), t[2]];
   // The round's outward direction where its tangent is at angle a up from h.
   const out = (a: number): V3 => add(scale(h, -Math.sin(a)), [0, 0, Math.cos(a)]);
-  // Where the plate falls the lip carries its slope on; where it rises, the
-  // lip leaves its top edge level, creased there, so the end's top is never
-  // higher than the plate's edge.
-  const start = Math.min(0, Math.atan2(sin, cos));
-  const lead = add(scale(h, Math.cos(start)), [0, 0, Math.sin(start)]);
+  const start = Math.atan2(sin, cos);
   // Each side's path: from its corner, a lip L long, then a round of radius R
   // about a centre under the lip's end.
   const build = (L: number, R: number) => {
     const at = (s: number, f: number): Pair => {
-      const centre = sub(add(poseSide(edge, s)[0], scale(lead, L)), scale(out(start), R));
+      const centre = sub(add(poseSide(edge, s)[0], scale(t, L)), scale(out(start), R));
       const a = start + (-Math.PI / 2 - start) * f;
       return [add(centre, scale(out(a), R)), add(centre, scale(out(a), R - d.wall))];
     };
@@ -566,14 +561,17 @@ function endRound(d: Dims, k: RibKey, u: number) {
       const room = [under(-100), under(0), ...line, add2(under(-100), down)];
       return keep.every((p) => inside(room, p) && fromLine(line, p) >= SIZES.endGap);
     });
-  const least = d.wall + SIZES.endInner;
-  let [L, R] = [SIZES.lip, sin > 0 ? least : d.radius];
-  while (!clear(build(L, R)) && L < 50) L += SIZES.lipStep;
+  let [L, R] = [SIZES.lip, d.radius];
+  while (!clear(build(L, R)) && L < 50 && R < 50) {
+    if (sin > 0) R += SIZES.lipStep;
+    else L += SIZES.lipStep;
+  }
   // A round ending low: tightened, by lipStep at a time, until its lower
   // side ends dropBend above the rail, as long as it still clears and its
   // inner face keeps endInner of radius.
   const low = (r: number) => Math.min(...[-1, 1].map((s) => build(L, r).at(s, 1)[0][2]));
   const high = SIZES.railHeight + SIZES.dropBend;
+  const least = d.wall + SIZES.endInner;
   while (low(R) < high && R - SIZES.lipStep >= least - 1e-9 && clear(build(L, R - SIZES.lipStep)))
     R -= SIZES.lipStep;
   return build(L, R);
